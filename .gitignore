@@ -1,0 +1,26 @@
+# Binaries
+/bin/
+/dist/
+/roundpend
+/roundpen
+
+# Go
+*.exe
+*.test
+*.out
+vendor/
+
+# Env / local data
+.env
+.env.local
+/data/
+*.db
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# pg0 / local postgres
+.pg0/
