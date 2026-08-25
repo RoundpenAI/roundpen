@@ -16,8 +16,8 @@ func New() *Backend { return &Backend{} }
 
 func (b *Backend) Name() string { return "kern" }
 
-func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) error {
-	return fmt.Errorf("kern.Create: not implemented (phase 2)")
+func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, error) {
+	return "", fmt.Errorf("kern.Create: not implemented (phase 2)")
 }
 
 func (b *Backend) Start(ctx context.Context, sandboxID string) error {

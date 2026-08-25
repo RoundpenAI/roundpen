@@ -74,8 +74,13 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 ```bash
 make build
 ./bin/roundpen version
-# DATABASE_URL=... ./bin/roundpend
+# DATABASE_URL=postgres://... ./bin/roundpend
+# curl -s localhost:9527/health
+# curl -s -X POST localhost:9527/sandboxes -d '{"templateID":"python:3.12-slim","timeout":600}'
+# curl -s -X POST localhost:9527/v1/sandboxes/<id>/exec -d '{"command":["python","-c","print(1)"]}'
 ```
+
+环境变量示例见 [.env.example](.env.example)。
 
 ## 技术选型
 

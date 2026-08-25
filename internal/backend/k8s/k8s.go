@@ -16,8 +16,8 @@ func New() *Backend { return &Backend{} }
 
 func (b *Backend) Name() string { return "k8s" }
 
-func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) error {
-	return fmt.Errorf("k8s.Create: not implemented (phase 4)")
+func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, error) {
+	return "", fmt.Errorf("k8s.Create: not implemented (phase 4)")
 }
 
 func (b *Backend) Start(ctx context.Context, sandboxID string) error {

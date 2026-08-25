@@ -36,7 +36,8 @@ type ExecResult struct {
 // OCI runtimes (runc/crun/gVisor/Kata) are options of a Backend, not sibling Backends.
 type Backend interface {
 	Name() string
-	Create(ctx context.Context, opts CreateOpts) error
+	// Create provisions the engine sandbox and returns an engine-local id (e.g. container id).
+	Create(ctx context.Context, opts CreateOpts) (engineID string, err error)
 	Start(ctx context.Context, sandboxID string) error
 	Stop(ctx context.Context, sandboxID string) error
 	Remove(ctx context.Context, sandboxID string) error

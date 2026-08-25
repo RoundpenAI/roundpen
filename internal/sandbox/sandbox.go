@@ -20,18 +20,27 @@ const (
 
 // Sandbox is the control-plane view of an isolated execution environment.
 type Sandbox struct {
-	ID          string
-	Status      Status
-	Image       string
-	WorkspaceID string
-	CreatedAt   time.Time
-	Metadata    map[string]string
+	ID            string
+	ContainerID   string
+	Status        Status
+	Image         string
+	WorkspaceID   string
+	WorkspacePath string
+	TTLSeconds    int
+	ExpiresAt     *time.Time
+	LastActiveAt  time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	Metadata      map[string]string
 }
 
 // CreateRequest is the input to create a sandbox.
 type CreateRequest struct {
 	Image       string
-	WorkspaceID string // empty => ephemeral workspace
+	TemplateID  string // E2B-style alias; maps to Image when Image empty
+	WorkspaceID string // empty => ephemeral workspace = sandbox id
+	TTL         time.Duration
+	Env         map[string]string
 	Metadata    map[string]string
 }
 
@@ -50,6 +59,15 @@ type ExecResult struct {
 	Stderr   []byte
 }
 
+// Store persists sandbox records.
+type Store interface {
+	Insert(ctx context.Context, sb *Sandbox) error
+	Update(ctx context.Context, sb *Sandbox) error
+	SoftDelete(ctx context.Context, id string, at time.Time) error
+	Get(ctx context.Context, id string) (*Sandbox, error)
+	List(ctx context.Context) ([]*Sandbox, error)
+}
+
 // Manager orchestrates sandbox lifecycle via a Backend and WorkspaceFS.
 type Manager interface {
 	Create(ctx context.Context, req CreateRequest) (*Sandbox, error)
@@ -57,5 +75,6 @@ type Manager interface {
 	List(ctx context.Context) ([]*Sandbox, error)
 	Stop(ctx context.Context, id string) error
 	Delete(ctx context.Context, id string) error
+	SetTimeout(ctx context.Context, id string, ttl time.Duration) (*Sandbox, error)
 	Exec(ctx context.Context, id string, req ExecRequest) (*ExecResult, error)
 }

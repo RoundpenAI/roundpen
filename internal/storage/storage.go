@@ -1,22 +1,206 @@
-// Package storage holds PostgreSQL connectivity and shared persistence helpers.
+// Package storage holds PostgreSQL connectivity and sandbox persistence.
 package storage
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
-// DB is the narrow interface roundpend needs from a SQL driver.
-// Concrete pgx wiring is added when migrations land.
-type DB interface {
-	Ping(ctx context.Context) error
-	Close() error
+// ErrNotFound is returned when a sandbox row does not exist.
+var ErrNotFound = errors.New("not found")
+
+// DB wraps database/sql for Roundpen.
+type DB struct {
+	SQL *sql.DB
 }
 
-// OpenPostgres is a placeholder until pgx is wired in Phase 1.
-func OpenPostgres(ctx context.Context, databaseURL string) (DB, error) {
+// OpenPostgres opens a pgx-backed database/sql pool.
+func OpenPostgres(ctx context.Context, databaseURL string) (*DB, error) {
 	if databaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
-	return nil, fmt.Errorf("storage.OpenPostgres: not implemented (wire pgx next)")
+	sqldb, err := sql.Open("pgx", databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	sqldb.SetMaxOpenConns(10)
+	sqldb.SetMaxIdleConns(5)
+	sqldb.SetConnMaxLifetime(time.Hour)
+	if err := sqldb.PingContext(ctx); err != nil {
+		_ = sqldb.Close()
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+	return &DB{SQL: sqldb}, nil
+}
+
+// Close closes the pool.
+func (db *DB) Close() error {
+	if db == nil || db.SQL == nil {
+		return nil
+	}
+	return db.SQL.Close()
+}
+
+// Migrate applies the bundled schema file.
+func (db *DB) Migrate(ctx context.Context, schemaPath string) error {
+	body, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return err
+	}
+	_, err = db.SQL.ExecContext(ctx, string(body))
+	return err
+}
+
+// SandboxStore persists sandbox records.
+type SandboxStore struct {
+	db *DB
+}
+
+// NewSandboxStore returns a store.
+func NewSandboxStore(db *DB) *SandboxStore {
+	return &SandboxStore{db: db}
+}
+
+// Insert creates a sandbox row.
+func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
+	meta, err := json.Marshal(sb.Metadata)
+	if err != nil {
+		return err
+	}
+	if meta == nil {
+		meta = []byte("{}")
+	}
+	_, err = s.db.SQL.ExecContext(ctx, `
+		INSERT INTO sandboxes (
+			id, container_id, image, status, workspace_id, workspace_path,
+			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
+		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.CreatedAt, sb.UpdatedAt,
+	)
+	return err
+}
+
+// Update writes mutable fields.
+func (s *SandboxStore) Update(ctx context.Context, sb *sandbox.Sandbox) error {
+	meta, err := json.Marshal(sb.Metadata)
+	if err != nil {
+		return err
+	}
+	if meta == nil {
+		meta = []byte("{}")
+	}
+	res, err := s.db.SQL.ExecContext(ctx, `
+		UPDATE sandboxes SET
+			container_id=$2, image=$3, status=$4, workspace_id=$5, workspace_path=$6,
+			metadata=$7, ttl_seconds=$8, expires_at=$9, last_active_at=$10, updated_at=$11
+		WHERE id=$1 AND deleted_at IS NULL`,
+		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
+		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.UpdatedAt,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// SoftDelete marks a sandbox deleted.
+func (s *SandboxStore) SoftDelete(ctx context.Context, id string, at time.Time) error {
+	res, err := s.db.SQL.ExecContext(ctx, `
+		UPDATE sandboxes SET deleted_at=$2, status=$3, updated_at=$2
+		WHERE id=$1 AND deleted_at IS NULL`,
+		id, at, string(sandbox.StatusStopped),
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// Get returns a non-deleted sandbox.
+func (s *SandboxStore) Get(ctx context.Context, id string) (*sandbox.Sandbox, error) {
+	row := s.db.SQL.QueryRowContext(ctx, `
+		SELECT id, container_id, image, status, workspace_id, workspace_path,
+			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at
+		FROM sandboxes WHERE id=$1 AND deleted_at IS NULL`, id)
+	return scanSandbox(row)
+}
+
+// List returns non-deleted sandboxes, newest first.
+func (s *SandboxStore) List(ctx context.Context) ([]*sandbox.Sandbox, error) {
+	rows, err := s.db.SQL.QueryContext(ctx, `
+		SELECT id, container_id, image, status, workspace_id, workspace_path,
+			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at
+		FROM sandboxes WHERE deleted_at IS NULL
+		ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*sandbox.Sandbox
+	for rows.Next() {
+		sb, err := scanSandbox(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sb)
+	}
+	return out, rows.Err()
+}
+
+type scannable interface {
+	Scan(dest ...any) error
+}
+
+func scanSandbox(row scannable) (*sandbox.Sandbox, error) {
+	var (
+		sb      sandbox.Sandbox
+		status  string
+		metaRaw []byte
+		expires sql.NullTime
+	)
+	err := row.Scan(
+		&sb.ID, &sb.ContainerID, &sb.Image, &status, &sb.WorkspaceID, &sb.WorkspacePath,
+		&metaRaw, &sb.TTLSeconds, &expires, &sb.LastActiveAt, &sb.CreatedAt, &sb.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	sb.Status = sandbox.Status(status)
+	if expires.Valid {
+		t := expires.Time.UTC()
+		sb.ExpiresAt = &t
+	}
+	sb.Metadata = map[string]string{}
+	if len(metaRaw) > 0 {
+		_ = json.Unmarshal(metaRaw, &sb.Metadata)
+	}
+	return &sb, nil
+}
+
+func nullTime(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return *t
 }
