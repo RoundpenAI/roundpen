@@ -20,6 +20,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
+	"github.com/RoundpenAI/roundpen/internal/workspace/sshfs"
 )
 
 func testDatabaseURL(t *testing.T) string {
@@ -38,6 +39,7 @@ type harness struct {
 	URL      string
 	Client   *http.Client
 	DataRoot string
+	FS       workspace.FS
 }
 
 func startHarness(t *testing.T, be backend.Backend, fs workspace.FS, dataRoot, defaultImage string) *harness {
@@ -64,7 +66,7 @@ func startHarness(t *testing.T, be backend.Backend, fs workspace.FS, dataRoot, d
 	srv := httptest.NewServer(auth.APIKey("", mux))
 	t.Cleanup(srv.Close)
 
-	return &harness{URL: srv.URL, Client: srv.Client(), DataRoot: dataRoot}
+	return &harness{URL: srv.URL, Client: srv.Client(), DataRoot: dataRoot, FS: fs}
 }
 
 func startKernHarness(t *testing.T) *harness {
@@ -76,10 +78,14 @@ func startKernHarness(t *testing.T) *harness {
 func startDockerSSHHarness(t *testing.T) *harness {
 	t.Helper()
 	host := os.Getenv("ROUNDPEN_TEST_DOCKER_HOST")
-	mount := os.Getenv("ROUNDPEN_TEST_REMOTE_MOUNT")
-	if host == "" || mount == "" {
-		t.Skip("set ROUNDPEN_TEST_DOCKER_HOST and ROUNDPEN_TEST_REMOTE_MOUNT")
+	if host == "" {
+		t.Skip("set ROUNDPEN_TEST_DOCKER_HOST=ssh://user@host")
 	}
+	root := os.Getenv("ROUNDPEN_TEST_REMOTE_ROOT")
+	if root == "" {
+		root = "/tmp/roundpen-it"
+	}
+
 	be, err := dockerbackend.New(host, "")
 	if err != nil {
 		t.Fatalf("docker backend: %v", err)
@@ -92,39 +98,14 @@ func startDockerSSHHarness(t *testing.T) *harness {
 		t.Fatalf("docker ping: %v", err)
 	}
 
+	fs, err := sshfs.NewFromDockerHost(host, root)
+	if err != nil {
+		t.Fatalf("sshfs: %v", err)
+	}
+
 	image := os.Getenv("ROUNDPEN_TEST_DOCKER_IMAGE")
 	if image == "" {
 		image = "alpine:3.20"
 	}
-	return startHarness(t, be, &fixedRemoteFS{path: mount}, mount, image)
+	return startHarness(t, be, fs, root, image)
 }
-
-// fixedRemoteFS always returns the same host path (must exist on the Docker host).
-type fixedRemoteFS struct {
-	path string
-}
-
-func (f *fixedRemoteFS) Create(ctx context.Context, id string, ephemeral bool) (*workspace.Info, error) {
-	_ = ctx
-	return &workspace.Info{ID: id, HostPath: f.path, Ephemeral: ephemeral}, nil
-}
-
-func (f *fixedRemoteFS) Get(ctx context.Context, id string) (*workspace.Info, error) {
-	return f.Create(ctx, id, false)
-}
-
-func (f *fixedRemoteFS) Remove(ctx context.Context, id string) error { return nil }
-
-func (f *fixedRemoteFS) Open(ctx context.Context, id, relPath string) (io.ReadCloser, error) {
-	return nil, os.ErrInvalid
-}
-
-func (f *fixedRemoteFS) Write(ctx context.Context, id, relPath string, r io.Reader) error {
-	return os.ErrInvalid
-}
-
-func (f *fixedRemoteFS) Stat(ctx context.Context, id, relPath string) (os.FileInfo, error) {
-	return nil, os.ErrInvalid
-}
-
-var _ workspace.FS = (*fixedRemoteFS)(nil)

@@ -9,7 +9,7 @@ test:
 
 # Requires DATABASE_URL (or ROUNDPEN_TEST_DATABASE_URL). Optional Docker SSH:
 #   ROUNDPEN_TEST_DOCKER_HOST=ssh://user@host
-#   ROUNDPEN_TEST_REMOTE_MOUNT=/path/on/remote (writable by container)
+#   ROUNDPEN_TEST_REMOTE_ROOT=/tmp/roundpen-it   # absolute path on remote host
 test-integration:
 	go test ./tests/integration/ -count=1 -timeout 10m -v
 

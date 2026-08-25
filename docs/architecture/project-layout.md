@@ -20,7 +20,9 @@ roundpen/                      # 仓库根
 │   │   ├── kern/              # Phase 2：免守护后端（占位）
 │   │   └── k8s/               # Phase 4：占位
 │   ├── memory/                # 短期 / 长期记忆（PG + pgvector）
-│   ├── workspace/             # WorkspaceFS 接口 + local 实现
+│   ├── workspace/             # WorkspaceFS 接口 + local / sshfs
+│   │   ├── local/             # 本机目录（Kern / 本地 Docker）
+│   │   └── sshfs/             # SSH 远端目录（DOCKER_HOST=ssh://…）
 │   ├── storage/               # PG 连接、迁移辅助、通用 store
 │   ├── policy/                # 策略引擎（Token / 工具白名单等）
 │   ├── toolgw/                # 工具网关

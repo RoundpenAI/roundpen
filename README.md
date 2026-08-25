@@ -103,7 +103,8 @@ curl -s -X DELETE localhost:9527/sandboxes/$SID -o /dev/null -w '%{http_code}\n'
 | 轻量 / 加固运行时 | `crun`；`gVisor`；`Kata`（需 KVM，Linux 优先） |
 | 免守护后端 | `Kern`（与 Docker 同层抽象） |
 | 记忆 | PostgreSQL + `pgvector`（MVP 不引入 Redis / 专用向量库） |
-| 文件 | 本地目录（`WorkspaceFS`）；元数据在 PG；后期可接 S3 兼容存储 |
+| 文件 | 本地目录或 SSH 远端目录（`WorkspaceFS`）；元数据在 PG；后期可接 S3 |
+
 | 许可 | Apache 2.0（Open Core） |
 
 **平台说明**：Mac 推荐 OrbStack + Docker；Windows 使用 Docker Desktop + WSL2；`gVisor` / `Kata` 以 Linux 为主，其他平台按能力降级或禁用。

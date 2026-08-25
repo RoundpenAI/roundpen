@@ -19,7 +19,9 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
+	"github.com/RoundpenAI/roundpen/internal/workspace"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
+	"github.com/RoundpenAI/roundpen/internal/workspace/sshfs"
 )
 
 func main() {
@@ -29,12 +31,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	dataRoot := cfg.EffectiveDataRoot()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	logger.Info("roundpend starting",
 		slog.String("http_addr", cfg.HTTPAddr),
-		slog.String("data_root", cfg.DataRoot),
+		slog.String("data_root", dataRoot),
 		slog.String("backend", cfg.Backend),
+		slog.String("docker_host", cfg.DockerHost),
 		slog.String("default_image", cfg.DefaultImage),
+		slog.Bool("workspace_ssh", cfg.WorkspaceUsesSSH()),
 	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -52,11 +57,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.MkdirAll(cfg.DataRoot, 0o755); err != nil {
-		logger.Error("data_root", slog.Any("err", err))
+	wsFS, err := newWorkspaceFS(cfg, dataRoot, logger)
+	if err != nil {
+		logger.Error("workspace", slog.Any("err", err))
 		os.Exit(1)
 	}
-	wsFS := local.New(cfg.DataRoot)
 
 	var mgr sandbox.Manager
 	store := storage.NewSandboxStore(db)
@@ -105,4 +110,22 @@ func main() {
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
 	logger.Info("roundpend shut down")
+}
+
+func newWorkspaceFS(cfg *config.Config, dataRoot string, logger *slog.Logger) (workspace.FS, error) {
+	if cfg.WorkspaceUsesSSH() {
+		fs, err := sshfs.NewFromDockerHost(cfg.DockerHost, dataRoot)
+		if err != nil {
+			return nil, err
+		}
+		logger.Info("using ssh workspace fs",
+			slog.String("docker_host", cfg.DockerHost),
+			slog.String("remote_root", dataRoot),
+		)
+		return fs, nil
+	}
+	if err := os.MkdirAll(dataRoot, 0o755); err != nil {
+		return nil, err
+	}
+	return local.New(dataRoot), nil
 }
