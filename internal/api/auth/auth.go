@@ -12,8 +12,9 @@ func APIKey(key string, next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Public health / ready probes.
-		if r.URL.Path == "/health" || r.URL.Path == "/v1/ready" {
+		// Public health / ready probes, and LLM gateway relay (virtual-key auth).
+		if r.URL.Path == "/health" || r.URL.Path == "/v1/ready" ||
+			strings.HasPrefix(r.URL.Path, "/llmgw/") {
 			next.ServeHTTP(w, r)
 			return
 		}

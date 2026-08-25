@@ -55,10 +55,10 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 ## 核心能力
 
 1. **沙箱执行**：`Sandbox` 接口抽象后端与运行时；本地默认 `Kern`，生产可用 Docker + `runc`
-2. **记忆与文件**：PostgreSQL 承载短期（JSONB + TTL）与长期（`pgvector`）记忆；工作区目录挂载为沙箱内 `/workspace`
+2. **记忆与文件**：PostgreSQL 承载短期（JSONB + TTL）与长期（`pgvector`）记忆；工作区目录挂载为沙箱内 `/workspace`。长期记忆 Agent API 对齐 mem0（`/v1/memories/add|search`），写入/检索时经 llmgw 自动 embedding
 3. **策略引擎**：Token 预算、工具白名单、敏感内容过滤等动态围栏
 4. **工具网关**：统一注册与调用，凭证隔离
-5. **LLM 网关**：API Key 托管与请求透传
+5. **LLM 网关**：兼容 model-relay 的 Anthropic / OpenAI 透传；自动种子内部 Virtual Key（`vk-roundpen-internal`）与 embedding 别名（`roundpen-embed`）；请求流水进 PG
 6. **监控审计**：执行轨迹、异常检测与强制终止
 
 ## 部署方式

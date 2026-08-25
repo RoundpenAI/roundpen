@@ -17,6 +17,8 @@ import (
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
 	kernbackend "github.com/RoundpenAI/roundpen/internal/backend/kern"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/llmgw"
+	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
@@ -90,6 +92,61 @@ func main() {
 	mux := http.NewServeMux()
 	(&e2b.Handler{Manager: mgr}).Mount(mux)
 	(&httpapi.Handler{Manager: mgr}).Mount(mux)
+
+	memStore := memory.NewPgStore(db)
+	memSvc := &memory.Service{Store: memStore, Logger: logger}
+	go memory.RunPurge(ctx, memStore, logger, time.Hour)
+
+	var gw *llmgw.Gateway
+	if cfg.LLMGW.Enabled {
+		gw = llmgw.New(db, llmgw.Options{
+			LogBodyMaxBytes: cfg.LLMGW.LogBodyMaxBytes,
+			PublicURL:       cfg.LLMGW.PublicURL,
+			Logger:          logger,
+		})
+		seed := llmgw.SeedConfig{Keys: make([]llmgw.VirtualKey, 0, len(cfg.LLMGW.VirtualKeys))}
+		if cfg.LLMGW.OpenAI != nil {
+			seed.OpenAI = &llmgw.UpstreamSeed{
+				BaseURL: cfg.LLMGW.OpenAI.BaseURL,
+				APIKey:  cfg.LLMGW.OpenAI.APIKey,
+				ModelMap: map[string]string{
+					llmgw.EmbeddingModelAlias: cfg.LLMGW.EmbeddingModel,
+				},
+			}
+		}
+		if cfg.LLMGW.Anthropic != nil {
+			seed.Anthropic = &llmgw.UpstreamSeed{
+				BaseURL: cfg.LLMGW.Anthropic.BaseURL,
+				APIKey:  cfg.LLMGW.Anthropic.APIKey,
+			}
+		}
+		for _, vk := range cfg.LLMGW.VirtualKeys {
+			seed.Keys = append(seed.Keys, llmgw.VirtualKey{Key: vk.Key, Name: vk.Name})
+		}
+		if err := gw.SeedFromConfig(seed); err != nil {
+			logger.Error("llmgw seed", slog.Any("err", err))
+			os.Exit(1)
+		}
+		if err := gw.EnsureInternal(ctx, cfg.LLMGW.EmbeddingModel); err != nil {
+			logger.Error("llmgw ensure internal", slog.Any("err", err))
+			os.Exit(1)
+		}
+		gw.Mount(mux)
+		if cfg.LLMGW.OpenAI != nil {
+			memSvc.Embed = gw
+			go memory.RunReembed(ctx, memStore, gw, logger, 2*time.Minute)
+		}
+		logger.Info("llmgw enabled",
+			slog.Bool("openai", cfg.LLMGW.OpenAI != nil),
+			slog.Bool("anthropic", cfg.LLMGW.Anthropic != nil),
+			slog.Int("virtual_keys", len(cfg.LLMGW.VirtualKeys)),
+			slog.String("embedding_model", cfg.LLMGW.EmbeddingModel),
+			slog.String("internal_vkey", llmgw.InternalVirtualKey),
+			slog.String("embed_alias", llmgw.EmbeddingModelAlias),
+		)
+	}
+
+	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,

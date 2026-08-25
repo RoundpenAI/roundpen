@@ -7,6 +7,7 @@ require (
 	github.com/docker/docker v25.0.6+incompatible
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
+	github.com/pgvector/pgvector-go v0.3.0
 )
 
 require (

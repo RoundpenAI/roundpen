@@ -22,6 +22,7 @@ type Config struct {
 	DefaultImage  string
 	DefaultTTL    time.Duration
 	LogLevel      slog.Level
+	LLMGW         LLMGWConfig
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -60,6 +61,11 @@ func Load() (*Config, error) {
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
+	llmgwCfg, err := loadLLMGW()
+	if err != nil {
+		return nil, err
+	}
+	cfg.LLMGW = llmgwCfg
 	return cfg, nil
 }
 
