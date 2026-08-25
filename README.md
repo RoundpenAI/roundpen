@@ -10,7 +10,7 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 
 - **轻量自托管**：单二进制控制面，面向低配 NAS、笔记本与单机服务器
 - **跨平台**：Mac / Windows / Linux 统一构建与分发
-- **可插拔后端**：Docker（默认）、免守护进程的 `Kern`，以及未来的 Kubernetes
+- **可插拔后端**：默认 `Kern`（免守护、本地进程）；亦可 Docker，以及未来的 Kubernetes
 - **可选 OCI 运行时**：`runc` / `crun` / `gVisor` / `Kata`，按安全与性能需求配置
 - **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）；文件落本地盘，元数据进库
 - **生态友好**：E2B 兼容 API；REST / gRPC 供控制面集成
@@ -54,7 +54,7 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 
 ## 核心能力
 
-1. **沙箱执行**：`Sandbox` 接口抽象后端与运行时；默认 Docker + `runc`
+1. **沙箱执行**：`Sandbox` 接口抽象后端与运行时；本地默认 `Kern`，生产可用 Docker + `runc`
 2. **记忆与文件**：PostgreSQL 承载短期（JSONB + TTL）与长期（`pgvector`）记忆；工作区目录挂载为沙箱内 `/workspace`
 3. **策略引擎**：Token 预算、工具白名单、敏感内容过滤等动态围栏
 4. **工具网关**：统一注册与调用，凭证隔离
@@ -74,10 +74,20 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 ```bash
 make build
 ./bin/roundpen version
-# DATABASE_URL=postgres://... ./bin/roundpend
-# curl -s localhost:9527/health
-# curl -s -X POST localhost:9527/sandboxes -d '{"templateID":"python:3.12-slim","timeout":600}'
-# curl -s -X POST localhost:9527/v1/sandboxes/<id>/exec -d '{"command":["python","-c","print(1)"]}'
+
+# 需要 PostgreSQL（推荐 pg0）
+# pg0 start && createdb / 按 .env.example 设置 DATABASE_URL
+export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable'
+export ROUNDPEN_BACKEND=kern
+./bin/roundpend
+
+# 另开终端：
+curl -s localhost:9527/health
+SID=$(curl -s -X POST localhost:9527/sandboxes -H 'Content-Type: application/json' \
+  -d '{"templateID":"host","timeout":600}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["sandboxID"])')
+curl -s -X POST localhost:9527/v1/sandboxes/$SID/exec -H 'Content-Type: application/json' \
+  -d '{"command":["/bin/sh","-c","echo hi > note.txt && cat note.txt"]}'
+curl -s -X DELETE localhost:9527/sandboxes/$SID -o /dev/null -w '%{http_code}\n'
 ```
 
 环境变量示例见 [.env.example](.env.example)。
@@ -88,7 +98,8 @@ make build
 |------|------|
 | 语言 | Go（跨平台单二进制） |
 | 协议 | E2B 兼容；REST + gRPC |
-| 默认后端 | Docker Daemon（`runc`） |
+| 默认后端 | `Kern`（免守护主机进程，适合无 Docker 本地开发） |
+| 生产常用后端 | Docker Daemon（`runc`） |
 | 轻量 / 加固运行时 | `crun`；`gVisor`；`Kata`（需 KVM，Linux 优先） |
 | 免守护后端 | `Kern`（与 Docker 同层抽象） |
 | 记忆 | PostgreSQL + `pgvector`（MVP 不引入 Redis / 专用向量库） |

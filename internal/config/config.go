@@ -31,10 +31,10 @@ func Load() (*Config, error) {
 		APIKey:        os.Getenv("ROUNDPEN_API_KEY"),
 		DatabaseURL:   os.Getenv("DATABASE_URL"),
 		DataRoot:      getenv("ROUNDPEN_DATA_ROOT", "./data"),
-		Backend:       getenv("ROUNDPEN_BACKEND", "docker"),
+		Backend:       getenv("ROUNDPEN_BACKEND", "kern"),
 		DockerHost:    getenv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		DockerRuntime: os.Getenv("ROUNDPEN_DOCKER_RUNTIME"),
-		DefaultImage:  getenv("ROUNDPEN_DEFAULT_IMAGE", "python:3.12-slim"),
+		DefaultImage:  getenv("ROUNDPEN_DEFAULT_IMAGE", "host"),
 		DefaultTTL:    30 * time.Minute,
 		LogLevel:      slog.LevelInfo,
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/e2b"
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
+	kernbackend "github.com/RoundpenAI/roundpen/internal/backend/kern"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
@@ -58,6 +59,7 @@ func main() {
 	wsFS := local.New(cfg.DataRoot)
 
 	var mgr sandbox.Manager
+	store := storage.NewSandboxStore(db)
 	switch cfg.Backend {
 	case "docker":
 		be, err := dockerbackend.New(cfg.DockerHost, cfg.DockerRuntime)
@@ -70,9 +72,13 @@ func main() {
 			logger.Error("docker ping", slog.Any("err", err))
 			os.Exit(1)
 		}
-		mgr = sandbox.NewService(storage.NewSandboxStore(db), be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger)
+		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger)
+	case "kern":
+		be := kernbackend.New()
+		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger)
+		logger.Info("using kern backend (daemonless host processes)")
 	default:
-		logger.Error("backend not implemented for mvp", slog.String("backend", cfg.Backend))
+		logger.Error("backend not implemented", slog.String("backend", cfg.Backend))
 		os.Exit(1)
 	}
 
