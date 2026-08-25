@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 
+	"github.com/docker/cli/cli/connhelper"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -17,16 +19,35 @@ import (
 )
 
 // Backend talks to a local or remote Docker Engine.
+// Remote hosts should use ssh://user@host (requires SSH key auth and a remote docker CLI).
 type Backend struct {
 	cli     *client.Client
 	runtime string
 }
 
 // New connects to Docker. host may be empty for the SDK default.
+// Supported examples: unix:///var/run/docker.sock, ssh://user@host.
 func New(host, runtime string) (*Backend, error) {
 	opts := []client.Opt{client.WithAPIVersionNegotiation()}
 	if host != "" {
-		opts = append(opts, client.WithHost(host))
+		helper, err := connhelper.GetConnectionHelper(host)
+		if err != nil {
+			return nil, fmt.Errorf("docker host %q: %w", host, err)
+		}
+		if helper != nil {
+			httpClient := &http.Client{
+				Transport: &http.Transport{
+					DialContext: helper.Dialer,
+				},
+			}
+			opts = append(opts,
+				client.WithHTTPClient(httpClient),
+				client.WithHost(helper.Host),
+				client.WithDialContext(helper.Dialer),
+			)
+		} else {
+			opts = append(opts, client.WithHost(host))
+		}
 	}
 	cli, err := client.NewClientWithOpts(opts...)
 	if err != nil {
