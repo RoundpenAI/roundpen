@@ -88,12 +88,87 @@ export type Template = {
   diskSizeMB: number
   public: boolean
   names: string[]
+  aliases: string[]
   buildStatus: string
   envdVersion: string
+  createdAt?: string
+  updatedAt?: string
+  spawnCount?: number
+  buildCount?: number
+  lastSpawnedAt?: string | null
+}
+
+export type BuildStep = {
+  type: string
+  args?: string[]
+}
+
+export type BuildSpec = {
+  fromImage?: string
+  fromTemplate?: string
+  force?: boolean
+  steps?: BuildStep[]
+  startCmd?: string
+  readyCmd?: string
+  cpuCount?: number
+  memoryMB?: number
+}
+
+export type CreateTemplateResult = {
+  templateID: string
+  buildID: string
+  public: boolean
+  names: string[]
+  tags: string[]
+  aliases: string[]
+}
+
+export type BuildLogEntry = {
+  timestamp: string
+  message: string
+  level: string
+  step?: string
+}
+
+export type BuildStatus = {
+  templateID: string
+  buildID: string
+  status: string
+  logs: string[]
+  logEntries: BuildLogEntry[]
+  reason?: { message: string }
+}
+
+export function templateDisplayName(t: Template): string {
+  return t.names[0] ?? t.aliases[0] ?? t.templateID.slice(0, 8)
 }
 
 export const templates = {
   list: () => api<Template[]>('/templates'),
+  create: (input: {
+    name: string
+    cpuCount?: number
+    memoryMB?: number
+    public?: boolean
+  }) =>
+    api<CreateTemplateResult>('/v3/templates', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: input.name,
+        cpuCount: input.cpuCount,
+        memoryMB: input.memoryMB,
+        public: input.public ?? true,
+      }),
+    }),
+  startBuild: (templateID: string, buildID: string, spec: BuildSpec) =>
+    api<void>(`/v2/templates/${templateID}/builds/${buildID}`, {
+      method: 'POST',
+      body: JSON.stringify(spec),
+    }),
+  buildStatus: (templateID: string, buildID: string, logsOffset = 0) =>
+    api<BuildStatus>(
+      `/templates/${templateID}/builds/${buildID}/status?logsOffset=${logsOffset}&limit=200`,
+    ),
 }
 
 export type CreateSandboxInput = {
