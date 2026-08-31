@@ -24,6 +24,9 @@ PG0_PASS=roundpen
 PG0_DB=roundpen
 DSN_DEFAULT="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/${PG0_DB}?sslmode=disable"
 TEST_DSN_DEFAULT="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/roundpen_test?sslmode=disable"
+GITEA_REGISTRY_HOST="${ROUNDPEN_GITEA_REGISTRY_HOST:-git.eaxi.com}"
+GITEA_REGISTRY_REPO="${ROUNDPEN_GITEA_REGISTRY_REPO:-sandbox/roundpen}"
+GITEA_KANIKO_DEST="${GITEA_REGISTRY_HOST}/${GITEA_REGISTRY_REPO}"
 
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
@@ -136,9 +139,28 @@ ensure_env_key ROUNDPEN_DATA_ROOT "./data"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
 ensure_env_key ROUNDPEN_TEMPLATE_BUILDER "kaniko"
-ensure_env_key ROUNDPEN_KANIKO_DESTINATION "127.0.0.1:5000/roundpen"
-ensure_env_key ROUNDPEN_KANIKO_INSECURE "true"
-ensure_env_key ROUNDPEN_KANIKO_SKIP_TLS_VERIFY "true"
+ensure_env_key ROUNDPEN_KANIKO_DESTINATION "$GITEA_KANIKO_DEST"
+ensure_env_key ROUNDPEN_KANIKO_INSECURE "false"
+ensure_env_key ROUNDPEN_KANIKO_SKIP_TLS_VERIFY "false"
+ensure_env_key ROUNDPEN_GITEA_REGISTRY_HOST "$GITEA_REGISTRY_HOST"
+ensure_env_key ROUNDPEN_GITEA_REGISTRY_USER "sandbox"
+
+if grep -qE '^ROUNDPEN_KANIKO_DESTINATION=127\.0\.0\.1:5000/roundpen$' .env; then
+	echo "note: migrating kaniko destination to Gitea (${GITEA_KANIKO_DEST})"
+	grep -v '^ROUNDPEN_KANIKO_DESTINATION=' .env > .env.devtmp
+	echo "ROUNDPEN_KANIKO_DESTINATION=${GITEA_KANIKO_DEST}" >> .env.devtmp
+	mv .env.devtmp .env
+fi
+if grep -qE '^ROUNDPEN_KANIKO_INSECURE=true$' .env; then
+	grep -v '^ROUNDPEN_KANIKO_INSECURE=' .env > .env.devtmp
+	echo "ROUNDPEN_KANIKO_INSECURE=false" >> .env.devtmp
+	mv .env.devtmp .env
+fi
+if grep -qE '^ROUNDPEN_KANIKO_SKIP_TLS_VERIFY=true$' .env; then
+	grep -v '^ROUNDPEN_KANIKO_SKIP_TLS_VERIFY=' .env > .env.devtmp
+	echo "ROUNDPEN_KANIKO_SKIP_TLS_VERIFY=false" >> .env.devtmp
+	mv .env.devtmp .env
+fi
 
 # Vite proxies UI :19000 → API :19001; bump away from :9527 if left from docs.
 if grep -qE '^ROUNDPEN_HTTP_ADDR=:9527$' .env; then
@@ -165,6 +187,8 @@ export ROUNDPEN_BACKEND="${ROUNDPEN_BACKEND:-kern}"
 export ROUNDPEN_DATA_ROOT="${ROUNDPEN_DATA_ROOT:-./data}"
 export ROUNDPEN_HTTP_ADDR="${ROUNDPEN_HTTP_ADDR:-0.0.0.0:${API_PORT}}"
 export ROUNDPEN_PREVIEW_PUBLIC_URL="${ROUNDPEN_PREVIEW_PUBLIC_URL:-http://${LAN_IP}:${API_PORT}}"
+export DOCKER_CONFIG="${DOCKER_CONFIG:-$ROOT/.docker}"
+./scripts/gitea-registry-auth.sh
 
 dsn_host="${DATABASE_URL#*@}"
 dsn_host="${dsn_host%%/*}"
@@ -234,8 +258,10 @@ ensure_test_db() {
 }
 
 ensure_kaniko_db_settings() {
-	local dest="${ROUNDPEN_KANIKO_DESTINATION:-127.0.0.1:5000/roundpen}"
+	local dest="${ROUNDPEN_KANIKO_DESTINATION:-$GITEA_KANIKO_DEST}"
 	local builder="${ROUNDPEN_TEMPLATE_BUILDER:-kaniko}"
+	local insecure="${ROUNDPEN_KANIKO_INSECURE:-false}"
+	local skip_tls="${ROUNDPEN_KANIKO_SKIP_TLS_VERIFY:-false}"
 	echo "pg0: ensuring dev kaniko settings in app_settings..."
 	pg0 psql --name "$PG0_NAME" -- -v ON_ERROR_STOP=1 -c "
 UPDATE app_settings
@@ -243,13 +269,14 @@ SET payload = payload
   || jsonb_build_object(
        'templateBuilder', '${builder}',
        'kanikoDestination', '${dest}',
-       'kanikoInsecure', true,
-       'kanikoSkipTlsVerify', true
+       'kanikoInsecure', ${insecure},
+       'kanikoSkipTlsVerify', ${skip_tls}
      ),
     updated_at = now()
 WHERE id = 'global'
   AND (
     COALESCE(payload->>'kanikoDestination', '') = ''
+    OR payload->>'kanikoDestination' = '127.0.0.1:5000/roundpen'
     OR COALESCE(payload->>'templateBuilder', '') IN ('', 'auto', 'docker')
   );
 " >/dev/null 2>&1 || true
