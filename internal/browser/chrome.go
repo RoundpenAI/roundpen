@@ -136,9 +136,9 @@ func newChromeEngine(userDataDir string, width, height int) (*chromeEngine, erro
 		width:  width,
 		height: height,
 	}
-	runCtx, runCancel := context.WithTimeout(ctx, 20*time.Second)
-	defer runCancel()
-	if err := chromedp.Run(runCtx, emulation.SetDeviceMetricsOverride(int64(width), int64(height), 1, false)); err != nil {
+	// The first Run owns the browser lifetime — do not wrap it in a cancellable
+	// timeout or chromedp will tear Chrome down when that context ends.
+	if err := chromedp.Run(ctx, emulation.SetDeviceMetricsOverride(int64(width), int64(height), 1, false)); err != nil {
 		eng.Close()
 		return nil, fmt.Errorf("chrome start: %w", err)
 	}
@@ -146,16 +146,17 @@ func newChromeEngine(userDataDir string, width, height int) (*chromeEngine, erro
 }
 
 func (e *chromeEngine) run(ctx context.Context, actions ...chromedp.Action) error {
-	if ctx == nil {
-		ctx = e.ctx
+	if e.ctx == nil {
+		return fmt.Errorf("browser closed")
 	}
-	runCtx, cancel := context.WithTimeout(e.ctx, 30*time.Second)
-	defer cancel()
+	timeout := 45 * time.Second
 	if deadline, ok := ctx.Deadline(); ok {
-		var cancel2 context.CancelFunc
-		runCtx, cancel2 = context.WithDeadline(e.ctx, deadline)
-		defer cancel2()
+		if remain := time.Until(deadline); remain > 0 && remain < timeout {
+			timeout = remain
+		}
 	}
+	runCtx, cancel := context.WithTimeout(e.ctx, timeout)
+	defer cancel()
 	return chromedp.Run(runCtx, actions...)
 }
 
