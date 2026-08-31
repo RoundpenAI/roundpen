@@ -18,6 +18,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
 	kernbackend "github.com/RoundpenAI/roundpen/internal/backend/kern"
+	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
@@ -136,6 +137,9 @@ func main() {
 		}
 	}()
 
+	browserHub := browser.NewHub(dataRoot, logger)
+	defer browserHub.Close()
+
 	switch cfg.Backend {
 	case "docker":
 		be, err := dockerbackend.New(cfg.DockerHost, cfg.DockerRuntime)
@@ -148,11 +152,11 @@ func main() {
 			logger.Error("docker ping", slog.Any("err", err))
 			os.Exit(1)
 		}
-		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc))
+		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
 		sbSvc = mgr.(*sandbox.Service)
 	case "kern":
 		be := kernbackend.New()
-		sbSvc = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc))
+		sbSvc = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
 		mgr = sbSvc
 		logger.Info("using kern backend (daemonless host processes)")
 	default:
@@ -166,6 +170,7 @@ func main() {
 	native := &httpapi.Handler{Manager: mgr}
 	native.Mount(mux)
 	native.MountTerminal(mux)
+	(&browser.Handler{Sandboxes: mgr, Hub: browserHub}).Mount(mux)
 	previewHandler := &preview.Handler{
 		Manager:   mgr,
 		Tokens:    preview.NewStore(cfg.PreviewTokenTTL),
@@ -209,14 +214,14 @@ func main() {
 	}
 
 	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
-		AllowPublicReg:    setAllowRegistration,
-		PreviewTokens:     previewHandler.Tokens,
-		PreviewHandler:    previewHandler,
-		Sandbox:           sbSvc,
-		Templates:         tplSvc,
-		ReattachBuilder:   reattachBuilder,
-		ReconfigureLLMGW:  reconfigureLLMGW,
-		LlmgwMounted:      true,
+		AllowPublicReg:   setAllowRegistration,
+		PreviewTokens:    previewHandler.Tokens,
+		PreviewHandler:   previewHandler,
+		Sandbox:          sbSvc,
+		Templates:        tplSvc,
+		ReattachBuilder:  reattachBuilder,
+		ReconfigureLLMGW: reconfigureLLMGW,
+		LlmgwMounted:     true,
 	}, appSettings)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 

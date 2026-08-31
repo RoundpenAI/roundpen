@@ -134,6 +134,7 @@ export type CreateBuildResult = {
 export type TemplatePatch = {
   description?: string
   public?: boolean
+  profile?: string
   cpuCount?: number
   memoryMB?: number
   diskSizeMB?: number
@@ -151,6 +152,7 @@ export type BuildSpec = {
   steps?: BuildStep[]
   startCmd?: string
   readyCmd?: string
+  keepImageCmd?: boolean
   cpuCount?: number
   memoryMB?: number
 }
@@ -333,6 +335,30 @@ export const preview = {
     api<PreviewLink>(
       `/v1/sandboxes/${id}/preview-link?port=${port}&path=${encodeURIComponent(path)}`,
     ),
+}
+
+export type BrowserStatus = {
+  sandboxID: string
+  name: string
+  category?: string
+  profile?: string
+  attached: boolean
+  url?: string
+  width?: number
+  height?: number
+  mcp: string
+  tools: string[]
+}
+
+export type BrowserSnapshot = {
+  url: string
+  title: string
+  text: string
+  nodes: { ref: string; role: string; name: string; tag?: string; value?: string }[]
+}
+
+export const browser = {
+  status: (id: string) => api<BrowserStatus>(`/v1/sandboxes/${id}/browser`),
 }
 
 export function terminalWsUrl(id: string): string {

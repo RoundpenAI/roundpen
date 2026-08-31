@@ -29,10 +29,12 @@ func TestStore_GetUpdateDeleteTemplate(t *testing.T) {
 	desc := "updated description"
 	pub := false
 	cpu := 4
+	profile := "browser"
 	if err := store.UpdateTemplate(ctx, created.TemplateID, UpdateTemplateRequest{
 		Description: &desc,
 		Public:      &pub,
 		CPUCount:    &cpu,
+		Profile:     &profile,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,7 @@ func TestStore_GetUpdateDeleteTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Description != desc || got.Public || got.CPUCount != 4 {
+	if got.Description != desc || got.Public || got.CPUCount != 4 || got.Profile != "browser" {
 		t.Fatalf("after update: %+v", got)
 	}
 
@@ -58,7 +60,7 @@ func TestStore_GetUpdateDeleteTemplate(t *testing.T) {
 	}
 }
 
-func TestStore_UpdateDeleteBuiltinRejected(t *testing.T) {
+func TestStore_UpdateBuiltinAllowedDeleteRejected(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := context.Background()
 	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
@@ -68,9 +70,16 @@ func TestStore_UpdateDeleteBuiltinRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	desc := "nope"
-	if err := store.UpdateTemplate(ctx, rec.TemplateID, UpdateTemplateRequest{Description: &desc}); err == nil {
-		t.Fatal("expected builtin update error")
+	desc := "admin-edited builtin"
+	if err := store.UpdateTemplate(ctx, rec.TemplateID, UpdateTemplateRequest{Description: &desc}); err != nil {
+		t.Fatalf("builtin update should be allowed: %v", err)
+	}
+	got, err := store.GetByID(ctx, rec.TemplateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Description != desc {
+		t.Fatalf("description=%q", got.Description)
 	}
 	if err := store.DeleteTemplate(ctx, rec.TemplateID); err == nil {
 		t.Fatal("expected builtin delete error")

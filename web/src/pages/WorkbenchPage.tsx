@@ -33,14 +33,25 @@ export function WorkbenchPage() {
   const [port, setPort] = useState(3000)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewErr, setPreviewErr] = useState<string | null>(null)
+  const [mcpPath, setMcpPath] = useState<string | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [editBusy, setEditBusy] = useState(false)
   const [editError, setEditError] = useState<string | null>(null)
 
   const loadMeta = useCallback(async () => {
     try {
-      setSb(await sandboxes.get(id))
+      const got = await sandboxes.get(id)
+      setSb(got)
       setError(null)
+      const profile = got.metadata?.profile || ''
+      const isBrowser =
+        got.category?.toLowerCase() === 'browser' || profile === 'browser'
+      if (isBrowser) {
+        setPort((p) => (p === 3000 ? 8000 : p))
+        setMcpPath(`/v1/sandboxes/${id}/browser/mcp`)
+      } else {
+        setMcpPath(null)
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'not found')
     }
@@ -355,6 +366,27 @@ export function WorkbenchPage() {
               <button type="submit" className="btn btn-primary min-h-11 sm:btn-sm sm:min-h-0" disabled={!running}>
                 Open preview
               </button>
+              {mcpPath && (
+                <div className="space-y-1.5 rounded-md bg-base-200 px-2 py-2 text-xs">
+                  <p className="font-medium opacity-70">Agent browser MCP</p>
+                  <code className="block break-all opacity-80">{mcpPath}</code>
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { port: 8000, label: 'MCP 8000' },
+                      { port: 6080, label: 'noVNC 6080' },
+                    ].map((p) => (
+                      <button
+                        key={p.port}
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => setPort(p.port)}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {previewErr && (
                 <p className="text-xs text-error">{previewErr}</p>
               )}

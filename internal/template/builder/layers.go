@@ -42,7 +42,7 @@ func Dockerfile(base string, spec Spec) (string, error) {
 		b.WriteString(escaped)
 		b.WriteString(" &' 'exec sleep infinity' > /roundpen/init.sh && chmod +x /roundpen/init.sh\n")
 		b.WriteString("CMD [\"/roundpen/init.sh\"]\n")
-	} else {
+	} else if !spec.KeepImageCmd {
 		b.WriteString("CMD [\"sleep\", \"infinity\"]\n")
 	}
 	return b.String(), nil

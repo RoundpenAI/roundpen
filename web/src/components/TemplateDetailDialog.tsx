@@ -58,6 +58,7 @@ export function TemplateDetailDialog({
   const [deleteBusy, setDeleteBusy] = useState(false)
 
   const [description, setDescription] = useState('')
+  const [profile, setProfile] = useState('dev')
   const [cpuCount, setCpuCount] = useState(1)
   const [memoryMB, setMemoryMB] = useState(512)
   const [diskSizeMB, setDiskSizeMB] = useState(5120)
@@ -65,6 +66,7 @@ export function TemplateDetailDialog({
 
   function syncFormFromDetail(d: TemplateDetail) {
     setDescription(d.description ?? '')
+    setProfile(d.profile || 'dev')
     setCpuCount(d.cpuCount)
     setMemoryMB(d.memoryMB)
     setDiskSizeMB(d.diskSizeMB)
@@ -105,6 +107,7 @@ export function TemplateDetailDialog({
     setSaving(true)
     const patch: TemplatePatch = {
       description,
+      profile,
       public: isPublic,
       cpuCount: cpuCount > 0 ? cpuCount : 1,
       memoryMB: memoryMB > 0 ? memoryMB : 512,
@@ -166,7 +169,7 @@ export function TemplateDetailDialog({
               <dt>Namespace</dt>
               <dd className="font-mono">{detail.namespace}</dd>
               <dt>Profile</dt>
-              <dd>{detail.profile || 'dev'}</dd>
+              <dd className="font-mono">{detail.profile || 'dev'}</dd>
               <dt>Usage</dt>
               <dd>
                 {detail.spawnCount ?? 0} spawns · {detail.buildCount ?? 0} builds
@@ -217,6 +220,22 @@ export function TemplateDetailDialog({
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                 />
+              </label>
+
+              <label className="form-control w-full gap-1.5">
+                <span className="text-xs font-medium opacity-60">Profile</span>
+                <select
+                  className="select select-bordered select-sm w-full"
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value)}
+                >
+                  <option value="shell">shell — workspace + terminal</option>
+                  <option value="dev">dev — shell + ports</option>
+                  <option value="browser">browser — dev + Chrome / MCP tools</option>
+                  {profile && !['shell', 'dev', 'browser'].includes(profile) ? (
+                    <option value={profile}>{profile}</option>
+                  ) : null}
+                </select>
               </label>
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

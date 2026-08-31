@@ -31,6 +31,16 @@ func TestDockerfile(t *testing.T) {
 	}
 }
 
+func TestDockerfile_keepImageCmd(t *testing.T) {
+	df, err := builder.Dockerfile("git.eaxi.com/sandbox/browser:latest", builder.Spec{KeepImageCmd: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(df, "sleep") {
+		t.Fatalf("keepImageCmd should not override CMD: %s", df)
+	}
+}
+
 func TestCacheKeyStable(t *testing.T) {
 	spec := builder.Spec{
 		FromImage: "alpine:3.20",

@@ -34,6 +34,7 @@ type buildSummaryResp struct {
 type patchTemplateReq struct {
 	Description *string `json:"description"`
 	Public      *bool   `json:"public"`
+	Profile     *string `json:"profile"`
 	CPUCount    *int    `json:"cpuCount"`
 	MemoryMB    *int    `json:"memoryMB"`
 	DiskSizeMB  *int    `json:"diskSizeMB"`
@@ -97,6 +98,7 @@ func (h *Handler) patchTemplate(w http.ResponseWriter, r *http.Request) {
 	rec, err := h.Templates.Update(r.Context(), id, template.UpdateTemplateRequest{
 		Description: req.Description,
 		Public:      req.Public,
+		Profile:     req.Profile,
 		CPUCount:    req.CPUCount,
 		MemoryMB:    req.MemoryMB,
 		DiskSizeMB:  req.DiskSizeMB,

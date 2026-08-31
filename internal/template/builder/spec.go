@@ -10,6 +10,8 @@ type Spec struct {
 	ReadyCmd     string `json:"readyCmd,omitempty"`
 	CPUCount     int    `json:"cpuCount,omitempty"`
 	MemoryMB     int    `json:"memoryMB,omitempty"`
+	// KeepImageCmd leaves the base image ENTRYPOINT/CMD unchanged (browser MCP images).
+	KeepImageCmd bool `json:"keepImageCmd,omitempty"`
 }
 
 // Step is one layer in a template build.

@@ -20,11 +20,17 @@ import (
 )
 
 // Service implements Manager.
+// BrowserCloser tears down a host-side browser sidecar for a sandbox.
+type BrowserCloser interface {
+	CloseSandbox(id string)
+}
+
 type Service struct {
 	store        Store
 	backend      backend.Backend
 	fs           workspace.FS
 	templates    *template.Service
+	browser      BrowserCloser
 	defaultImage string
 	defaultTTL   time.Duration
 	logger       *slog.Logger
@@ -55,6 +61,11 @@ type ServiceOption func(*Service)
 // WithTemplates attaches the template registry resolver.
 func WithTemplates(t *template.Service) ServiceOption {
 	return func(s *Service) { s.templates = t }
+}
+
+// WithBrowser attaches a host-side browser sidecar closer.
+func WithBrowser(b BrowserCloser) ServiceOption {
+	return func(s *Service) { s.browser = b }
 }
 
 // SetDefaults updates default image and TTL for new sandboxes.
@@ -105,6 +116,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 			}
 			if resolved.Profile != "" {
 				req.Metadata["profile"] = resolved.Profile
+			}
+			if strings.EqualFold(resolved.Profile, "browser") {
+				useImageCmd = true
 			}
 		}
 	}
@@ -312,6 +326,9 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 	if err := s.backend.Stop(ctx, id); err != nil {
 		s.logger.Warn("backend stop", slog.String("id", id), slog.Any("err", err))
 	}
+	if s.browser != nil {
+		s.browser.CloseSandbox(id)
+	}
 	sb.Status = StatusStopped
 	sb.UpdatedAt = time.Now().UTC()
 	return s.store.Update(ctx, sb)
@@ -321,6 +338,9 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	sb, err := s.store.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	if s.browser != nil {
+		s.browser.CloseSandbox(id)
 	}
 	if err := s.backend.Remove(ctx, id); err != nil {
 		s.logger.Warn("backend remove", slog.String("id", id), slog.Any("err", err))

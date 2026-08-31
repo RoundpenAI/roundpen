@@ -22,6 +22,9 @@ type Service struct {
 
 	buildMu sync.Mutex
 	builds  map[string]struct{}
+
+	assignDefaultMu sync.Mutex
+	assignDefault   map[string]bool // buildID -> move default tag on ready
 }
 
 // NewService constructs a template service.
@@ -32,6 +35,7 @@ func NewService(store *Store, defaultImage string) *Service {
 		fallbackLegacy: true,
 		logger:         slog.Default(),
 		builds:         map[string]struct{}{},
+		assignDefault:  map[string]bool{},
 	}
 }
 
@@ -62,6 +66,9 @@ func (s *Service) Resolve(ctx context.Context, templateID string) (Resolved, err
 		res.RequestRef = templateID
 		if res.Alias == "" {
 			res.Alias = templateID
+		}
+		if strings.EqualFold(res.Profile, "browser") {
+			res.UseImageCmd = true
 		}
 		return res, nil
 	}

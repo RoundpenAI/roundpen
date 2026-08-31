@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -15,6 +16,7 @@ var ErrBuiltin = errors.New("built-in template is read-only")
 type UpdateTemplateRequest struct {
 	Description *string
 	Public      *bool
+	Profile     *string
 	CPUCount    *int
 	MemoryMB    *int
 	DiskSizeMB  *int
@@ -89,9 +91,6 @@ func (s *Store) UpdateTemplate(ctx context.Context, templateID string, req Updat
 	if err != nil {
 		return err
 	}
-	if IsBuiltin(rec.Namespace, rec.Name, rec.CreatedBy) {
-		return ErrBuiltin
-	}
 	if err := s.RepairDefaultTag(ctx, templateID); err != nil {
 		return err
 	}
@@ -106,7 +105,7 @@ func (s *Store) UpdateTemplate(ctx context.Context, templateID string, req Updat
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if req.Description != nil || req.Public != nil {
+	if req.Description != nil || req.Public != nil || req.Profile != nil {
 		desc := rec.Description
 		if req.Description != nil {
 			desc = *req.Description
@@ -115,9 +114,16 @@ func (s *Store) UpdateTemplate(ctx context.Context, templateID string, req Updat
 		if req.Public != nil {
 			public = *req.Public
 		}
+		profile := rec.Profile
+		if req.Profile != nil {
+			profile = strings.TrimSpace(*req.Profile)
+			if profile == "" {
+				profile = "dev"
+			}
+		}
 		res, err := tx.ExecContext(ctx, `
-			UPDATE templates SET description=$2, public=$3, updated_at=now()
-			WHERE id=$1`, templateID, desc, public)
+			UPDATE templates SET description=$2, public=$3, profile=$4, updated_at=now()
+			WHERE id=$1`, templateID, desc, public, profile)
 		if err != nil {
 			return err
 		}
@@ -195,6 +201,12 @@ func (req UpdateTemplateRequest) Validate() error {
 	}
 	if req.DiskSizeMB != nil && *req.DiskSizeMB <= 0 {
 		return fmt.Errorf("diskSizeMB must be positive")
+	}
+	if req.Profile != nil {
+		p := strings.TrimSpace(*req.Profile)
+		if p != "" && len([]rune(p)) > 32 {
+			return fmt.Errorf("profile too long")
+		}
 	}
 	return nil
 }

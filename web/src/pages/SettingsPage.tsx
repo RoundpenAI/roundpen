@@ -43,7 +43,9 @@ const BUILDER_OPTIONS = [
 ] as const
 
 const SANDBOX_TTL_OPTIONS = [
+  { value: 600, label: '10 minutes' },
   { value: 900, label: '15 minutes' },
+  { value: 1200, label: '20 minutes' },
   { value: 1800, label: '30 minutes' },
   { value: 3600, label: '1 hour' },
   { value: 7200, label: '2 hours' },
@@ -52,6 +54,7 @@ const SANDBOX_TTL_OPTIONS = [
 
 const PREVIEW_TTL_OPTIONS = [
   { value: 300, label: '5 minutes' },
+  { value: 600, label: '10 minutes' },
   { value: 900, label: '15 minutes' },
   { value: 1800, label: '30 minutes' },
   { value: 3600, label: '1 hour' },
@@ -79,7 +82,32 @@ function optionsWithCurrentValue<T extends { value: string; label: string }>(
   return [...options, { value: current, label: `${current} (current)` } as T]
 }
 
+function formatDurationSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds)) return String(seconds)
+  if (seconds < 0) return String(seconds)
+  if (seconds % 3600 === 0) {
+    const h = seconds / 3600
+    return h === 1 ? '1 hour' : `${h} hours`
+  }
+  if (seconds % 60 === 0) {
+    const m = seconds / 60
+    return m === 1 ? '1 minute' : `${m} minutes`
+  }
+  return `${seconds}s`
+}
+
 function ttlOptionsWithCurrent(
+  options: readonly { value: number; label: string }[],
+  current: number,
+) {
+  if (options.some((o) => o.value === current)) return [...options]
+  return [
+    ...options,
+    { value: current, label: `${formatDurationSeconds(current)} (current)` },
+  ]
+}
+
+function numberOptionsWithCurrent(
   options: readonly { value: number; label: string }[],
   current: number,
 ) {
@@ -211,7 +239,7 @@ export function SettingsPage() {
   )
 
   const logBodyOptions = useMemo(
-    () => ttlOptionsWithCurrent(LOG_BODY_OPTIONS, form.llmgwLogBodyMaxBytes),
+    () => numberOptionsWithCurrent(LOG_BODY_OPTIONS, form.llmgwLogBodyMaxBytes),
     [form.llmgwLogBodyMaxBytes],
   )
 
