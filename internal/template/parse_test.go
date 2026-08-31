@@ -3,6 +3,8 @@ package template_test
 import (
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/RoundpenAI/roundpen/internal/template"
 )
 
@@ -33,5 +35,22 @@ func TestValidateName(t *testing.T) {
 	}
 	if template.ValidateName("bad name") {
 		t.Fatal("expected invalid name with space")
+	}
+}
+
+func TestParseRef_buildUUID(t *testing.T) {
+	id := uuid.NewString()
+	ref := template.ParseRef(id)
+	if ref.BuildID != id {
+		t.Fatalf("BuildID=%q want %q", ref.BuildID, id)
+	}
+}
+
+func TestDisplayName(t *testing.T) {
+	if got := template.DisplayName("default", "host"); got != "host" {
+		t.Fatalf("got %q", got)
+	}
+	if got := template.DisplayName("acme", "tool"); got != "acme/tool" {
+		t.Fatalf("got %q", got)
 	}
 }

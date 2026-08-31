@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/storage"
+	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
 )
 
@@ -715,6 +718,57 @@ func TestService_StopKeepsFilesAccessible(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestService_CreateWithTemplateResolver(t *testing.T) {
+	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("DATABASE_URL")
+	}
+	if dsn == "" {
+		t.Skip("set DATABASE_URL or ROUNDPEN_TEST_DATABASE_URL")
+	}
+	ctx := context.Background()
+	db, err := storage.OpenPostgres(ctx, dsn)
+	if err != nil {
+		t.Fatalf("postgres: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.MigrateEmbedded(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	tplStore := template.NewStore(db.SQL)
+	tplSvc := template.NewService(tplStore, "host")
+	if err := tplSvc.Seed(ctx, "stub"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	be := newStubBackend("stub")
+	root := t.TempDir()
+	store := newMemStore()
+	svc := sandbox.NewService(store, be, local.New(root), "host", 10*time.Minute, nil, sandbox.WithTemplates(tplSvc))
+
+	sb, err := svc.Create(ctx, sandbox.CreateRequest{TemplateID: "python"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sb.CPUCount != 1 || sb.MemoryMB != 1024 || sb.Image != "python:3.12-slim" {
+		t.Fatalf("sandbox=%+v", sb)
+	}
+	if sb.Metadata["templateID"] != "python" {
+		t.Fatalf("metadata=%v", sb.Metadata)
+	}
+
+	be.mu.Lock()
+	opts := be.created[sb.ID]
+	be.mu.Unlock()
+	if opts.Image != "python:3.12-slim" {
+		t.Fatalf("backend image=%q", opts.Image)
+	}
+	if opts.CPULimit != 1 || opts.MemoryLimit != int64(1024)*1024*1024 {
+		t.Fatalf("backend limits cpu=%v mem=%v", opts.CPULimit, opts.MemoryLimit)
+	}
+}
 
 var (
 	_ sandbox.Store   = (*memStore)(nil)

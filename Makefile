@@ -44,6 +44,10 @@ test:
 	@mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 	go test ./...
 
+test-template:
+	@mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
+	go test ./internal/template/... ./internal/template/builder/... ./internal/api/e2b/... ./internal/sandbox/... -count=1 -coverpkg=./internal/template/...,./internal/template/builder/...,./internal/api/e2b/...,./internal/sandbox/...
+
 test-integration:
 	go test ./tests/integration/ -count=1 -timeout 10m -v
 

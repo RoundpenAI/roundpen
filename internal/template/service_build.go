@@ -15,8 +15,8 @@ func (s *Service) SetLogger(logger *slog.Logger) {
 	}
 }
 
-// SetBuilder attaches a Docker builder (nil on kern-only deployments).
-func (s *Service) SetBuilder(backend string, b *builder.Docker) {
+// SetBuilder attaches an image builder (nil on kern-only deployments).
+func (s *Service) SetBuilder(backend string, b builder.Runner) {
 	s.backend = backend
 	s.builder = b
 }

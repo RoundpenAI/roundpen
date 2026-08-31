@@ -13,7 +13,7 @@ import (
 // Service resolves template references and lists registered templates.
 type Service struct {
 	store          *Store
-	builder        *builder.Docker
+	builder        builder.Runner
 	backend        string
 	defaultImage   string
 	fallbackLegacy bool

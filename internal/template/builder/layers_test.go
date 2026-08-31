@@ -62,4 +62,36 @@ func TestReadyShell(t *testing.T) {
 	if !strings.Contains(got, "8080") {
 		t.Fatalf("unexpected probe: %q", got)
 	}
+	if got := builder.ReadyShell("curl -sf http://localhost/"); got == "" {
+		t.Fatal("empty custom probe")
+	}
+}
+
+func TestDockerfile_stepTypes(t *testing.T) {
+	spec := builder.Spec{
+		Steps: []builder.Step{
+			{Type: "APT_INSTALL", Args: []string{"curl", "git"}},
+			{Type: "PIP_INSTALL", Args: []string{"requests"}},
+			{Type: "NPM_INSTALL", Args: []string{"lodash"}},
+			{Type: "COPY", Args: []string{"src", "/app/src"}},
+			{Type: "ENV", Args: []string{"FOO", "bar"}},
+			{Type: "USER", Args: []string{"nobody"}},
+		},
+	}
+	df, err := builder.Dockerfile("alpine:3.20", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"apt-get install -y --no-install-recommends curl git",
+		"pip install --no-cache-dir requests",
+		"npm install -g lodash",
+		"COPY src /app/src",
+		"ENV FOO=bar",
+		"USER nobody",
+	} {
+		if !strings.Contains(df, want) {
+			t.Fatalf("missing %q in dockerfile:\n%s", want, df)
+		}
+	}
 }

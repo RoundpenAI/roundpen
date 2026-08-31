@@ -61,8 +61,8 @@ func (s *Store) CreateTemplate(ctx context.Context, req CreateTemplateRequest) (
 		return CreateTemplateResult{}, err
 	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO template_builds (id, template_id, status, cpu_count, memory_mb, disk_size_mb, envd_version)
-		VALUES ($1,$2,'waiting',$3,$4,5120,$5)`,
+		INSERT INTO template_builds (id, template_id, status, artifact_ref, cpu_count, memory_mb, disk_size_mb, envd_version)
+		VALUES ($1,$2,'waiting','',$3,$4,5120,$5)`,
 		buildID, tplID, cpu, mem, EnvdVersion)
 	if err != nil {
 		return CreateTemplateResult{}, err

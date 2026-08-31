@@ -15,9 +15,6 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 )
 
-// LogFn receives build log lines.
-type LogFn func(level, step, message string)
-
 // Docker builds template images using the local Docker engine.
 type Docker struct {
 	cli *client.Client
