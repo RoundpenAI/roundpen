@@ -15,6 +15,7 @@ type BuildStatus string
 const (
 	BuildReady    BuildStatus = "ready"
 	BuildBuilding BuildStatus = "building"
+	BuildWaiting  BuildStatus = "waiting"
 	BuildError    BuildStatus = "error"
 )
 
@@ -53,4 +54,7 @@ type Resolved struct {
 	CPUCount   int
 	MemoryMB   int
 	DiskSizeMB int
+	StartCmd   string
+	Snapshot   bool // image carries roundpen snapshot entrypoint
+	UseImageCmd bool
 }

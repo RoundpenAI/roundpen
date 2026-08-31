@@ -64,6 +64,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	memoryMB := 512
 	diskSizeMB := 5120
 	var templateBuildID, internalTemplateID string
+	var useImageCmd bool
+	var startCmd string
 
 	if s.templates != nil {
 		ref := templateRef
@@ -86,6 +88,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 			diskSizeMB = resolved.DiskSizeMB
 			templateBuildID = resolved.BuildID
 			internalTemplateID = resolved.TemplateID
+			useImageCmd = resolved.UseImageCmd
+			startCmd = resolved.StartCmd
 			if req.Metadata == nil {
 				req.Metadata = map[string]string{}
 			}
@@ -181,6 +185,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		Env:         req.Env,
 		CPULimit:    float64(cpuCount),
 		MemoryLimit: int64(memoryMB) * 1024 * 1024,
+		UseImageCmd: useImageCmd,
 	})
 	if err != nil {
 		sb.Status = StatusFailed
@@ -196,6 +201,18 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		sb.UpdatedAt = time.Now().UTC()
 		_ = s.store.Update(ctx, sb)
 		return nil, fmt.Errorf("backend start: %w", err)
+	}
+
+	if startCmd != "" && s.backend.Name() == "kern" {
+		// T2 partial: cold-start long-running process on kern (no snapshot support).
+		go func() {
+			execCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_, _ = s.backend.Exec(execCtx, id, backend.ExecOpts{
+				Cmd:     []string{"/bin/sh", "-c", startCmd + " >/tmp/roundpen-start.log 2>&1 &"},
+				WorkDir: "/workspace",
+			})
+		}()
 	}
 
 	sb.Status = StatusRunning

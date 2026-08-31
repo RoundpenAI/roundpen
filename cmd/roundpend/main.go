@@ -24,6 +24,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
+	templatebuilder "github.com/RoundpenAI/roundpen/internal/template/builder"
 	"github.com/RoundpenAI/roundpen/internal/ui"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
@@ -87,6 +88,7 @@ func main() {
 	store := storage.NewSandboxStore(db)
 	tplStore := template.NewStore(db.SQL)
 	tplSvc := template.NewService(tplStore, cfg.DefaultImage)
+	tplSvc.SetLogger(logger)
 	if err := tplSvc.Seed(ctx, cfg.Backend); err != nil {
 		logger.Error("template seed", slog.Any("err", err))
 		os.Exit(1)
@@ -102,6 +104,14 @@ func main() {
 		if err := be.Ping(ctx); err != nil {
 			logger.Error("docker ping", slog.Any("err", err))
 			os.Exit(1)
+		}
+		if bld, err := templatebuilder.NewDocker(cfg.DockerHost); err != nil {
+			logger.Error("template builder", slog.Any("err", err))
+			os.Exit(1)
+		} else {
+			defer bld.Close()
+			tplSvc.SetBuilder("docker", bld)
+			logger.Info("template builder enabled (docker)")
 		}
 		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc))
 	case "kern":

@@ -108,7 +108,8 @@ func (s *Store) List(ctx context.Context) ([]Record, error) {
 func (s *Store) ResolveByTag(ctx context.Context, ref ParsedRef) (Resolved, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT t.id, t.namespace, t.name, t.profile,
-			b.id, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb
+			b.id, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb,
+			b.start_cmd, b.snapshot
 		FROM templates t
 		JOIN template_tags tg ON tg.template_id=t.id AND tg.tag=$3
 		JOIN template_builds b ON b.id=tg.build_id AND b.status='ready'
@@ -121,7 +122,8 @@ func (s *Store) ResolveByTag(ctx context.Context, ref ParsedRef) (Resolved, erro
 func (s *Store) ResolveByBuildID(ctx context.Context, buildID string) (Resolved, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT t.id, t.namespace, t.name, t.profile,
-			b.id, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb
+			b.id, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb,
+			b.start_cmd, b.snapshot
 		FROM template_builds b
 		JOIN templates t ON t.id=b.template_id
 		WHERE b.id=$1 AND b.status='ready'`, buildID)
@@ -145,8 +147,10 @@ func scanResolved(row rowScanner, ref ParsedRef) (Resolved, error) {
 		tplID, ns, name, profile string
 		buildID, artifact        string
 		cpu, mem, disk           int
+		startCmd                 sql.NullString
+		snapshot                 bool
 	)
-	err := row.Scan(&tplID, &ns, &name, &profile, &buildID, &artifact, &cpu, &mem, &disk)
+	err := row.Scan(&tplID, &ns, &name, &profile, &buildID, &artifact, &cpu, &mem, &disk, &startCmd, &snapshot)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Resolved{}, ErrNotFound
 	}
@@ -160,7 +164,7 @@ func scanResolved(row rowScanner, ref ParsedRef) (Resolved, error) {
 	if ref.BuildID != "" {
 		alias = ref.BuildID
 	}
-	return Resolved{
+	res := Resolved{
 		TemplateID: tplID,
 		BuildID:    buildID,
 		Alias:      alias,
@@ -169,7 +173,13 @@ func scanResolved(row rowScanner, ref ParsedRef) (Resolved, error) {
 		CPUCount:   cpu,
 		MemoryMB:   mem,
 		DiskSizeMB: disk,
-	}, nil
+		Snapshot:   snapshot,
+		UseImageCmd: snapshot,
+	}
+	if startCmd.Valid {
+		res.StartCmd = startCmd.String
+	}
+	return res, nil
 }
 
 func scanRecord(row rowScanner) (Record, error) {

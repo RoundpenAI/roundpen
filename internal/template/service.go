@@ -4,18 +4,34 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sync"
+
+	"github.com/RoundpenAI/roundpen/internal/template/builder"
 )
 
 // Service resolves template references and lists registered templates.
 type Service struct {
 	store          *Store
+	builder        *builder.Docker
+	backend        string
 	defaultImage   string
 	fallbackLegacy bool
+	logger         *slog.Logger
+
+	buildMu sync.Mutex
+	builds  map[string]struct{}
 }
 
 // NewService constructs a template service.
 func NewService(store *Store, defaultImage string) *Service {
-	return &Service{store: store, defaultImage: defaultImage, fallbackLegacy: true}
+	return &Service{
+		store:          store,
+		defaultImage:   defaultImage,
+		fallbackLegacy: true,
+		logger:         slog.Default(),
+		builds:         map[string]struct{}{},
+	}
 }
 
 // Seed ensures built-in templates exist.
@@ -73,6 +89,7 @@ func (s *Service) RecordSpawn(ctx context.Context, templateID string) {
 	}
 	_ = s.store.RecordSpawn(ctx, templateID)
 }
+
 // Exists reports whether a name is registered in the default namespace.
 func (s *Service) Exists(ctx context.Context, name string) (bool, error) {
 	name = ParseRef(name).Name

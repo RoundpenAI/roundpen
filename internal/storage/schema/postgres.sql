@@ -206,3 +206,25 @@ CREATE TABLE IF NOT EXISTS template_tags (
 );
 CREATE INDEX IF NOT EXISTS template_tags_build_idx ON template_tags (build_id);
 
+-- T1/T2: build spec, cache, snapshot metadata
+ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS cache_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS spec_json JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS layers_json JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS start_cmd TEXT NOT NULL DEFAULT '';
+ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS ready_cmd TEXT NOT NULL DEFAULT '';
+ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS snapshot BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS error_message TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS template_builds_cache_key_idx ON template_builds (template_id, cache_key)
+    WHERE status = 'ready' AND cache_key <> '';
+
+CREATE TABLE IF NOT EXISTS template_build_logs (
+    id          BIGSERIAL PRIMARY KEY,
+    build_id    TEXT NOT NULL REFERENCES template_builds (id) ON DELETE CASCADE,
+    seq         INTEGER NOT NULL,
+    logged_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    level       TEXT NOT NULL DEFAULT 'info',
+    message     TEXT NOT NULL,
+    step        TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS template_build_logs_build_idx ON template_build_logs (build_id, seq);
+

@@ -70,6 +70,10 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /sandboxes/{sandboxID}/refreshes", h.refreshes)
 	mux.HandleFunc("GET /templates", h.listTemplates)
 	mux.HandleFunc("GET /v2/templates", h.listTemplatesV2)
+	mux.HandleFunc("POST /v3/templates", h.createTemplateV3)
+	mux.HandleFunc("POST /v2/templates/{templateID}/builds/{buildID}", h.startTemplateBuildV2)
+	mux.HandleFunc("GET /templates/{templateID}/builds/{buildID}/status", h.getTemplateBuildStatus)
+	mux.HandleFunc("POST /v1/templates/build", h.buildTemplate)
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
