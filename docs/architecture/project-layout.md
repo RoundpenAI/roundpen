@@ -84,4 +84,5 @@ roundpen/                      # 仓库根
 ## 相关设计
 
 - [environment-services.md](./environment-services.md) — 沙箱之上的 Terminal / Workspace / Ports（及后续 Browser 等 Surface）
-- [../security.md](../security.md) — Agent 安全设计、能力边界与规划
+- [../security.md](../security.md) — Agent 安全设计、能力边界与规划（技术向）
+- [../agent-security.md](../agent-security.md) — Agent 安全对外宣传稿

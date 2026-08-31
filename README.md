@@ -51,7 +51,7 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 | 可插拔后端 | Docker / Containerd / Podman / Kern / K8s |
 | OCI 运行时 | 由引擎调用；`Kern` 作为免守护后端可绕过该层 |
 
-仓库布局与包边界见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。沙箱之上的 Agent 环境服务（Terminal / Workspace / Ports）见 [docs/architecture/environment-services.md](docs/architecture/environment-services.md)。Agent 安全设计与能力边界见 [docs/security.md](docs/security.md)。
+仓库布局与包边界见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。沙箱之上的 Agent 环境服务（Terminal / Workspace / Ports）见 [docs/architecture/environment-services.md](docs/architecture/environment-services.md)。Agent 安全设计与能力边界见 [docs/security.md](docs/security.md)；对外宣传稿见 [docs/agent-security.md](docs/agent-security.md)。
 
 ## 核心能力
 

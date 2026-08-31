@@ -2,6 +2,7 @@
 
 本文从**使用者视角**说明当前 AI Agent 的主要安全风险，阐述 Roundpen 的安全设计立场、架构原则与能力边界，并列出规划中的能力。
 
+对外宣传稿（更易读、少技术细节）：[agent-security.md](agent-security.md)。  
 相关文档：[architecture/project-layout.md](architecture/project-layout.md)、[architecture/environment-services.md](architecture/environment-services.md)、[auth.md](auth.md)。
 
 ## 背景：使用者真正担心什么
