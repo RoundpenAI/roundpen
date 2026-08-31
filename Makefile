@@ -1,4 +1,4 @@
-.PHONY: setup build build-ui build-linux build-go test test-integration vet fmt tidy \
+.PHONY: setup build build-ui build-linux build-go test test-integration test-e2b-compat test-e2e e2e-live vet fmt tidy \
 	dev dev-check run-daemon compose-up compose-down
 
 setup:
@@ -49,6 +49,13 @@ test-integration:
 
 test-e2b-compat:
 	go test ./tests/integration/ -run TestE2BCompatibility -count=1 -v
+
+test-e2e:
+	go test ./tests/integration/ -run TestE2E_CodingAgentWorkflow -count=1 -v
+
+# Live smoke against a running roundpend (default BASE from .env ROUNDPEN_HTTP_ADDR).
+e2e-live:
+	@./scripts/e2e-coding-agent.sh
 
 vet:
 	go vet ./...
