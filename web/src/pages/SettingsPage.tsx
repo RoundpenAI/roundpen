@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { adminSettings, type AppSettings, type SettingsResponse } from '../api'
+import {
+  adminSettings,
+  templateDisplayName,
+  templates,
+  type AppSettings,
+  type SettingsResponse,
+  type Template,
+} from '../api'
 import { doLogout, useAuth } from '../auth'
 
 const emptySettings: AppSettings = {
@@ -16,6 +23,52 @@ const emptySettings: AppSettings = {
   kanikoExtraArgs: '',
 }
 
+const BUILDER_OPTIONS = [
+  { value: 'auto', label: 'Auto (detect from backend / Kaniko config)' },
+  { value: 'docker', label: 'Docker' },
+  { value: 'kaniko', label: 'Kaniko' },
+  { value: '', label: 'Disabled' },
+] as const
+
+const SANDBOX_TTL_OPTIONS = [
+  { value: 900, label: '15 minutes' },
+  { value: 1800, label: '30 minutes' },
+  { value: 3600, label: '1 hour' },
+  { value: 7200, label: '2 hours' },
+  { value: 14400, label: '4 hours' },
+] as const
+
+const PREVIEW_TTL_OPTIONS = [
+  { value: 300, label: '5 minutes' },
+  { value: 900, label: '15 minutes' },
+  { value: 1800, label: '30 minutes' },
+  { value: 3600, label: '1 hour' },
+] as const
+
+function optionsWithCurrentValue<T extends { value: string; label: string }>(
+  options: readonly T[],
+  current: string,
+): T[] {
+  if (options.some((o) => o.value === current)) return [...options]
+  return [...options, { value: current, label: `${current} (current)` } as T]
+}
+
+function ttlOptionsWithCurrent(
+  options: readonly { value: number; label: string }[],
+  current: number,
+) {
+  if (options.some((o) => o.value === current)) return [...options]
+  return [
+    ...options,
+    { value: current, label: `${Math.round(current / 60)} min (current)` },
+  ]
+}
+
+function templateRef(t: Template): string {
+  const name = templateDisplayName(t)
+  return name.includes('/') ? (name.split('/').pop() ?? name) : name
+}
+
 export function SettingsPage() {
   const auth = useAuth()
   const navigate = useNavigate()
@@ -26,14 +79,19 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [templateList, setTemplateList] = useState<Template[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await adminSettings.get()
+      const [res, tpls] = await Promise.all([
+        adminSettings.get(),
+        templates.list().catch(() => [] as Template[]),
+      ])
       setData(res)
       setForm(res.settings)
+      setTemplateList(tpls.filter((t) => t.buildStatus === 'ready'))
       setDirty(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to load settings')
@@ -41,6 +99,35 @@ export function SettingsPage() {
       setLoading(false)
     }
   }, [])
+
+  const defaultImageOptions = useMemo(() => {
+    const fromTemplates = templateList.flatMap((tpl) => {
+      const ref = templateRef(tpl)
+      return [{ value: ref, label: `${templateDisplayName(tpl)} (${tpl.cpuCount}c / ${tpl.memoryMB}MiB)` }]
+    })
+    const seen = new Set<string>()
+    const unique = fromTemplates.filter((o) => {
+      if (seen.has(o.value)) return false
+      seen.add(o.value)
+      return true
+    })
+    return optionsWithCurrentValue(unique, form.defaultImage)
+  }, [templateList, form.defaultImage])
+
+  const builderOptions = useMemo(
+    () => optionsWithCurrentValue(BUILDER_OPTIONS, form.templateBuilder),
+    [form.templateBuilder],
+  )
+
+  const sandboxTtlOptions = useMemo(
+    () => ttlOptionsWithCurrent(SANDBOX_TTL_OPTIONS, form.defaultTtlSeconds),
+    [form.defaultTtlSeconds],
+  )
+
+  const previewTtlOptions = useMemo(
+    () => ttlOptionsWithCurrent(PREVIEW_TTL_OPTIONS, form.previewTokenTtlSeconds),
+    [form.previewTokenTtlSeconds],
+  )
 
   useEffect(() => {
     void load()
@@ -136,29 +223,47 @@ export function SettingsPage() {
               />
               Allow public registration
             </label>
-            <label className="form-control w-full max-w-md">
+            <label className="form-control w-full max-w-md gap-1.5">
               <span className="label-text text-xs opacity-60">
                 Default template / image
               </span>
-              <input
-                className="input input-bordered input-sm"
-                value={form.defaultImage}
-                onChange={(e) => patch({ defaultImage: e.target.value })}
-              />
+              {defaultImageOptions.length > 0 ? (
+                <select
+                  className="select select-bordered select-sm w-full"
+                  value={form.defaultImage}
+                  onChange={(e) => patch({ defaultImage: e.target.value })}
+                >
+                  {defaultImageOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="input input-bordered input-sm"
+                  value={form.defaultImage}
+                  onChange={(e) => patch({ defaultImage: e.target.value })}
+                />
+              )}
             </label>
-            <label className="form-control w-full max-w-md">
+            <label className="form-control w-full max-w-md gap-1.5">
               <span className="label-text text-xs opacity-60">
-                Default sandbox TTL (seconds)
+                Default sandbox TTL
               </span>
-              <input
-                type="number"
-                min={60}
-                className="input input-bordered input-sm"
+              <select
+                className="select select-bordered select-sm w-full"
                 value={form.defaultTtlSeconds}
                 onChange={(e) =>
-                  patch({ defaultTtlSeconds: Number(e.target.value) || 0 })
+                  patch({ defaultTtlSeconds: Number(e.target.value) })
                 }
-              />
+              >
+                {sandboxTtlOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </label>
           </section>
 
@@ -175,36 +280,43 @@ export function SettingsPage() {
                 onChange={(e) => patch({ previewPublicUrl: e.target.value })}
               />
             </label>
-            <label className="form-control w-full max-w-md">
+            <label className="form-control w-full max-w-md gap-1.5">
               <span className="label-text text-xs opacity-60">
-                Preview token TTL (seconds)
+                Preview token TTL
               </span>
-              <input
-                type="number"
-                min={60}
-                className="input input-bordered input-sm"
+              <select
+                className="select select-bordered select-sm w-full"
                 value={form.previewTokenTtlSeconds}
                 onChange={(e) =>
-                  patch({
-                    previewTokenTtlSeconds: Number(e.target.value) || 0,
-                  })
+                  patch({ previewTokenTtlSeconds: Number(e.target.value) })
                 }
-              />
+              >
+                {previewTtlOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </label>
           </section>
 
           <section className="mb-8 space-y-4">
             <h2 className="text-sm font-medium">Template builds</h2>
-            <label className="form-control w-full max-w-md">
+            <label className="form-control w-full max-w-md gap-1.5">
               <span className="label-text text-xs opacity-60">
-                Builder (auto, docker, kaniko, or empty)
+                Template build engine
               </span>
-              <input
-                className="input input-bordered input-sm"
-                placeholder="auto"
+              <select
+                className="select select-bordered select-sm w-full"
                 value={form.templateBuilder}
                 onChange={(e) => patch({ templateBuilder: e.target.value })}
-              />
+              >
+                {builderOptions.map((o) => (
+                  <option key={o.value || '__disabled'} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="form-control w-full max-w-md">
               <span className="label-text text-xs opacity-60">
