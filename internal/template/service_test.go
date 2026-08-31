@@ -8,8 +8,7 @@ import (
 )
 
 func TestService_Resolve_registeredAndLegacy(t *testing.T) {
-	store, _, cleanup := testStore(t)
-	defer cleanup()
+	store, _ := testStore(t)
 	ctx := context.Background()
 	svc := NewService(store, "host")
 	if err := svc.Seed(ctx, "kern"); err != nil {
@@ -33,8 +32,7 @@ func TestService_Resolve_registeredAndLegacy(t *testing.T) {
 }
 
 func TestService_Exists(t *testing.T) {
-	store, _, cleanup := testStore(t)
-	defer cleanup()
+	store, _ := testStore(t)
 	ctx := context.Background()
 	svc := NewService(store, "host")
 	if err := svc.Seed(ctx, "kern"); err != nil {
@@ -51,8 +49,7 @@ func TestService_Exists(t *testing.T) {
 }
 
 func TestService_List(t *testing.T) {
-	store, _, cleanup := testStore(t)
-	defer cleanup()
+	store, _ := testStore(t)
 	ctx := context.Background()
 	svc := NewService(store, "host")
 	if err := svc.Seed(ctx, "kern"); err != nil {
@@ -65,8 +62,7 @@ func TestService_List(t *testing.T) {
 }
 
 func TestService_ResolveByBuildID(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 	svc := NewService(store, "host")
 

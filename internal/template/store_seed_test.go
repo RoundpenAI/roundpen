@@ -6,8 +6,7 @@ import (
 )
 
 func TestStore_SeedBuiltin_idempotent(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
@@ -38,8 +37,7 @@ func TestStore_SeedBuiltin_idempotent(t *testing.T) {
 }
 
 func TestStore_SeedBuiltin_repairsMissingTag(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
@@ -63,8 +61,7 @@ func TestStore_SeedBuiltin_repairsMissingTag(t *testing.T) {
 }
 
 func TestStore_SeedBuiltin_repairsBrokenBuild(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
@@ -103,8 +100,7 @@ func TestStore_SeedBuiltin_repairsBrokenBuild(t *testing.T) {
 }
 
 func TestStore_SeedBuiltin_updatesHostForDockerDefaultImage(t *testing.T) {
-	store, _, cleanup := testStore(t)
-	defer cleanup()
+	store, _ := testStore(t)
 	ctx := context.Background()
 
 	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {

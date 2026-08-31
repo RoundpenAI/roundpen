@@ -46,6 +46,7 @@ test:
 
 test-template:
 	@mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
+	ROUNDPEN_TEST_DATABASE_URL="$${ROUNDPEN_TEST_DATABASE_URL:-postgres://roundpen:roundpen@127.0.0.1:5432/roundpen_test?sslmode=disable}" \
 	go test ./internal/template/... ./internal/template/builder/... ./internal/api/e2b/... ./internal/sandbox/... -count=1 -coverpkg=./internal/template/...,./internal/template/builder/...,./internal/api/e2b/...,./internal/sandbox/...
 
 test-integration:

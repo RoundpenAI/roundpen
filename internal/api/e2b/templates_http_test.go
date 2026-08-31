@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -18,12 +19,9 @@ import (
 
 func testTemplateService(t *testing.T) (*template.Service, func()) {
 	t.Helper()
-	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
+	dsn := strings.TrimSpace(os.Getenv("ROUNDPEN_TEST_DATABASE_URL"))
 	if dsn == "" {
-		dsn = os.Getenv("DATABASE_URL")
-	}
-	if dsn == "" {
-		t.Skip("set DATABASE_URL or ROUNDPEN_TEST_DATABASE_URL")
+		t.Skip("set ROUNDPEN_TEST_DATABASE_URL (make dev configures roundpen_test)")
 	}
 	ctx := context.Background()
 	db, err := storage.OpenPostgres(ctx, dsn)

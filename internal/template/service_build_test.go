@@ -34,8 +34,7 @@ func (m *mockBuilder) Build(_ context.Context, _ string, _ builder.Spec, _ strin
 }
 
 func TestService_StartBuild_requiresBuilder(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 	svc := NewService(store, "host")
 
@@ -52,8 +51,7 @@ func TestService_StartBuild_requiresBuilder(t *testing.T) {
 }
 
 func TestService_StartBuild_asyncWithMockBuilder(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 	svc := NewService(store, "host")
 	svc.SetBuilder("docker", &mockBuilder{artifact: "roundpen/test:1", snapshot: true})
@@ -94,8 +92,7 @@ func TestService_StartBuild_asyncWithMockBuilder(t *testing.T) {
 }
 
 func TestService_StartBuild_cacheHit(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 	mb := &mockBuilder{artifact: "should-not-be-called"}
 	svc := NewService(store, "host")
@@ -145,8 +142,7 @@ func TestService_StartBuild_cacheHit(t *testing.T) {
 }
 
 func TestService_StartBuild_fromTemplateBase(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
 		t.Fatal(err)

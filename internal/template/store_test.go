@@ -11,8 +11,7 @@ import (
 )
 
 func TestStore_SeedAndResolveByTag(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
@@ -32,8 +31,7 @@ func TestStore_SeedAndResolveByTag(t *testing.T) {
 }
 
 func TestStore_ResolveByTag_withStagingTag(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	name := fmt.Sprintf("tagged-%s", uuid.NewString()[:8])
@@ -67,8 +65,7 @@ func TestStore_ResolveByTag_withStagingTag(t *testing.T) {
 }
 
 func TestStore_ResolveByBuildID(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	name := fmt.Sprintf("bybuild-%s", uuid.NewString()[:8])
@@ -92,8 +89,7 @@ func TestStore_ResolveByBuildID(t *testing.T) {
 }
 
 func TestStore_ListAndRecordSpawn(t *testing.T) {
-	store, _, cleanup := testStore(t)
-	defer cleanup()
+	store, _ := testStore(t)
 	ctx := context.Background()
 	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
 		t.Fatal(err)
@@ -111,8 +107,7 @@ func TestStore_ListAndRecordSpawn(t *testing.T) {
 }
 
 func TestStore_CreateTemplate_duplicateName(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	name := fmt.Sprintf("dup-%s", uuid.NewString()[:8])
@@ -127,8 +122,7 @@ func TestStore_CreateTemplate_duplicateName(t *testing.T) {
 }
 
 func TestStore_FindCachedBuild(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	name := fmt.Sprintf("cache-%s", uuid.NewString()[:8])
@@ -157,8 +151,7 @@ func TestStore_FindCachedBuild(t *testing.T) {
 }
 
 func TestStore_BuildLogs(t *testing.T) {
-	store, sqlDB, cleanup := testStore(t)
-	defer cleanup()
+	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
 	name := fmt.Sprintf("logs-%s", uuid.NewString()[:8])
