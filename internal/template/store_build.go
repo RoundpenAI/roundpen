@@ -84,6 +84,13 @@ func (s *Store) CreateTemplate(ctx context.Context, req CreateTemplateRequest) (
 			return CreateTemplateResult{}, err
 		}
 	}
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO template_tags (template_id, tag, build_id) VALUES ($1,'default',$2)
+		ON CONFLICT (template_id, tag) DO UPDATE SET build_id=EXCLUDED.build_id`,
+		tplID, buildID)
+	if err != nil {
+		return CreateTemplateResult{}, err
+	}
 
 	if err := tx.Commit(); err != nil {
 		return CreateTemplateResult{}, err

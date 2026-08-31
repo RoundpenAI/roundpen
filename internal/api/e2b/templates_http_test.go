@@ -130,3 +130,72 @@ func TestHandler_startTemplateBuildV2_requiresBuilder(t *testing.T) {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestHandler_templateCRUD(t *testing.T) {
+	tplSvc, cleanup := testTemplateService(t)
+	defer cleanup()
+
+	mux := http.NewServeMux()
+	(&Handler{Templates: tplSvc}).Mount(mux)
+
+	ctx := context.Background()
+	created, err := tplSvc.CreateTemplate(ctx, template.CreateTemplateRequest{
+		Name: fmt.Sprintf("crud-http-%s", uuid.NewString()[:8]),
+		CPUCount: 1, MemoryMB: 512, Public: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/templates/"+created.TemplateID, nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	body, _ := json.Marshal(map[string]any{"description": "hello", "cpuCount": 2})
+	req = httptest.NewRequest(http.MethodPatch, "/templates/"+created.TemplateID, bytes.NewReader(body))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/templates/"+created.TemplateID, nil)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("DELETE status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandler_deleteBuiltinForbidden(t *testing.T) {
+	tplSvc, cleanup := testTemplateService(t)
+	defer cleanup()
+
+	list, err := tplSvc.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hostID string
+	for _, rec := range list {
+		if rec.Name == "host" {
+			hostID = rec.TemplateID
+			break
+		}
+	}
+	if hostID == "" {
+		t.Fatal("host template missing")
+	}
+
+	mux := http.NewServeMux()
+	(&Handler{Templates: tplSvc}).Mount(mux)
+
+	req := httptest.NewRequest(http.MethodDelete, "/templates/"+hostID, nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}

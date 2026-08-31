@@ -10,6 +10,7 @@ import { doLogout, useAuth } from '../auth'
 import {
   TemplateBuildDialog,
 } from '../components/TemplateBuildDialog'
+import { TemplateDetailDialog } from '../components/TemplateDetailDialog'
 import {
   TemplateCreateDialog,
   type TemplateCreateValues,
@@ -49,6 +50,7 @@ export function TemplatesPage() {
   const [createError, setCreateError] = useState<string | null>(null)
 
   const [building, setBuilding] = useState<Template | null>(null)
+  const [viewingId, setViewingId] = useState<string | null>(null)
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true)
@@ -160,9 +162,8 @@ export function TemplatesPage() {
       )}
 
       <p className="mb-4 text-xs leading-relaxed opacity-50">
-        Built-in templates (host, base, python, node, code-agent) are seeded when
-        roundpend starts. Any rows you see beyond those may be leftovers from
-        earlier builds in the local database.
+        Built-in templates (host, base, python, node, code-agent) are seeded on
+        startup and are read-only. User templates can be viewed, edited, and deleted.
       </p>
 
       {loading ? (
@@ -207,13 +208,22 @@ export function TemplatesPage() {
                     {formatWhen(tpl.updatedAt)}
                   </td>
                   <td className="text-right">
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-xs"
-                      onClick={() => setBuilding(tpl)}
-                    >
-                      {canBuild(tpl) ? 'Build' : 'Logs'}
-                    </button>
+                    <div className="flex justify-end gap-1">
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => setViewingId(tpl.templateID)}
+                      >
+                        View
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs"
+                        onClick={() => setBuilding(tpl)}
+                      >
+                        {canBuild(tpl) ? 'Build' : 'Logs'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -230,6 +240,26 @@ export function TemplatesPage() {
           if (!createBusy) setCreateOpen(false)
         }}
         onCreate={onCreate}
+      />
+
+      <TemplateDetailDialog
+        open={viewingId != null}
+        templateId={viewingId}
+        onClose={() => setViewingId(null)}
+        onSaved={(tpl) => {
+          setList((prev) =>
+            prev.map((row) => (row.templateID === tpl.templateID ? { ...row, ...tpl } : row)),
+          )
+          void load({ silent: true })
+        }}
+        onDeleted={() => {
+          setViewingId(null)
+          void load()
+        }}
+        onBuild={(tpl) => {
+          setViewingId(null)
+          setBuilding(tpl)
+        }}
       />
 
       <TemplateBuildDialog

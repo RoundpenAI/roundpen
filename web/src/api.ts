@@ -98,6 +98,35 @@ export type Template = {
   lastSpawnedAt?: string | null
 }
 
+export type TemplateBuildSummary = {
+  buildID: string
+  status: string
+  artifactRef?: string
+  cpuCount: number
+  memoryMB: number
+  diskSizeMB: number
+  errorMessage?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type TemplateDetail = Template & {
+  builtin: boolean
+  namespace: string
+  name: string
+  description: string
+  profile: string
+  builds: TemplateBuildSummary[]
+}
+
+export type TemplatePatch = {
+  description?: string
+  public?: boolean
+  cpuCount?: number
+  memoryMB?: number
+  diskSizeMB?: number
+}
+
 export type BuildStep = {
   type: string
   args?: string[]
@@ -145,6 +174,14 @@ export function templateDisplayName(t: Template): string {
 
 export const templates = {
   list: () => api<Template[]>('/templates'),
+  get: (templateID: string) => api<TemplateDetail>(`/templates/${templateID}`),
+  update: (templateID: string, patch: TemplatePatch) =>
+    api<Template>(`/templates/${templateID}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  remove: (templateID: string) =>
+    api<void>(`/templates/${templateID}`, { method: 'DELETE' }),
   create: (input: {
     name: string
     cpuCount?: number
