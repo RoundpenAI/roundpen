@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
@@ -14,7 +15,7 @@ type Handler struct {
 
 type settingsResp struct {
 	Settings AppSettings `json:"settings"`
-	System   SystemInfo    `json:"system"`
+	System   SystemInfo  `json:"system"`
 }
 
 // Mount registers admin settings routes.
@@ -32,12 +33,17 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
-	var req AppSettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if err := h.Svc.Update(r.Context(), req); err != nil {
+	next, err := DecodeAppSettings(raw, h.Svc.Current())
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := h.Svc.Update(r.Context(), next); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

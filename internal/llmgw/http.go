@@ -147,7 +147,7 @@ func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	out := setupResponse{
-		BaseURL:   publicBaseURL(r, g.publicURL),
+		BaseURL:   publicBaseURL(r, g.publicBase()),
 		Providers: map[string]setupProvider{},
 		DownstreamModels: map[string][]setupModel{
 			ProviderAnthropic: {},

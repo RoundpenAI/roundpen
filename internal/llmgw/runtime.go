@@ -8,7 +8,35 @@ import (
 
 // SetPublicURL updates the configured public base URL for setup docs.
 func (g *Gateway) SetPublicURL(url string) {
+	g.mu.Lock()
 	g.publicURL = url
+	g.mu.Unlock()
+}
+
+// SetEnabled toggles relay forwarding without unmounting HTTP routes.
+func (g *Gateway) SetEnabled(v bool) {
+	g.mu.Lock()
+	g.enabled = v
+	g.mu.Unlock()
+}
+
+// Enabled reports whether relay forwarding is on.
+func (g *Gateway) Enabled() bool {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.enabled
+}
+
+func (g *Gateway) publicBase() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.publicURL
+}
+
+func (g *Gateway) bodyLogLimit() int {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.logLimit
 }
 
 // SetLogBodyMaxBytes updates request/response body logging limits.
@@ -18,11 +46,14 @@ func (g *Gateway) SetLogBodyMaxBytes(n int) {
 	if limit < 0 {
 		limit = defaultLogBodyMaxBytes
 	}
+	g.mu.Lock()
 	g.logLimit = limit
+	g.mu.Unlock()
 }
 
 // ApplyConfig hot-applies gateway settings and re-seeds PG vault rows.
 func (g *Gateway) ApplyConfig(ctx context.Context, cfg config.LLMGWConfig) error {
+	g.SetEnabled(cfg.Enabled)
 	g.SetPublicURL(cfg.PublicURL)
 	g.SetLogBodyMaxBytes(cfg.LogBodyMaxBytes)
 

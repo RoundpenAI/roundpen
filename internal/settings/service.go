@@ -13,14 +13,14 @@ import (
 
 // RuntimeDeps are subsystems updated on PUT /v1/admin/settings.
 type RuntimeDeps struct {
-	AllowPublicReg    func(bool)
-	PreviewTokens     *preview.Store
-	PreviewHandler    *preview.Handler
-	Sandbox           *sandbox.Service
-	Templates         *template.Service
-	ReattachBuilder   func() error
-	ReconfigureLLMGW  func(context.Context) error
-	LlmgwMounted      bool
+	AllowPublicReg   func(bool)
+	PreviewTokens    *preview.Store
+	PreviewHandler   *preview.Handler
+	Sandbox          *sandbox.Service
+	Templates        *template.Service
+	ReattachBuilder  func() error
+	ReconfigureLLMGW func(context.Context) error
+	LlmgwMounted     bool
 }
 
 // Service manages persisted app settings.
@@ -51,7 +51,7 @@ func Bootstrap(ctx context.Context, store *Store, cfg *config.Config) (AppSettin
 		}
 		return seed, nil
 	}
-	got, err := store.Get(ctx)
+	got, err := store.Load(ctx, FromConfig(cfg))
 	if err != nil {
 		return AppSettings{}, err
 	}
@@ -81,23 +81,25 @@ func (s *Service) Update(ctx context.Context, next AppSettings) error {
 	if err := next.Validate(); err != nil {
 		return err
 	}
-	if err := s.store.Upsert(ctx, next); err != nil {
+	if err := ApplyToConfig(&next, s.cfg); err != nil {
+		_ = ApplyToConfig(&prev, s.cfg)
 		return err
 	}
-	if err := ApplyToConfig(&next, s.cfg); err != nil {
+	if err := s.applyRuntime(ctx, next); err != nil {
+		_ = ApplyToConfig(&prev, s.cfg)
+		_ = s.applyRuntime(ctx, prev)
+		return err
+	}
+	if err := s.store.Upsert(ctx, next); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	s.current = next
 	s.mu.Unlock()
-	if err := s.applyRuntime(ctx); err != nil {
-		return err
-	}
 	return nil
 }
 
-func (s *Service) applyRuntime(ctx context.Context) error {
-	v := s.Current()
+func (s *Service) applyRuntime(ctx context.Context, v AppSettings) error {
 	if s.deps.AllowPublicReg != nil {
 		s.deps.AllowPublicReg(v.AllowPublicRegistration)
 	}

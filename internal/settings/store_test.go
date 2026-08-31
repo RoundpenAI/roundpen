@@ -71,8 +71,8 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 	db := testDB(t)
 	store := settings.NewStore(db.SQL)
 	envCfg := &config.Config{
-		DefaultImage:   "host",
-		DefaultTTL:     30 * time.Minute,
+		DefaultImage:    "host",
+		DefaultTTL:      30 * time.Minute,
 		PreviewTokenTTL: 15 * time.Minute,
 	}
 	if _, err := settings.Bootstrap(ctx, store, envCfg); err != nil {
@@ -80,8 +80,8 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 	}
 
 	dbCfg := &config.Config{
-		DefaultImage:   "host",
-		DefaultTTL:     30 * time.Minute,
+		DefaultImage:    "host",
+		DefaultTTL:      30 * time.Minute,
 		PreviewTokenTTL: 15 * time.Minute,
 	}
 	want := settings.AppSettings{

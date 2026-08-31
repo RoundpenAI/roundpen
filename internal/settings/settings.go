@@ -100,6 +100,9 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.TemplateBuilder = strings.ToLower(strings.TrimSpace(s.TemplateBuilder))
 	cfg.KanikoDestination = strings.TrimSpace(s.KanikoDestination)
 	cfg.KanikoExecutor = strings.TrimSpace(s.KanikoExecutor)
+	if cfg.KanikoExecutor == "" {
+		cfg.KanikoExecutor = "executor"
+	}
 	cfg.KanikoRegistryMirrors = config.SplitKanikoMirrors(s.KanikoRegistryMirrors)
 	cfg.KanikoInsecure = s.KanikoInsecure
 	cfg.KanikoSkipTLSVerify = s.KanikoSkipTLSVerify

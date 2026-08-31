@@ -30,6 +30,11 @@ func (s *Store) Exists(ctx context.Context) (bool, error) {
 
 // Get loads persisted settings.
 func (s *Store) Get(ctx context.Context) (AppSettings, error) {
+	return s.Load(ctx, AppSettings{})
+}
+
+// Load decodes the global row, filling missing keys from fallback.
+func (s *Store) Load(ctx context.Context, fallback AppSettings) (AppSettings, error) {
 	var raw []byte
 	err := s.sql.QueryRowContext(ctx, `SELECT payload FROM app_settings WHERE id=$1`, globalID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -38,13 +43,7 @@ func (s *Store) Get(ctx context.Context) (AppSettings, error) {
 	if err != nil {
 		return AppSettings{}, err
 	}
-	var out AppSettings
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &out); err != nil {
-			return AppSettings{}, fmt.Errorf("decode settings: %w", err)
-		}
-	}
-	return out, nil
+	return DecodeAppSettings(raw, fallback)
 }
 
 // Upsert saves settings.

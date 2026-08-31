@@ -25,8 +25,13 @@ func (g *Gateway) serveOpenAI(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider string) {
 	start := time.Now().UTC()
 	requestID := newRequestID()
-	logLimit := g.logLimit
+	logLimit := g.bodyLogLimit()
 	ctx := r.Context()
+
+	if !g.Enabled() {
+		http.Error(w, "llm gateway disabled", http.StatusServiceUnavailable)
+		return
+	}
 
 	vk, errMsg := g.authenticate(r)
 	if errMsg != "" {

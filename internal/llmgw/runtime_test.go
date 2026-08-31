@@ -23,6 +23,16 @@ func TestApplyConfigUpdatesRuntimeFields(t *testing.T) {
 	if err := gw.ApplyConfig(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
+	if !gw.Enabled() {
+		t.Fatal("expected enabled")
+	}
+	cfg.Enabled = false
+	if err := gw.ApplyConfig(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if gw.Enabled() {
+		t.Fatal("expected disabled")
+	}
 	vk, err := gw.Store().GetVirtualKey(context.Background(), "vk-a")
 	if err != nil || vk.Name != "a" {
 		t.Fatalf("virtual key: %+v err=%v", vk, err)

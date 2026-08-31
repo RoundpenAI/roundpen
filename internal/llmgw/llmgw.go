@@ -5,6 +5,7 @@ package llmgw
 import (
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/storage"
@@ -27,10 +28,13 @@ type Options struct {
 // Gateway serves LLM relay and admin HTTP endpoints backed by PostgreSQL.
 type Gateway struct {
 	store      *Store
-	logLimit   int
-	publicURL  string
 	logger     *slog.Logger
 	httpClient *http.Client
+
+	mu        sync.RWMutex
+	enabled   bool
+	logLimit  int
+	publicURL string
 }
 
 // New builds a Gateway. Call SeedFromConfig after construction to bootstrap from env.
@@ -45,6 +49,7 @@ func New(db *storage.DB, opts Options) *Gateway {
 	}
 	return &Gateway{
 		store:     NewStore(db),
+		enabled:   true,
 		logLimit:  limit,
 		publicURL: opts.PublicURL,
 		logger:    logger,
