@@ -32,6 +32,10 @@ function statusBadge(status: string): string {
   }
 }
 
+function isTerminalStatus(status: string): boolean {
+  return status === 'ready' || status === 'error'
+}
+
 export function TemplateBuildDialog({
   open,
   template,
@@ -43,6 +47,8 @@ export function TemplateBuildDialog({
 }: Props) {
   const titleId = useId()
   const logRef = useRef<HTMLPreElement>(null)
+  const onDoneRef = useRef(onDone)
+  const notifiedDoneRef = useRef(false)
   const [baseMode, setBaseMode] = useState<BaseMode>('image')
   const [fromImage, setFromImage] = useState('alpine:3.20')
   const [fromTemplate, setFromTemplate] = useState('base')
@@ -53,6 +59,9 @@ export function TemplateBuildDialog({
   const [buildStatus, setBuildStatus] = useState<BuildStatus | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  const [watchBuild, setWatchBuild] = useState(false)
+
+  onDoneRef.current = onDone
 
   useEffect(() => {
     if (!open || !template) return
@@ -64,23 +73,49 @@ export function TemplateBuildDialog({
     setReadyCmd('')
     setLocalError(null)
     setStarting(false)
+    setBuildStatus(null)
+    notifiedDoneRef.current = false
 
     if (template.buildStatus === 'building') {
       setPhase('monitor')
+      setWatchBuild(true)
       return
     }
-    if (template.buildStatus === 'ready' || template.buildStatus === 'error') {
+    if (isTerminalStatus(template.buildStatus)) {
       setPhase('monitor')
+      setWatchBuild(false)
       return
     }
     setPhase('form')
-    setBuildStatus(null)
+    setWatchBuild(false)
   }, [open, template, baseOptions])
 
   useEffect(() => {
     if (!open || !template || phase !== 'monitor') return
     let cancelled = false
     let offset = 0
+
+    async function fetchOnce() {
+      try {
+        const st = await templates.buildStatus(
+          template!.templateID,
+          template!.buildID,
+          0,
+        )
+        if (!cancelled) setBuildStatus(st)
+      } catch (err) {
+        if (!cancelled) {
+          setLocalError(err instanceof Error ? err.message : 'status failed')
+        }
+      }
+    }
+
+    if (!watchBuild) {
+      void fetchOnce()
+      return () => {
+        cancelled = true
+      }
+    }
 
     async function poll() {
       while (!cancelled) {
@@ -94,7 +129,10 @@ export function TemplateBuildDialog({
           setBuildStatus(st)
           offset = st.logEntries?.length ?? st.logs.length
           if (st.status === 'ready') {
-            onDone?.()
+            if (!notifiedDoneRef.current) {
+              notifiedDoneRef.current = true
+              onDoneRef.current?.()
+            }
             return
           }
           if (st.status === 'error') return
@@ -112,7 +150,7 @@ export function TemplateBuildDialog({
     return () => {
       cancelled = true
     }
-  }, [open, template, phase, onDone])
+  }, [open, template, phase, watchBuild])
 
   useEffect(() => {
     logRef.current?.scrollTo(0, logRef.current.scrollHeight)
@@ -125,6 +163,7 @@ export function TemplateBuildDialog({
     if (!template) return
     setStarting(true)
     setLocalError(null)
+    notifiedDoneRef.current = false
 
     const spec: BuildSpec = {
       cpuCount: template.cpuCount,
@@ -145,6 +184,7 @@ export function TemplateBuildDialog({
     try {
       await templates.startBuild(template.templateID, template.buildID, spec)
       setPhase('monitor')
+      setWatchBuild(true)
       setBuildStatus({
         templateID: template.templateID,
         buildID: template.buildID,
@@ -165,6 +205,7 @@ export function TemplateBuildDialog({
     buildStatus?.logEntries?.map((e) => e.message) ??
     buildStatus?.logs ??
     []
+  const title = watchBuild || canBuild(template) ? 'Build' : 'Logs'
 
   return (
     <dialog className="modal modal-open" aria-labelledby={titleId}>
@@ -172,7 +213,7 @@ export function TemplateBuildDialog({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 id={titleId} className="font-display text-lg font-semibold">
-              Build {templateDisplayName(template)}
+              {title} {templateDisplayName(template)}
             </h3>
             <p className="mt-1 font-mono text-xs opacity-50">
               {template.buildID.slice(0, 8)}…
@@ -335,4 +376,8 @@ export function TemplateBuildDialog({
       </form>
     </dialog>
   )
+}
+
+function canBuild(t: Template): boolean {
+  return t.buildStatus === 'waiting' || t.buildStatus === 'error'
 }

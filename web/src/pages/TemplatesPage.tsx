@@ -50,15 +50,15 @@ export function TemplatesPage() {
 
   const [building, setBuilding] = useState<Template | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     setError(null)
     try {
       setList(await templates.list())
     } catch (e) {
       setError(e instanceof Error ? e.message : 'failed to list')
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
   }, [])
 
@@ -98,9 +98,9 @@ export function TemplatesPage() {
     }
   }
 
-  function canBuild(t: Template): boolean {
-    return t.buildStatus === 'waiting' || t.buildStatus === 'error'
-  }
+  const handleBuildDone = useCallback(() => {
+    void load({ silent: true })
+  }, [load])
 
   const user = auth.status === 'ok' ? auth.user : null
 
@@ -153,6 +153,12 @@ export function TemplatesPage() {
           {error}
         </div>
       )}
+
+      <p className="mb-4 text-xs leading-relaxed opacity-50">
+        Built-in templates (host, base, python, node, code-agent) are seeded when
+        roundpend starts. Any rows you see beyond those may be leftovers from
+        earlier builds in the local database.
+      </p>
 
       {loading ? (
         <p className="text-sm opacity-50">Loading…</p>
@@ -226,8 +232,12 @@ export function TemplatesPage() {
         template={building}
         baseOptions={readyBases}
         onClose={() => setBuilding(null)}
-        onDone={() => void load()}
+        onDone={handleBuildDone}
       />
     </div>
   )
+}
+
+function canBuild(t: Template): boolean {
+  return t.buildStatus === 'waiting' || t.buildStatus === 'error'
 }
