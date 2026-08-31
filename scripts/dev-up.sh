@@ -87,6 +87,20 @@ if ! need_cmd docker; then
 	echo "      set ROUNDPEN_BACKEND=docker when you have a local/remote engine."
 fi
 
+if [[ "$CHECK_ONLY" -eq 0 ]] && ! need_cmd executor; then
+	echo "kaniko: installing executor for template builds..."
+	./scripts/install-kaniko.sh
+fi
+
+if ! need_cmd executor; then
+	if [[ "$CHECK_ONLY" -eq 1 ]]; then
+		echo "note: Kaniko executor not on PATH; run ./scripts/install-kaniko.sh for template builds."
+	else
+		note_missing "Kaniko executor is not installed (needed for template builds on kern)" \
+			"Run: ./scripts/install-kaniko.sh"
+	fi
+fi
+
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
 	echo "make dev: tools ok (go $(go env GOVERSION), node $(node -v), pg0 present)"
 	exit 0
@@ -121,6 +135,10 @@ ensure_env_key ROUNDPEN_DEFAULT_IMAGE "host"
 ensure_env_key ROUNDPEN_DATA_ROOT "./data"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
+ensure_env_key ROUNDPEN_TEMPLATE_BUILDER "kaniko"
+ensure_env_key ROUNDPEN_KANIKO_DESTINATION "127.0.0.1:5000/roundpen"
+ensure_env_key ROUNDPEN_KANIKO_INSECURE "true"
+ensure_env_key ROUNDPEN_KANIKO_SKIP_TLS_VERIFY "true"
 
 # Vite proxies UI :19000 → API :19001; bump away from :9527 if left from docs.
 if grep -qE '^ROUNDPEN_HTTP_ADDR=:9527$' .env; then
@@ -215,11 +233,34 @@ ensure_test_db() {
 	pg0 psql --name "$PG0_NAME" -- "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
 }
 
+ensure_kaniko_db_settings() {
+	local dest="${ROUNDPEN_KANIKO_DESTINATION:-127.0.0.1:5000/roundpen}"
+	local builder="${ROUNDPEN_TEMPLATE_BUILDER:-kaniko}"
+	echo "pg0: ensuring dev kaniko settings in app_settings..."
+	pg0 psql --name "$PG0_NAME" -- -v ON_ERROR_STOP=1 -c "
+UPDATE app_settings
+SET payload = payload
+  || jsonb_build_object(
+       'templateBuilder', '${builder}',
+       'kanikoDestination', '${dest}',
+       'kanikoInsecure', true,
+       'kanikoSkipTlsVerify', true
+     ),
+    updated_at = now()
+WHERE id = 'global'
+  AND (
+    COALESCE(payload->>'kanikoDestination', '') = ''
+    OR COALESCE(payload->>'templateBuilder', '') IN ('', 'auto', 'docker')
+  );
+" >/dev/null 2>&1 || true
+}
+
 case "$dsn_host" in
 127.0.0.1|localhost|"")
 	start_pg0
 	ensure_extensions
 	ensure_test_db
+	ensure_kaniko_db_settings
 	;;
 *)
 	echo "note: DATABASE_URL host is '${dsn_host}', not starting local pg0"

@@ -1,5 +1,5 @@
 .PHONY: setup build build-ui build-linux build-go test test-integration test-e2b-compat test-e2e e2e-live vet fmt tidy \
-	dev dev-check run-daemon compose-up compose-down
+	dev dev-check install-kaniko run-daemon compose-up compose-down
 
 setup:
 	@echo "Initializing development environment..."
@@ -16,6 +16,9 @@ dev:
 
 dev-check:
 	@./scripts/dev-up.sh --check-only
+
+install-kaniko:
+	@./scripts/install-kaniko.sh
 
 # Node is only needed here (and in the Docker builder). End users run a
 # prebuilt binary or `docker compose up` — they never need npm.
