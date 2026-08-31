@@ -130,6 +130,11 @@ export function TemplatesPage() {
           Sandboxes
         </Link>
         <span className="font-medium">Templates</span>
+        {user?.role === 'admin' && (
+          <Link to="/settings" className="link link-hover opacity-55">
+            Settings
+          </Link>
+        )}
       </nav>
 
       <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-base-300 pb-6">

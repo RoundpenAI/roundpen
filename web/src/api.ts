@@ -262,3 +262,39 @@ export function terminalWsUrl(id: string): string {
 
 /** Suggested categories for agent resolve (e.g. open Browser → default). */
 export const SUGGESTED_CATEGORIES = ['Browser', 'Code', 'Shell'] as const
+
+export type AppSettings = {
+  allowPublicRegistration: boolean
+  defaultImage: string
+  defaultTtlSeconds: number
+  previewPublicUrl: string
+  previewTokenTtlSeconds: number
+  templateBuilder: string
+  kanikoDestination: string
+  kanikoInsecure: boolean
+  kanikoSkipTlsVerify: boolean
+  kanikoExtraArgs: string
+}
+
+export type SystemInfo = {
+  backend: string
+  dockerHost: string
+  dataRoot: string
+  httpAddr: string
+  templateBuilderActive: string
+  templateBuilderHint?: string
+}
+
+export type SettingsResponse = {
+  settings: AppSettings
+  system: SystemInfo
+}
+
+export const adminSettings = {
+  get: () => api<SettingsResponse>('/v1/admin/settings'),
+  update: (settings: AppSettings) =>
+    api<SettingsResponse>('/v1/admin/settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -22,6 +23,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/ui"
@@ -66,6 +68,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	settingsStore := settings.NewStore(db.SQL)
+	appSettings, err := settings.Bootstrap(ctx, settingsStore, cfg)
+	if err != nil {
+		logger.Error("settings bootstrap", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	var allowRegMu sync.RWMutex
+	allowPublicRegistration := cfg.AllowPublicRegistration
+	allowRegistration := func() bool {
+		allowRegMu.RLock()
+		defer allowRegMu.RUnlock()
+		return allowPublicRegistration
+	}
+	setAllowRegistration := func(v bool) {
+		allowRegMu.Lock()
+		allowPublicRegistration = v
+		cfg.AllowPublicRegistration = v
+		allowRegMu.Unlock()
+	}
+
 	userStore := storage.NewUserStore(db)
 	sessionStore := storage.NewSessionStore(db)
 	if cfg.BootstrapAdmin {
@@ -84,6 +107,7 @@ func main() {
 	}
 
 	var mgr sandbox.Manager
+	var sbSvc *sandbox.Service
 	store := storage.NewSandboxStore(db)
 	tplStore := template.NewStore(db.SQL)
 	tplSvc := template.NewService(tplStore, cfg.DefaultImage)
@@ -92,12 +116,25 @@ func main() {
 		logger.Error("template seed", slog.Any("err", err))
 		os.Exit(1)
 	}
-	closeBuilder, err := template.AttachBuilder(cfg, tplSvc, logger)
-	if err != nil {
+	var closeBuilder func()
+	reattachBuilder := func() error {
+		if closeBuilder != nil {
+			closeBuilder()
+			closeBuilder = nil
+		}
+		var err error
+		closeBuilder, err = template.AttachBuilder(cfg, tplSvc, logger)
+		return err
+	}
+	if err := reattachBuilder(); err != nil {
 		logger.Error("template builder", slog.Any("err", err))
 		os.Exit(1)
 	}
-	defer closeBuilder()
+	defer func() {
+		if closeBuilder != nil {
+			closeBuilder()
+		}
+	}()
 
 	switch cfg.Backend {
 	case "docker":
@@ -112,9 +149,11 @@ func main() {
 			os.Exit(1)
 		}
 		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc))
+		sbSvc = mgr.(*sandbox.Service)
 	case "kern":
 		be := kernbackend.New()
-		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc))
+		sbSvc = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc))
+		mgr = sbSvc
 		logger.Info("using kern backend (daemonless host processes)")
 	default:
 		logger.Error("backend not implemented", slog.String("backend", cfg.Backend))
@@ -122,16 +161,27 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	auth.Mount(mux, userStore, sessionStore, func() bool { return cfg.AllowPublicRegistration })
+	auth.Mount(mux, userStore, sessionStore, allowRegistration)
 	(&e2b.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr}
 	native.Mount(mux)
 	native.MountTerminal(mux)
-	(&preview.Handler{
+	previewHandler := &preview.Handler{
 		Manager:   mgr,
 		Tokens:    preview.NewStore(cfg.PreviewTokenTTL),
 		PublicURL: cfg.PreviewPublicURL,
-	}).Mount(mux)
+	}
+	previewHandler.Mount(mux)
+
+	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
+		AllowPublicReg:  setAllowRegistration,
+		PreviewTokens:   previewHandler.Tokens,
+		PreviewHandler:  previewHandler,
+		Sandbox:         sbSvc,
+		Templates:       tplSvc,
+		ReattachBuilder: reattachBuilder,
+	}, appSettings)
+	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)
 	memSvc := &memory.Service{Store: memStore, Logger: logger}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/RoundpenAI/roundpen/internal/template/builder"
@@ -104,4 +105,11 @@ func (s *Service) Exists(ctx context.Context, name string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// SetDefaultImage updates the fallback image for template resolution.
+func (s *Service) SetDefaultImage(image string) {
+	if strings.TrimSpace(image) != "" {
+		s.defaultImage = strings.TrimSpace(image)
+	}
 }

@@ -57,6 +57,16 @@ func WithTemplates(t *template.Service) ServiceOption {
 	return func(s *Service) { s.templates = t }
 }
 
+// SetDefaults updates default image and TTL for new sandboxes.
+func (s *Service) SetDefaults(image string, ttl time.Duration) {
+	if strings.TrimSpace(image) != "" {
+		s.defaultImage = strings.TrimSpace(image)
+	}
+	if ttl > 0 {
+		s.defaultTTL = ttl
+	}
+}
+
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, error) {
 	templateRef := req.TemplateID
 	image := req.Image

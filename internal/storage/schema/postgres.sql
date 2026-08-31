@@ -228,3 +228,10 @@ CREATE TABLE IF NOT EXISTS template_build_logs (
 );
 CREATE INDEX IF NOT EXISTS template_build_logs_build_idx ON template_build_logs (build_id, seq);
 
+-- Mutable app settings (admin UI; env seeds on first boot)
+CREATE TABLE IF NOT EXISTS app_settings (
+    id          TEXT PRIMARY KEY DEFAULT 'global',
+    payload     JSONB NOT NULL DEFAULT '{}',
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+

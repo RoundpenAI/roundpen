@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { RequireAuth } from './auth'
 import { LoginPage } from './pages/LoginPage'
 import { SandboxesPage } from './pages/SandboxesPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { TemplatesPage } from './pages/TemplatesPage'
 import { WorkbenchPage } from './pages/WorkbenchPage'
 
@@ -23,6 +24,14 @@ export default function App() {
           element={
             <RequireAuth>
               <TemplatesPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <RequireAuth>
+              <SettingsPage />
             </RequireAuth>
           }
         />
