@@ -46,7 +46,7 @@ func (s *Service) CreateTemplate(ctx context.Context, req CreateTemplateRequest)
 // StartBuild launches an async template build (T1/T2).
 func (s *Service) StartBuild(ctx context.Context, templateID, buildID string, spec BuildSpec) error {
 	if s.builder == nil {
-		return fmt.Errorf("template builds require docker backend")
+		return fmt.Errorf("template builds are not configured (set ROUNDPEN_TEMPLATE_BUILDER=docker|kaniko)")
 	}
 	info, err := s.store.GetBuild(ctx, templateID, buildID)
 	if err != nil {

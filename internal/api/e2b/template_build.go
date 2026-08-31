@@ -109,7 +109,7 @@ func (h *Handler) startTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, err.Error())
 			return
 		}
-		if strings.Contains(err.Error(), "require docker") {
+		if strings.Contains(err.Error(), "not configured") {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}

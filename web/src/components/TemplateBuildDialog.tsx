@@ -306,8 +306,10 @@ export function TemplateBuildDialog({
             </div>
 
             <p className="text-xs opacity-45">
-              Image builds require the docker backend on roundpend. Kern dev uses
-              built-in templates only.
+              Image builds require a configured builder: docker backend, or kaniko
+              with <code className="font-mono">ROUNDPEN_TEMPLATE_BUILDER=kaniko</code>{' '}
+              and <code className="font-mono">ROUNDPEN_KANIKO_DESTINATION</code>. T2
+              snapshot verification currently needs docker.
             </p>
 
             {showErr && (
