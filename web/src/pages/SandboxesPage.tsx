@@ -119,7 +119,7 @@ export function SandboxesPage() {
 
       <nav className="mb-6 flex gap-4 border-b border-base-300 pb-4 text-sm">
         <span className="font-medium">Sandboxes</span>
-        <Link to="/templates" className="link link-hover opacity-55">
+        <Link to="/registry" className="link link-hover opacity-55">
           Templates
         </Link>
       </nav>

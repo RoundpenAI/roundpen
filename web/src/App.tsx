@@ -19,7 +19,7 @@ export default function App() {
           }
         />
         <Route
-          path="/templates"
+          path="/registry"
           element={
             <RequireAuth>
               <TemplatesPage />
