@@ -21,9 +21,20 @@ type AppSettings struct {
 	PreviewTokenTtlSeconds  int    `json:"previewTokenTtlSeconds"`
 	TemplateBuilder         string `json:"templateBuilder"`
 	KanikoDestination       string `json:"kanikoDestination"`
+	KanikoExecutor          string `json:"kanikoExecutor"`
+	KanikoRegistryMirrors   string `json:"kanikoRegistryMirrors"`
 	KanikoInsecure          bool   `json:"kanikoInsecure"`
 	KanikoSkipTLSVerify     bool   `json:"kanikoSkipTlsVerify"`
 	KanikoExtraArgs         string `json:"kanikoExtraArgs"`
+	LlmgwEnabled            bool   `json:"llmgwEnabled"`
+	LlmgwPublicURL          string `json:"llmgwPublicUrl"`
+	LlmgwLogBodyMaxBytes    int    `json:"llmgwLogBodyMaxBytes"`
+	LlmgwEmbeddingModel     string `json:"llmgwEmbeddingModel"`
+	LlmgwOpenaiBaseURL      string `json:"llmgwOpenaiBaseUrl"`
+	LlmgwOpenaiAPIKey       string `json:"llmgwOpenaiApiKey"`
+	LlmgwAnthropicBaseURL   string `json:"llmgwAnthropicBaseUrl"`
+	LlmgwAnthropicAPIKey    string `json:"llmgwAnthropicApiKey"`
+	LlmgwVirtualKeys        string `json:"llmgwVirtualKeys"`
 }
 
 // SystemInfo is read-only infrastructure metadata for the settings UI.
@@ -34,6 +45,8 @@ type SystemInfo struct {
 	HTTPAddr              string `json:"httpAddr"`
 	TemplateBuilderActive string `json:"templateBuilderActive"`
 	TemplateBuilderHint   string `json:"templateBuilderHint,omitempty"`
+	LlmgwActive           bool   `json:"llmgwActive"`
+	LlmgwMounted          bool   `json:"llmgwMounted"`
 }
 
 // FromConfig extracts DB-backed settings from process config.
@@ -46,14 +59,39 @@ func FromConfig(cfg *config.Config) AppSettings {
 		PreviewTokenTtlSeconds:  int(cfg.PreviewTokenTTL / time.Second),
 		TemplateBuilder:         cfg.TemplateBuilder,
 		KanikoDestination:       cfg.KanikoDestination,
+		KanikoExecutor:          cfg.KanikoExecutor,
+		KanikoRegistryMirrors:   strings.Join(cfg.KanikoRegistryMirrors, " "),
 		KanikoInsecure:          cfg.KanikoInsecure,
 		KanikoSkipTLSVerify:     cfg.KanikoSkipTLSVerify,
 		KanikoExtraArgs:         strings.Join(cfg.KanikoExtraArgs, " "),
+		LlmgwEnabled:            cfg.LLMGW.Enabled,
+		LlmgwPublicURL:          cfg.LLMGW.PublicURL,
+		LlmgwLogBodyMaxBytes:    cfg.LLMGW.LogBodyMaxBytes,
+		LlmgwEmbeddingModel:     cfg.LLMGW.EmbeddingModel,
+		LlmgwOpenaiBaseURL:      llmgwUpstreamBase(cfg.LLMGW.OpenAI),
+		LlmgwOpenaiAPIKey:       llmgwUpstreamKey(cfg.LLMGW.OpenAI),
+		LlmgwAnthropicBaseURL:   llmgwUpstreamBase(cfg.LLMGW.Anthropic),
+		LlmgwAnthropicAPIKey:    llmgwUpstreamKey(cfg.LLMGW.Anthropic),
+		LlmgwVirtualKeys:        config.FormatVirtualKeys(cfg.LLMGW.VirtualKeys),
 	}
 }
 
+// SanitizeForResponse masks secrets before returning settings to clients.
+func (s AppSettings) SanitizeForResponse() AppSettings {
+	out := s
+	out.LlmgwOpenaiAPIKey = MaskSecret(s.LlmgwOpenaiAPIKey)
+	out.LlmgwAnthropicAPIKey = MaskSecret(s.LlmgwAnthropicAPIKey)
+	return out
+}
+
+// MergeSecrets preserves stored API keys when the client leaves them masked.
+func (s *AppSettings) MergeSecrets(previous AppSettings) {
+	s.LlmgwOpenaiAPIKey = ResolveSecret(s.LlmgwOpenaiAPIKey, previous.LlmgwOpenaiAPIKey)
+	s.LlmgwAnthropicAPIKey = ResolveSecret(s.LlmgwAnthropicAPIKey, previous.LlmgwAnthropicAPIKey)
+}
+
 // ApplyToConfig writes settings into the in-memory process config.
-func ApplyToConfig(s *AppSettings, cfg *config.Config) {
+func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.AllowPublicRegistration = s.AllowPublicRegistration
 	cfg.DefaultImage = strings.TrimSpace(s.DefaultImage)
 	cfg.DefaultTTL = time.Duration(s.DefaultTtlSeconds) * time.Second
@@ -61,6 +99,8 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) {
 	cfg.PreviewTokenTTL = time.Duration(s.PreviewTokenTtlSeconds) * time.Second
 	cfg.TemplateBuilder = strings.ToLower(strings.TrimSpace(s.TemplateBuilder))
 	cfg.KanikoDestination = strings.TrimSpace(s.KanikoDestination)
+	cfg.KanikoExecutor = strings.TrimSpace(s.KanikoExecutor)
+	cfg.KanikoRegistryMirrors = config.SplitKanikoMirrors(s.KanikoRegistryMirrors)
 	cfg.KanikoInsecure = s.KanikoInsecure
 	cfg.KanikoSkipTLSVerify = s.KanikoSkipTLSVerify
 	args := strings.TrimSpace(s.KanikoExtraArgs)
@@ -69,6 +109,18 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) {
 	} else {
 		cfg.KanikoExtraArgs = strings.Fields(args)
 	}
+	return config.ApplyLLMGWSettings(
+		&cfg.LLMGW,
+		s.LlmgwEnabled,
+		s.LlmgwPublicURL,
+		s.LlmgwEmbeddingModel,
+		s.LlmgwLogBodyMaxBytes,
+		s.LlmgwOpenaiBaseURL,
+		s.LlmgwOpenaiAPIKey,
+		s.LlmgwAnthropicBaseURL,
+		s.LlmgwAnthropicAPIKey,
+		s.LlmgwVirtualKeys,
+	)
 }
 
 // Validate checks user-editable settings.
@@ -87,11 +139,31 @@ func (s AppSettings) Validate() error {
 	default:
 		return fmt.Errorf("templateBuilder must be auto, docker, kaniko, or empty")
 	}
+	if s.LlmgwLogBodyMaxBytes < -1 {
+		return fmt.Errorf("llmgwLogBodyMaxBytes must be >= -1")
+	}
+	openaiBase := strings.TrimSpace(s.LlmgwOpenaiBaseURL)
+	openaiKey := strings.TrimSpace(s.LlmgwOpenaiAPIKey)
+	if openaiBase != "" || openaiKey != "" {
+		if openaiBase == "" || openaiKey == "" {
+			return fmt.Errorf("llmgwOpenaiBaseUrl and llmgwOpenaiApiKey must both be set")
+		}
+	}
+	anthropicBase := strings.TrimSpace(s.LlmgwAnthropicBaseURL)
+	anthropicKey := strings.TrimSpace(s.LlmgwAnthropicAPIKey)
+	if anthropicBase != "" || anthropicKey != "" {
+		if anthropicBase == "" || anthropicKey == "" {
+			return fmt.Errorf("llmgwAnthropicBaseUrl and llmgwAnthropicApiKey must both be set")
+		}
+	}
+	if _, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys); err != nil {
+		return err
+	}
 	return nil
 }
 
 // SystemFromConfig returns read-only system metadata.
-func SystemFromConfig(cfg *config.Config) SystemInfo {
+func SystemFromConfig(cfg *config.Config, llmgwMounted bool) SystemInfo {
 	active := cfg.ResolveTemplateBuilder()
 	info := SystemInfo{
 		Backend:               cfg.Backend,
@@ -99,9 +171,25 @@ func SystemFromConfig(cfg *config.Config) SystemInfo {
 		DataRoot:              cfg.EffectiveDataRoot(),
 		HTTPAddr:              cfg.HTTPAddr,
 		TemplateBuilderActive: active,
+		LlmgwActive:           cfg.LLMGW.Enabled,
+		LlmgwMounted:          llmgwMounted,
 	}
 	if active == "" {
 		info.TemplateBuilderHint = template.BuilderUnavailableHint(cfg)
 	}
 	return info
+}
+
+func llmgwUpstreamBase(u *config.LLMGWUpstream) string {
+	if u == nil {
+		return ""
+	}
+	return u.BaseURL
+}
+
+func llmgwUpstreamKey(u *config.LLMGWUpstream) string {
+	if u == nil {
+		return ""
+	}
+	return u.APIKey
 }

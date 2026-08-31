@@ -110,6 +110,11 @@ export type TemplateBuildSummary = {
   updatedAt: string
 }
 
+export type TemplateTag = {
+  tag: string
+  buildID: string
+}
+
 export type TemplateDetail = Template & {
   builtin: boolean
   namespace: string
@@ -117,6 +122,13 @@ export type TemplateDetail = Template & {
   description: string
   profile: string
   builds: TemplateBuildSummary[]
+  tags: TemplateTag[]
+}
+
+export type CreateBuildResult = {
+  templateID: string
+  buildID: string
+  tags: string[]
 }
 
 export type TemplatePatch = {
@@ -166,6 +178,13 @@ export type BuildStatus = {
   logs: string[]
   logEntries: BuildLogEntry[]
   reason?: { message: string }
+  spec?: BuildSpec
+}
+
+export type StartBuildResult = {
+  templateID: string
+  buildID: string
+  forked?: boolean
 }
 
 export function templateDisplayName(t: Template): string {
@@ -197,8 +216,32 @@ export const templates = {
         public: input.public ?? true,
       }),
     }),
-  startBuild: (templateID: string, buildID: string, spec: BuildSpec) =>
-    api<void>(`/v2/templates/${templateID}/builds/${buildID}`, {
+  createBuild: (
+    templateID: string,
+    input?: {
+      tags?: string[]
+      assignDefault?: boolean
+      cpuCount?: number
+      memoryMB?: number
+      diskSizeMB?: number
+    },
+  ) =>
+    api<CreateBuildResult>(`/v2/templates/${templateID}/builds`, {
+      method: 'POST',
+      body: JSON.stringify({
+        tags: input?.tags,
+        assignDefault: input?.assignDefault,
+        cpuCount: input?.cpuCount,
+        memoryMB: input?.memoryMB,
+        diskSizeMB: input?.diskSizeMB,
+      }),
+    }),
+  startBuild: (
+    templateID: string,
+    buildID: string,
+    spec: BuildSpec & { tags?: string[]; assignDefault?: boolean },
+  ) =>
+    api<StartBuildResult>(`/v2/templates/${templateID}/builds/${buildID}`, {
       method: 'POST',
       body: JSON.stringify(spec),
     }),
@@ -308,9 +351,20 @@ export type AppSettings = {
   previewTokenTtlSeconds: number
   templateBuilder: string
   kanikoDestination: string
+  kanikoExecutor: string
+  kanikoRegistryMirrors: string
   kanikoInsecure: boolean
   kanikoSkipTlsVerify: boolean
   kanikoExtraArgs: string
+  llmgwEnabled: boolean
+  llmgwPublicUrl: string
+  llmgwLogBodyMaxBytes: number
+  llmgwEmbeddingModel: string
+  llmgwOpenaiBaseUrl: string
+  llmgwOpenaiApiKey: string
+  llmgwAnthropicBaseUrl: string
+  llmgwAnthropicApiKey: string
+  llmgwVirtualKeys: string
 }
 
 export type SystemInfo = {
@@ -320,6 +374,8 @@ export type SystemInfo = {
   httpAddr: string
   templateBuilderActive: string
   templateBuilderHint?: string
+  llmgwActive: boolean
+  llmgwMounted: boolean
 }
 
 export type SettingsResponse = {

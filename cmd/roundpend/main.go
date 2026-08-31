@@ -173,68 +173,52 @@ func main() {
 	}
 	previewHandler.Mount(mux)
 
-	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
-		AllowPublicReg:  setAllowRegistration,
-		PreviewTokens:   previewHandler.Tokens,
-		PreviewHandler:  previewHandler,
-		Sandbox:         sbSvc,
-		Templates:       tplSvc,
-		ReattachBuilder: reattachBuilder,
-	}, appSettings)
-	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
-
 	memStore := memory.NewPgStore(db)
 	memSvc := &memory.Service{Store: memStore, Logger: logger}
 	go memory.RunPurge(ctx, memStore, logger, time.Hour)
 
-	var gw *llmgw.Gateway
-	if cfg.LLMGW.Enabled {
-		gw = llmgw.New(db, llmgw.Options{
-			LogBodyMaxBytes: cfg.LLMGW.LogBodyMaxBytes,
-			PublicURL:       cfg.LLMGW.PublicURL,
-			Logger:          logger,
-		})
-		seed := llmgw.SeedConfig{Keys: make([]llmgw.VirtualKey, 0, len(cfg.LLMGW.VirtualKeys))}
-		if cfg.LLMGW.OpenAI != nil {
-			seed.OpenAI = &llmgw.UpstreamSeed{
-				BaseURL: cfg.LLMGW.OpenAI.BaseURL,
-				APIKey:  cfg.LLMGW.OpenAI.APIKey,
-				ModelMap: map[string]string{
-					llmgw.EmbeddingModelAlias: cfg.LLMGW.EmbeddingModel,
-				},
-			}
+	gw := llmgw.New(db, llmgw.Options{
+		LogBodyMaxBytes: cfg.LLMGW.LogBodyMaxBytes,
+		PublicURL:       cfg.LLMGW.PublicURL,
+		Logger:          logger,
+	})
+	gw.Mount(mux)
+	go memory.RunReembed(ctx, memStore, gw, logger, 2*time.Minute)
+
+	reconfigureLLMGW := func(ctx context.Context) error {
+		if err := gw.ApplyConfig(ctx, cfg.LLMGW); err != nil {
+			return err
 		}
-		if cfg.LLMGW.Anthropic != nil {
-			seed.Anthropic = &llmgw.UpstreamSeed{
-				BaseURL: cfg.LLMGW.Anthropic.BaseURL,
-				APIKey:  cfg.LLMGW.Anthropic.APIKey,
-			}
-		}
-		for _, vk := range cfg.LLMGW.VirtualKeys {
-			seed.Keys = append(seed.Keys, llmgw.VirtualKey{Key: vk.Key, Name: vk.Name})
-		}
-		if err := gw.SeedFromConfig(seed); err != nil {
-			logger.Error("llmgw seed", slog.Any("err", err))
-			os.Exit(1)
-		}
-		if err := gw.EnsureInternal(ctx, cfg.LLMGW.EmbeddingModel); err != nil {
-			logger.Error("llmgw ensure internal", slog.Any("err", err))
-			os.Exit(1)
-		}
-		gw.Mount(mux)
-		if cfg.LLMGW.OpenAI != nil {
+		if cfg.LLMGW.Enabled && cfg.LLMGW.OpenAI != nil {
 			memSvc.Embed = gw
-			go memory.RunReembed(ctx, memStore, gw, logger, 2*time.Minute)
+		} else {
+			memSvc.Embed = nil
 		}
-		logger.Info("llmgw enabled",
+		logger.Info("llmgw reconfigured",
+			slog.Bool("enabled", cfg.LLMGW.Enabled),
 			slog.Bool("openai", cfg.LLMGW.OpenAI != nil),
 			slog.Bool("anthropic", cfg.LLMGW.Anthropic != nil),
 			slog.Int("virtual_keys", len(cfg.LLMGW.VirtualKeys)),
 			slog.String("embedding_model", cfg.LLMGW.EmbeddingModel),
-			slog.String("internal_vkey", llmgw.InternalVirtualKey),
-			slog.String("embed_alias", llmgw.EmbeddingModelAlias),
 		)
+		return nil
 	}
+	if err := reconfigureLLMGW(ctx); err != nil {
+		logger.Error("llmgw configure", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
+		AllowPublicReg:    setAllowRegistration,
+		PreviewTokens:     previewHandler.Tokens,
+		PreviewHandler:    previewHandler,
+		Sandbox:           sbSvc,
+		Templates:         tplSvc,
+		ReattachBuilder:   reattachBuilder,
+		ReconfigureLLMGW:  reconfigureLLMGW,
+		LlmgwMounted:      true,
+	}, appSettings)
+	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
 

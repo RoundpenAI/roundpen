@@ -32,6 +32,7 @@ type Config struct {
 	KanikoDestination       string
 	KanikoInsecure          bool
 	KanikoSkipTLSVerify     bool
+	KanikoRegistryMirrors   []string
 	KanikoExtraArgs         []string
 }
 
@@ -57,6 +58,7 @@ func Load() (*Config, error) {
 		KanikoDestination:       strings.TrimSpace(os.Getenv("ROUNDPEN_KANIKO_DESTINATION")),
 		KanikoInsecure:          getenvBool("ROUNDPEN_KANIKO_INSECURE", false),
 		KanikoSkipTLSVerify:     getenvBool("ROUNDPEN_KANIKO_SKIP_TLS_VERIFY", false),
+		KanikoRegistryMirrors:   SplitKanikoMirrors(os.Getenv("ROUNDPEN_KANIKO_REGISTRY_MIRROR")),
 	}
 	if v := strings.TrimSpace(os.Getenv("ROUNDPEN_KANIKO_EXTRA_ARGS")); v != "" {
 		cfg.KanikoExtraArgs = strings.Fields(v)
@@ -117,4 +119,27 @@ func getenvBool(key string, fallback bool) bool {
 		return false
 	}
 	return fallback
+}
+
+// SplitKanikoMirrors parses space/comma-separated registry mirrors.
+// Accepts hosts or URLs (https://docker.1ms.run → docker.1ms.run).
+func SplitKanikoMirrors(v string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(v, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		f = strings.TrimPrefix(f, "https://")
+		f = strings.TrimPrefix(f, "http://")
+		f = strings.TrimSuffix(f, "/")
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
 }

@@ -18,9 +18,20 @@ const emptySettings: AppSettings = {
   previewTokenTtlSeconds: 900,
   templateBuilder: '',
   kanikoDestination: '',
+  kanikoExecutor: '',
+  kanikoRegistryMirrors: '',
   kanikoInsecure: false,
   kanikoSkipTlsVerify: false,
   kanikoExtraArgs: '',
+  llmgwEnabled: false,
+  llmgwPublicUrl: '',
+  llmgwLogBodyMaxBytes: -1,
+  llmgwEmbeddingModel: 'text-embedding-3-small',
+  llmgwOpenaiBaseUrl: '',
+  llmgwOpenaiApiKey: '',
+  llmgwAnthropicBaseUrl: '',
+  llmgwAnthropicApiKey: '',
+  llmgwVirtualKeys: '',
 }
 
 const BUILDER_OPTIONS = [
@@ -329,6 +340,30 @@ export function SettingsPage() {
                 onChange={(e) => patch({ kanikoDestination: e.target.value })}
               />
             </label>
+            <label className="form-control w-full max-w-md">
+              <span className="label-text text-xs opacity-60">
+                Kaniko executor binary
+              </span>
+              <input
+                className="input input-bordered input-sm"
+                placeholder="executor"
+                value={form.kanikoExecutor}
+                onChange={(e) => patch({ kanikoExecutor: e.target.value })}
+              />
+            </label>
+            <label className="form-control w-full max-w-md">
+              <span className="label-text text-xs opacity-60">
+                Kaniko registry mirrors
+              </span>
+              <input
+                className="input input-bordered input-sm"
+                placeholder="docker.1ms.run mirror.example"
+                value={form.kanikoRegistryMirrors}
+                onChange={(e) =>
+                  patch({ kanikoRegistryMirrors: e.target.value })
+                }
+              />
+            </label>
             <label className="flex items-center gap-3 text-sm">
               <input
                 type="checkbox"
@@ -362,6 +397,130 @@ export function SettingsPage() {
             </label>
           </section>
 
+          <section className="mb-8 space-y-4">
+            <h2 className="text-sm font-medium">LLM gateway</h2>
+            <label className="flex items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                className="checkbox checkbox-sm"
+                checked={form.llmgwEnabled}
+                onChange={(e) => patch({ llmgwEnabled: e.target.checked })}
+              />
+              Enable LLM gateway relay
+            </label>
+            <label className="form-control w-full max-w-md">
+              <span className="label-text text-xs opacity-60">
+                Public base URL (for setup docs)
+              </span>
+              <input
+                className="input input-bordered input-sm"
+                placeholder="http://127.0.0.1:9527"
+                value={form.llmgwPublicUrl}
+                onChange={(e) => patch({ llmgwPublicUrl: e.target.value })}
+              />
+            </label>
+            <label className="form-control w-full max-w-md">
+              <span className="label-text text-xs opacity-60">
+                Log body max bytes (-1 = default 64 KiB, 0 = off)
+              </span>
+              <input
+                type="number"
+                className="input input-bordered input-sm"
+                value={form.llmgwLogBodyMaxBytes}
+                onChange={(e) =>
+                  patch({ llmgwLogBodyMaxBytes: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label className="form-control w-full max-w-md">
+              <span className="label-text text-xs opacity-60">
+                Embedding model (upstream)
+              </span>
+              <input
+                className="input input-bordered input-sm"
+                placeholder="text-embedding-3-small"
+                value={form.llmgwEmbeddingModel}
+                onChange={(e) =>
+                  patch({ llmgwEmbeddingModel: e.target.value })
+                }
+              />
+            </label>
+            <div className="grid max-w-md gap-3 sm:grid-cols-2">
+              <label className="form-control">
+                <span className="label-text text-xs opacity-60">
+                  OpenAI base URL
+                </span>
+                <input
+                  className="input input-bordered input-sm"
+                  placeholder="https://api.openai.com"
+                  value={form.llmgwOpenaiBaseUrl}
+                  onChange={(e) =>
+                    patch({ llmgwOpenaiBaseUrl: e.target.value })
+                  }
+                />
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs opacity-60">
+                  OpenAI API key
+                </span>
+                <input
+                  type="password"
+                  className="input input-bordered input-sm"
+                  placeholder="Leave masked to keep current"
+                  value={form.llmgwOpenaiApiKey}
+                  onChange={(e) =>
+                    patch({ llmgwOpenaiApiKey: e.target.value })
+                  }
+                />
+              </label>
+            </div>
+            <div className="grid max-w-md gap-3 sm:grid-cols-2">
+              <label className="form-control">
+                <span className="label-text text-xs opacity-60">
+                  Anthropic base URL
+                </span>
+                <input
+                  className="input input-bordered input-sm"
+                  placeholder="https://api.anthropic.com"
+                  value={form.llmgwAnthropicBaseUrl}
+                  onChange={(e) =>
+                    patch({ llmgwAnthropicBaseUrl: e.target.value })
+                  }
+                />
+              </label>
+              <label className="form-control">
+                <span className="label-text text-xs opacity-60">
+                  Anthropic API key
+                </span>
+                <input
+                  type="password"
+                  className="input input-bordered input-sm"
+                  placeholder="Leave masked to keep current"
+                  value={form.llmgwAnthropicApiKey}
+                  onChange={(e) =>
+                    patch({ llmgwAnthropicApiKey: e.target.value })
+                  }
+                />
+              </label>
+            </div>
+            <label className="form-control w-full max-w-md">
+              <span className="label-text text-xs opacity-60">
+                Virtual keys (vk-dev:dev,vk-prod)
+              </span>
+              <input
+                className="input input-bordered input-sm"
+                placeholder="vk-dev:dev"
+                value={form.llmgwVirtualKeys}
+                onChange={(e) => patch({ llmgwVirtualKeys: e.target.value })}
+              />
+            </label>
+            <p className="max-w-md text-xs opacity-50">
+              API keys are stored in the database and shown masked. Leave a
+              masked field untouched to keep the existing secret. Changes apply
+              immediately without restart.
+            </p>
+          </section>
+
           {data?.system && (
             <section className="mb-8 rounded-lg border border-base-300 p-4 text-sm">
               <h2 className="mb-3 font-medium">System (read-only)</h2>
@@ -378,6 +537,14 @@ export function SettingsPage() {
                 <dd className="font-mono">
                   {data.system.templateBuilderActive || 'disabled'}
                 </dd>
+                <dt>LLM gateway</dt>
+                <dd className="font-mono">
+                  {data.system.llmgwActive
+                    ? 'active'
+                    : data.system.llmgwMounted
+                      ? 'mounted (disabled)'
+                      : 'not mounted'}
+                </dd>
               </dl>
               {data.system.templateBuilderHint && (
                 <p className="mt-3 text-xs opacity-55">
@@ -385,8 +552,9 @@ export function SettingsPage() {
                 </p>
               )}
               <p className="mt-3 text-xs opacity-45">
-                Changes to backend, database, and listen address require
-                environment variables and a process restart.
+                Backend, database, and listen address require environment
+                variables and a process restart. Template builds and LLM gateway
+                settings above apply at runtime.
               </p>
             </section>
           )}

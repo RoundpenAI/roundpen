@@ -13,12 +13,14 @@ import (
 
 // RuntimeDeps are subsystems updated on PUT /v1/admin/settings.
 type RuntimeDeps struct {
-	AllowPublicReg  func(bool)
-	PreviewTokens   *preview.Store
-	PreviewHandler  *preview.Handler
-	Sandbox         *sandbox.Service
-	Templates       *template.Service
-	ReattachBuilder func() error
+	AllowPublicReg    func(bool)
+	PreviewTokens     *preview.Store
+	PreviewHandler    *preview.Handler
+	Sandbox           *sandbox.Service
+	Templates         *template.Service
+	ReattachBuilder   func() error
+	ReconfigureLLMGW  func(context.Context) error
+	LlmgwMounted      bool
 }
 
 // Service manages persisted app settings.
@@ -59,7 +61,9 @@ func Bootstrap(ctx context.Context, store *Store, cfg *config.Config) (AppSettin
 			return AppSettings{}, err
 		}
 	}
-	ApplyToConfig(&got, cfg)
+	if err := ApplyToConfig(&got, cfg); err != nil {
+		return AppSettings{}, err
+	}
 	return got, nil
 }
 
@@ -72,21 +76,28 @@ func (s *Service) Current() AppSettings {
 
 // Update validates, persists, and hot-applies settings.
 func (s *Service) Update(ctx context.Context, next AppSettings) error {
+	prev := s.Current()
+	next.MergeSecrets(prev)
 	if err := next.Validate(); err != nil {
 		return err
 	}
 	if err := s.store.Upsert(ctx, next); err != nil {
 		return err
 	}
-	ApplyToConfig(&next, s.cfg)
+	if err := ApplyToConfig(&next, s.cfg); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.current = next
 	s.mu.Unlock()
-	s.applyRuntime(next)
+	if err := s.applyRuntime(ctx); err != nil {
+		return err
+	}
 	return nil
 }
 
-func (s *Service) applyRuntime(v AppSettings) {
+func (s *Service) applyRuntime(ctx context.Context) error {
+	v := s.Current()
 	if s.deps.AllowPublicReg != nil {
 		s.deps.AllowPublicReg(v.AllowPublicRegistration)
 	}
@@ -103,11 +114,24 @@ func (s *Service) applyRuntime(v AppSettings) {
 		s.deps.Templates.SetDefaultImage(v.DefaultImage)
 	}
 	if s.deps.ReattachBuilder != nil {
-		_ = s.deps.ReattachBuilder()
+		if err := s.deps.ReattachBuilder(); err != nil {
+			return err
+		}
 	}
+	if s.deps.ReconfigureLLMGW != nil {
+		if err := s.deps.ReconfigureLLMGW(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Response returns settings and system metadata for HTTP handlers.
+func (s *Service) Response() (AppSettings, SystemInfo) {
+	return s.Current().SanitizeForResponse(), s.System()
 }
 
 // System returns read-only infrastructure metadata.
 func (s *Service) System() SystemInfo {
-	return SystemFromConfig(s.cfg)
+	return SystemFromConfig(s.cfg, s.deps.LlmgwMounted)
 }

@@ -24,9 +24,10 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
+	settings, system := h.Svc.Response()
 	writeJSON(w, http.StatusOK, settingsResp{
-		Settings: h.Svc.Current(),
-		System:   h.Svc.System(),
+		Settings: settings,
+		System:   system,
 	})
 }
 
@@ -40,9 +41,10 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	settings, system := h.Svc.Response()
 	writeJSON(w, http.StatusOK, settingsResp{
-		Settings: h.Svc.Current(),
-		System:   h.Svc.System(),
+		Settings: settings,
+		System:   system,
 	})
 }
 
