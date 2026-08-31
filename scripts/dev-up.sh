@@ -211,8 +211,8 @@ ensure_test_db() {
 		echo "pg0: creating test database '${test_db}'..."
 		pg0 psql --name "$PG0_NAME" -- -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${test_db} OWNER ${PG0_USER};"
 	fi
-	pg0 psql --name "$PG0_NAME" -- -d "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null
-	pg0 psql --name "$PG0_NAME" -- -d "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
+	pg0 psql --name "$PG0_NAME" -- "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null
+	pg0 psql --name "$PG0_NAME" -- "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
 }
 
 case "$dsn_host" in
