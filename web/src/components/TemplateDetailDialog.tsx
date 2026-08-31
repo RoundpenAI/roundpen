@@ -25,6 +25,19 @@ function formatWhen(iso?: string): string {
   return d.toLocaleString()
 }
 
+function buildActionLabel(status: string): string {
+  switch (status) {
+    case 'building':
+      return 'Logs'
+    case 'ready':
+      return 'Rebuild'
+    case 'error':
+      return 'Retry build'
+    default:
+      return 'Build'
+  }
+}
+
 export function TemplateDetailDialog({
   open,
   templateId,
@@ -81,12 +94,12 @@ export function TemplateDetailDialog({
 
   if (!open || !templateId) return null
 
-  const readOnly = detail?.builtin ?? false
+  const builtin = detail?.builtin ?? false
   const displayName = detail ? templateDisplayName(detail) : templateId.slice(0, 8)
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    if (!detail || readOnly || saving) return
+    if (!detail || saving) return
     setSaveError(null)
     setSaveOk(false)
     setSaving(true)
@@ -112,7 +125,7 @@ export function TemplateDetailDialog({
   }
 
   async function onDelete() {
-    if (!detail || readOnly) return
+    if (!detail || builtin) return
     if (!confirm(`Delete template “${displayName}”? This cannot be undone.`)) return
     setDeleteBusy(true)
     try {
@@ -127,8 +140,8 @@ export function TemplateDetailDialog({
   }
 
   return (
-    <dialog className="modal modal-open" aria-labelledby={titleId}>
-      <div className="modal-box max-w-lg">
+    <dialog className="modal modal-bottom sm:modal-middle modal-open" aria-labelledby={titleId}>
+      <div className="modal-box max-h-[90dvh] max-w-lg overflow-y-auto">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 id={titleId} className="font-display text-lg font-semibold truncate">
@@ -136,7 +149,7 @@ export function TemplateDetailDialog({
             </h3>
             <p className="mt-1 font-mono text-xs opacity-50 truncate">{templateId}</p>
           </div>
-          {readOnly && <span className="badge badge-ghost badge-sm shrink-0">Built-in</span>}
+          {builtin && <span className="badge badge-ghost badge-sm shrink-0">Built-in</span>}
         </div>
 
         {loading ? (
@@ -147,7 +160,7 @@ export function TemplateDetailDialog({
           </p>
         ) : detail ? (
           <>
-            <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs opacity-70">
+            <dl className="mt-4 space-y-3 text-xs opacity-70 sm:grid sm:grid-cols-[auto_1fr] sm:gap-x-4 sm:gap-y-2 sm:space-y-0">
               <dt>Status</dt>
               <dd>{detail.buildStatus || 'waiting'}</dd>
               <dt>Namespace</dt>
@@ -161,6 +174,25 @@ export function TemplateDetailDialog({
               <dt>Updated</dt>
               <dd>{formatWhen(detail.updatedAt)}</dd>
             </dl>
+
+            {builtin && (
+              <p className="mt-3 text-xs opacity-50">
+                Seeded system template — editable and rebuildable; cannot be deleted.
+              </p>
+            )}
+
+            {(detail.tags?.length ?? 0) > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-medium opacity-60">Tags</p>
+                <ul className="max-h-24 space-y-1 overflow-y-auto text-xs opacity-70">
+                  {detail.tags.map((t) => (
+                    <li key={t.tag} className="font-mono truncate">
+                      {t.tag} → {t.buildID.slice(0, 8)}…
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {detail.builds.length > 0 && (
               <div className="mt-4">
@@ -184,11 +216,10 @@ export function TemplateDetailDialog({
                   rows={2}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  readOnly={readOnly}
                 />
               </label>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <label className="form-control gap-1.5">
                   <span className="text-xs font-medium opacity-60">CPU</span>
                   <input
@@ -197,7 +228,6 @@ export function TemplateDetailDialog({
                     className="input input-bordered input-sm"
                     value={cpuCount}
                     onChange={(e) => setCpuCount(Number(e.target.value) || 1)}
-                    readOnly={readOnly}
                   />
                 </label>
                 <label className="form-control gap-1.5">
@@ -209,7 +239,6 @@ export function TemplateDetailDialog({
                     className="input input-bordered input-sm"
                     value={memoryMB}
                     onChange={(e) => setMemoryMB(Number(e.target.value) || 512)}
-                    readOnly={readOnly}
                   />
                 </label>
                 <label className="form-control gap-1.5">
@@ -221,7 +250,6 @@ export function TemplateDetailDialog({
                     className="input input-bordered input-sm"
                     value={diskSizeMB}
                     onChange={(e) => setDiskSizeMB(Number(e.target.value) || 5120)}
-                    readOnly={readOnly}
                   />
                 </label>
               </div>
@@ -232,7 +260,6 @@ export function TemplateDetailDialog({
                   className="checkbox checkbox-sm"
                   checked={isPublic}
                   onChange={(e) => setIsPublic(e.target.checked)}
-                  disabled={readOnly}
                 />
                 <span className="text-sm">Public template</span>
               </label>
@@ -247,7 +274,7 @@ export function TemplateDetailDialog({
               )}
 
               <div className="modal-action mt-1 flex-wrap">
-                {!readOnly && (
+                {!builtin && (
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm text-error mr-auto"
@@ -271,19 +298,15 @@ export function TemplateDetailDialog({
                   disabled={busy || saving || deleteBusy}
                   onClick={() => onBuild(detail)}
                 >
-                  {detail.buildStatus === 'waiting' || detail.buildStatus === 'error'
-                    ? 'Build'
-                    : 'Logs'}
+                  {buildActionLabel(detail.buildStatus || 'waiting')}
                 </button>
-                {!readOnly && (
-                  <button
-                    type="submit"
-                    className="btn btn-primary btn-sm"
-                    disabled={busy || saving || deleteBusy}
-                  >
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
-                )}
+                <button
+                  type="submit"
+                  className="btn btn-primary btn-sm"
+                  disabled={busy || saving || deleteBusy}
+                >
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
               </div>
             </form>
           </>

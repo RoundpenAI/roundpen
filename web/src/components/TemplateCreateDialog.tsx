@@ -58,7 +58,7 @@ export function TemplateCreateDialog({
   }
 
   return (
-    <dialog className="modal modal-open" aria-labelledby={titleId}>
+    <dialog className="modal modal-bottom sm:modal-middle modal-open" aria-labelledby={titleId}>
       <div className="modal-box max-w-md">
         <h3 id={titleId} className="font-display text-lg font-semibold">
           New template
@@ -83,7 +83,7 @@ export function TemplateCreateDialog({
             />
           </label>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="form-control w-full gap-1.5">
               <span className="text-xs font-medium opacity-60">CPU</span>
               <input

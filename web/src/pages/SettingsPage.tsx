@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Navigate } from 'react-router-dom'
 import {
   adminSettings,
   templateDisplayName,
@@ -8,7 +8,8 @@ import {
   type SettingsResponse,
   type Template,
 } from '../api'
-import { doLogout, useAuth } from '../auth'
+import { useAuth } from '../auth'
+import { PageShell } from '../components/PageShell'
 
 const emptySettings: AppSettings = {
   allowPublicRegistration: false,
@@ -147,7 +148,6 @@ function SystemRow({ label, value }: { label: string; value: string }) {
 
 export function SettingsPage() {
   const auth = useAuth()
-  const navigate = useNavigate()
   const [data, setData] = useState<SettingsResponse | null>(null)
   const [form, setForm] = useState<AppSettings>(emptySettings)
   const [error, setError] = useState<string | null>(null)
@@ -258,41 +258,14 @@ export function SettingsPage() {
     void load()
   }
 
-  const user = auth.user
   const sys = data?.system
 
   return (
-    <div className="rp-settings mx-auto flex min-h-full max-w-3xl flex-col px-4 pt-6 sm:py-8">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-display text-2xl font-semibold tracking-tight">
-            Roundpen
-          </p>
-          <p className="mt-1 text-sm opacity-55">System settings</p>
-        </div>
-        <div className="flex min-w-0 items-center gap-2 text-sm">
-          <span className="max-w-[40vw] truncate opacity-60 sm:max-w-[12rem]">
-            {user.username}
-          </span>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm shrink-0"
-            onClick={() => void doLogout().then(() => navigate('/login'))}
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
-
-      <nav className="mb-6 flex flex-wrap gap-x-4 gap-y-2 border-b border-base-300 pb-4 text-sm">
-        <Link to="/" className="link link-hover opacity-55">
-          Sandboxes
-        </Link>
-        <Link to="/registry" className="link link-hover opacity-55">
-          Templates
-        </Link>
-        <span className="font-medium">Settings</span>
-      </nav>
+    <PageShell
+      subtitle="System settings"
+      current="settings"
+      className="rp-settings !pb-0"
+    >
 
       {error && (
         <div className="mb-4 text-sm text-error" role="alert">
@@ -620,6 +593,6 @@ export function SettingsPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }

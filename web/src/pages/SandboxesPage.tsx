@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { sandboxes, SUGGESTED_CATEGORIES, type Sandbox } from '../api'
-import { doLogout, useAuth } from '../auth'
 import {
   SandboxCreateDialog,
   type SandboxCreateValues,
@@ -10,9 +9,9 @@ import {
   SandboxEditDialog,
   type SandboxEditValues,
 } from '../components/SandboxEditDialog'
+import { PageShell } from '../components/PageShell'
 
 export function SandboxesPage() {
-  const auth = useAuth()
   const navigate = useNavigate()
   const [list, setList] = useState<Sandbox[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -94,63 +93,32 @@ export function SandboxesPage() {
     }
   }
 
-  const user = auth.status === 'ok' ? auth.user : null
-
   return (
-    <div className="mx-auto flex min-h-full max-w-3xl flex-col px-4 py-8">
-      <header className="mb-8 flex items-end justify-between gap-4">
-        <div>
-          <p className="font-display text-2xl font-semibold tracking-tight">
-            Roundpen
-          </p>
-          <p className="mt-1 text-sm opacity-55">Your sandboxes</p>
-        </div>
-        <div className="flex items-center gap-3 text-sm">
-          {user && <span className="opacity-60">{user.username}</span>}
+    <PageShell subtitle="Your sandboxes" current="sandboxes">
+      <div className="mb-6 flex flex-col gap-3 border-b border-base-300 pb-6 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex gap-2">
           <button
             type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => void doLogout().then(() => navigate('/login'))}
+            className="btn btn-primary min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
+            onClick={() => {
+              setCreateError(null)
+              setCreateOpen(true)
+            }}
           >
-            Sign out
+            New sandbox
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
+            onClick={() => void load()}
+          >
+            Refresh
           </button>
         </div>
-      </header>
-
-      <nav className="mb-6 flex gap-4 border-b border-base-300 pb-4 text-sm">
-        <span className="font-medium">Sandboxes</span>
-        <Link to="/registry" className="link link-hover opacity-55">
-          Templates
-        </Link>
-        {user?.role === 'admin' && (
-          <Link to="/settings" className="link link-hover opacity-55">
-            Settings
-          </Link>
-        )}
-      </nav>
-
-      <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-base-300 pb-6">
-        <button
-          type="button"
-          className="btn btn-primary btn-sm"
-          onClick={() => {
-            setCreateError(null)
-            setCreateOpen(true)
-          }}
-        >
-          New sandbox
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={() => void load()}
-        >
-          Refresh
-        </button>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span className="text-xs opacity-55">Filter</span>
+        <div className="flex min-w-0 items-center gap-2 sm:ml-auto">
+          <span className="shrink-0 text-xs opacity-55">Filter</span>
           <input
-            className="input input-bordered input-xs w-36"
+            className="input input-bordered min-h-11 min-w-0 flex-1 text-base sm:input-sm sm:min-h-0 sm:w-36 sm:flex-none sm:text-sm"
             list="sandbox-categories"
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
@@ -164,7 +132,7 @@ export function SandboxesPage() {
           {filterCategory && (
             <button
               type="button"
-              className="btn btn-ghost btn-xs"
+              className="btn btn-ghost min-h-11 sm:btn-xs sm:min-h-0"
               onClick={() => setFilterCategory('')}
             >
               Clear
@@ -188,7 +156,7 @@ export function SandboxesPage() {
           </p>
           <button
             type="button"
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary min-h-11 sm:btn-sm sm:min-h-0"
             onClick={() => {
               setCreateError(null)
               setCreateOpen(true)
@@ -202,12 +170,12 @@ export function SandboxesPage() {
           {list.map((sb) => (
             <li
               key={sb.sandboxID}
-              className="flex items-center justify-between gap-4 py-3"
+              className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
             >
               <div className="min-w-0">
                 <Link
                   to={`/s/${sb.sandboxID}`}
-                  className="text-sm font-medium link link-hover"
+                  className="link link-hover text-sm font-medium"
                 >
                   {sb.name || sb.sandboxID.slice(0, 8)}
                 </Link>
@@ -220,7 +188,7 @@ export function SandboxesPage() {
                   ) : (
                     <span>uncategorized</span>
                   )}
-                  <span className="font-mono truncate max-w-[10rem]">
+                  <span className="max-w-[10rem] truncate font-mono">
                     {sb.sandboxID.slice(0, 8)}…
                   </span>
                   <span
@@ -236,13 +204,16 @@ export function SandboxesPage() {
                   </span>
                 </div>
               </div>
-              <div className="flex shrink-0 gap-2">
-                <Link to={`/s/${sb.sandboxID}`} className="btn btn-sm btn-ghost">
+              <div className="flex gap-2 sm:shrink-0">
+                <Link
+                  to={`/s/${sb.sandboxID}`}
+                  className="btn btn-ghost min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
+                >
                   Open
                 </Link>
                 <button
                   type="button"
-                  className="btn btn-sm btn-ghost"
+                  className="btn btn-ghost min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
                   onClick={() => {
                     setEditError(null)
                     setEditing(sb)
@@ -252,7 +223,7 @@ export function SandboxesPage() {
                 </button>
                 <button
                   type="button"
-                  className="btn btn-sm btn-ghost text-error"
+                  className="btn btn-ghost min-h-11 flex-1 text-error sm:btn-sm sm:min-h-0 sm:flex-none"
                   onClick={() => void onDelete(sb)}
                 >
                   Delete
@@ -285,6 +256,6 @@ export function SandboxesPage() {
         }}
         onSave={onSaveEdit}
       />
-    </div>
+    </PageShell>
   )
 }

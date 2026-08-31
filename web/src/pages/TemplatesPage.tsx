@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
 import {
   templates,
   templateDisplayName,
   type CreateTemplateResult,
   type Template,
 } from '../api'
-import { doLogout, useAuth } from '../auth'
+import { PageShell } from '../components/PageShell'
 import {
   TemplateBuildDialog,
 } from '../components/TemplateBuildDialog'
@@ -39,8 +38,6 @@ function formatWhen(iso?: string): string {
 }
 
 export function TemplatesPage() {
-  const auth = useAuth()
-  const navigate = useNavigate()
   const [list, setList] = useState<Template[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -104,45 +101,17 @@ export function TemplatesPage() {
     void load({ silent: true })
   }, [load])
 
-  const user = auth.status === 'ok' ? auth.user : null
-
   return (
-    <div className="mx-auto flex min-h-full max-w-4xl flex-col px-4 py-8">
-      <header className="mb-8 flex items-end justify-between gap-4">
-        <div>
-          <p className="font-display text-2xl font-semibold tracking-tight">
-            Roundpen
-          </p>
-          <p className="mt-1 text-sm opacity-55">Templates</p>
-        </div>
-        <div className="flex items-center gap-3 text-sm">
-          {user && <span className="opacity-60">{user.username}</span>}
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => void doLogout().then(() => navigate('/login'))}
-          >
-            Sign out
-          </button>
-        </div>
-      </header>
+    <PageShell
+      subtitle="Templates"
+      current="templates"
+      maxWidthClass="max-w-4xl"
+    >
 
-      <nav className="mb-6 flex gap-4 border-b border-base-300 pb-4 text-sm">
-        <Link to="/" className="link link-hover opacity-55">
-          Sandboxes
-        </Link>
-        <span className="font-medium">Templates</span>
-        {user?.role === 'admin' && (
-          <Link to="/settings" className="link link-hover opacity-55">
-            Settings
-          </Link>
-        )}
-      </nav>
-
-      <div className="mb-6 flex flex-wrap items-center gap-3 border-b border-base-300 pb-6">
+      <div className="mb-6 flex gap-2 border-b border-base-300 pb-6">
         <button
           type="button"
-          className="btn btn-primary btn-sm"
+          className="btn btn-primary min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
           onClick={() => {
             setCreateError(null)
             setCreateOpen(true)
@@ -150,7 +119,11 @@ export function TemplatesPage() {
         >
           New template
         </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load()}>
+        <button
+          type="button"
+          className="btn btn-ghost min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
+          onClick={() => void load()}
+        >
           Refresh
         </button>
       </div>
@@ -162,8 +135,10 @@ export function TemplatesPage() {
       )}
 
       <p className="mb-4 text-xs leading-relaxed opacity-50">
-        Built-in templates (host, base, python, node, code-agent) are seeded on
-        startup and are read-only. User templates can be viewed, edited, and deleted.
+        Built-in templates are seeded on startup (editable, not deletable). Rebuild
+        reuses the build ID when the spec is unchanged; changing base image / RUN /
+        start / ready allocates a new build. Optional tags resolve as{' '}
+        <code className="font-mono">name:tag</code>.
       </p>
 
       {loading ? (
@@ -171,65 +146,113 @@ export function TemplatesPage() {
       ) : list.length === 0 ? (
         <p className="text-sm opacity-50">No templates registered.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="table table-sm">
-            <thead>
-              <tr className="text-xs opacity-55">
-                <th>Name</th>
-                <th>Status</th>
-                <th>Resources</th>
-                <th>Usage</th>
-                <th>Updated</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((tpl) => (
-                <tr key={tpl.templateID}>
-                  <td>
-                    <div className="font-medium">{templateDisplayName(tpl)}</div>
-                    <div className="mt-0.5 font-mono text-xs opacity-45">
-                      {tpl.templateID.slice(0, 8)}…
-                    </div>
-                  </td>
-                  <td>
+        <>
+          <ul className="divide-y divide-base-300 md:hidden">
+            {list.map((tpl) => (
+              <li key={tpl.templateID} className="py-3">
+                <div className="min-w-0">
+                  <div className="font-medium">{templateDisplayName(tpl)}</div>
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
                     <span className={statusBadge(tpl.buildStatus || 'waiting')}>
                       {tpl.buildStatus || 'waiting'}
                     </span>
-                  </td>
-                  <td className="text-xs whitespace-nowrap">
-                    {tpl.cpuCount}c · {tpl.memoryMB}MiB · {tpl.diskSizeMB}MiB
-                  </td>
-                  <td className="text-xs whitespace-nowrap opacity-70">
-                    {tpl.spawnCount ?? 0} spawns
-                    {tpl.buildCount != null ? ` · ${tpl.buildCount} builds` : ''}
-                  </td>
-                  <td className="text-xs whitespace-nowrap opacity-70">
-                    {formatWhen(tpl.updatedAt)}
-                  </td>
-                  <td className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-xs"
-                        onClick={() => setViewingId(tpl.templateID)}
-                      >
-                        View
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-xs"
-                        onClick={() => setBuilding(tpl)}
-                      >
-                        {canBuild(tpl) ? 'Build' : 'Logs'}
-                      </button>
-                    </div>
-                  </td>
+                    <span>
+                      {tpl.cpuCount}c · {tpl.memoryMB}MiB
+                    </span>
+                    <span>{tpl.spawnCount ?? 0} spawns</span>
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-ghost min-h-11 flex-1"
+                    onClick={() => setViewingId(tpl.templateID)}
+                  >
+                    View
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost min-h-11 flex-1"
+                    onClick={() => setBuilding(tpl)}
+                  >
+                    {tpl.buildStatus === 'building'
+                      ? 'Logs'
+                      : tpl.buildStatus === 'ready'
+                        ? 'Rebuild'
+                        : canBuild(tpl)
+                          ? 'Build'
+                          : 'Logs'}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="table table-sm">
+              <thead>
+                <tr className="text-xs opacity-55">
+                  <th>Name</th>
+                  <th>Status</th>
+                  <th>Resources</th>
+                  <th>Usage</th>
+                  <th>Updated</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {list.map((tpl) => (
+                  <tr key={tpl.templateID}>
+                    <td>
+                      <div className="font-medium">{templateDisplayName(tpl)}</div>
+                      <div className="mt-0.5 font-mono text-xs opacity-45">
+                        {tpl.templateID.slice(0, 8)}…
+                      </div>
+                    </td>
+                    <td>
+                      <span className={statusBadge(tpl.buildStatus || 'waiting')}>
+                        {tpl.buildStatus || 'waiting'}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap text-xs">
+                      {tpl.cpuCount}c · {tpl.memoryMB}MiB · {tpl.diskSizeMB}MiB
+                    </td>
+                    <td className="whitespace-nowrap text-xs opacity-70">
+                      {tpl.spawnCount ?? 0} spawns
+                      {tpl.buildCount != null ? ` · ${tpl.buildCount} builds` : ''}
+                    </td>
+                    <td className="whitespace-nowrap text-xs opacity-70">
+                      {formatWhen(tpl.updatedAt)}
+                    </td>
+                    <td className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => setViewingId(tpl.templateID)}
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => setBuilding(tpl)}
+                        >
+                          {tpl.buildStatus === 'building'
+                            ? 'Logs'
+                            : tpl.buildStatus === 'ready'
+                              ? 'Rebuild'
+                              : canBuild(tpl)
+                                ? 'Build'
+                                : 'Logs'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       <TemplateCreateDialog
@@ -269,7 +292,7 @@ export function TemplatesPage() {
         onClose={() => setBuilding(null)}
         onDone={handleBuildDone}
       />
-    </div>
+    </PageShell>
   )
 }
 
