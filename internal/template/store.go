@@ -47,36 +47,97 @@ func (s *Store) SeedBuiltin(ctx context.Context, backend, defaultImage string) e
 }
 
 func (s *Store) upsertSeed(ctx context.Context, e seedEntry) error {
-	var tplID string
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id FROM templates WHERE namespace=$1 AND name=$2`, e.Namespace, e.Name).Scan(&tplID)
-	switch {
-	case errors.Is(err, sql.ErrNoRows):
-		tplID = uuid.NewString()
-		_, err = s.db.ExecContext(ctx, `
-			INSERT INTO templates (id, namespace, name, description, profile, public, build_count, created_by)
-			VALUES ($1,$2,$3,$4,$5,$6,1,'system')`,
-			tplID, e.Namespace, e.Name, e.Description, e.Profile, e.Public)
-		if err != nil {
-			return err
-		}
-		buildID := uuid.NewString()
-		if _, err := s.db.ExecContext(ctx, `
-			INSERT INTO template_builds (id, template_id, status, base_image, artifact_ref, cpu_count, memory_mb, disk_size_mb, envd_version)
-			VALUES ($1,$2,'ready',$3,$4,$5,$6,$7,$8)`,
-			buildID, tplID, e.BaseImage, e.ArtifactRef, e.CPUCount, e.MemoryMB, e.DiskSizeMB, EnvdVersion); err != nil {
-			return err
-		}
-		_, err = s.db.ExecContext(ctx, `
-			INSERT INTO template_tags (template_id, tag, build_id) VALUES ($1,'default',$2)
-			ON CONFLICT (template_id, tag) DO UPDATE SET build_id=EXCLUDED.build_id`,
-			tplID, buildID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
-	case err != nil:
-		return err
-	default:
-		return nil
 	}
+	defer func() { _ = tx.Rollback() }()
+
+	var tplID string
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO templates (id, namespace, name, description, profile, public, build_count, created_by)
+		VALUES ($1,$2,$3,$4,$5,$6,1,'system')
+		ON CONFLICT (namespace, name) DO UPDATE SET
+			description=EXCLUDED.description,
+			profile=EXCLUDED.profile,
+			public=EXCLUDED.public,
+			updated_at=now()
+		RETURNING id`,
+		uuid.NewString(), e.Namespace, e.Name, e.Description, e.Profile, e.Public).Scan(&tplID)
+	if err != nil {
+		return err
+	}
+
+	buildID, err := s.ensureSeedBuild(ctx, tx, tplID, e)
+	if err != nil {
+		return err
+	}
+	if err := upsertDefaultTag(ctx, tx, tplID, buildID); err != nil {
+		return err
+	}
+	// Drop orphan builds left from partial failures or old seed versions.
+	_, err = tx.ExecContext(ctx, `
+		DELETE FROM template_builds b
+		WHERE b.template_id=$1
+		  AND NOT EXISTS (SELECT 1 FROM template_tags tg WHERE tg.build_id=b.id)`,
+		tplID)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ensureSeedBuild(ctx context.Context, tx *sql.Tx, tplID string, e seedEntry) (string, error) {
+	var buildID string
+	err := tx.QueryRowContext(ctx, `
+		SELECT tg.build_id FROM template_tags tg
+		WHERE tg.template_id=$1 AND tg.tag='default'`, tplID).Scan(&buildID)
+	if errors.Is(err, sql.ErrNoRows) {
+		buildID = uuid.NewString()
+		return buildID, insertSeedBuild(ctx, tx, buildID, tplID, e)
+	}
+	if err != nil {
+		return "", err
+	}
+
+	var ok int
+	err = tx.QueryRowContext(ctx, `
+		SELECT 1 FROM template_builds WHERE id=$1 AND template_id=$2`, buildID, tplID).Scan(&ok)
+	if errors.Is(err, sql.ErrNoRows) {
+		newID := uuid.NewString()
+		if err := insertSeedBuild(ctx, tx, newID, tplID, e); err != nil {
+			return "", err
+		}
+		return newID, nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		UPDATE template_builds SET
+			status='ready', base_image=$2, artifact_ref=$3,
+			cpu_count=$4, memory_mb=$5, disk_size_mb=$6,
+			envd_version=$7, error_message='', updated_at=now()
+		WHERE id=$1 AND template_id=$8`,
+		buildID, e.BaseImage, e.ArtifactRef, e.CPUCount, e.MemoryMB, e.DiskSizeMB, EnvdVersion, tplID)
+	return buildID, err
+}
+
+func insertSeedBuild(ctx context.Context, tx *sql.Tx, buildID, tplID string, e seedEntry) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO template_builds (id, template_id, status, base_image, artifact_ref, cpu_count, memory_mb, disk_size_mb, envd_version)
+		VALUES ($1,$2,'ready',$3,$4,$5,$6,$7,$8)`,
+		buildID, tplID, e.BaseImage, e.ArtifactRef, e.CPUCount, e.MemoryMB, e.DiskSizeMB, EnvdVersion)
+	return err
+}
+
+func upsertDefaultTag(ctx context.Context, tx *sql.Tx, tplID, buildID string) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO template_tags (template_id, tag, build_id) VALUES ($1,'default',$2)
+		ON CONFLICT (template_id, tag) DO UPDATE SET build_id=EXCLUDED.build_id`,
+		tplID, buildID)
+	return err
 }
 
 // List returns all templates with their default-tag build.
