@@ -87,7 +87,7 @@ func TestKernAPI_CreateExecDelete(t *testing.T) {
 		t.Fatalf("stdout=%q", stdout)
 	}
 
-	note := filepath.Join(h.DataRoot, "workspaces", sid, "note.txt")
+	note := filepath.Join(h.DataRoot, "sandboxes", sid, "workspace", "note.txt")
 	b, err := os.ReadFile(note)
 	if err != nil {
 		t.Fatalf("read workspace note: %v", err)
@@ -176,6 +176,9 @@ func (h *harness) mustDo(t *testing.T, method, path string, body any) *http.Resp
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if h.APIKey != "" {
+		req.Header.Set("X-API-Key", h.APIKey)
 	}
 	resp, err := h.Client.Do(req)
 	if err != nil {
