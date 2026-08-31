@@ -278,9 +278,25 @@ func e2bCompatCases() []compatCase {
 		},
 		{
 			ID: "platform.listTemplates", Layer: "platform", E2BRef: "listTemplates", Priority: "extended",
-			Implemented: false,
+			Implemented: true,
 			Run: func(t *testing.T, h *harness, _ *compatCtx) (compatVerdict, string) {
-				return probeNotImplemented(t, h, http.MethodGet, "/templates")
+				resp := h.mustDo(t, http.MethodGet, "/templates", nil)
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return verdictFail, resp.Status
+				}
+				var list []map[string]any
+				if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
+					return verdictFail, err.Error()
+				}
+				if len(list) == 0 {
+					return verdictFail, "empty template list"
+				}
+				missing := missingJSONFields(list[0], "templateID", "buildID", "cpuCount", "memoryMB", "diskSizeMB", "buildStatus", "envdVersion")
+				if len(missing) > 0 {
+					return verdictPartial, "Template gaps: " + strings.Join(missing, ", ")
+				}
+				return verdictPass, ""
 			},
 		},
 		{

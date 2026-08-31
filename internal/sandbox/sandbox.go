@@ -46,6 +46,10 @@ type Sandbox struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	Metadata      map[string]string
+	CPUCount      int
+	MemoryMB      int
+	DiskSizeMB    int
+	TemplateBuild string
 }
 
 // CreateRequest is the input to create a sandbox.

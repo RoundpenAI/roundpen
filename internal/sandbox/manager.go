@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
+	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
@@ -23,17 +24,18 @@ type Service struct {
 	store        Store
 	backend      backend.Backend
 	fs           workspace.FS
+	templates    *template.Service
 	defaultImage string
 	defaultTTL   time.Duration
 	logger       *slog.Logger
 }
 
 // NewService constructs a sandbox manager.
-func NewService(store Store, be backend.Backend, fs workspace.FS, defaultImage string, defaultTTL time.Duration, logger *slog.Logger) *Service {
+func NewService(store Store, be backend.Backend, fs workspace.FS, defaultImage string, defaultTTL time.Duration, logger *slog.Logger, opts ...ServiceOption) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{
+	s := &Service{
 		store:        store,
 		backend:      be,
 		fs:           fs,
@@ -41,15 +43,65 @@ func NewService(store Store, be backend.Backend, fs workspace.FS, defaultImage s
 		defaultTTL:   defaultTTL,
 		logger:       logger,
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
+}
+
+// ServiceOption configures sandbox.Service.
+type ServiceOption func(*Service)
+
+// WithTemplates attaches the template registry resolver.
+func WithTemplates(t *template.Service) ServiceOption {
+	return func(s *Service) { s.templates = t }
 }
 
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, error) {
+	templateRef := req.TemplateID
 	image := req.Image
+	cpuCount := 1
+	memoryMB := 512
+	diskSizeMB := 5120
+	var templateBuildID, internalTemplateID string
+
+	if s.templates != nil {
+		ref := templateRef
+		if ref == "" && image != "" {
+			ref = image
+		}
+		if ref != "" {
+			resolved, err := s.templates.Resolve(ctx, ref)
+			if err != nil {
+				return nil, fmt.Errorf("template: %w", err)
+			}
+			if image == "" {
+				image = resolved.Image
+			}
+			if templateRef == "" {
+				templateRef = resolved.Alias
+			}
+			cpuCount = resolved.CPUCount
+			memoryMB = resolved.MemoryMB
+			diskSizeMB = resolved.DiskSizeMB
+			templateBuildID = resolved.BuildID
+			internalTemplateID = resolved.TemplateID
+			if req.Metadata == nil {
+				req.Metadata = map[string]string{}
+			}
+			if resolved.Profile != "" {
+				req.Metadata["profile"] = resolved.Profile
+			}
+		}
+	}
 	if image == "" {
-		image = req.TemplateID
+		image = templateRef
 	}
 	if image == "" {
 		image = s.defaultImage
+	}
+	if templateRef == "" {
+		templateRef = image
 	}
 	ttl := req.TTL
 	if ttl <= 0 {
@@ -101,12 +153,16 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		Metadata:      req.Metadata,
+		CPUCount:      cpuCount,
+		MemoryMB:      memoryMB,
+		DiskSizeMB:    diskSizeMB,
+		TemplateBuild: templateBuildID,
 	}
 	if sb.Metadata == nil {
 		sb.Metadata = map[string]string{}
 	}
-	if req.TemplateID != "" {
-		sb.Metadata["templateID"] = req.TemplateID
+	if templateRef != "" {
+		sb.Metadata["templateID"] = templateRef
 	}
 
 	if err := s.store.Insert(ctx, sb); err != nil {
@@ -118,11 +174,13 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	}
 
 	engineID, err := s.backend.Create(ctx, backend.CreateOpts{
-		SandboxID: id,
-		Name:      name,
-		Image:     image,
-		MountDir:  hostPath,
-		Env:       req.Env,
+		SandboxID:   id,
+		Name:        name,
+		Image:       image,
+		MountDir:    hostPath,
+		Env:         req.Env,
+		CPULimit:    float64(cpuCount),
+		MemoryLimit: int64(memoryMB) * 1024 * 1024,
 	})
 	if err != nil {
 		sb.Status = StatusFailed
@@ -145,7 +203,10 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	if err := s.store.Update(ctx, sb); err != nil {
 		return nil, err
 	}
-	s.logger.Info("sandbox created", slog.String("id", id), slog.String("image", image))
+	if s.templates != nil && internalTemplateID != "" {
+		s.templates.RecordSpawn(ctx, internalTemplateID)
+	}
+	s.logger.Info("sandbox created", slog.String("id", id), slog.String("image", image), slog.String("template", templateRef))
 	return sb, nil
 }
 

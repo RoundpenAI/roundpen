@@ -2,6 +2,38 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
+-- Users + cookie sessions (password login and per-user API keys)
+CREATE TABLE IF NOT EXISTS users (
+    username        TEXT PRIMARY KEY,
+    email           TEXT NOT NULL DEFAULT '',
+    fullname        TEXT NOT NULL DEFAULT '',
+    org_name        TEXT NOT NULL DEFAULT '',
+    api_key         TEXT NOT NULL,
+    role            TEXT NOT NULL DEFAULT 'user',
+    password_hash   TEXT,
+    auth_provider   TEXT NOT NULL DEFAULT 'local',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email
+    ON users (lower(email))
+    WHERE email <> '';
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    token_hash   TEXT NOT NULL,
+    expires_at   TIMESTAMPTZ NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    user_agent   TEXT,
+    ip           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_sessions_token_hash ON sessions (token_hash);
+
 CREATE TABLE IF NOT EXISTS sandboxes (
     id              TEXT PRIMARY KEY,
     container_id    TEXT NOT NULL DEFAULT '',
@@ -18,8 +50,22 @@ CREATE TABLE IF NOT EXISTS sandboxes (
     deleted_at      TIMESTAMPTZ
 );
 
+-- Human-readable label (added after initial MVP schema).
+ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+-- Free-form category for agent resolution (e.g. Browser, Code).
+ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT '';
+-- At most one default sandbox per non-empty category.
+ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAULT false;
+
 CREATE INDEX IF NOT EXISTS sandboxes_status_idx ON sandboxes (status) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS sandboxes_expires_at_idx ON sandboxes (expires_at) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS sandboxes_category_idx ON sandboxes (lower(category)) WHERE deleted_at IS NULL AND category <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS sandboxes_name_uniq
+    ON sandboxes (lower(name))
+    WHERE deleted_at IS NULL AND name <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS sandboxes_category_default_uniq
+    ON sandboxes (lower(category))
+    WHERE deleted_at IS NULL AND is_default AND category <> '';
 
 -- LLM gateway (virtual keys, upstream vault, request log)
 CREATE TABLE IF NOT EXISTS llmgw_upstreams (
@@ -111,4 +157,52 @@ ALTER TABLE memory_long ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL
 CREATE INDEX IF NOT EXISTS memory_long_user_idx ON memory_long (user_id) WHERE user_id <> '';
 CREATE INDEX IF NOT EXISTS memory_long_run_idx ON memory_long (source_session_id)
     WHERE source_session_id IS NOT NULL AND source_session_id <> '';
+
+-- Sandbox resource limits (from resolved template at create time)
+ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS cpu_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS memory_mb INTEGER NOT NULL DEFAULT 512;
+ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS disk_size_mb INTEGER NOT NULL DEFAULT 5120;
+ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS template_build_id TEXT NOT NULL DEFAULT '';
+
+-- Template registry (T0: static builds; T1+ adds build pipeline)
+CREATE TABLE IF NOT EXISTS templates (
+    id              TEXT PRIMARY KEY,
+    namespace       TEXT NOT NULL DEFAULT 'default',
+    name            TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    profile         TEXT NOT NULL DEFAULT 'dev',
+    public          BOOLEAN NOT NULL DEFAULT false,
+    spawn_count     BIGINT NOT NULL DEFAULT 0,
+    build_count     INTEGER NOT NULL DEFAULT 1,
+    last_spawned_at TIMESTAMPTZ,
+    created_by      TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS templates_namespace_name_uniq
+    ON templates (namespace, name);
+
+CREATE TABLE IF NOT EXISTS template_builds (
+    id              TEXT PRIMARY KEY,
+    template_id     TEXT NOT NULL REFERENCES templates (id) ON DELETE CASCADE,
+    status          TEXT NOT NULL DEFAULT 'ready',
+    base_image      TEXT NOT NULL DEFAULT '',
+    artifact_ref    TEXT NOT NULL,
+    cpu_count       INTEGER NOT NULL DEFAULT 1,
+    memory_mb       INTEGER NOT NULL DEFAULT 512,
+    disk_size_mb    INTEGER NOT NULL DEFAULT 5120,
+    envd_version    TEXT NOT NULL DEFAULT '0.0.0-roundpen',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS template_builds_template_idx ON template_builds (template_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS template_tags (
+    template_id     TEXT NOT NULL REFERENCES templates (id) ON DELETE CASCADE,
+    tag             TEXT NOT NULL DEFAULT 'default',
+    build_id        TEXT NOT NULL REFERENCES template_builds (id) ON DELETE CASCADE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (template_id, tag)
+);
+CREATE INDEX IF NOT EXISTS template_tags_build_idx ON template_tags (build_id);
 

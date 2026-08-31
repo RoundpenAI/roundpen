@@ -8,15 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
 // ErrNotFound is returned when a sandbox row does not exist.
-var ErrNotFound = errors.New("not found")
+// Deprecated: prefer sandbox.ErrNotFound (same sentinel).
+var ErrNotFound = sandbox.ErrNotFound
 
 // DB wraps database/sql for Roundpen.
 type DB struct {
@@ -70,6 +73,10 @@ func NewSandboxStore(db *DB) *SandboxStore {
 	return &SandboxStore{db: db}
 }
 
+const sandboxCols = `id, container_id, image, status, workspace_id, workspace_path,
+	metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at, name, category, is_default,
+	cpu_count, memory_mb, disk_size_mb, template_build_id`
+
 // Insert creates a sandbox row.
 func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
 	meta, err := json.Marshal(sb.Metadata)
@@ -82,12 +89,14 @@ func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
 	_, err = s.db.SQL.ExecContext(ctx, `
 		INSERT INTO sandboxes (
 			id, container_id, image, status, workspace_id, workspace_path,
-			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at,
+			name, category, is_default, cpu_count, memory_mb, disk_size_mb, template_build_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
 		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.CreatedAt, sb.UpdatedAt,
+		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild,
 	)
-	return err
+	return mapUniqueViolation(err)
 }
 
 // Update writes mutable fields.
@@ -102,17 +111,20 @@ func (s *SandboxStore) Update(ctx context.Context, sb *sandbox.Sandbox) error {
 	res, err := s.db.SQL.ExecContext(ctx, `
 		UPDATE sandboxes SET
 			container_id=$2, image=$3, status=$4, workspace_id=$5, workspace_path=$6,
-			metadata=$7, ttl_seconds=$8, expires_at=$9, last_active_at=$10, updated_at=$11
+			metadata=$7, ttl_seconds=$8, expires_at=$9, last_active_at=$10, updated_at=$11,
+			name=$12, category=$13, is_default=$14, cpu_count=$15, memory_mb=$16,
+			disk_size_mb=$17, template_build_id=$18
 		WHERE id=$1 AND deleted_at IS NULL`,
 		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
 		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.UpdatedAt,
+		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild,
 	)
 	if err != nil {
-		return err
+		return mapUniqueViolation(err)
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return ErrNotFound
+		return sandbox.ErrNotFound
 	}
 	return nil
 }
@@ -120,7 +132,7 @@ func (s *SandboxStore) Update(ctx context.Context, sb *sandbox.Sandbox) error {
 // SoftDelete marks a sandbox deleted.
 func (s *SandboxStore) SoftDelete(ctx context.Context, id string, at time.Time) error {
 	res, err := s.db.SQL.ExecContext(ctx, `
-		UPDATE sandboxes SET deleted_at=$2, status=$3, updated_at=$2
+		UPDATE sandboxes SET deleted_at=$2, status=$3, updated_at=$2, is_default=false
 		WHERE id=$1 AND deleted_at IS NULL`,
 		id, at, string(sandbox.StatusStopped),
 	)
@@ -129,7 +141,7 @@ func (s *SandboxStore) SoftDelete(ctx context.Context, id string, at time.Time) 
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return ErrNotFound
+		return sandbox.ErrNotFound
 	}
 	return nil
 }
@@ -137,22 +149,79 @@ func (s *SandboxStore) SoftDelete(ctx context.Context, id string, at time.Time) 
 // Get returns a non-deleted sandbox.
 func (s *SandboxStore) Get(ctx context.Context, id string) (*sandbox.Sandbox, error) {
 	row := s.db.SQL.QueryRowContext(ctx, `
-		SELECT id, container_id, image, status, workspace_id, workspace_path,
-			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at
+		SELECT `+sandboxCols+`
 		FROM sandboxes WHERE id=$1 AND deleted_at IS NULL`, id)
+	return scanSandbox(row)
+}
+
+// GetByName returns a sandbox by case-insensitive name.
+func (s *SandboxStore) GetByName(ctx context.Context, name string) (*sandbox.Sandbox, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, sandbox.ErrNotFound
+	}
+	row := s.db.SQL.QueryRowContext(ctx, `
+		SELECT `+sandboxCols+`
+		FROM sandboxes WHERE deleted_at IS NULL AND lower(name)=lower($1)`, name)
+	return scanSandbox(row)
+}
+
+// GetDefaultByCategory returns the default sandbox in a category, if any.
+func (s *SandboxStore) GetDefaultByCategory(ctx context.Context, category string) (*sandbox.Sandbox, error) {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return nil, sandbox.ErrNotFound
+	}
+	row := s.db.SQL.QueryRowContext(ctx, `
+		SELECT `+sandboxCols+`
+		FROM sandboxes
+		WHERE deleted_at IS NULL AND is_default AND lower(category)=lower($1)`, category)
 	return scanSandbox(row)
 }
 
 // List returns non-deleted sandboxes, newest first.
 func (s *SandboxStore) List(ctx context.Context) ([]*sandbox.Sandbox, error) {
 	rows, err := s.db.SQL.QueryContext(ctx, `
-		SELECT id, container_id, image, status, workspace_id, workspace_path,
-			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at
+		SELECT `+sandboxCols+`
 		FROM sandboxes WHERE deleted_at IS NULL
 		ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
+	return scanSandboxRows(rows)
+}
+
+// ListByCategory returns sandboxes in a category (case-insensitive), newest first.
+func (s *SandboxStore) ListByCategory(ctx context.Context, category string) ([]*sandbox.Sandbox, error) {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return s.List(ctx)
+	}
+	rows, err := s.db.SQL.QueryContext(ctx, `
+		SELECT `+sandboxCols+`
+		FROM sandboxes
+		WHERE deleted_at IS NULL AND lower(category)=lower($1)
+		ORDER BY is_default DESC, last_active_at DESC, created_at DESC`, category)
+	if err != nil {
+		return nil, err
+	}
+	return scanSandboxRows(rows)
+}
+
+// ClearDefaultInCategory clears is_default for other sandboxes in the category.
+func (s *SandboxStore) ClearDefaultInCategory(ctx context.Context, category, exceptID string) error {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return nil
+	}
+	_, err := s.db.SQL.ExecContext(ctx, `
+		UPDATE sandboxes SET is_default=false, updated_at=now()
+		WHERE deleted_at IS NULL AND is_default AND lower(category)=lower($1) AND id<>$2`,
+		category, exceptID)
+	return err
+}
+
+func scanSandboxRows(rows *sql.Rows) ([]*sandbox.Sandbox, error) {
 	defer rows.Close()
 	var out []*sandbox.Sandbox
 	for rows.Next() {
@@ -179,9 +248,10 @@ func scanSandbox(row scannable) (*sandbox.Sandbox, error) {
 	err := row.Scan(
 		&sb.ID, &sb.ContainerID, &sb.Image, &status, &sb.WorkspaceID, &sb.WorkspacePath,
 		&metaRaw, &sb.TTLSeconds, &expires, &sb.LastActiveAt, &sb.CreatedAt, &sb.UpdatedAt,
+		&sb.Name, &sb.Category, &sb.IsDefault, &sb.CPUCount, &sb.MemoryMB, &sb.DiskSizeMB, &sb.TemplateBuild,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
+		return nil, sandbox.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -203,4 +273,15 @@ func nullTime(t *time.Time) any {
 		return nil
 	}
 	return *t
+}
+
+func mapUniqueViolation(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return sandbox.ErrConflict
+	}
+	return err
 }

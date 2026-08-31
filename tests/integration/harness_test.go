@@ -16,8 +16,10 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
 	kernbackend "github.com/RoundpenAI/roundpen/internal/backend/kern"
+	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
+	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
 	"github.com/RoundpenAI/roundpen/internal/workspace/sshfs"
@@ -40,6 +42,7 @@ type harness struct {
 	Client   *http.Client
 	DataRoot string
 	FS       workspace.FS
+	APIKey   string
 }
 
 func startHarness(t *testing.T, be backend.Backend, fs workspace.FS, dataRoot, defaultImage string) *harness {
@@ -56,17 +59,41 @@ func startHarness(t *testing.T, be backend.Backend, fs workspace.FS, dataRoot, d
 		t.Fatalf("migrate: %v", err)
 	}
 
+	users := storage.NewMemoryUserStore()
+	sessions := storage.NewMemorySessionStore()
+	apiKey := "rp-integration-test"
+	if err := users.Upsert(ctx, storage.User{
+		Username: "test",
+		Email:    "test@example.com",
+		APIKey:   apiKey,
+		Role:     storage.RoleAdmin,
+	}); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	mgr := sandbox.NewService(storage.NewSandboxStore(db), be, fs, defaultImage, 10*time.Minute, logger)
+	tplStore := template.NewStore(db.SQL)
+	tplSvc := template.NewService(tplStore, defaultImage)
+	if err := tplSvc.Seed(ctx, be.Name()); err != nil {
+		t.Fatalf("template seed: %v", err)
+	}
+	mgr := sandbox.NewService(storage.NewSandboxStore(db), be, fs, defaultImage, 10*time.Minute, logger, sandbox.WithTemplates(tplSvc))
 
 	mux := http.NewServeMux()
-	(&e2b.Handler{Manager: mgr}).Mount(mux)
-	(&httpapi.Handler{Manager: mgr}).Mount(mux)
+	auth.Mount(mux, users, sessions, func() bool { return false })
+	(&e2b.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
+	native := &httpapi.Handler{Manager: mgr}
+	native.Mount(mux)
+	native.MountTerminal(mux)
+	(&preview.Handler{
+		Manager: mgr,
+		Tokens:  preview.NewStore(15 * time.Minute),
+	}).Mount(mux)
 
-	srv := httptest.NewServer(auth.APIKey("", mux))
+	srv := httptest.NewServer(auth.Middleware(users, sessions)(mux))
 	t.Cleanup(srv.Close)
 
-	return &harness{URL: srv.URL, Client: srv.Client(), DataRoot: dataRoot, FS: fs}
+	return &harness{URL: srv.URL, Client: srv.Client(), DataRoot: dataRoot, FS: fs, APIKey: apiKey}
 }
 
 func startKernHarness(t *testing.T) *harness {

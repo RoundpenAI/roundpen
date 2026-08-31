@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/template"
 )
 
 // Handler serves E2B-compatible routes.
 type Handler struct {
-	Manager sandbox.Manager
+	Manager   sandbox.Manager
+	Templates *template.Service
 }
 
 type newSandboxReq struct {
@@ -66,6 +68,8 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /sandboxes/{sandboxID}/timeout", h.timeout)
 	mux.HandleFunc("POST /sandboxes/{sandboxID}/connect", h.connect)
 	mux.HandleFunc("POST /sandboxes/{sandboxID}/refreshes", h.refreshes)
+	mux.HandleFunc("GET /templates", h.listTemplates)
+	mux.HandleFunc("GET /v2/templates", h.listTemplatesV2)
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -265,6 +269,18 @@ func toResp(sb *sandbox.Sandbox) sandboxResp {
 	if sb.ExpiresAt != nil {
 		endAt = sb.ExpiresAt.UTC().Format(time.RFC3339)
 	}
+	cpuCount := sb.CPUCount
+	if cpuCount == 0 {
+		cpuCount = 1
+	}
+	memoryMB := sb.MemoryMB
+	if memoryMB == 0 {
+		memoryMB = 512
+	}
+	diskSizeMB := sb.DiskSizeMB
+	if diskSizeMB == 0 {
+		diskSizeMB = 5120
+	}
 	return sandboxResp{
 		SandboxID:   sb.ID,
 		Name:        sb.Name,
@@ -277,9 +293,9 @@ func toResp(sb *sandbox.Sandbox) sandboxResp {
 		State:       e2bState(sb.Status),
 		StartedAt:   startedAt,
 		EndAt:       endAt,
-		CPUCount:    1,
-		MemoryMB:    512,
-		DiskSizeMB:  5120,
+		CPUCount:    cpuCount,
+		MemoryMB:    memoryMB,
+		DiskSizeMB:  diskSizeMB,
 	}
 }
 

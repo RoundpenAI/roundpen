@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -19,8 +20,11 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
+	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
+	"github.com/RoundpenAI/roundpen/internal/template"
+	"github.com/RoundpenAI/roundpen/internal/ui"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
 	"github.com/RoundpenAI/roundpen/internal/workspace/sshfs"
@@ -34,6 +38,9 @@ func main() {
 	}
 
 	dataRoot := cfg.EffectiveDataRoot()
+	if abs, err := filepath.Abs(dataRoot); err == nil {
+		dataRoot = abs
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	logger.Info("roundpend starting",
 		slog.String("http_addr", cfg.HTTPAddr),
@@ -59,6 +66,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	userStore := storage.NewUserStore(db)
+	sessionStore := storage.NewSessionStore(db)
+	if cfg.BootstrapAdmin {
+		if err := auth.BootstrapAdmin(ctx, userStore, cfg.APIKey, logger); err != nil {
+			logger.Error("bootstrap admin", slog.Any("err", err))
+			os.Exit(1)
+		}
+	} else {
+		logger.Info("ROUNDPEN_BOOTSTRAP_ADMIN is false — admin bootstrap skipped")
+	}
+
 	wsFS, err := newWorkspaceFS(cfg, dataRoot, logger)
 	if err != nil {
 		logger.Error("workspace", slog.Any("err", err))
@@ -67,6 +85,12 @@ func main() {
 
 	var mgr sandbox.Manager
 	store := storage.NewSandboxStore(db)
+	tplStore := template.NewStore(db.SQL)
+	tplSvc := template.NewService(tplStore, cfg.DefaultImage)
+	if err := tplSvc.Seed(ctx, cfg.Backend); err != nil {
+		logger.Error("template seed", slog.Any("err", err))
+		os.Exit(1)
+	}
 	switch cfg.Backend {
 	case "docker":
 		be, err := dockerbackend.New(cfg.DockerHost, cfg.DockerRuntime)
@@ -79,10 +103,10 @@ func main() {
 			logger.Error("docker ping", slog.Any("err", err))
 			os.Exit(1)
 		}
-		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger)
+		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc))
 	case "kern":
 		be := kernbackend.New()
-		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger)
+		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc))
 		logger.Info("using kern backend (daemonless host processes)")
 	default:
 		logger.Error("backend not implemented", slog.String("backend", cfg.Backend))
@@ -90,8 +114,16 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	(&e2b.Handler{Manager: mgr}).Mount(mux)
-	(&httpapi.Handler{Manager: mgr}).Mount(mux)
+	auth.Mount(mux, userStore, sessionStore, func() bool { return cfg.AllowPublicRegistration })
+	(&e2b.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
+	native := &httpapi.Handler{Manager: mgr}
+	native.Mount(mux)
+	native.MountTerminal(mux)
+	(&preview.Handler{
+		Manager:   mgr,
+		Tokens:    preview.NewStore(cfg.PreviewTokenTTL),
+		PublicURL: cfg.PreviewPublicURL,
+	}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)
 	memSvc := &memory.Service{Store: memStore, Logger: logger}
@@ -148,9 +180,12 @@ func main() {
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
 
+	// Console SPA last — catch-all for non-API GET paths (embedded via internal/ui).
+	mux.Handle("/", ui.Handler())
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           auth.APIKey(cfg.APIKey, mux),
+		Handler:           auth.Middleware(userStore, sessionStore)(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
