@@ -40,6 +40,8 @@ export function TemplateDetailDialog({
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveOk, setSaveOk] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
 
   const [description, setDescription] = useState('')
@@ -47,6 +49,14 @@ export function TemplateDetailDialog({
   const [memoryMB, setMemoryMB] = useState(512)
   const [diskSizeMB, setDiskSizeMB] = useState(5120)
   const [isPublic, setIsPublic] = useState(true)
+
+  function syncFormFromDetail(d: TemplateDetail) {
+    setDescription(d.description ?? '')
+    setCpuCount(d.cpuCount)
+    setMemoryMB(d.memoryMB)
+    setDiskSizeMB(d.diskSizeMB)
+    setIsPublic(d.public)
+  }
 
   useEffect(() => {
     if (!open || !templateId) {
@@ -56,15 +66,12 @@ export function TemplateDetailDialog({
     setLoading(true)
     setLoadError(null)
     setSaveError(null)
+    setSaveOk(false)
     void templates
       .get(templateId)
       .then((d) => {
         setDetail(d)
-        setDescription(d.description ?? '')
-        setCpuCount(d.cpuCount)
-        setMemoryMB(d.memoryMB)
-        setDiskSizeMB(d.diskSizeMB)
-        setIsPublic(d.public)
+        syncFormFromDetail(d)
       })
       .catch((e) =>
         setLoadError(e instanceof Error ? e.message : 'failed to load'),
@@ -79,8 +86,10 @@ export function TemplateDetailDialog({
 
   async function submit(e: FormEvent) {
     e.preventDefault()
-    if (!detail || readOnly) return
+    if (!detail || readOnly || saving) return
     setSaveError(null)
+    setSaveOk(false)
+    setSaving(true)
     const patch: TemplatePatch = {
       description,
       public: isPublic,
@@ -91,9 +100,14 @@ export function TemplateDetailDialog({
     try {
       const updated = await templates.update(detail.templateID, patch)
       onSaved(updated)
-      setDetail(await templates.get(detail.templateID))
+      const refreshed = await templates.get(detail.templateID)
+      setDetail(refreshed)
+      syncFormFromDetail(refreshed)
+      setSaveOk(true)
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'save failed')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -228,13 +242,16 @@ export function TemplateDetailDialog({
                   {error || saveError}
                 </p>
               )}
+              {saveOk && !saveError && (
+                <p className="text-sm text-success">Settings saved.</p>
+              )}
 
               <div className="modal-action mt-1 flex-wrap">
                 {!readOnly && (
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm text-error mr-auto"
-                    disabled={busy || deleteBusy}
+                    disabled={busy || saving || deleteBusy}
                     onClick={() => void onDelete()}
                   >
                     {deleteBusy ? 'Deleting…' : 'Delete'}
@@ -243,7 +260,7 @@ export function TemplateDetailDialog({
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
-                  disabled={busy || deleteBusy}
+                  disabled={busy || saving || deleteBusy}
                   onClick={onClose}
                 >
                   Close
@@ -251,7 +268,7 @@ export function TemplateDetailDialog({
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
-                  disabled={busy || deleteBusy}
+                  disabled={busy || saving || deleteBusy}
                   onClick={() => onBuild(detail)}
                 >
                   {detail.buildStatus === 'waiting' || detail.buildStatus === 'error'
@@ -259,8 +276,12 @@ export function TemplateDetailDialog({
                     : 'Logs'}
                 </button>
                 {!readOnly && (
-                  <button type="submit" className="btn btn-primary btn-sm" disabled={busy || deleteBusy}>
-                    {busy ? 'Saving…' : 'Save'}
+                  <button
+                    type="submit"
+                    className="btn btn-primary btn-sm"
+                    disabled={busy || saving || deleteBusy}
+                  >
+                    {saving ? 'Saving…' : 'Save'}
                   </button>
                 )}
               </div>

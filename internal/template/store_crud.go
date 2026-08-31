@@ -39,12 +39,13 @@ const templateSelectCols = `
 	b.id, b.status, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb, b.envd_version`
 
 const templateFromJoin = `
-	FROM templates t
-	LEFT JOIN template_tags tg ON tg.template_id=t.id AND tg.tag='default'
-	LEFT JOIN template_builds b ON b.id=tg.build_id`
+	FROM templates t` + templateBuildJoin
 
 // GetByID returns one template with its default-tag build metadata.
 func (s *Store) GetByID(ctx context.Context, templateID string) (Record, error) {
+	if err := s.RepairDefaultTag(ctx, templateID); err != nil {
+		return Record{}, err
+	}
 	row := s.db.QueryRowContext(ctx, `SELECT`+templateSelectCols+templateFromJoin+`
 		WHERE t.id=$1`, templateID)
 	rec, err := scanRecord(row)
@@ -90,6 +91,13 @@ func (s *Store) UpdateTemplate(ctx context.Context, templateID string, req Updat
 	}
 	if IsBuiltin(rec.Namespace, rec.Name, rec.CreatedBy) {
 		return ErrBuiltin
+	}
+	if err := s.RepairDefaultTag(ctx, templateID); err != nil {
+		return err
+	}
+	rec, err = s.GetByID(ctx, templateID)
+	if err != nil {
+		return err
 	}
 
 	tx, err := s.db.BeginTx(ctx, nil)

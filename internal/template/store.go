@@ -140,15 +140,46 @@ func upsertDefaultTag(ctx context.Context, tx *sql.Tx, tplID, buildID string) er
 	return err
 }
 
+const templateBuildJoin = `
+	LEFT JOIN template_builds b ON b.id = COALESCE(
+		(SELECT tg.build_id FROM template_tags tg WHERE tg.template_id=t.id AND tg.tag='default' LIMIT 1),
+		(SELECT tb.id FROM template_builds tb WHERE tb.template_id=t.id ORDER BY tb.created_at DESC LIMIT 1)
+	)`
+
+// RepairDefaultTag ensures the default tag points at the latest build when missing.
+func (s *Store) RepairDefaultTag(ctx context.Context, templateID string) error {
+	var existing sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT build_id FROM template_tags WHERE template_id=$1 AND tag='default'`, templateID).Scan(&existing)
+	if err == nil && existing.Valid {
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	var buildID string
+	err = s.db.QueryRowContext(ctx, `
+		SELECT id FROM template_builds WHERE template_id=$1 ORDER BY created_at DESC LIMIT 1`, templateID).Scan(&buildID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO template_tags (template_id, tag, build_id) VALUES ($1,'default',$2)
+		ON CONFLICT (template_id, tag) DO UPDATE SET build_id=EXCLUDED.build_id`,
+		templateID, buildID)
+	return err
+}
+
 // List returns all templates with their default-tag build.
 func (s *Store) List(ctx context.Context) ([]Record, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT t.id, t.namespace, t.name, t.description, t.profile, t.public,
 			t.spawn_count, t.build_count, t.last_spawned_at, t.created_by, t.created_at, t.updated_at,
 			b.id, b.status, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb, b.envd_version
-		FROM templates t
-		LEFT JOIN template_tags tg ON tg.template_id=t.id AND tg.tag='default'
-		LEFT JOIN template_builds b ON b.id=tg.build_id
+		FROM templates t`+templateBuildJoin+`
 		ORDER BY t.namespace, t.name`)
 	if err != nil {
 		return nil, err
@@ -262,10 +293,12 @@ func scanRecord(row rowScanner) (Record, error) {
 	if buildID.Valid {
 		rec.BuildID = buildID.String
 	}
-	if status.Valid {
+	if status.Valid && status.String != "" {
 		rec.BuildStatus = BuildStatus(status.String)
+	} else if buildID.Valid {
+		rec.BuildStatus = BuildWaiting
 	} else {
-		rec.BuildStatus = BuildError
+		rec.BuildStatus = BuildWaiting
 	}
 	if cpu.Valid {
 		rec.CPUCount = int(cpu.Int64)
