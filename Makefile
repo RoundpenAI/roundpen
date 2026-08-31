@@ -1,17 +1,54 @@
-.PHONY: build test test-integration vet fmt tidy run-daemon
+.PHONY: setup build build-ui build-linux build-go test test-integration vet fmt tidy \
+	dev dev-check run-daemon compose-up compose-down
 
-build:
+setup:
+	@echo "Initializing development environment..."
+	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example"; fi
+	@go mod download
+	@cd web && npm install
+	@mkdir -p bin internal/ui/dist data
+	@touch internal/ui/dist/.gitkeep
+	@echo "Setup complete. Next: make dev"
+
+# One-shot local preview: tool check → pg0 → roundpend + Vite (see scripts/dev-up.sh).
+dev:
+	@./scripts/dev-up.sh
+
+dev-check:
+	@./scripts/dev-up.sh --check-only
+
+# Node is only needed here (and in the Docker builder). End users run a
+# prebuilt binary or `docker compose up` — they never need npm.
+build-ui:
+	@echo "Building Web UI..."
+	@cd web && [ -d node_modules ] || npm ci
+	@cd web && npm run build
+	@mkdir -p internal/ui/dist
+	@touch internal/ui/dist/.gitkeep
+
+build: build-ui
+	go build -o bin/roundpend ./cmd/roundpend
+	go build -o bin/roundpen ./cmd/roundpen
+
+# Cross-compile Linux binary with UI embedded (for NAS / bare metal).
+build-linux: build-ui
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/roundpend-linux-amd64 ./cmd/roundpend
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/roundpen-linux-amd64 ./cmd/roundpen
+
+# Go-only rebuild when internal/ui/dist is already populated.
+build-go:
 	go build -o bin/roundpend ./cmd/roundpend
 	go build -o bin/roundpen ./cmd/roundpen
 
 test:
+	@mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
 	go test ./...
 
-# Requires DATABASE_URL (or ROUNDPEN_TEST_DATABASE_URL). Optional Docker SSH:
-#   ROUNDPEN_TEST_DOCKER_HOST=ssh://user@host
-#   ROUNDPEN_TEST_REMOTE_ROOT=/tmp/roundpen-it   # absolute path on remote host
 test-integration:
 	go test ./tests/integration/ -count=1 -timeout 10m -v
+
+test-e2b-compat:
+	go test ./tests/integration/ -run TestE2BCompatibility -count=1 -v
 
 vet:
 	go vet ./...
@@ -24,3 +61,10 @@ tidy:
 
 run-daemon: build
 	./bin/roundpend
+
+# End-user path: no Node on the host. UI is baked in the image build.
+compose-up:
+	docker compose up -d --build
+
+compose-down:
+	docker compose down

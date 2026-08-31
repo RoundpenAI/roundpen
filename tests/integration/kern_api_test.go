@@ -160,7 +160,7 @@ func TestKernAPI_StopThenExecFails(t *testing.T) {
 	defer resp.Body.Close()
 }
 
-func (h *harness) mustDo(t *testing.T, method, path string, body any) *http.Response {
+func (h *harness) mustDo(t testing.TB, method, path string, body any) *http.Response {
 	t.Helper()
 	var rdr io.Reader
 	if body != nil {
