@@ -61,7 +61,7 @@ func e2bCompatCases() []compatCase {
 				if err := json.NewDecoder(resp.Body).Decode(&sb); err != nil {
 					return verdictFail, err.Error()
 				}
-				missing := missingJSONFields(sb, "sandboxID", "templateID", "clientID", "envdVersion")
+				missing := missingJSONFields(sb, "sandboxID", "templateID", "clientID", "envdVersion", "startedAt", "endAt", "state")
 				if len(missing) > 0 {
 					return verdictPartial, "missing fields: " + strings.Join(missing, ", ")
 				}
@@ -182,12 +182,18 @@ func e2bCompatCases() []compatCase {
 		},
 		{
 			ID: "platform.postSandboxConnect", Layer: "platform", E2BRef: "postSandboxConnect", Priority: "core",
-			Implemented: false,
+			Implemented: true,
 			Run: func(t *testing.T, h *harness, ctx *compatCtx) (compatVerdict, string) {
 				if ctx.sandboxID == "" {
 					return verdictSkip, "no sandbox"
 				}
-				return probeNotImplemented(t, h, http.MethodPost, "/sandboxes/"+ctx.sandboxID+"/connect", map[string]any{})
+				resp := h.mustDo(t, http.MethodPost, "/sandboxes/"+ctx.sandboxID+"/connect", map[string]any{})
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+					b, _ := io.ReadAll(resp.Body)
+					return verdictFail, fmt.Sprintf("%s %s", resp.Status, b)
+				}
+				return verdictPass, ""
 			},
 		},
 		{
@@ -246,12 +252,18 @@ func e2bCompatCases() []compatCase {
 		},
 		{
 			ID: "platform.postSandboxRefreshes", Layer: "platform", E2BRef: "postSandboxRefreshes", Priority: "extended",
-			Implemented: false,
+			Implemented: true,
 			Run: func(t *testing.T, h *harness, ctx *compatCtx) (compatVerdict, string) {
 				if ctx.sandboxID == "" {
 					return verdictSkip, "no sandbox"
 				}
-				return probeNotImplemented(t, h, http.MethodPost, "/sandboxes/"+ctx.sandboxID+"/refreshes", nil)
+				resp := h.mustDo(t, http.MethodPost, "/sandboxes/"+ctx.sandboxID+"/refreshes", nil)
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusNoContent {
+					b, _ := io.ReadAll(resp.Body)
+					return verdictFail, fmt.Sprintf("%s %s", resp.Status, b)
+				}
+				return verdictPass, ""
 			},
 		},
 		{
@@ -342,9 +354,17 @@ func e2bCompatCases() []compatCase {
 		},
 		{
 			ID: "envd.filesystemStat", Layer: "envd", E2BRef: "filesystem.Filesystem.Stat", Priority: "core",
-			Implemented: false,
-			Run: func(_ *testing.T, _ *harness, _ *compatCtx) (compatVerdict, string) {
-				return verdictNotImplemented, "no ConnectRPC Stat endpoint"
+			Implemented: true,
+			Run: func(t *testing.T, h *harness, ctx *compatCtx) (compatVerdict, string) {
+				if ctx.sandboxID == "" {
+					return verdictSkip, "no sandbox"
+				}
+				resp := h.mustDo(t, http.MethodGet, "/v1/sandboxes/"+ctx.sandboxID+"/files/stat?path=.", nil)
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					return verdictFail, resp.Status
+				}
+				return verdictPartial, "REST GET /v1/sandboxes/{id}/files/stat (not ConnectRPC Stat)"
 			},
 		},
 		{

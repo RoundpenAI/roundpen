@@ -641,6 +641,79 @@ func TestService_NotFoundAndMissingWorkspace(t *testing.T) {
 	}
 }
 
+func TestService_ConnectResumeAndRefresh(t *testing.T) {
+	be := newStubBackend("kern")
+	svc, _, _ := newTestService(t, be)
+	ctx := context.Background()
+
+	sb, err := svc.Create(ctx, sandbox.CreateRequest{TemplateID: "host"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, resumed, err := svc.Connect(ctx, sb.ID)
+	if err != nil || resumed || got.Status != sandbox.StatusRunning {
+		t.Fatalf("connect running: err=%v resumed=%v status=%s", err, resumed, got.Status)
+	}
+
+	if err := svc.Stop(ctx, sb.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, resumed, err = svc.Connect(ctx, sb.ID)
+	if err != nil || !resumed || got.Status != sandbox.StatusRunning {
+		t.Fatalf("connect resume: err=%v resumed=%v status=%s", err, resumed, got.Status)
+	}
+
+	before, _ := svc.Get(ctx, sb.ID)
+	if _, err := svc.Refresh(ctx, sb.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := svc.Get(ctx, sb.ID)
+	if !after.LastActiveAt.After(before.LastActiveAt) {
+		t.Fatal("refresh should touch sandbox")
+	}
+}
+
+func TestService_StatFile(t *testing.T) {
+	svc, _, _ := newTestService(t, newStubBackend("stub"))
+	ctx := context.Background()
+	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.WriteFile(ctx, sb.ID, "note.txt", strings.NewReader("hi")); err != nil {
+		t.Fatal(err)
+	}
+	st, err := svc.StatFile(ctx, sb.ID, "note.txt")
+	if err != nil || st.Name != "note.txt" || st.Size != 2 {
+		t.Fatalf("stat: err=%v st=%#v", err, st)
+	}
+}
+
+func TestService_StopKeepsFilesAccessible(t *testing.T) {
+	svc, _, _ := newTestService(t, newStubBackend("stub"))
+	ctx := context.Background()
+	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.WriteFile(ctx, sb.ID, "keep.txt", strings.NewReader("data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Stop(ctx, sb.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Exec(ctx, sb.ID, sandbox.ExecRequest{Cmd: []string{"true"}}); err == nil {
+		t.Fatal("exec should fail when stopped")
+	}
+	rc, err := svc.ReadFile(ctx, sb.ID, "keep.txt")
+	if err != nil {
+		t.Fatalf("files should work when stopped: %v", err)
+	}
+	_ = rc.Close()
+}
+
 func strPtr(s string) *string { return &s }
 
 var (

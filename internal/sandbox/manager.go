@@ -2,9 +2,15 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
+	"path/filepath"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -61,15 +67,34 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	if err != nil {
 		return nil, fmt.Errorf("workspace: %w", err)
 	}
+	hostPath := info.HostPath
+	if abs, err := filepath.Abs(hostPath); err == nil {
+		hostPath = abs
+	}
 
 	now := time.Now().UTC()
 	exp := now.Add(ttl)
+	name := NormalizeName(req.Name)
+	if name == "" {
+		name = defaultName(id)
+	}
+	category := NormalizeCategory(req.Category)
+	isDefault := req.IsDefault && category != ""
+	if isDefault {
+		if err := s.store.ClearDefaultInCategory(ctx, category, id); err != nil {
+			_ = s.fs.Remove(ctx, wsID)
+			return nil, err
+		}
+	}
 	sb := &Sandbox{
 		ID:            id,
+		Name:          name,
+		Category:      category,
+		IsDefault:     isDefault,
 		Status:        StatusCreating,
 		Image:         image,
 		WorkspaceID:   wsID,
-		WorkspacePath: info.HostPath,
+		WorkspacePath: hostPath,
 		TTLSeconds:    int(ttl.Seconds()),
 		ExpiresAt:     &exp,
 		LastActiveAt:  now,
@@ -86,13 +111,17 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 
 	if err := s.store.Insert(ctx, sb); err != nil {
 		_ = s.fs.Remove(ctx, wsID)
+		if errors.Is(err, ErrConflict) {
+			return nil, fmt.Errorf("%w: sandbox name already exists", ErrConflict)
+		}
 		return nil, fmt.Errorf("store insert: %w", err)
 	}
 
 	engineID, err := s.backend.Create(ctx, backend.CreateOpts{
 		SandboxID: id,
+		Name:      name,
 		Image:     image,
-		MountDir:  info.HostPath,
+		MountDir:  hostPath,
 		Env:       req.Env,
 	})
 	if err != nil {
@@ -121,11 +150,70 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*Sandbox, error) {
-	return s.store.Get(ctx, id)
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	fillDefaultName(sb)
+	return sb, nil
 }
 
-func (s *Service) List(ctx context.Context) ([]*Sandbox, error) {
-	return s.store.List(ctx)
+func (s *Service) List(ctx context.Context, filter ListFilter) ([]*Sandbox, error) {
+	var (
+		list []*Sandbox
+		err  error
+	)
+	if cat := NormalizeCategory(filter.Category); cat != "" {
+		list, err = s.store.ListByCategory(ctx, cat)
+	} else {
+		list, err = s.store.List(ctx)
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, sb := range list {
+		fillDefaultName(sb)
+	}
+	return list, nil
+}
+
+func (s *Service) Resolve(ctx context.Context, req ResolveRequest) (*Sandbox, error) {
+	if name := NormalizeName(req.Name); name != "" {
+		sb, err := s.store.GetByName(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		fillDefaultName(sb)
+		return sb, nil
+	}
+	cat := NormalizeCategory(req.Category)
+	if cat == "" {
+		return nil, fmt.Errorf("name or category is required")
+	}
+	sb, err := s.store.GetDefaultByCategory(ctx, cat)
+	if err == nil {
+		fillDefaultName(sb)
+		return sb, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	// No explicit default: pick most recently active in the category.
+	list, listErr := s.store.ListByCategory(ctx, cat)
+	if listErr != nil {
+		return nil, listErr
+	}
+	if len(list) == 0 {
+		return nil, ErrNotFound
+	}
+	fillDefaultName(list[0])
+	return list[0], nil
+}
+
+func fillDefaultName(sb *Sandbox) {
+	if sb != nil && sb.Name == "" {
+		sb.Name = defaultName(sb.ID)
+	}
 }
 
 func (s *Service) Stop(ctx context.Context, id string) error {
@@ -177,6 +265,165 @@ func (s *Service) SetTimeout(ctx context.Context, id string, ttl time.Duration) 
 	return sb, nil
 }
 
+// Connect returns sandbox details, starting the backend when stopped or paused.
+// The bool is true when the sandbox was resumed (E2B 201); false when already running (E2B 200).
+func (s *Service) Connect(ctx context.Context, id string) (*Sandbox, bool, error) {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, false, err
+	}
+	fillDefaultName(sb)
+
+	switch sb.Status {
+	case StatusRunning:
+		if err := s.hydrate(ctx, sb); err != nil {
+			return nil, false, err
+		}
+		if err := s.Touch(ctx, id); err != nil {
+			return nil, false, err
+		}
+		got, err := s.Get(ctx, id)
+		return got, false, err
+
+	case StatusStopped, StatusPaused:
+		if err := s.hydrate(ctx, sb); err != nil {
+			return nil, false, fmt.Errorf("connect: %w", err)
+		}
+		if err := s.backend.Start(ctx, id); err != nil {
+			return nil, false, fmt.Errorf("connect start: %w", err)
+		}
+		sb.Status = StatusRunning
+		sb.UpdatedAt = time.Now().UTC()
+		if err := s.store.Update(ctx, sb); err != nil {
+			return nil, false, err
+		}
+		if err := s.Touch(ctx, id); err != nil {
+			return nil, false, err
+		}
+		got, err := s.Get(ctx, id)
+		return got, true, err
+
+	case StatusFailed:
+		return nil, false, fmt.Errorf("sandbox %s is %s", id, sb.Status)
+
+	default:
+		return nil, false, fmt.Errorf("sandbox %s is %s", id, sb.Status)
+	}
+}
+
+// Refresh extends sandbox TTL from now using the current TTLSeconds (E2B refreshes).
+func (s *Service) Refresh(ctx context.Context, id string) (*Sandbox, error) {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	ttl := time.Duration(sb.TTLSeconds) * time.Second
+	if ttl <= 0 {
+		ttl = s.defaultTTL
+	}
+	return s.SetTimeout(ctx, id, ttl)
+}
+
+func (s *Service) Rename(ctx context.Context, id, name string) (*Sandbox, error) {
+	n := name
+	return s.Update(ctx, id, UpdateRequest{Name: &n})
+}
+
+func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Sandbox, error) {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if req.Name != nil {
+		n := NormalizeName(*req.Name)
+		if n == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		sb.Name = n
+	}
+	if req.Category != nil {
+		sb.Category = NormalizeCategory(*req.Category)
+	}
+	if req.IsDefault != nil {
+		sb.IsDefault = *req.IsDefault
+	}
+	if sb.Category == "" {
+		sb.IsDefault = false
+	}
+	if sb.IsDefault {
+		if err := s.store.ClearDefaultInCategory(ctx, sb.Category, sb.ID); err != nil {
+			return nil, err
+		}
+	}
+	sb.UpdatedAt = time.Now().UTC()
+	if err := s.store.Update(ctx, sb); err != nil {
+		if errors.Is(err, ErrConflict) {
+			return nil, fmt.Errorf("%w: name or category default conflict", ErrConflict)
+		}
+		return nil, err
+	}
+	// Refresh in-memory backend metadata (kern hostname) when still running.
+	if sb.Status == StatusRunning && sb.WorkspacePath != "" {
+		_, _ = s.backend.Create(ctx, backend.CreateOpts{
+			SandboxID: sb.ID,
+			Name:      sb.Name,
+			Image:     sb.Image,
+			MountDir:  sb.WorkspacePath,
+		})
+	}
+	return sb, nil
+}
+
+// NormalizeName trims and clamps a display name (max 64 runes).
+func NormalizeName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	var b strings.Builder
+	n := 0
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+		n++
+		if n >= 64 {
+			break
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// NormalizeCategory trims and clamps a category label (max 32 runes).
+func NormalizeCategory(category string) string {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return ""
+	}
+	var b strings.Builder
+	n := 0
+	for _, r := range category {
+		if unicode.IsControl(r) {
+			continue
+		}
+		b.WriteRune(r)
+		n++
+		if n >= 32 {
+			break
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func defaultName(id string) string {
+	short := strings.ReplaceAll(id, "-", "")
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	return "sandbox-" + short
+}
+
 func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecResult, error) {
 	sb, err := s.store.Get(ctx, id)
 	if err != nil {
@@ -184,6 +431,9 @@ func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecRe
 	}
 	if sb.Status != StatusRunning {
 		return nil, fmt.Errorf("sandbox %s is %s", id, sb.Status)
+	}
+	if err := s.hydrate(ctx, sb); err != nil {
+		return nil, err
 	}
 	res, err := s.backend.Exec(ctx, id, backend.ExecOpts{
 		Cmd:     req.Cmd,
@@ -194,10 +444,173 @@ func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecRe
 	if err != nil {
 		return nil, err
 	}
-	sb.LastActiveAt = time.Now().UTC()
-	sb.UpdatedAt = sb.LastActiveAt
-	_ = s.store.Update(ctx, sb)
+	_ = s.Touch(ctx, id)
 	return &ExecResult{ExitCode: res.ExitCode, Stdout: res.Stdout, Stderr: res.Stderr}, nil
+}
+
+func (s *Service) workspaceID(ctx context.Context, id string) (string, error) {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if sb.WorkspaceID == "" {
+		return "", fmt.Errorf("sandbox %s has no workspace", id)
+	}
+	return sb.WorkspaceID, nil
+}
+
+// WorkspaceHostPath returns the absolute host directory for a sandbox workspace.
+func (s *Service) WorkspaceHostPath(ctx context.Context, id string) (string, error) {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	return s.mountPath(ctx, sb)
+}
+
+func (s *Service) mountPath(ctx context.Context, sb *Sandbox) (string, error) {
+	mount := sb.WorkspacePath
+	if mount == "" && sb.WorkspaceID != "" {
+		info, err := s.fs.Get(ctx, sb.WorkspaceID)
+		if err != nil {
+			return "", err
+		}
+		mount = info.HostPath
+	}
+	if mount == "" {
+		return "", fmt.Errorf("sandbox %s has no workspace path", sb.ID)
+	}
+	if !filepath.IsAbs(mount) {
+		if abs, err := filepath.Abs(mount); err == nil {
+			mount = abs
+		}
+	}
+	return mount, nil
+}
+
+// hydrate re-attaches in-memory backends (kern) after roundpend restart.
+func (s *Service) hydrate(ctx context.Context, sb *Sandbox) error {
+	if s.backend.Name() != "kern" {
+		return nil
+	}
+	mount, err := s.mountPath(ctx, sb)
+	if err != nil {
+		return err
+	}
+	if _, err := s.backend.Create(ctx, backend.CreateOpts{
+		SandboxID: sb.ID,
+		Name:      sb.Name,
+		Image:     sb.Image,
+		MountDir:  mount,
+	}); err != nil {
+		return fmt.Errorf("hydrate: %w", err)
+	}
+	if sb.Status == StatusRunning {
+		if err := s.backend.Start(ctx, sb.ID); err != nil {
+			return fmt.Errorf("hydrate start: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *Service) ListFiles(ctx context.Context, id, relPath string) ([]workspace.DirEntry, error) {
+	wsID, err := s.workspaceID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.fs.List(ctx, wsID, relPath)
+}
+
+func (s *Service) StatFile(ctx context.Context, id, relPath string) (*workspace.FileStat, error) {
+	wsID, err := s.workspaceID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := s.fs.Stat(ctx, wsID, relPath)
+	if err != nil {
+		return nil, err
+	}
+	return &workspace.FileStat{
+		Name:    fi.Name(),
+		IsDir:   fi.IsDir(),
+		Size:    fi.Size(),
+		ModTime: fi.ModTime().UTC(),
+	}, nil
+}
+
+func (s *Service) ReadFile(ctx context.Context, id, relPath string) (io.ReadCloser, error) {
+	wsID, err := s.workspaceID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.fs.Open(ctx, wsID, relPath)
+}
+
+func (s *Service) WriteFile(ctx context.Context, id, relPath string, r io.Reader) error {
+	wsID, err := s.workspaceID(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.fs.Write(ctx, wsID, relPath, r)
+}
+
+func (s *Service) RemoveFile(ctx context.Context, id, relPath string) error {
+	wsID, err := s.workspaceID(ctx, id)
+	if err != nil {
+		return err
+	}
+	return s.fs.RemovePath(ctx, wsID, relPath)
+}
+
+func (s *Service) Dial(ctx context.Context, id string, port int) (net.Conn, error) {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sb.Status != StatusRunning {
+		return nil, fmt.Errorf("sandbox %s is %s", id, sb.Status)
+	}
+	if err := s.hydrate(ctx, sb); err != nil {
+		return nil, err
+	}
+	return s.backend.Dial(ctx, id, port)
+}
+
+func (s *Service) Touch(ctx context.Context, id string) error {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	sb.LastActiveAt = now
+	sb.UpdatedAt = now
+	if sb.TTLSeconds > 0 {
+		exp := now.Add(time.Duration(sb.TTLSeconds) * time.Second)
+		sb.ExpiresAt = &exp
+	}
+	return s.store.Update(ctx, sb)
+}
+
+func (s *Service) AttachTerminal(ctx context.Context, id, sessionKey string, opts TerminalOpts, stdin io.Reader, stdout io.Writer) error {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if sb.Status != StatusRunning {
+		return fmt.Errorf("sandbox %s is %s", id, sb.Status)
+	}
+	if err := s.hydrate(ctx, sb); err != nil {
+		return err
+	}
+	_ = s.Touch(ctx, id)
+	return s.backend.AttachPTY(ctx, id, sessionKey, backend.PTYOpts{
+		Cmd: opts.Cmd, WorkDir: opts.WorkDir, Env: opts.Env,
+		Rows: opts.Rows, Cols: opts.Cols,
+	}, stdin, stdout)
+}
+
+func (s *Service) ResizeTerminal(ctx context.Context, id, sessionKey string, rows, cols uint16) error {
+	return s.backend.ResizePTY(ctx, id, sessionKey, rows, cols)
 }
 
 var _ Manager = (*Service)(nil)
