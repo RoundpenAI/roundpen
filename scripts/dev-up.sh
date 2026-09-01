@@ -90,8 +90,13 @@ if ! need_cmd docker; then
 	echo "      set ROUNDPEN_BACKEND=docker when you have a local/remote engine."
 fi
 
-if [[ "$CHECK_ONLY" -eq 0 ]] && ! need_cmd executor; then
-	echo "kaniko: installing executor for template builds..."
+if ! need_cmd bwrap; then
+	echo "note: bubblewrap (bwrap) is not installed; kaniko template builds need it for an isolated rootfs."
+	echo "      Debian/Ubuntu: sudo apt install bubblewrap"
+fi
+
+if [[ "$CHECK_ONLY" -eq 0 ]]; then
+	# Always run install: migrates ~/.local/bin/executor into a dedicated KanikoDir.
 	./scripts/install-kaniko.sh
 fi
 
@@ -142,6 +147,7 @@ ensure_env_key ROUNDPEN_TEMPLATE_BUILDER "kaniko"
 ensure_env_key ROUNDPEN_KANIKO_DESTINATION "$GITEA_KANIKO_DEST"
 ensure_env_key ROUNDPEN_KANIKO_INSECURE "false"
 ensure_env_key ROUNDPEN_KANIKO_SKIP_TLS_VERIFY "false"
+ensure_env_key ROUNDPEN_KANIKO_REGISTRY_MIRROR "https://docker.1ms.run"
 ensure_env_key ROUNDPEN_GITEA_REGISTRY_HOST "$GITEA_REGISTRY_HOST"
 ensure_env_key ROUNDPEN_GITEA_REGISTRY_USER "sandbox"
 

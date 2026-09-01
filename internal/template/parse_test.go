@@ -10,9 +10,9 @@ import (
 
 func TestParseRef(t *testing.T) {
 	tests := []struct {
-		in             string
-		ns, name, tag  string
-		buildID        string
+		in            string
+		ns, name, tag string
+		buildID       string
 	}{
 		{"host", "default", "host", "default", ""},
 		{"My-Template", "default", "my-template", "default", ""},
@@ -43,6 +43,15 @@ func TestParseRef_buildUUID(t *testing.T) {
 	ref := template.ParseRef(id)
 	if ref.BuildID != id {
 		t.Fatalf("BuildID=%q want %q", ref.BuildID, id)
+	}
+}
+
+func TestValidateTag(t *testing.T) {
+	if !template.ValidateTag("v2") || !template.ValidateTag("1.0.0") {
+		t.Fatal("expected valid tags")
+	}
+	if template.ValidateTag("default") || template.ValidateTag("") || template.ValidateTag("Bad Tag") {
+		t.Fatal("expected invalid tags")
 	}
 }
 

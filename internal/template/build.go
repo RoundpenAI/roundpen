@@ -56,3 +56,36 @@ type CreateTemplateResult struct {
 	Tags       []string
 	Public     bool
 }
+
+// CreateBuildRequest allocates a new waiting build under an existing template.
+type CreateBuildRequest struct {
+	// Tags are version labels (e.g. v2, staging) pointing at the new build.
+	// "default" is reserved — use AssignDefault instead.
+	Tags []string
+	// AssignDefault moves the default tag to this build when it becomes ready (default true).
+	AssignDefault *bool
+	CPUCount      int
+	MemoryMB      int
+	DiskSizeMB    int
+}
+
+// CreateBuildResult is returned by CreateBuild.
+type CreateBuildResult struct {
+	TemplateID string
+	BuildID    string
+	Tags       []string
+}
+
+// StartBuildResult is returned by StartBuild (buildID may differ after auto-fork).
+type StartBuildResult struct {
+	TemplateID string
+	BuildID    string
+	// Forked is true when a ready build was replaced by a new build due to core spec change.
+	Forked bool
+}
+
+// TagInfo is a template tag pointing at a build.
+type TagInfo struct {
+	Tag     string
+	BuildID string
+}

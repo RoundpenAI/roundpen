@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // WriteBuildContext creates a temp directory containing a Dockerfile.
@@ -44,4 +45,42 @@ func JoinImageRef(prefix, name string) string {
 		return name
 	}
 	return fmt.Sprintf("%s/%s", prefix, name)
+}
+
+// TemplateImageTags returns registry-local tags for a template build.
+// Primary (index 0) is name:buildID; always includes name:latest; optional version tags.
+func TemplateImageTags(templateName, buildID string, versionTags ...string) []string {
+	name := strings.ToLower(strings.TrimSpace(templateName))
+	buildID = strings.TrimSpace(buildID)
+	if name == "" {
+		name = "template"
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	add := func(tag string) {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" {
+			return
+		}
+		ref := name + ":" + tag
+		if _, ok := seen[ref]; ok {
+			return
+		}
+		seen[ref] = struct{}{}
+		out = append(out, ref)
+	}
+	if buildID != "" {
+		add(buildID)
+	}
+	add("latest")
+	for _, t := range versionTags {
+		if t == "default" || t == "latest" || t == buildID {
+			continue
+		}
+		add(t)
+	}
+	if len(out) == 0 {
+		return []string{name + ":latest"}
+	}
+	return out
 }

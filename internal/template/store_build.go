@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -23,7 +24,11 @@ func (s *Store) CreateTemplate(ctx context.Context, req CreateTemplateRequest) (
 	}
 	profile := req.Profile
 	if profile == "" {
-		profile = "dev"
+		if strings.EqualFold(name, "browser") {
+			profile = "browser"
+		} else {
+			profile = "dev"
+		}
 	}
 	cpu := req.CPUCount
 	if cpu <= 0 {
@@ -154,10 +159,151 @@ func (s *Store) SaveBuildSpec(ctx context.Context, buildID string, spec BuildSpe
 			start_cmd=$5, ready_cmd=$6,
 			cpu_count=CASE WHEN $7>0 THEN $7 ELSE cpu_count END,
 			memory_mb=CASE WHEN $8>0 THEN $8 ELSE memory_mb END,
-			status='building', updated_at=now()
+			status='building', error_message='', updated_at=now()
 		WHERE id=$1`,
 		buildID, specRaw, layersRaw, cacheKey, spec.StartCmd, spec.ReadyCmd, spec.CPUCount, spec.MemoryMB)
 	return err
+}
+
+// ClearBuildLogs removes prior log lines (used when retrying a failed build).
+func (s *Store) ClearBuildLogs(ctx context.Context, buildID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM template_build_logs WHERE build_id=$1`, buildID)
+	return err
+}
+
+// CreateBuild inserts a new waiting build for an existing template and optional version tags.
+func (s *Store) CreateBuild(ctx context.Context, templateID string, req CreateBuildRequest) (CreateBuildResult, error) {
+	rec, err := s.GetByID(ctx, templateID)
+	if err != nil {
+		return CreateBuildResult{}, err
+	}
+
+	cpu := req.CPUCount
+	if cpu <= 0 {
+		cpu = rec.CPUCount
+	}
+	if cpu <= 0 {
+		cpu = 1
+	}
+	mem := req.MemoryMB
+	if mem <= 0 {
+		mem = rec.MemoryMB
+	}
+	if mem <= 0 {
+		mem = 512
+	}
+	disk := req.DiskSizeMB
+	if disk <= 0 {
+		disk = rec.DiskSizeMB
+	}
+	if disk <= 0 {
+		disk = 5120
+	}
+
+	var tags []string
+	for _, tag := range req.Tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" || tag == "default" {
+			continue
+		}
+		if !ValidateTag(tag) {
+			return CreateBuildResult{}, fmt.Errorf("invalid tag %q", tag)
+		}
+		tags = append(tags, tag)
+	}
+
+	buildID := uuid.NewString()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return CreateBuildResult{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO template_builds (id, template_id, status, artifact_ref, cpu_count, memory_mb, disk_size_mb, envd_version)
+		VALUES ($1,$2,'waiting','',$3,$4,$5,$6)`,
+		buildID, templateID, cpu, mem, disk, EnvdVersion)
+	if err != nil {
+		return CreateBuildResult{}, err
+	}
+	for _, tag := range tags {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO template_tags (template_id, tag, build_id) VALUES ($1,$2,$3)
+			ON CONFLICT (template_id, tag) DO UPDATE SET build_id=EXCLUDED.build_id`,
+			templateID, tag, buildID)
+		if err != nil {
+			return CreateBuildResult{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return CreateBuildResult{}, err
+	}
+	return CreateBuildResult{
+		TemplateID: templateID,
+		BuildID:    buildID,
+		Tags:       tags,
+	}, nil
+}
+
+// UpsertTags points version tags at a build (skips empty / default).
+func (s *Store) UpsertTags(ctx context.Context, templateID, buildID string, tags []string) error {
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag == "" || tag == "default" {
+			continue
+		}
+		if !ValidateTag(tag) {
+			return fmt.Errorf("invalid tag %q", tag)
+		}
+		_, err := s.db.ExecContext(ctx, `
+			INSERT INTO template_tags (template_id, tag, build_id) VALUES ($1,$2,$3)
+			ON CONFLICT (template_id, tag) DO UPDATE SET build_id=EXCLUDED.build_id`,
+			templateID, tag, buildID)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ListTags returns all tags for a template.
+func (s *Store) ListTags(ctx context.Context, templateID string) ([]TagInfo, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tag, build_id FROM template_tags
+		WHERE template_id=$1 ORDER BY tag ASC`, templateID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TagInfo
+	for rows.Next() {
+		var t TagInfo
+		if err := rows.Scan(&t.Tag, &t.BuildID); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// ListTagsForBuild returns tags pointing at a build (excluding none).
+func (s *Store) ListTagsForBuild(ctx context.Context, templateID, buildID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT tag FROM template_tags
+		WHERE template_id=$1 AND build_id=$2 ORDER BY tag ASC`, templateID, buildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		out = append(out, tag)
+	}
+	return out, rows.Err()
 }
 
 // FinishBuild marks a build ready and updates template counters/tags.
@@ -242,11 +388,11 @@ func (s *Store) ListBuildLogs(ctx context.Context, buildID string, offset, limit
 
 func scanBuildInfo(row rowScanner) (BuildInfo, error) {
 	var (
-		info                     BuildInfo
-		status                   string
-		specRaw, artifact, cache sql.NullString
+		info                       BuildInfo
+		status                     string
+		specRaw, artifact, cache   sql.NullString
 		startCmd, readyCmd, errMsg sql.NullString
-		snapshot                 bool
+		snapshot                   bool
 	)
 	err := row.Scan(
 		&info.BuildID, &info.TemplateID, &status, &artifact, &cache, &specRaw,

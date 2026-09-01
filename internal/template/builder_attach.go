@@ -27,6 +27,7 @@ func AttachBuilder(cfg *config.Config, svc *Service, logger *slog.Logger) (func(
 			DestinationPrefix: cfg.KanikoDestination,
 			Insecure:          cfg.KanikoInsecure,
 			SkipTLSVerify:     cfg.KanikoSkipTLSVerify,
+			RegistryMirrors:   cfg.KanikoRegistryMirrors,
 			ExtraArgs:         cfg.KanikoExtraArgs,
 		})
 		if err != nil {
@@ -50,7 +51,7 @@ func AttachBuilder(cfg *config.Config, svc *Service, logger *slog.Logger) (func(
 func BuilderUnavailableHint(cfg *config.Config) string {
 	switch cfg.ResolveTemplateBuilder() {
 	case "kaniko":
-		return "template builds use kaniko; ensure executor is on PATH and registry credentials are configured"
+		return "template builds use kaniko; ensure executor + bubblewrap (bwrap) are installed and registry credentials are configured"
 	case "docker":
 		return "template builds use docker; ensure DOCKER_HOST is reachable"
 	default:

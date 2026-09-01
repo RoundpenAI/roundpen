@@ -23,7 +23,7 @@ type Runner interface {
 	Run(ctx context.Context, script string, stdin io.Reader) (stdout []byte, err error)
 }
 
-// FS stores workspaces under Root/workspaces/{id} on a remote host.
+// FS stores sandboxes under Root/sandboxes/{id}/{workspace,home} on a remote host.
 type FS struct {
 	Root   string // absolute Unix path on remote host
 	Runner Runner
@@ -53,8 +53,16 @@ func NewFromDockerHost(dockerHost, root string) (*FS, error) {
 	return New(tg, root)
 }
 
+func (f *FS) sandboxDir(id string) string {
+	return path.Join(f.Root, "sandboxes", id)
+}
+
 func (f *FS) base(id string) string {
-	return path.Join(f.Root, "workspaces", id)
+	return path.Join(f.sandboxDir(id), "workspace")
+}
+
+func (f *FS) home(id string) string {
+	return path.Join(f.sandboxDir(id), "home")
 }
 
 func (f *FS) resolve(id, relPath string) (string, error) {
@@ -84,20 +92,25 @@ func (f *FS) mode() os.FileMode {
 }
 
 func (f *FS) Create(ctx context.Context, id string, ephemeral bool) (*workspace.Info, error) {
-	p := f.base(id)
+	ws := f.base(id)
+	home := f.home(id)
 	mode := f.mode() & 0o777
-	script := fmt.Sprintf("mkdir -p %s %s && chmod %04o %s %s",
-		shellQuote(f.Root), shellQuote(p), mode, shellQuote(f.Root), shellQuote(p),
+	script := fmt.Sprintf(
+		"mkdir -p %s %s && chmod %04o %s %s %s",
+		shellQuote(ws), shellQuote(home), mode,
+		shellQuote(f.Root), shellQuote(ws), shellQuote(home),
 	)
 	if _, err := f.Runner.Run(ctx, script, nil); err != nil {
 		return nil, fmt.Errorf("sshfs create: %w", err)
 	}
-	return &workspace.Info{ID: id, HostPath: p, Ephemeral: ephemeral}, nil
+	return &workspace.Info{ID: id, HostPath: ws, HomePath: home, Ephemeral: ephemeral}, nil
 }
 
 func (f *FS) Get(ctx context.Context, id string) (*workspace.Info, error) {
-	p := f.base(id)
-	script := fmt.Sprintf("if [ -d %s ]; then echo OK; else echo MISSING; fi", shellQuote(p))
+	ws := f.base(id)
+	home := f.home(id)
+	script := fmt.Sprintf("if [ -d %s ]; then mkdir -p %s; echo OK; else echo MISSING; fi",
+		shellQuote(ws), shellQuote(home))
 	out, err := f.Runner.Run(ctx, script, nil)
 	if err != nil {
 		return nil, err
@@ -105,12 +118,11 @@ func (f *FS) Get(ctx context.Context, id string) (*workspace.Info, error) {
 	if !strings.Contains(string(out), "OK") {
 		return nil, os.ErrNotExist
 	}
-	return &workspace.Info{ID: id, HostPath: p}, nil
+	return &workspace.Info{ID: id, HostPath: ws, HomePath: home}, nil
 }
 
 func (f *FS) Remove(ctx context.Context, id string) error {
-	p := f.base(id)
-	script := fmt.Sprintf("rm -rf %s", shellQuote(p))
+	script := fmt.Sprintf("rm -rf %s", shellQuote(f.sandboxDir(id)))
 	_, err := f.Runner.Run(ctx, script, nil)
 	return err
 }
@@ -174,6 +186,66 @@ func (f *FS) Stat(ctx context.Context, id, relPath string) (os.FileInfo, error) 
 		mode:  modeFromType(parts[0]),
 		mtime: time.Unix(mtime, 0),
 	}, nil
+}
+
+func (f *FS) List(ctx context.Context, id, relPath string) ([]workspace.DirEntry, error) {
+	p, err := f.resolve(id, relPath)
+	if err != nil {
+		return nil, err
+	}
+	script := fmt.Sprintf(
+		`if [ ! -d %s ]; then echo NOTDIR; exit 0; fi; `+
+			`ls -1A %s | while IFS= read -r n; do `+
+			`fp=%s/"$n"; if [ -d "$fp" ]; then t=d; else t=f; fi; `+
+			`sz=$(stat -c '%%s' "$fp" 2>/dev/null || echo 0); `+
+			`mt=$(stat -c '%%Y' "$fp" 2>/dev/null || echo 0); `+
+			`printf '%%s|%%s|%%s|%%s\n' "$t" "$sz" "$mt" "$n"; done`,
+		shellQuote(p), shellQuote(p), shellQuote(p),
+	)
+	out, err := f.Runner.Run(ctx, script, nil)
+	if err != nil {
+		return nil, err
+	}
+	s := strings.TrimSpace(string(out))
+	if s == "NOTDIR" {
+		return nil, fmt.Errorf("not a directory")
+	}
+	if s == "" {
+		return []workspace.DirEntry{}, nil
+	}
+	var entries []workspace.DirEntry
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		size, _ := strconv.ParseInt(parts[1], 10, 64)
+		mtime, _ := strconv.ParseInt(parts[2], 10, 64)
+		entries = append(entries, workspace.DirEntry{
+			Name:    parts[3],
+			IsDir:   parts[0] == "d",
+			Size:    size,
+			ModTime: time.Unix(mtime, 0).UTC(),
+		})
+	}
+	return entries, nil
+}
+
+func (f *FS) RemovePath(ctx context.Context, id, relPath string) error {
+	if relPath == "" || relPath == "." || relPath == "/" {
+		return fmt.Errorf("refusing to remove workspace root; use Remove")
+	}
+	p, err := f.resolve(id, relPath)
+	if err != nil {
+		return err
+	}
+	script := fmt.Sprintf("rm -rf %s", shellQuote(p))
+	_, err = f.Runner.Run(ctx, script, nil)
+	return err
 }
 
 type remoteFileInfo struct {

@@ -8,6 +8,7 @@ import (
 )
 
 var namePartRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-_]{0,127}$`)
+var tagPartRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 
 // ParsedRef is a normalized template reference.
 type ParsedRef struct {
@@ -61,6 +62,15 @@ func ParseRef(raw string) ParsedRef {
 func ValidateName(name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	return namePartRe.MatchString(name)
+}
+
+// ValidateTag checks template version tag rules (docker-tag compatible).
+func ValidateTag(tag string) bool {
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if tag == "" || tag == "default" {
+		return false
+	}
+	return tagPartRe.MatchString(tag)
 }
 
 // DisplayName returns namespace/name for API names[] field.

@@ -18,6 +18,17 @@ func TestSanitizeImageRef(t *testing.T) {
 	}
 }
 
+func TestTemplateImageTags(t *testing.T) {
+	tags := builder.TemplateImageTags("python", "deadbeef-id")
+	if len(tags) != 2 || tags[0] != "python:deadbeef-id" || tags[1] != "python:latest" {
+		t.Fatalf("tags=%v", tags)
+	}
+	tags = builder.TemplateImageTags("python", "deadbeef-id", "v2", "latest", "default")
+	if len(tags) != 3 || tags[2] != "python:v2" {
+		t.Fatalf("version tags=%v", tags)
+	}
+}
+
 func TestWriteBuildContext(t *testing.T) {
 	dir, cleanup, err := builder.WriteBuildContext("FROM alpine:3.20\n")
 	if err != nil {

@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Install Kaniko executor to ~/.local/bin/executor (host-side builds for make dev).
+# Install Kaniko executor to a dedicated directory for Roundpen template builds.
+# The executor must live alone in its install dir: modern Kaniko treats that
+# directory as KanikoDir (copies Dockerfile there, etc.). Do not place it in
+# ~/.local/bin next to other tools.
 set -euo pipefail
 
 KANIKO_VERSION="${ROUNDPEN_KANIKO_VERSION:-v1.27.2}"
-INSTALL_DIR="${ROUNDPEN_KANIKO_INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${ROUNDPEN_KANIKO_INSTALL_DIR:-$HOME/.local/share/roundpen/kaniko}"
+LINK_DIR="${ROUNDPEN_KANIKO_LINK_DIR:-$HOME/.local/bin}"
 EXECUTOR="$INSTALL_DIR/executor"
 TAG="osscontainertools%2Fkaniko%2F${KANIKO_VERSION}"
 ARCH="$(uname -m)"
@@ -19,12 +23,26 @@ esac
 ASSET="osscontainertools-kaniko.executor.${KANIKO_VERSION#v}.${GOARCH}.tar"
 URL="https://github.com/kaniko-build/builder/releases/download/${TAG}/${ASSET}"
 
+mkdir -p "$INSTALL_DIR" "$LINK_DIR"
+
+# Migrate a previous install that dropped the binary into ~/.local/bin.
+if [[ -x "$LINK_DIR/executor" && ! -x "$EXECUTOR" ]]; then
+	echo "kaniko: migrating executor from ${LINK_DIR}/executor -> ${EXECUTOR}"
+	mv "$LINK_DIR/executor" "$EXECUTOR"
+fi
+# Kaniko may have left a Dockerfile next to a host-installed binary.
+if [[ -f "$LINK_DIR/Dockerfile" ]]; then
+	echo "kaniko: removing leftover ${LINK_DIR}/Dockerfile"
+	rm -f "$LINK_DIR/Dockerfile"
+fi
+
 if [[ -x "$EXECUTOR" ]]; then
+	ln -sfn "$EXECUTOR" "$LINK_DIR/executor"
 	echo "kaniko: executor already installed at ${EXECUTOR}"
+	echo "kaniko: PATH link ${LINK_DIR}/executor -> ${EXECUTOR}"
 	exit 0
 fi
 
-mkdir -p "$INSTALL_DIR"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 
@@ -57,8 +75,12 @@ for layer in layers:
 src = os.path.join(root, "kaniko", "executor")
 if not os.path.isfile(src):
     raise SystemExit("executor binary not found in kaniko image layers")
+os.makedirs(os.path.dirname(install), exist_ok=True)
 shutil.copy2(src, install)
 os.chmod(install, 0o755)
 PY
 
+ln -sfn "$EXECUTOR" "$LINK_DIR/executor"
 echo "kaniko: installed ${EXECUTOR}"
+echo "kaniko: PATH link ${LINK_DIR}/executor -> ${EXECUTOR}"
+echo "kaniko: template builds run the executor inside bubblewrap (bwrap)"

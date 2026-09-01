@@ -7,6 +7,7 @@ type TemplateDetail struct {
 	Record
 	Builtin bool
 	Builds  []BuildSummary
+	Tags    []TagInfo
 }
 
 // Get returns template detail including build history.
@@ -19,10 +20,15 @@ func (s *Service) Get(ctx context.Context, templateID string) (TemplateDetail, e
 	if err != nil {
 		return TemplateDetail{}, err
 	}
+	tags, err := s.store.ListTags(ctx, templateID)
+	if err != nil {
+		return TemplateDetail{}, err
+	}
 	return TemplateDetail{
 		Record:  rec,
 		Builtin: IsBuiltin(rec.Namespace, rec.Name, rec.CreatedBy),
 		Builds:  builds,
+		Tags:    tags,
 	}, nil
 }
 

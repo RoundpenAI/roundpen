@@ -45,16 +45,16 @@ type Record struct {
 
 // Resolved is the outcome of resolving a templateID reference at sandbox create.
 type Resolved struct {
-	RequestRef string
-	TemplateID string // internal UUID
-	BuildID    string
-	Alias      string // user-facing ref, e.g. host or default/python
-	Image      string // artifact_ref passed to backend
-	Profile    string
-	CPUCount   int
-	MemoryMB   int
-	DiskSizeMB int
-	StartCmd   string
-	Snapshot   bool // image carries roundpen snapshot entrypoint
+	RequestRef  string
+	TemplateID  string // internal UUID
+	BuildID     string
+	Alias       string // user-facing ref, e.g. host or default/python
+	Image       string // artifact_ref passed to backend
+	Profile     string
+	CPUCount    int
+	MemoryMB    int
+	DiskSizeMB  int
+	StartCmd    string
+	Snapshot    bool // image carries roundpen snapshot entrypoint
 	UseImageCmd bool
 }

@@ -257,15 +257,15 @@ func scanResolved(row rowScanner, ref ParsedRef) (Resolved, error) {
 		alias = ref.BuildID
 	}
 	res := Resolved{
-		TemplateID: tplID,
-		BuildID:    buildID,
-		Alias:      alias,
-		Image:      artifact,
-		Profile:    profile,
-		CPUCount:   cpu,
-		MemoryMB:   mem,
-		DiskSizeMB: disk,
-		Snapshot:   snapshot,
+		TemplateID:  tplID,
+		BuildID:     buildID,
+		Alias:       alias,
+		Image:       artifact,
+		Profile:     profile,
+		CPUCount:    cpu,
+		MemoryMB:    mem,
+		DiskSizeMB:  disk,
+		Snapshot:    snapshot,
 		UseImageCmd: snapshot,
 	}
 	if startCmd.Valid {
@@ -276,11 +276,11 @@ func scanResolved(row rowScanner, ref ParsedRef) (Resolved, error) {
 
 func scanRecord(row rowScanner) (Record, error) {
 	var (
-		rec                      Record
-		status                   sql.NullString
-		buildID, artifact, envd  sql.NullString
-		cpu, mem, disk           sql.NullInt64
-		lastSpawn                sql.NullTime
+		rec                     Record
+		status                  sql.NullString
+		buildID, artifact, envd sql.NullString
+		cpu, mem, disk          sql.NullInt64
+		lastSpawn               sql.NullTime
 	)
 	err := row.Scan(
 		&rec.TemplateID, &rec.Namespace, &rec.Name, &rec.Description, &rec.Profile, &rec.Public,

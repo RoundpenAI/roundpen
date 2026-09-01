@@ -1,6 +1,7 @@
 package template
 
-// BuiltinNames are seeded system templates that cannot be edited or deleted.
+// BuiltinNames are seeded system templates that cannot be deleted.
+// Metadata and resources may be edited; image builds can be triggered by admins.
 var BuiltinNames = map[string]struct{}{
 	"host":       {},
 	"base":       {},

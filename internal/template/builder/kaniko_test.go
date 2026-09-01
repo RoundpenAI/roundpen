@@ -24,6 +24,8 @@ exit 0
 	k, err := builder.NewKaniko(builder.KanikoConfig{
 		Executor:          exe,
 		DestinationPrefix: "registry.test/roundpen",
+		RegistryMirrors:   []string{"docker.1ms.run"},
+		NoSandbox:         true, // fake shell script; skip bwrap
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -32,13 +34,13 @@ exit 0
 	var lines []string
 	artifact, snapshot, err := k.Build(context.Background(), "alpine:3.20", builder.Spec{
 		Steps: []builder.Step{{Type: "RUN", Args: []string{"true"}}},
-	}, "template-deadbeef:latest", func(_, _, msg string) {
+	}, []string{"myapp:deadbeef", "myapp:latest"}, func(_, _, msg string) {
 		lines = append(lines, msg)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if artifact != "registry.test/roundpen/template-deadbeef:latest" {
+	if artifact != "registry.test/roundpen/myapp:deadbeef" {
 		t.Fatalf("artifact=%q", artifact)
 	}
 	if snapshot {
@@ -46,6 +48,16 @@ exit 0
 	}
 	if len(lines) == 0 {
 		t.Fatal("expected log lines")
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "--registry-mirror=docker.1ms.run") {
+		t.Fatalf("expected registry-mirror in args, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "--destination=registry.test/roundpen/myapp:deadbeef") {
+		t.Fatalf("expected build destination, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "--destination=registry.test/roundpen/myapp:latest") {
+		t.Fatalf("expected latest destination, got:\n%s", joined)
 	}
 }
 

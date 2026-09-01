@@ -35,6 +35,7 @@ type buildStatusResp struct {
 	Logs       []string            `json:"logs"`
 	LogEntries []buildLogEntryResp `json:"logEntries"`
 	Reason     *buildReasonResp    `json:"reason,omitempty"`
+	Spec       *template.BuildSpec `json:"spec,omitempty"`
 }
 
 type buildLogEntryResp struct {
@@ -92,6 +93,47 @@ func (h *Handler) createTemplateV3(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) createTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
+	if h.Templates == nil {
+		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		return
+	}
+	templateID := r.PathValue("templateID")
+	var req struct {
+		Tags          []string `json:"tags"`
+		AssignDefault *bool    `json:"assignDefault"`
+		CPUCount      int      `json:"cpuCount"`
+		MemoryMB      int      `json:"memoryMB"`
+		DiskSizeMB    int      `json:"diskSizeMB"`
+	}
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+	}
+	out, err := h.Templates.CreateBuild(r.Context(), templateID, template.CreateBuildRequest{
+		Tags:          req.Tags,
+		AssignDefault: req.AssignDefault,
+		CPUCount:      req.CPUCount,
+		MemoryMB:      req.MemoryMB,
+		DiskSizeMB:    req.DiskSizeMB,
+	})
+	if errors.Is(err, template.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"templateID": out.TemplateID,
+		"buildID":    out.BuildID,
+		"tags":       out.Tags,
+	})
+}
+
 func (h *Handler) startTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
 		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
@@ -99,16 +141,26 @@ func (h *Handler) startTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 	}
 	templateID := r.PathValue("templateID")
 	buildID := r.PathValue("buildID")
-	var spec template.BuildSpec
-	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
+	var req struct {
+		template.BuildSpec
+		Tags          []string `json:"tags"`
+		AssignDefault *bool    `json:"assignDefault"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if err := h.Templates.StartBuild(r.Context(), templateID, buildID, spec); err != nil {
-		if errors.Is(err, template.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, err.Error())
-			return
-		}
+	out, err := h.Templates.StartBuild(r.Context(), templateID, buildID, req.BuildSpec, template.CreateBuildRequest{
+		Tags:          req.Tags,
+		AssignDefault: req.AssignDefault,
+		CPUCount:      req.CPUCount,
+		MemoryMB:      req.MemoryMB,
+	})
+	if errors.Is(err, template.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err != nil {
 		if strings.Contains(err.Error(), "not configured") {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
@@ -116,7 +168,11 @@ func (h *Handler) startTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{})
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"templateID": out.TemplateID,
+		"buildID":    out.BuildID,
+		"forked":     out.Forked,
+	})
 }
 
 func (h *Handler) getTemplateBuildStatus(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +199,11 @@ func (h *Handler) getTemplateBuildStatus(w http.ResponseWriter, r *http.Request)
 		Status:     string(info.Status),
 		Logs:       make([]string, 0, len(logs)),
 		LogEntries: make([]buildLogEntryResp, 0, len(logs)),
+	}
+	if info.Spec.FromImage != "" || info.Spec.FromTemplate != "" || len(info.Spec.Steps) > 0 ||
+		info.Spec.StartCmd != "" || info.Spec.ReadyCmd != "" {
+		spec := info.Spec
+		resp.Spec = &spec
 	}
 	for _, e := range logs {
 		resp.Logs = append(resp.Logs, e.Message)
@@ -195,7 +256,7 @@ func (h *Handler) buildTemplate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := h.Templates.StartBuild(r.Context(), created.TemplateID, created.BuildID, body.Spec); err != nil {
+	if _, err := h.Templates.StartBuild(r.Context(), created.TemplateID, created.BuildID, body.Spec, template.CreateBuildRequest{}); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

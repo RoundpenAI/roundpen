@@ -61,10 +61,23 @@ func (d *Docker) Ping(ctx context.Context) error {
 }
 
 // Build executes docker build + optional snapshot phase.
-func (d *Docker) Build(ctx context.Context, baseImage string, spec Spec, tag string, log LogFn) (artifact string, snapshot bool, err error) {
+// tags are local docker tags; the first is the primary artifact.
+func (d *Docker) Build(ctx context.Context, baseImage string, spec Spec, tags []string, log LogFn) (artifact string, snapshot bool, err error) {
 	if log == nil {
 		log = func(_, _, _ string) {}
 	}
+	clean := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag != "" {
+			clean = append(clean, tag)
+		}
+	}
+	if len(clean) == 0 {
+		return "", false, fmt.Errorf("docker build requires at least one image tag")
+	}
+	primary := clean[0]
+
 	df, err := Dockerfile(baseImage, spec)
 	if err != nil {
 		return "", false, err
@@ -77,7 +90,7 @@ func (d *Docker) Build(ctx context.Context, baseImage string, spec Spec, tag str
 	defer buildCtx.Close()
 
 	resp, err := d.cli.ImageBuild(ctx, buildCtx, types.ImageBuildOptions{
-		Tags:       []string{tag},
+		Tags:       clean,
 		Dockerfile: "Dockerfile",
 		Remove:     true,
 	})
@@ -89,17 +102,20 @@ func (d *Docker) Build(ctx context.Context, baseImage string, spec Spec, tag str
 		return "", false, err
 	}
 
-	snapshot = spec.StartCmd != ""
+	snapshot = spec.StartCmd != "" || spec.KeepImageCmd
+	if spec.KeepImageCmd && spec.StartCmd == "" {
+		return primary, true, nil
+	}
 	if !snapshot {
-		return tag, false, nil
+		return primary, false, nil
 	}
 
 	log("info", "snapshot", "running start/ready verification")
-	if err := d.verifySnapshot(ctx, tag, spec, log); err != nil {
+	if err := d.verifySnapshot(ctx, primary, spec, log); err != nil {
 		return "", false, err
 	}
-	snapTag := tag + "-snapshot"
-	if err := d.tagImage(ctx, tag, snapTag); err != nil {
+	snapTag := primary + "-snapshot"
+	if err := d.tagImage(ctx, primary, snapTag); err != nil {
 		return "", false, err
 	}
 	log("info", "snapshot", "snapshot image ready: "+snapTag)

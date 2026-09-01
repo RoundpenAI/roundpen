@@ -20,7 +20,7 @@ type mockBuilder struct {
 	err      error
 }
 
-func (m *mockBuilder) Build(_ context.Context, _ string, _ builder.Spec, _ string, log builder.LogFn) (string, bool, error) {
+func (m *mockBuilder) Build(_ context.Context, _ string, _ builder.Spec, _ []string, log builder.LogFn) (string, bool, error) {
 	m.mu.Lock()
 	m.calls++
 	m.mu.Unlock()
@@ -44,7 +44,7 @@ func TestService_StartBuild_requiresBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = svc.StartBuild(ctx, created.TemplateID, created.BuildID, BuildSpec{FromImage: "alpine:3.20"})
+	_, err = svc.StartBuild(ctx, created.TemplateID, created.BuildID, BuildSpec{FromImage: "alpine:3.20"}, CreateBuildRequest{})
 	if err == nil || err.Error() != "template builds are not configured (set ROUNDPEN_TEMPLATE_BUILDER=docker|kaniko)" {
 		t.Fatalf("StartBuild err=%v", err)
 	}
@@ -68,7 +68,7 @@ func TestService_StartBuild_asyncWithMockBuilder(t *testing.T) {
 		StartCmd:  "sleep 1",
 		ReadyCmd:  "waitForTimeout(100)",
 	}
-	if err := svc.StartBuild(ctx, created.TemplateID, created.BuildID, spec); err != nil {
+	if _, err := svc.StartBuild(ctx, created.TemplateID, created.BuildID, spec, CreateBuildRequest{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,7 +123,7 @@ func TestService_StartBuild_cacheHit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := svc.StartBuild(ctx, created.TemplateID, build2ID, spec); err != nil {
+	if _, err := svc.StartBuild(ctx, created.TemplateID, build2ID, spec, CreateBuildRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	info, _, err := svc.GetBuildStatus(ctx, created.TemplateID, build2ID, 0, 10)
@@ -159,12 +159,105 @@ func TestService_StartBuild_fromTemplateBase(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := BuildSpec{FromTemplate: "python", Steps: []Step{{Type: "RUN", Args: []string{"true"}}}}
-	if err := svc.StartBuild(ctx, created.TemplateID, created.BuildID, spec); err != nil {
+	if _, err := svc.StartBuild(ctx, created.TemplateID, created.BuildID, spec, CreateBuildRequest{}); err != nil {
 		t.Fatal(err)
 	}
 	waitBuildReady(t, svc, created.TemplateID, created.BuildID)
 	if mb.calls != 1 {
 		t.Fatalf("builder calls=%d", mb.calls)
+	}
+}
+
+func TestService_StartBuild_reuseReadySameSpec(t *testing.T) {
+	store, sqlDB := testStore(t)
+	ctx := context.Background()
+	mb := &mockBuilder{artifact: "roundpen/reuse:1"}
+	svc := NewService(store, "host")
+	svc.SetBuilder("docker", mb)
+
+	name := fmt.Sprintf("reuse-%s", uuid.NewString()[:8])
+	t.Cleanup(func() { deleteTemplateByName(t, sqlDB, DefaultNamespace, name) })
+	created, err := svc.CreateTemplate(ctx, CreateTemplateRequest{Name: name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := BuildSpec{FromImage: "alpine:3.20", Steps: []Step{{Type: "RUN", Args: []string{"true"}}}}
+	out, err := svc.StartBuild(ctx, created.TemplateID, created.BuildID, spec, CreateBuildRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Forked || out.BuildID != created.BuildID {
+		t.Fatalf("first start: %+v", out)
+	}
+	waitBuildReady(t, svc, created.TemplateID, created.BuildID)
+
+	mb.artifact = "roundpen/reuse:2"
+	out, err = svc.StartBuild(ctx, created.TemplateID, created.BuildID, spec, CreateBuildRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Forked || out.BuildID != created.BuildID {
+		t.Fatalf("same-spec rebuild should reuse buildID, got %+v", out)
+	}
+	waitBuildReady(t, svc, created.TemplateID, created.BuildID)
+	if mb.calls != 2 {
+		t.Fatalf("builder calls=%d", mb.calls)
+	}
+}
+
+func TestService_StartBuild_forkReadyOnSpecChange(t *testing.T) {
+	store, sqlDB := testStore(t)
+	ctx := context.Background()
+	mb := &mockBuilder{artifact: "roundpen/fork:1"}
+	svc := NewService(store, "host")
+	svc.SetBuilder("docker", mb)
+
+	name := fmt.Sprintf("fork-%s", uuid.NewString()[:8])
+	t.Cleanup(func() { deleteTemplateByName(t, sqlDB, DefaultNamespace, name) })
+	created, err := svc.CreateTemplate(ctx, CreateTemplateRequest{Name: name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec1 := BuildSpec{FromImage: "alpine:3.20"}
+	if _, err := svc.StartBuild(ctx, created.TemplateID, created.BuildID, spec1, CreateBuildRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	waitBuildReady(t, svc, created.TemplateID, created.BuildID)
+
+	mb.artifact = "roundpen/fork:2"
+	spec2 := BuildSpec{FromImage: "alpine:3.21"}
+	assign := true
+	out, err := svc.StartBuild(ctx, created.TemplateID, created.BuildID, spec2, CreateBuildRequest{
+		Tags:          []string{"v2"},
+		AssignDefault: &assign,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Forked || out.BuildID == created.BuildID {
+		t.Fatalf("expected forked build, got %+v", out)
+	}
+	waitBuildReady(t, svc, created.TemplateID, out.BuildID)
+
+	old, err := store.GetBuild(ctx, created.TemplateID, created.BuildID)
+	if err != nil || old.Status != BuildReady {
+		t.Fatalf("old build should stay ready: %+v err=%v", old, err)
+	}
+	tags, err := store.ListTags(ctx, created.TemplateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundV2 := false
+	for _, tg := range tags {
+		if tg.Tag == "v2" && tg.BuildID == out.BuildID {
+			foundV2 = true
+		}
+		if tg.Tag == DefaultTag && tg.BuildID != out.BuildID {
+			t.Fatalf("default should move to forked build, tags=%+v", tags)
+		}
+	}
+	if !foundV2 {
+		t.Fatalf("missing v2 tag, tags=%+v", tags)
 	}
 }
 

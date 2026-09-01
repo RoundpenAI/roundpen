@@ -100,7 +100,7 @@ func startLocalDockerHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(func() { _ = be.Close() })
 	if err := be.Ping(ctx); err != nil {
-		t.Fatalf("docker ping: %v", err)
+		t.Skipf("docker not available: %v", err)
 	}
 
 	root := t.TempDir()

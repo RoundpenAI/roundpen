@@ -19,12 +19,12 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
-// Service implements Manager.
 // BrowserCloser tears down a host-side browser sidecar for a sandbox.
 type BrowserCloser interface {
 	CloseSandbox(id string)
 }
 
+// Service implements Manager.
 type Service struct {
 	store        Store
 	backend      backend.Backend

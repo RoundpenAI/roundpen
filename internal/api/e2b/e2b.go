@@ -74,6 +74,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /templates/{templateID}", h.deleteTemplate)
 	mux.HandleFunc("GET /v2/templates", h.listTemplatesV2)
 	mux.HandleFunc("POST /v3/templates", h.createTemplateV3)
+	mux.HandleFunc("POST /v2/templates/{templateID}/builds", h.createTemplateBuildV2)
 	mux.HandleFunc("POST /v2/templates/{templateID}/builds/{buildID}", h.startTemplateBuildV2)
 	mux.HandleFunc("GET /templates/{templateID}/builds/{buildID}/status", h.getTemplateBuildStatus)
 	mux.HandleFunc("POST /v1/templates/build", h.buildTemplate)
