@@ -90,7 +90,7 @@ func TestSSHFSCreateWriteOpenEscapeRemove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.HostPath != "/var/lib/roundpen/workspaces/ws1" {
+	if info.HostPath != "/var/lib/roundpen/sandboxes/ws1/workspace" {
 		t.Fatalf("path=%s", info.HostPath)
 	}
 

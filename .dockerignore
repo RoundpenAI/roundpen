@@ -1,0 +1,15 @@
+# Keep build context small for deploy/Dockerfile
+.git
+.bin
+/bin
+/data
+**/.pg0
+**/node_modules
+**/dist
+web/dist
+internal/ui/dist/**
+!internal/ui/dist/.gitkeep
+*.test
+*.out
+.env
+.env.local

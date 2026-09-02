@@ -14,6 +14,7 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 - **可选 OCI 运行时**：`runc` / `crun` / `gVisor` / `Kata`，按安全与性能需求配置
 - **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）；文件落本地盘，元数据进库
 - **生态友好**：E2B 兼容 API；REST / gRPC 供控制面集成
+- **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key 两种验证
 - **开源核心**：Apache 2.0；企业能力（SSO、多租户、合规审计等）走 Open Core
 
 ## 架构
@@ -50,7 +51,7 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 | 可插拔后端 | Docker / Containerd / Podman / Kern / K8s |
 | OCI 运行时 | 由引擎调用；`Kern` 作为免守护后端可绕过该层 |
 
-仓库布局与包边界见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。
+仓库布局与包边界见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。沙箱之上的 Agent 环境服务（Terminal / Workspace / Ports）见 [docs/architecture/environment-services.md](docs/architecture/environment-services.md)。Agent 安全设计与能力边界见 [docs/security.md](docs/security.md)；对外宣传稿见 [docs/agent-security.md](docs/agent-security.md)。
 
 ## 核心能力
 
@@ -60,34 +61,64 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 4. **工具网关**：统一注册与调用，凭证隔离
 5. **LLM 网关**：兼容 model-relay 的 Anthropic / OpenAI 透传；自动种子内部 Virtual Key（`vk-roundpen-internal`）与 embedding 别名（`roundpen-embed`）；请求流水进 PG
 6. **监控审计**：执行轨迹、异常检测与强制终止
+7. **用户体系**：密码登录（`roundpen_session` Cookie）与 `rp-...` API Key；详见 [docs/auth.md](docs/auth.md)
+8. **Environment P0**：Workspace 文件 API、Ports 预览（`/p/...` + token）、Terminal WS；详见 [docs/architecture/environment-services.md](docs/architecture/environment-services.md)
+9. **Web 控制台**：嵌入 `roundpend` 的 SPA（登录、沙箱列表、文件 / 终端 / 预览工作台）；开发时在 `web/` 下 `npm run dev`
 
 ## 部署方式
 
-| 模式 | 适用场景 |
-|------|----------|
-| `./roundpend` 单进程 | 本地开发、个人调试 |
-| Docker Compose | NAS / 小团队一键私有化 |
-| Kubernetes（规划中） | 企业集群扩展 |
+| 模式 | 适用场景 | 是否需要 Node |
+|------|----------|---------------|
+| **Docker Compose（推荐）** | NAS / 小团队一键私有化 | 否（镜像构建阶段内置） |
+| `./roundpend` 单二进制 | 本地开发、已有 PG 的机器 | 构建时需要；运行时不需要 |
+| Kubernetes（规划中） | 企业集群扩展 | — |
 
-本地开发推荐使用 [pg0](https://github.com/vectorize-io/pg0) 拉起带 `pgvector` 的 PostgreSQL，无需单独安装数据库。
+### 一键私有化（最终用户）
+
+控制台已嵌入二进制，宿主机**不必安装 Node / Go**：
 
 ```bash
-make build
+cp .env.compose.example .env   # 可选
+docker compose up -d --build
+# 浏览器打开 http://127.0.0.1:9527
+# 首次启动：docker compose logs roundpend | head   # admin 密码与 API Key 各打印一次
+```
+
+详见 [deploy/compose/README.md](deploy/compose/README.md)。
+
+### 本地开发（贡献者）
+
+一次拉起 pg0 + API + Vite 控制台（对齐 ai-sandbox 的 `make dev`）：
+
+```bash
+make setup          # 首次：.env、go mod、npm
+make dev            # 检查工具 → pg0 → roundpend :19001 + UI :19000
+# 浏览器打开 http://127.0.0.1:19000/
+# Ctrl+C 停 API/Vite；pg0 继续跑。仅检查工具：make dev-check
+```
+
+也可手写环境变量后跑二进制（推荐仍用 [pg0](https://github.com/vectorize-io/pg0)）：
+
+```bash
+make build          # npm 编 UI → embed → go build（仅开发机构建需要 Node）
 ./bin/roundpen version
 
-# 需要 PostgreSQL（推荐 pg0）
-# pg0 start && createdb / 按 .env.example 设置 DATABASE_URL
-export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable'
+export DATABASE_URL='postgres://roundpen:roundpen@127.0.0.1:5432/roundpen?sslmode=disable'
 export ROUNDPEN_BACKEND=kern
 ./bin/roundpend
+# 首次启动日志会打印 admin 初始密码和 API Key（各一次）
 
-# 另开终端：
+# 另开终端（用启动日志里的 API Key）：
+export ROUNDPEN_API_KEY='rp-...'
 curl -s localhost:9527/health
-SID=$(curl -s -X POST localhost:9527/sandboxes -H 'Content-Type: application/json' \
+SID=$(curl -s -X POST localhost:9527/sandboxes \
+  -H "X-API-Key: $ROUNDPEN_API_KEY" -H 'Content-Type: application/json' \
   -d '{"templateID":"host","timeout":600}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["sandboxID"])')
-curl -s -X POST localhost:9527/v1/sandboxes/$SID/exec -H 'Content-Type: application/json' \
+curl -s -X POST localhost:9527/v1/sandboxes/$SID/exec \
+  -H "X-API-Key: $ROUNDPEN_API_KEY" -H 'Content-Type: application/json' \
   -d '{"command":["/bin/sh","-c","echo hi > note.txt && cat note.txt"]}'
-curl -s -X DELETE localhost:9527/sandboxes/$SID -o /dev/null -w '%{http_code}\n'
+curl -s -X DELETE localhost:9527/sandboxes/$SID \
+  -H "X-API-Key: $ROUNDPEN_API_KEY" -o /dev/null -w '%{http_code}\n'
 ```
 
 环境变量示例见 [.env.example](.env.example)。
@@ -98,7 +129,7 @@ curl -s -X DELETE localhost:9527/sandboxes/$SID -o /dev/null -w '%{http_code}\n'
 |------|------|
 | 语言 | Go（跨平台单二进制） |
 | 协议 | E2B 兼容；REST + gRPC |
-| 默认后端 | `Kern`（免守护主机进程，适合无 Docker 本地开发） |
+| 默认后端 | `Kern`（bubblewrap 轻量 jail：`/workspace` + `/home`，适合无 Docker 本地开发） |
 | 生产常用后端 | Docker Daemon（`runc`） |
 | 轻量 / 加固运行时 | `crun`；`gVisor`；`Kata`（需 KVM，Linux 优先） |
 | 免守护后端 | `Kern`（与 Docker 同层抽象） |

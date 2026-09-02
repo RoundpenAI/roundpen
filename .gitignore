@@ -15,6 +15,7 @@ vendor/
 .env.local
 /data/
 *.db
+.docker/
 
 # IDE / OS
 .idea/
@@ -24,3 +25,11 @@ vendor/
 
 # pg0 / local postgres
 .pg0/
+
+# Embedded UI build output (keep .gitkeep so go:embed compiles)
+/internal/ui/dist/*
+!/internal/ui/dist/.gitkeep
+
+# Node (web/)
+/web/node_modules/
+/web/dist/

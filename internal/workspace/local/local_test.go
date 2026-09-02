@@ -33,4 +33,34 @@ func TestPathEscapeRejected(t *testing.T) {
 	if err != nil || string(b) != "hi" {
 		t.Fatalf("file content: %q err=%v", b, err)
 	}
+
+	entries, err := fs.List(ctx, "ws1", ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if e.Name == "a" && e.IsDir {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected dir a in %#v", entries)
+	}
+	entries, err = fs.List(ctx, "ws1", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name != "b.txt" || entries[0].IsDir {
+		t.Fatalf("list a: %#v", entries)
+	}
+	if err := fs.RemovePath(ctx, "ws1", "a/b.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("expected removed, err=%v", err)
+	}
+	if err := fs.RemovePath(ctx, "ws1", "."); err == nil {
+		t.Fatal("expected refuse root remove")
+	}
 }

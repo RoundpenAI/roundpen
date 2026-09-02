@@ -66,7 +66,7 @@ func loadLLMGW() (LLMGWConfig, error) {
 		cfg.Anthropic = &LLMGWUpstream{BaseURL: antBase, APIKey: antKey}
 	}
 
-	keys, err := parseVirtualKeys(os.Getenv("ROUNDPEN_LLMGW_VIRTUAL_KEYS"))
+	keys, err := ParseVirtualKeys(os.Getenv("ROUNDPEN_LLMGW_VIRTUAL_KEYS"))
 	if err != nil {
 		return cfg, err
 	}
@@ -85,8 +85,8 @@ func loadLLMGW() (LLMGWConfig, error) {
 	return cfg, nil
 }
 
-// parseVirtualKeys parses "vk-dev:dev,vk-prod" (name defaults to key when omitted).
-func parseVirtualKeys(raw string) ([]LLMGWVirtualKey, error) {
+// ParseVirtualKeys parses "vk-dev:dev,vk-prod" (name defaults to key when omitted).
+func ParseVirtualKeys(raw string) ([]LLMGWVirtualKey, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil

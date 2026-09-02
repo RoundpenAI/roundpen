@@ -1,8 +1,24 @@
-# Local Compose stack (Phase 1)
+# Local / NAS Compose stack
 
-Placeholder. Intended services:
+End users do **not** need Node or Go. The console SPA is built inside
+`deploy/Dockerfile` and embedded into `roundpend`.
 
-- `roundpend` (API)
-- PostgreSQL (or document that host uses pg0 for dev)
+```bash
+# from repo root
+cp .env.compose.example .env   # optional
+docker compose up -d --build
+# open http://127.0.0.1:9527 — admin password is in roundpend logs once
+docker compose logs roundpend | head
+```
 
-Dev without Compose: `pg0 start` + `make run-daemon`.
+Services:
+
+| Service | Role |
+|---------|------|
+| `postgres` | PostgreSQL 16 + pgvector |
+| `roundpend` | Control plane + embedded Web UI |
+
+Default backend is `kern` (host processes inside the container). For Docker
+sandboxes on the host engine, see comments in `compose.yaml`.
+
+Dev without Compose: `make setup && make dev`（pg0 + API + Vite；见 `scripts/dev-up.sh`）。

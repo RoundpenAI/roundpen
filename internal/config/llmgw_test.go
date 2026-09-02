@@ -3,7 +3,7 @@ package config
 import "testing"
 
 func TestParseVirtualKeys(t *testing.T) {
-	keys, err := parseVirtualKeys("vk-dev:dev, vk-prod")
+	keys, err := ParseVirtualKeys("vk-dev:dev, vk-prod")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestParseVirtualKeys(t *testing.T) {
 }
 
 func TestParseVirtualKeysDuplicate(t *testing.T) {
-	_, err := parseVirtualKeys("a:x,a:y")
+	_, err := ParseVirtualKeys("a:x,a:y")
 	if err == nil {
 		t.Fatal("expected duplicate error")
 	}

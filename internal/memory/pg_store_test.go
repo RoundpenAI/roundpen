@@ -2,6 +2,7 @@ package memory_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
@@ -60,8 +61,11 @@ func TestPgStoreShortAndLong(t *testing.T) {
 		t.Fatalf("PutShort: %v", err)
 	}
 	got, err := store.GetShort(ctx, short.ID)
-	if err != nil || string(got.Payload) != string(short.Payload) {
-		t.Fatalf("GetShort: %v %+v", err, got)
+	if err != nil {
+		t.Fatalf("GetShort: %v", err)
+	}
+	if !jsonEqual(t, got.Payload, short.Payload) {
+		t.Fatalf("GetShort payload: got %s want %s", got.Payload, short.Payload)
 	}
 
 	long := memory.LongEntry{
@@ -142,4 +146,18 @@ func TestContentFromMessagesViaAdd(t *testing.T) {
 		t.Fatal("empty content")
 	}
 	_ = store.DeleteLong(ctx, e.ID)
+}
+
+func jsonEqual(t *testing.T, a, b []byte) bool {
+	t.Helper()
+	var va, vb any
+	if err := json.Unmarshal(a, &va); err != nil {
+		t.Fatalf("unmarshal a: %v", err)
+	}
+	if err := json.Unmarshal(b, &vb); err != nil {
+		t.Fatalf("unmarshal b: %v", err)
+	}
+	ab, _ := json.Marshal(va)
+	bb, _ := json.Marshal(vb)
+	return string(ab) == string(bb)
 }
