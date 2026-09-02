@@ -79,6 +79,11 @@ type chromeEngine struct {
 	height int
 }
 
+// ChromeOnPATH reports whether a Chrome/Chromium binary is available to this process.
+func ChromeOnPATH() bool {
+	return lookupChrome() != ""
+}
+
 func lookupChrome() string {
 	if p := strings.TrimSpace(os.Getenv("CHROME_PATH")); p != "" {
 		if _, err := os.Stat(p); err == nil {
@@ -114,7 +119,7 @@ func newChromeEngine(userDataDir string, width, height int) (*chromeEngine, erro
 	if height <= 0 {
 		height = 800
 	}
-	if err := os.MkdirAll(userDataDir, 0o755); err != nil {
+	if err := os.MkdirAll(userDataDir, 0o700); err != nil {
 		return nil, err
 	}
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],

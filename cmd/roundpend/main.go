@@ -138,6 +138,7 @@ func main() {
 	}()
 
 	browserHub := browser.NewHub(dataRoot, logger)
+	browserHub.SetConfig(cfg)
 	defer browserHub.Close()
 
 	switch cfg.Backend {
@@ -163,6 +164,7 @@ func main() {
 		logger.Error("backend not implemented", slog.String("backend", cfg.Backend))
 		os.Exit(1)
 	}
+	browserHub.SetDialer(sbSvc)
 
 	mux := http.NewServeMux()
 	auth.Mount(mux, userStore, sessionStore, allowRegistration)

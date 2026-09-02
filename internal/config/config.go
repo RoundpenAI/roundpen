@@ -34,6 +34,7 @@ type Config struct {
 	KanikoSkipTLSVerify     bool
 	KanikoRegistryMirrors   []string
 	KanikoExtraArgs         []string
+	CDP                     CDPConfig
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -97,6 +98,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.LLMGW = llmgwCfg
+	cdpCfg, err := loadCDP()
+	if err != nil {
+		return nil, err
+	}
+	cfg.CDP = cdpCfg
 	return cfg, nil
 }
 

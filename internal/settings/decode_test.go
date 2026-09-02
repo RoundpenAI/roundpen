@@ -16,6 +16,8 @@ func TestDecodeAppSettingsKeepsFallbackLLMGW(t *testing.T) {
 		LlmgwOpenaiAPIKey:      "sk-env",
 		KanikoExecutor:         "executor",
 		KanikoRegistryMirrors:  "docker.1ms.run",
+		CDPProvider:            "docker",
+		CDPPort:                9222,
 	}
 	got, err := settings.DecodeAppSettings([]byte(`{
 		"allowPublicRegistration": true,
@@ -34,6 +36,9 @@ func TestDecodeAppSettingsKeepsFallbackLLMGW(t *testing.T) {
 	}
 	if got.KanikoExecutor != "executor" || got.KanikoRegistryMirrors != "docker.1ms.run" {
 		t.Fatalf("kaniko fallback lost: %+v", got)
+	}
+	if got.CDPProvider != "docker" || got.CDPPort != 9222 {
+		t.Fatalf("cdp fallback lost: %+v", got)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/template"
 )
@@ -35,6 +36,10 @@ type AppSettings struct {
 	LlmgwAnthropicBaseURL   string `json:"llmgwAnthropicBaseUrl"`
 	LlmgwAnthropicAPIKey    string `json:"llmgwAnthropicApiKey"`
 	LlmgwVirtualKeys        string `json:"llmgwVirtualKeys"`
+	CDPProvider             string `json:"cdpProvider"`
+	CDPEndpoint             string `json:"cdpEndpoint"`
+	CDPToken                string `json:"cdpToken"`
+	CDPPort                 int    `json:"cdpPort"`
 }
 
 // SystemInfo is read-only infrastructure metadata for the settings UI.
@@ -47,11 +52,14 @@ type SystemInfo struct {
 	TemplateBuilderHint   string `json:"templateBuilderHint,omitempty"`
 	LlmgwActive           bool   `json:"llmgwActive"`
 	LlmgwMounted          bool   `json:"llmgwMounted"`
+	CDPProviderActive     string `json:"cdpProviderActive"`
+	CDPHostChromeFound    bool   `json:"cdpHostChromeFound"`
+	CDPHint               string `json:"cdpHint,omitempty"`
 }
 
 // FromConfig extracts DB-backed settings from process config.
 func FromConfig(cfg *config.Config) AppSettings {
-	return AppSettings{
+	out := AppSettings{
 		AllowPublicRegistration: cfg.AllowPublicRegistration,
 		DefaultImage:            cfg.DefaultImage,
 		DefaultTtlSeconds:       int(cfg.DefaultTTL / time.Second),
@@ -73,6 +81,21 @@ func FromConfig(cfg *config.Config) AppSettings {
 		LlmgwAnthropicBaseURL:   llmgwUpstreamBase(cfg.LLMGW.Anthropic),
 		LlmgwAnthropicAPIKey:    llmgwUpstreamKey(cfg.LLMGW.Anthropic),
 		LlmgwVirtualKeys:        config.FormatVirtualKeys(cfg.LLMGW.VirtualKeys),
+		CDPProvider:             cfg.CDP.Provider,
+		CDPEndpoint:             cfg.CDP.Endpoint,
+		CDPToken:                cfg.CDP.Token,
+		CDPPort:                 cfg.CDP.Port,
+	}
+	out.normalizeCDP()
+	return out
+}
+
+func (s *AppSettings) normalizeCDP() {
+	if strings.TrimSpace(s.CDPProvider) == "" {
+		s.CDPProvider = config.CDPProviderAuto
+	}
+	if s.CDPPort <= 0 {
+		s.CDPPort = config.DefaultCDPPort
 	}
 }
 
@@ -81,6 +104,7 @@ func (s AppSettings) SanitizeForResponse() AppSettings {
 	out := s
 	out.LlmgwOpenaiAPIKey = MaskSecret(s.LlmgwOpenaiAPIKey)
 	out.LlmgwAnthropicAPIKey = MaskSecret(s.LlmgwAnthropicAPIKey)
+	out.CDPToken = MaskSecret(s.CDPToken)
 	return out
 }
 
@@ -88,6 +112,7 @@ func (s AppSettings) SanitizeForResponse() AppSettings {
 func (s *AppSettings) MergeSecrets(previous AppSettings) {
 	s.LlmgwOpenaiAPIKey = ResolveSecret(s.LlmgwOpenaiAPIKey, previous.LlmgwOpenaiAPIKey)
 	s.LlmgwAnthropicAPIKey = ResolveSecret(s.LlmgwAnthropicAPIKey, previous.LlmgwAnthropicAPIKey)
+	s.CDPToken = ResolveSecret(s.CDPToken, previous.CDPToken)
 }
 
 // ApplyToConfig writes settings into the in-memory process config.
@@ -112,7 +137,7 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	} else {
 		cfg.KanikoExtraArgs = strings.Fields(args)
 	}
-	return config.ApplyLLMGWSettings(
+	if err := config.ApplyLLMGWSettings(
 		&cfg.LLMGW,
 		s.LlmgwEnabled,
 		s.LlmgwPublicURL,
@@ -123,7 +148,16 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 		s.LlmgwAnthropicBaseURL,
 		s.LlmgwAnthropicAPIKey,
 		s.LlmgwVirtualKeys,
-	)
+	); err != nil {
+		return err
+	}
+	cfg.CDP = config.CDPConfig{
+		Provider: s.CDPProvider,
+		Endpoint: s.CDPEndpoint,
+		Token:    s.CDPToken,
+		Port:     s.CDPPort,
+	}
+	return config.NormalizeCDP(&cfg.CDP)
 }
 
 // Validate checks user-editable settings.
@@ -162,7 +196,14 @@ func (s AppSettings) Validate() error {
 	if _, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys); err != nil {
 		return err
 	}
-	return nil
+	s.normalizeCDP()
+	probe := config.CDPConfig{
+		Provider: s.CDPProvider,
+		Endpoint: s.CDPEndpoint,
+		Token:    s.CDPToken,
+		Port:     s.CDPPort,
+	}
+	return config.NormalizeCDP(&probe)
 }
 
 // SystemFromConfig returns read-only system metadata.
@@ -176,6 +217,9 @@ func SystemFromConfig(cfg *config.Config, llmgwMounted bool) SystemInfo {
 		TemplateBuilderActive: active,
 		LlmgwActive:           cfg.LLMGW.Enabled,
 		LlmgwMounted:          llmgwMounted,
+		CDPProviderActive:     config.ResolveCDPProvider(cfg, browser.ChromeOnPATH()),
+		CDPHostChromeFound:    browser.ChromeOnPATH(),
+		CDPHint:               config.CDPHint(cfg, browser.ChromeOnPATH()),
 	}
 	if active == "" {
 		info.TemplateBuilderHint = template.BuilderUnavailableHint(cfg)

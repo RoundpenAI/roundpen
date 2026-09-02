@@ -391,6 +391,10 @@ export type AppSettings = {
   llmgwAnthropicBaseUrl: string
   llmgwAnthropicApiKey: string
   llmgwVirtualKeys: string
+  cdpProvider: string
+  cdpEndpoint: string
+  cdpToken: string
+  cdpPort: number
 }
 
 export type SystemInfo = {
@@ -402,6 +406,9 @@ export type SystemInfo = {
   templateBuilderHint?: string
   llmgwActive: boolean
   llmgwMounted: boolean
+  cdpProviderActive: string
+  cdpHostChromeFound: boolean
+  cdpHint?: string
 }
 
 export type SettingsResponse = {

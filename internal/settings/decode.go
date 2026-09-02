@@ -36,5 +36,11 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 	if _, ok := keys["kanikoRegistryMirrors"]; !ok {
 		out.KanikoRegistryMirrors = fallback.KanikoRegistryMirrors
 	}
+	if _, ok := keys["cdpProvider"]; !ok {
+		out.CDPProvider = fallback.CDPProvider
+		out.CDPEndpoint = fallback.CDPEndpoint
+		out.CDPToken = fallback.CDPToken
+		out.CDPPort = fallback.CDPPort
+	}
 	return out, nil
 }

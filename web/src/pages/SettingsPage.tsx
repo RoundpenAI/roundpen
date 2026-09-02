@@ -33,6 +33,10 @@ const emptySettings: AppSettings = {
   llmgwAnthropicBaseUrl: '',
   llmgwAnthropicApiKey: '',
   llmgwVirtualKeys: '',
+  cdpProvider: 'auto',
+  cdpEndpoint: '',
+  cdpToken: '',
+  cdpPort: 9222,
 }
 
 const BUILDER_OPTIONS = [
@@ -40,6 +44,17 @@ const BUILDER_OPTIONS = [
   { value: 'docker', label: 'Docker' },
   { value: 'kaniko', label: 'Kaniko' },
   { value: '', label: 'Disabled' },
+] as const
+
+const CDP_OPTIONS = [
+  {
+    value: 'auto',
+    label: 'Auto (Docker engine → Docker Chrome; else host Chrome if present)',
+  },
+  { value: 'docker', label: 'Docker Chrome (sandbox Dial to guest CDP)' },
+  { value: 'host', label: 'Host Chrome / debugging port on this machine' },
+  { value: 'remote', label: 'Remote CDP (Browserless or self-hosted)' },
+  { value: 'cloud', label: 'Cloud browser (paste session CDP URL)' },
 ] as const
 
 const SANDBOX_TTL_OPTIONS = [
@@ -444,6 +459,79 @@ export function SettingsPage() {
             </Field>
           </Section>
 
+          <Section title="Browser (CDP)">
+            <Field label="CDP provider">
+              <select
+                className={selectClass}
+                value={form.cdpProvider}
+                onChange={(e) => patch({ cdpProvider: e.target.value })}
+              >
+                {optionsWithCurrentValue(CDP_OPTIONS, form.cdpProvider).map(
+                  (o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ),
+                )}
+              </select>
+            </Field>
+            {(form.cdpProvider === 'remote' ||
+              form.cdpProvider === 'cloud' ||
+              form.cdpProvider === 'host') && (
+              <Field
+                label={
+                  form.cdpProvider === 'host'
+                    ? 'Host CDP URL (optional; empty starts local Chrome)'
+                    : 'CDP endpoint URL'
+                }
+              >
+                <input
+                  className={controlClass}
+                  inputMode="url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={
+                    form.cdpProvider === 'host'
+                      ? 'http://127.0.0.1:9222'
+                      : 'wss://browser.example/devtools/browser/…'
+                  }
+                  value={form.cdpEndpoint}
+                  onChange={(e) => patch({ cdpEndpoint: e.target.value })}
+                />
+              </Field>
+            )}
+            {(form.cdpProvider === 'remote' || form.cdpProvider === 'cloud') && (
+              <Field label="CDP token (optional)">
+                <input
+                  type="password"
+                  className={controlClass}
+                  autoComplete="new-password"
+                  placeholder="Leave masked to keep current"
+                  value={form.cdpToken}
+                  onChange={(e) => patch({ cdpToken: e.target.value })}
+                />
+              </Field>
+            )}
+            {(form.cdpProvider === 'auto' || form.cdpProvider === 'docker') && (
+              <Field label="Guest CDP port">
+                <input
+                  className={controlClass}
+                  inputMode="numeric"
+                  spellCheck={false}
+                  value={form.cdpPort || 9222}
+                  onChange={(e) =>
+                    patch({ cdpPort: Number(e.target.value) || 9222 })
+                  }
+                />
+              </Field>
+            )}
+            <p className="text-xs leading-relaxed opacity-50">
+              Browser tools attach to a DevTools websocket. NAS and compose
+              should use Docker Chrome or a remote/cloud CDP — do not install
+              Chrome on the NAS OS. Host Chrome is for laptop debugging only.
+            </p>
+          </Section>
+
           <Section title="LLM gateway">
             <Toggle
               checked={form.llmgwEnabled}
@@ -576,10 +664,23 @@ export function SettingsPage() {
                         : 'not mounted'
                   }
                 />
+                <SystemRow
+                  label="CDP provider"
+                  value={sys.cdpProviderActive || 'auto'}
+                />
+                <SystemRow
+                  label="Host Chrome"
+                  value={sys.cdpHostChromeFound ? 'found' : 'not on PATH'}
+                />
               </dl>
               {sys.templateBuilderHint && (
                 <p className="mt-3 text-xs leading-relaxed opacity-55">
                   {sys.templateBuilderHint}
+                </p>
+              )}
+              {sys.cdpHint && (
+                <p className="mt-3 text-xs leading-relaxed opacity-55">
+                  {sys.cdpHint}
                 </p>
               )}
               <p className="mt-3 text-xs leading-relaxed opacity-45">

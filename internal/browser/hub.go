@@ -6,15 +6,20 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+
+	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
-// Hub owns per-sandbox Chrome sessions (kern sidecar / host CDP).
+// Hub owns per-sandbox browser sessions attached via a CDP provider.
 type Hub struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 	dataDir  string
 	logger   *slog.Logger
+	cfg      *config.Config
+	dial     PortDialer
 
 	newEngine func(userDataDir string, width, height int) (Engine, error)
 }
@@ -25,9 +30,10 @@ type Session struct {
 	Engine    Engine
 	Width     int
 	Height    int
+	release   func()
 }
 
-// NewHub returns a session hub. dataDir holds Chrome user-data dirs.
+// NewHub returns a session hub. dataDir holds Chrome user-data dirs for host provider.
 func NewHub(dataDir string, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.Default()
@@ -36,13 +42,30 @@ func NewHub(dataDir string, logger *slog.Logger) *Hub {
 		sessions: map[string]*Session{},
 		dataDir:  dataDir,
 		logger:   logger,
-		newEngine: func(dir string, w, h int) (Engine, error) {
-			return newChromeEngine(dir, w, h)
-		},
 	}
 }
 
-// CloseSandbox tears down the Chrome process for a sandbox (Stop/Delete).
+// SetConfig supplies live process config (provider can change via settings apply).
+func (h *Hub) SetConfig(cfg *config.Config) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.cfg = cfg
+	h.mu.Unlock()
+}
+
+// SetDialer supplies sandbox port dialing for the docker provider.
+func (h *Hub) SetDialer(d PortDialer) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.dial = d
+	h.mu.Unlock()
+}
+
+// CloseSandbox tears down the session for a sandbox (Stop/Delete).
 func (h *Hub) CloseSandbox(id string) {
 	if h == nil || id == "" {
 		return
@@ -51,7 +74,13 @@ func (h *Hub) CloseSandbox(id string) {
 	sess := h.sessions[id]
 	delete(h.sessions, id)
 	h.mu.Unlock()
-	if sess != nil && sess.Engine != nil {
+	if sess == nil {
+		return
+	}
+	if sess.release != nil {
+		sess.release()
+	}
+	if sess.Engine != nil {
 		_ = sess.Engine.Close()
 	}
 }
@@ -69,7 +98,7 @@ func (h *Hub) Close() {
 	}
 }
 
-// Status reports whether a session is attached, without starting Chrome.
+// Status reports whether a session is attached, without starting a browser.
 func (h *Hub) Status(id string) (attached bool, url string, width, height int) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -80,9 +109,8 @@ func (h *Hub) Status(id string) (attached bool, url string, width, height int) {
 	return true, sess.Engine.URL(), sess.Width, sess.Height
 }
 
-// Ensure starts Chrome for the sandbox if needed.
+// Ensure attaches a CDP session for the sandbox if needed.
 func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
-	_ = ctx
 	if id == "" {
 		return nil, fmt.Errorf("sandbox id is required")
 	}
@@ -93,23 +121,94 @@ func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
 	}
 	h.mu.Unlock()
 
-	dir := filepath.Join(h.dataDir, "browser", id)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	eng, err := h.newEngine(dir, 1280, 800)
+	sess, err := h.attach(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	sess := &Session{SandboxID: id, Engine: eng, Width: 1280, Height: 800}
 	h.mu.Lock()
 	if existing := h.sessions[id]; existing != nil && existing.Engine != nil {
 		h.mu.Unlock()
-		_ = eng.Close()
+		if sess.release != nil {
+			sess.release()
+		}
+		if sess.Engine != nil {
+			_ = sess.Engine.Close()
+		}
 		return existing, nil
 	}
 	h.sessions[id] = sess
 	h.mu.Unlock()
 	h.logger.Info("browser session started", slog.String("sandbox", id))
 	return sess, nil
+}
+
+func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
+	if h.newEngine != nil {
+		dir := filepath.Join(h.dataDir, "browser", id)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
+		eng, err := h.newEngine(dir, 1280, 800)
+		if err != nil {
+			return nil, err
+		}
+		return &Session{SandboxID: id, Engine: eng, Width: 1280, Height: 800}, nil
+	}
+
+	h.mu.Lock()
+	cfg := h.cfg
+	dial := h.dial
+	h.mu.Unlock()
+
+	provider := config.ResolveCDPProvider(cfg, ChromeOnPATH())
+	width, height := 1280, 800
+	switch provider {
+	case config.CDPProviderHost:
+		if cfg != nil && strings.TrimSpace(cfg.CDP.Endpoint) != "" {
+			eng, err := newRemoteEngine(cfg.CDP.Endpoint, width, height)
+			if err != nil {
+				return nil, fmt.Errorf("host cdp: %w", err)
+			}
+			return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
+		}
+		dir := filepath.Join(h.dataDir, "browser", id)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
+		eng, err := newChromeEngine(dir, width, height)
+		if err != nil {
+			return nil, fmt.Errorf("host chrome: %w", err)
+		}
+		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
+
+	case config.CDPProviderRemote, config.CDPProviderCloud:
+		endpoint := ""
+		if cfg != nil {
+			endpoint = cfg.CDP.Endpoint
+		}
+		eng, err := newRemoteEngine(endpoint, width, height)
+		if err != nil {
+			return nil, fmt.Errorf("%s cdp: %w", provider, err)
+		}
+		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
+
+	case config.CDPProviderDocker:
+		port := config.DefaultCDPPort
+		if cfg != nil && cfg.CDP.Port > 0 {
+			port = cfg.CDP.Port
+		}
+		localURL, stop, err := startCDPProxy(dial, id, port)
+		if err != nil {
+			return nil, fmt.Errorf("docker cdp: %w", err)
+		}
+		eng, err := newRemoteEngine(localURL, width, height)
+		if err != nil {
+			stop()
+			return nil, fmt.Errorf("docker cdp (nothing listening on guest :%d): %w", port, err)
+		}
+		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height, release: stop}, nil
+	default:
+		_ = ctx
+		return nil, fmt.Errorf("unknown cdp provider %q", provider)
+	}
 }
