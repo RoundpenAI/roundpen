@@ -1,9 +1,14 @@
 // Package qemu runs sandboxes as QEMU virtual machines.
 //
-// Browser slot VMs use a qcow2 disk, expose Chrome CDP via user-mode hostfwd,
-// and expose the guest desktop via QEMU's native VNC on a Unix domain socket
-// (no guest-side noVNC). Images built by images/browser-qemu/build.sh are
-// kernel-booted (vmlinuz + initrd sidecars); they are not BIOS/GRUB disks.
+// Browser and agent slot VMs use a qcow2 disk and are kernel-booted
+// (vmlinuz + initrd sidecars from images/browser-qemu or images/agent-qemu).
+// They are not BIOS/GRUB disks.
+//
+// Networking is QEMU user-mode slirp: the host is 10.0.2.2 from the guest.
+// CreateOpts.Env is written to fw_cfg opt/roundpen/env (loopback URLs rewritten
+// to 10.0.2.2) so Claude Code / guest agents talk to Roundpen llmgw.
+// Chrome CDP (:9222) and SSH (:22) are hostfwd'd to 127.0.0.1 on the host.
+// The guest desktop (browser images) is QEMU native VNC on a Unix socket.
 package qemu
 
 import (
@@ -15,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,8 +34,11 @@ const (
 	defaultMemoryMB = 2048
 	defaultCPUs     = 2
 	cdpGuestPort    = 9222
+	sshGuestPort    = 22
 	hostfwdBase     = 19222
 	minImageBytes   = 32 << 20
+	slirpHost       = "10.0.2.2"
+	defaultVKey     = "vk-roundpen-internal"
 )
 
 // Backend launches and manages QEMU VMs under dataRoot/qemu/{sandboxID}.
@@ -48,12 +57,14 @@ type vm struct {
 	Disk        string      `json:"disk"`
 	VNCSock     string      `json:"vnc_sock"`
 	CDPHostPort int         `json:"cdp_host_port"`
+	SSHHostPort int         `json:"ssh_host_port,omitempty"`
 	Ports       map[int]int `json:"ports"` // guest -> host
 	MemoryMB    int         `json:"memory_mb,omitempty"`
 	CPUs        int         `json:"cpus,omitempty"`
 	Kernel      string      `json:"kernel,omitempty"`
 	Initrd      string      `json:"initrd,omitempty"`
 	Append      string      `json:"append,omitempty"`
+	EnvFile     string      `json:"env_file,omitempty"`
 	cmd         *exec.Cmd   `json:"-"`
 }
 
@@ -123,8 +134,10 @@ func (b *Backend) recover() error {
 		}
 		if v.PID > 0 && processAlive(v.PID) {
 			b.vms[id] = &v
-			if v.CDPHostPort >= b.nextPort {
-				b.nextPort = v.CDPHostPort + 1
+			b.bumpPort(v.CDPHostPort)
+			b.bumpPort(v.SSHHostPort)
+			for _, p := range v.Ports {
+				b.bumpPort(p)
 			}
 		}
 	}
@@ -147,6 +160,12 @@ func (b *Backend) save(v *vm) error {
 	return os.WriteFile(b.statePath(v.SandboxID), raw, 0o600)
 }
 
+func (b *Backend) bumpPort(p int) {
+	if p >= b.nextPort {
+		b.nextPort = p + 1
+	}
+}
+
 func (b *Backend) allocPort() int {
 	p := b.nextPort
 	b.nextPort++
@@ -165,7 +184,7 @@ func resolveImage(img string) (string, error) {
 		img = abs
 	}
 	if _, err := os.Stat(img); err != nil {
-		return "", fmt.Errorf("qemu: image %q: %w (build with images/browser-qemu/build.sh)", img, err)
+		return "", fmt.Errorf("qemu: image %q: %w (build with images/browser-qemu/build.sh or images/agent-qemu/build.sh)", img, err)
 	}
 	return img, nil
 }
@@ -173,14 +192,14 @@ func resolveImage(img string) (string, error) {
 func checkImage(img string) error {
 	dir := filepath.Dir(img)
 	if _, err := os.Stat(filepath.Join(dir, "BUILD_INCOMPLETE.txt")); err == nil {
-		return fmt.Errorf("qemu: %s is a placeholder; run images/browser-qemu/build.sh", img)
+		return fmt.Errorf("qemu: %s is a placeholder; run images/browser-qemu/build.sh or images/agent-qemu/build.sh", img)
 	}
 	st, err := os.Stat(img)
 	if err != nil {
 		return fmt.Errorf("qemu: image %q: %w", img, err)
 	}
 	if st.Size() < minImageBytes {
-		return fmt.Errorf("qemu: image %s is too small (%d bytes); rebuild with images/browser-qemu/build.sh", img, st.Size())
+		return fmt.Errorf("qemu: image %s is too small (%d bytes); rebuild with images/*/build.sh", img, st.Size())
 	}
 	if _, err := loadBootConfig(img); err != nil {
 		return err
@@ -223,10 +242,10 @@ func loadBootConfig(img string) (*bootConfig, error) {
 		initrd = filepath.Join(dir, initrd)
 	}
 	if _, err := os.Stat(kernel); err != nil {
-		return nil, fmt.Errorf("qemu: kernel sidecar %s missing; rebuild with images/browser-qemu/build.sh", kernel)
+		return nil, fmt.Errorf("qemu: kernel sidecar %s missing; rebuild with images/*/build.sh", kernel)
 	}
 	if _, err := os.Stat(initrd); err != nil {
-		return nil, fmt.Errorf("qemu: initrd sidecar %s missing; rebuild with images/browser-qemu/build.sh", initrd)
+		return nil, fmt.Errorf("qemu: initrd sidecar %s missing; rebuild with images/*/build.sh", initrd)
 	}
 	cfg.Kernel = kernel
 	cfg.Initrd = initrd
@@ -260,6 +279,84 @@ func kvmAvailable() bool {
 	return err == nil
 }
 
+// rewriteGuestURL rewrites control-plane loopback URLs to the slirp host
+// so the guest can reach roundpend / llmgw.
+func rewriteGuestURL(v string) string {
+	r := strings.NewReplacer(
+		"http://127.0.0.1", "http://"+slirpHost,
+		"https://127.0.0.1", "https://"+slirpHost,
+		"http://localhost", "http://"+slirpHost,
+		"https://localhost", "https://"+slirpHost,
+		"http://[::1]", "http://"+slirpHost,
+		"https://[::1]", "https://"+slirpHost,
+	)
+	return r.Replace(v)
+}
+
+func defaultGatewayBase() string {
+	for _, k := range []string{"ROUNDPEN_LLMGW_PUBLIC_URL", "ROUNDPEN_PREVIEW_PUBLIC_URL"} {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return strings.TrimRight(v, "/")
+		}
+	}
+	return "http://127.0.0.1:9527"
+}
+
+func mergeGuestEnv(opts backend.CreateOpts) map[string]string {
+	env := make(map[string]string, len(opts.Env)+8)
+	for k, v := range opts.Env {
+		env[k] = v
+	}
+	base := strings.TrimRight(env["ROUNDPEN_URL"], "/")
+	if base == "" {
+		base = defaultGatewayBase()
+		env["ROUNDPEN_URL"] = base
+	}
+	if env["ANTHROPIC_BASE_URL"] == "" {
+		env["ANTHROPIC_BASE_URL"] = base + "/llmgw/anthropic"
+	}
+	if env["OPENAI_BASE_URL"] == "" {
+		env["OPENAI_BASE_URL"] = base + "/llmgw/openai"
+	}
+	key := env["ANTHROPIC_API_KEY"]
+	if key == "" {
+		key = env["OPENAI_API_KEY"]
+	}
+	if key == "" {
+		key = defaultVKey
+	}
+	if env["ANTHROPIC_API_KEY"] == "" {
+		env["ANTHROPIC_API_KEY"] = key
+	}
+	if env["OPENAI_API_KEY"] == "" {
+		env["OPENAI_API_KEY"] = key
+	}
+	if env["ANTHROPIC_AUTH_TOKEN"] == "" {
+		env["ANTHROPIC_AUTH_TOKEN"] = key
+	}
+	for k, v := range env {
+		env[k] = rewriteGuestURL(v)
+	}
+	return env
+}
+
+func writeGuestEnv(path string, env map[string]string) error {
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		if k == "" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("# generated by roundpen qemu backend — do not edit\n")
+	for _, k := range keys {
+		fmt.Fprintf(&b, "%s=%s\n", k, env[k])
+	}
+	return os.WriteFile(path, []byte(b.String()), 0o600)
+}
+
 func qemuArgs(v *vm, kvm bool) []string {
 	mem := v.MemoryMB
 	if mem <= 0 {
@@ -269,7 +366,11 @@ func qemuArgs(v *vm, kvm bool) []string {
 	if cpus <= 0 {
 		cpus = defaultCPUs
 	}
-	hostfwd := fmt.Sprintf("hostfwd=tcp:127.0.0.1:%d-:%d", v.CDPHostPort, cdpGuestPort)
+	fwds := []string{fmt.Sprintf("hostfwd=tcp:127.0.0.1:%d-:%d", v.CDPHostPort, cdpGuestPort)}
+	if v.SSHHostPort > 0 {
+		fwds = append(fwds, fmt.Sprintf("hostfwd=tcp:127.0.0.1:%d-:%d", v.SSHHostPort, sshGuestPort))
+	}
+	hostfwd := strings.Join(fwds, ",")
 	machine := "q35,accel=kvm:tcg"
 	cpu := "host"
 	if !kvm {
@@ -304,6 +405,9 @@ func qemuArgs(v *vm, kvm bool) []string {
 		}
 		args = append(args, "-append", appendCmd)
 	}
+	if v.EnvFile != "" {
+		args = append(args, "-fw_cfg", "name=opt/roundpen/env,file="+v.EnvFile)
+	}
 	return args
 }
 
@@ -337,21 +441,29 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		}
 	}
 
+	envFile := filepath.Join(dir, "guest.env")
+	if err := writeGuestEnv(envFile, mergeGuestEnv(opts)); err != nil {
+		return "", err
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	cdpHost := b.allocPort()
+	sshHost := b.allocPort()
 	v := &vm{
 		SandboxID:   opts.SandboxID,
 		Image:       img,
 		Disk:        disk,
 		VNCSock:     filepath.Join(dir, "vnc.sock"),
 		CDPHostPort: cdpHost,
-		Ports:       map[int]int{cdpGuestPort: cdpHost},
+		SSHHostPort: sshHost,
+		Ports:       map[int]int{cdpGuestPort: cdpHost, sshGuestPort: sshHost},
 		MemoryMB:    memoryMBFromOpts(opts),
 		CPUs:        cpusFromOpts(opts),
 		Kernel:      boot.Kernel,
 		Initrd:      boot.Initrd,
 		Append:      boot.Append,
+		EnvFile:     envFile,
 	}
 	b.vms[opts.SandboxID] = v
 	if err := b.save(v); err != nil {
@@ -547,7 +659,7 @@ func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend
 	_ = stdin
 	_ = stdout
 	_ = stderr
-	return fmt.Errorf("qemu: AttachExec not supported yet (agent slot stays on docker)")
+	return fmt.Errorf("qemu: AttachExec not supported yet (use SSH hostfwd :22 or keep ACP on docker/kern)")
 }
 
 // VNCDialer is implemented by backends that expose a desktop via Unix VNC.

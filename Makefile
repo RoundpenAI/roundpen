@@ -77,6 +77,10 @@ tidy:
 run-daemon: build
 	./bin/roundpend
 
+# Headless agent qcow2 + Claude Code (LLM via llmgw).
+agent-image:
+	./images/agent-qemu/build.sh
+
 # End-user path: no Node on the host. UI is baked in the image build.
 compose-up:
 	docker compose up -d --build

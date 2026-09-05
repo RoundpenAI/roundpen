@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -335,6 +337,7 @@ func builtinEntries(backend, defaultImage string) []seedEntry {
 	if hostArtifact == "" {
 		hostArtifact = "host"
 	}
+	agentArtifact := getenv("ROUNDPEN_AGENT_IMAGE", "images/agent-qemu/out/agent.qcow2")
 	entries := []seedEntry{
 		{
 			Namespace: DefaultNamespace, Name: "host",
@@ -366,6 +369,13 @@ func builtinEntries(backend, defaultImage string) []seedEntry {
 			Profile:     "dev", ArtifactRef: "ubuntu:22.04", BaseImage: "ubuntu:22.04",
 			CPUCount: 2, MemoryMB: 2048, DiskSizeMB: 10240, Public: true,
 		},
+		{
+			Namespace: DefaultNamespace, Name: "agent-claude",
+			Description: "Headless Ubuntu + Claude Code (QEMU qcow2; LLM via llmgw)",
+			Profile:     "dev",
+			ArtifactRef: agentArtifact, BaseImage: agentArtifact,
+			CPUCount: 2, MemoryMB: 2048, DiskSizeMB: 10240, Public: true,
+		},
 	}
 	if backend == "kern" {
 		// Kern uses host jail; docker-only images are listed but host stays primary.
@@ -375,4 +385,11 @@ func builtinEntries(backend, defaultImage string) []seedEntry {
 		entries[0].BaseImage = hostArtifact
 	}
 	return entries
+}
+
+func getenv(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
 }

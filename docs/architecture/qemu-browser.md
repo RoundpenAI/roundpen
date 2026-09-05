@@ -50,4 +50,4 @@ make browser-image
 
 ## 二期
 
-Cloud Agent 可迁到独立 QEMU（另一 template/slot=agent qcow2）；本期 qemu Backend 保持通用，勿做成 Browser 专用死接口。
+独立 Agent QEMU 见 `docs/architecture/qemu-agent.md`（template `agent-claude`）。qemu Backend 保持通用：qcow2 + kernel sidecar，不要做成 Browser 专用死接口。

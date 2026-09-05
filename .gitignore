@@ -30,8 +30,9 @@ vendor/
 /internal/ui/dist/*
 !/internal/ui/dist/.gitkeep
 
-# Browser QEMU build artifacts (qcow2 + kernel sidecars)
+# Browser / agent QEMU build artifacts (qcow2 + kernel sidecars)
 /images/browser-qemu/out/
+/images/agent-qemu/out/
 
 # Node (web/)
 /web/node_modules/

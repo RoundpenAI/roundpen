@@ -88,17 +88,75 @@ func TestLoadBootConfig(t *testing.T) {
 	}
 }
 
+func TestRewriteGuestURL(t *testing.T) {
+	got := rewriteGuestURL("http://127.0.0.1:9527/llmgw/anthropic")
+	if got != "http://10.0.2.2:9527/llmgw/anthropic" {
+		t.Fatalf("loopback: %s", got)
+	}
+	got = rewriteGuestURL("https://localhost/llmgw/openai")
+	if got != "https://10.0.2.2/llmgw/openai" {
+		t.Fatalf("localhost: %s", got)
+	}
+	got = rewriteGuestURL("https://api.anthropic.com")
+	if got != "https://api.anthropic.com" {
+		t.Fatalf("upstream rewritten: %s", got)
+	}
+}
+
+func TestMergeGuestEnvRewritesAndFills(t *testing.T) {
+	env := mergeGuestEnv(backend.CreateOpts{Env: map[string]string{
+		"ROUNDPEN_URL":  "http://127.0.0.1:19001",
+		"ROUNDPEN_SLOT": "agent",
+	}})
+	if env["ANTHROPIC_BASE_URL"] != "http://10.0.2.2:19001/llmgw/anthropic" {
+		t.Fatalf("anthropic: %s", env["ANTHROPIC_BASE_URL"])
+	}
+	if env["OPENAI_BASE_URL"] != "http://10.0.2.2:19001/llmgw/openai" {
+		t.Fatalf("openai: %s", env["OPENAI_BASE_URL"])
+	}
+	if env["ANTHROPIC_API_KEY"] != defaultVKey || env["ANTHROPIC_AUTH_TOKEN"] != defaultVKey {
+		t.Fatalf("vkey: %+v", env)
+	}
+	if env["ROUNDPEN_SLOT"] != "agent" {
+		t.Fatalf("slot: %s", env["ROUNDPEN_SLOT"])
+	}
+}
+
+func TestWriteGuestEnv(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "guest.env")
+	if err := writeGuestEnv(path, map[string]string{
+		"ANTHROPIC_BASE_URL": "http://10.0.2.2:9527/llmgw/anthropic",
+		"ANTHROPIC_API_KEY":  defaultVKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	if !strings.Contains(body, "ANTHROPIC_BASE_URL=http://10.0.2.2:9527/llmgw/anthropic") {
+		t.Fatalf("body: %s", body)
+	}
+	if !strings.Contains(body, "ANTHROPIC_API_KEY="+defaultVKey) {
+		t.Fatalf("key: %s", body)
+	}
+}
+
 func TestQemuArgsKernelBoot(t *testing.T) {
 	v := &vm{
 		SandboxID:   "sb1",
 		Disk:        "/tmp/disk.qcow2",
 		VNCSock:     "/tmp/qemu/sb1/vnc.sock",
 		CDPHostPort: 19222,
+		SSHHostPort: 19223,
 		MemoryMB:    4096,
 		CPUs:        2,
 		Kernel:      "/img/vmlinuz",
 		Initrd:      "/img/initrd.img",
 		Append:      "root=/dev/vda rw",
+		EnvFile:     "/tmp/qemu/sb1/guest.env",
 	}
 	args := qemuArgs(v, true)
 	joined := strings.Join(args, " ")
@@ -109,6 +167,8 @@ func TestQemuArgsKernelBoot(t *testing.T) {
 		"-vga virtio",
 		"-vnc unix:/tmp/qemu/sb1/vnc.sock",
 		"hostfwd=tcp:127.0.0.1:19222-:9222",
+		"hostfwd=tcp:127.0.0.1:19223-:22",
+		"-fw_cfg name=opt/roundpen/env,file=/tmp/qemu/sb1/guest.env",
 		"-m 4096",
 		"accel=kvm:tcg",
 	} {

@@ -1,0 +1,7 @@
+virtio_pci
+virtio_blk
+virtio_net
+virtio_console
+qemu_fw_cfg
+ata_piix
+sd_mod
