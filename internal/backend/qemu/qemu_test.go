@@ -196,6 +196,7 @@ func TestQemuArgsKernelBoot(t *testing.T) {
 		Initrd:      "/img/initrd.img",
 		Append:      "root=/dev/vda rw",
 		EnvFile:     "/tmp/qemu/sb1/guest.env",
+		Workspace:   "/data/sandboxes/user-admin/workspace",
 	}
 	args := qemuArgs(v, true)
 	joined := strings.Join(args, " ")
@@ -210,6 +211,7 @@ func TestQemuArgsKernelBoot(t *testing.T) {
 		"-fw_cfg name=opt/roundpen/env,file=/tmp/qemu/sb1/guest.env",
 		"-m 4096",
 		"accel=kvm:tcg",
+		"-virtfs local,path=/data/sandboxes/user-admin/workspace,mount_tag=workspace,security_model=mapped-xattr,id=ws",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in %s", want, joined)
@@ -241,6 +243,19 @@ func TestAttachShell(t *testing.T) {
 	}
 	if _, err := attachShell(backend.AttachExecOpts{}); err == nil {
 		t.Fatal("empty cmd should fail")
+	}
+}
+
+func TestVirtfsSpec(t *testing.T) {
+	if virtfsSpec("") != "" {
+		t.Fatal("empty")
+	}
+	if virtfsSpec("/tmp/a,b") != "" {
+		t.Fatal("comma rejected")
+	}
+	got := virtfsSpec("/data/ws")
+	if !strings.Contains(got, "path=/data/ws") || !strings.Contains(got, "mount_tag=workspace") {
+		t.Fatalf("got %s", got)
 	}
 }
 

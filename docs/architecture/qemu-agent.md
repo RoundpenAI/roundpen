@@ -28,6 +28,16 @@ Guest `roundpen-apply-env.service` 把同一组变量写进 `/etc/environment`�
 
 ACP stdio 走 QEMU SSH hostfwd（账号默认 `roundpen` / `roundpen`）。聊天里选 **Claude Code**（provider `claude`）会拉起 `agent-claude` 并 `AttachExec claude-agent-acp`（官方 ACP 适配器；Claude Code CLI 本身没有 `--acp`）。LLM 仍只走 llmgw。
 
+## 每用户一份 workspace（9p）
+
+每个登录用户有固定 workspace id：`user-{name}`，宿主机目录：
+
+`{dataRoot}/sandboxes/user-{name}/workspace/`
+
+聊天 session 和 Agent 槽位创建 sandbox 时都传入这个 `WorkspaceID`（删 VM 不会删目录）。QEMU 用 `-virtfs` 把该目录以 9p tag `workspace` 导出；客人挂到 `/workspace`。
+
+现有 `agent.qcow2` 不一定带 fstab 9p：后端在 SSH 起来后 `mount -t 9p workspace /workspace`。下次 `make agent-image` 会把 9p 写进 `fstab` / initramfs modules。
+
 ## 构建默认镜像
 
 ```bash

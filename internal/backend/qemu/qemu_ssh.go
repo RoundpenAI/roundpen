@@ -128,11 +128,49 @@ func attachShell(opts backend.AttachExecOpts) (string, error) {
 	return b.String(), nil
 }
 
+const mountWorkspaceCmd = `set -e
+if grep -q ' workspace /workspace 9p ' /proc/mounts 2>/dev/null; then
+  exit 0
+fi
+sudo mkdir -p /workspace
+sudo modprobe 9pnet_virtio 9p 2>/dev/null || true
+sudo mount -t 9p -o trans=virtio,version=9p2000.L,msize=262144,rw workspace /workspace
+`
+
+func (b *Backend) ensureWorkspaceMount(ctx context.Context, sandboxID string) error {
+	b.mu.Lock()
+	v := b.vms[sandboxID]
+	need := v != nil && strings.TrimSpace(v.Workspace) != ""
+	b.mu.Unlock()
+	if !need {
+		return nil
+	}
+	port, err := b.waitSSH(ctx, sandboxID)
+	if err != nil {
+		return err
+	}
+	client, err := ssh.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), sshClientConfig())
+	if err != nil {
+		return fmt.Errorf("qemu ssh mount: %w", err)
+	}
+	defer client.Close()
+	sess, err := client.NewSession()
+	if err != nil {
+		return err
+	}
+	defer sess.Close()
+	if err := sess.Run(mountWorkspaceCmd); err != nil {
+		return fmt.Errorf("qemu 9p mount /workspace: %w", err)
+	}
+	return nil
+}
+
 func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend.AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error {
 	cmd, err := attachShell(opts)
 	if err != nil {
 		return err
 	}
+	_ = b.ensureWorkspaceMount(ctx, sandboxID)
 	port, err := b.waitSSH(ctx, sandboxID)
 	if err != nil {
 		return err

@@ -66,6 +66,7 @@ type vm struct {
 	Initrd      string      `json:"initrd,omitempty"`
 	Append      string      `json:"append,omitempty"`
 	EnvFile     string      `json:"env_file,omitempty"`
+	Workspace   string      `json:"workspace,omitempty"` // host path exported via 9p as /workspace
 	cmd         *exec.Cmd   `json:"-"`
 }
 
@@ -477,7 +478,18 @@ func qemuArgs(v *vm, kvm bool) []string {
 	if v.EnvFile != "" {
 		args = append(args, "-fw_cfg", "name=opt/roundpen/env,file="+v.EnvFile)
 	}
+	if tag := virtfsSpec(v.Workspace); tag != "" {
+		args = append(args, "-virtfs", tag)
+	}
 	return args
+}
+
+func virtfsSpec(hostPath string) string {
+	hostPath = strings.TrimSpace(hostPath)
+	if hostPath == "" || strings.ContainsAny(hostPath, ",\n\r") {
+		return ""
+	}
+	return fmt.Sprintf("local,path=%s,mount_tag=workspace,security_model=mapped-xattr,id=ws", hostPath)
 }
 
 // Create provisions a VM directory and overlay disk; Start launches QEMU.
@@ -515,6 +527,19 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		return "", err
 	}
 
+	ws := strings.TrimSpace(opts.MountDir)
+	if ws != "" {
+		if abs, err := filepath.Abs(ws); err == nil {
+			ws = abs
+		}
+		if strings.ContainsAny(ws, ",\n\r") {
+			return "", fmt.Errorf("qemu: workspace path is not exportable via 9p")
+		}
+		if err := os.MkdirAll(ws, 0o755); err != nil {
+			return "", fmt.Errorf("qemu: workspace: %w", err)
+		}
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	cdpHost := b.allocPort()
@@ -533,6 +558,7 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		Initrd:      boot.Initrd,
 		Append:      boot.Append,
 		EnvFile:     envFile,
+		Workspace:   ws,
 	}
 	b.vms[opts.SandboxID] = v
 	if err := b.save(v); err != nil {
@@ -595,7 +621,19 @@ func (b *Backend) Start(ctx context.Context, sandboxID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	v.PID = pid
-	return b.save(v)
+	if err := b.save(v); err != nil {
+		return err
+	}
+	ws := v.Workspace
+	sid := sandboxID
+	if ws != "" {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			_ = b.ensureWorkspaceMount(ctx, sid)
+		}()
+	}
+	return nil
 }
 
 func (b *Backend) Stop(ctx context.Context, sandboxID string) error {

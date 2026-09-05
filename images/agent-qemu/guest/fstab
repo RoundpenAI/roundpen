@@ -4,3 +4,4 @@ tmpfs /tmp tmpfs defaults,size=1g 0 0
 proc /proc proc defaults 0 0
 sysfs /sys sysfs defaults 0 0
 devpts /dev/pts devpts gid=5,mode=620 0 0
+workspace /workspace 9p trans=virtio,version=9p2000.L,msize=262144,rw,_netdev,nofail,x-systemd.automount 0 0

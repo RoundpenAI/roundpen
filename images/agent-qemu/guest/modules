@@ -3,5 +3,7 @@ virtio_blk
 virtio_net
 virtio_console
 qemu_fw_cfg
+9pnet_virtio
+9p
 ata_piix
 sd_mod

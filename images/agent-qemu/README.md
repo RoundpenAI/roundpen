@@ -50,3 +50,12 @@ ACP stdio uses QEMU SSH hostfwd. The guest also has
 `claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`). Provider `claude`
 runs that binary; set `ACP_PERMISSION_MODE=bypassPermissions` in the injected
 env so the sandbox can test without interactive permission prompts.
+
+## Workspace (9p)
+
+Each login has a persistent host directory `{dataRoot}/sandboxes/user-{name}/workspace/`.
+QEMU exports it with `-virtfs` (tag `workspace`); the guest mounts it at `/workspace`.
+
+`guest/fstab` and `guest/modules` bake that mount into the next `make agent-image`.
+Existing `agent.qcow2` disks do not need a rebuild: after SSH is up the backend
+`modprobe`s `9pnet_virtio`/`9p` and mounts the same tag.
