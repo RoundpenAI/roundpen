@@ -8,22 +8,19 @@ ENV DEBIAN_FRONTEND=noninteractive \
     NODE_VERSION=22.23.2 \
     NPM_CONFIG_REGISTRY=https://npmreg.proxy.ustc.edu.cn
 
-# Ubuntu 24.04 uses DEB822; rewrite both formats so apt never hits archive.ubuntu.com.
+# Ubuntu 24.04 uses DEB822. Use USTC over HTTP: the base image has no
+# ca-certificates yet, so HTTPS apt fails with "issuer is unknown".
 RUN set -eux; \
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
       sed -i \
-        -e 's|http://archive.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
-        -e 's|https://archive.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
-        -e 's|http://security.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
-        -e 's|https://security.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|https\?://archive.ubuntu.com/ubuntu|http://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|https\?://security.ubuntu.com/ubuntu|http://mirrors.ustc.edu.cn/ubuntu|g' \
         /etc/apt/sources.list.d/ubuntu.sources; \
     fi; \
     if [ -f /etc/apt/sources.list ]; then \
       sed -i \
-        -e 's|http://archive.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
-        -e 's|https://archive.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
-        -e 's|http://security.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
-        -e 's|https://security.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|https\?://archive.ubuntu.com/ubuntu|http://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|https\?://security.ubuntu.com/ubuntu|http://mirrors.ustc.edu.cn/ubuntu|g' \
         /etc/apt/sources.list; \
     fi
 
