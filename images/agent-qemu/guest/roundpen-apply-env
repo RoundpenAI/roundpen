@@ -5,6 +5,11 @@ set -euo pipefail
 DEST=/etc/roundpen/env
 FW=/sys/firmware/qemu_fw_cfg/by_name/opt/roundpen/env/raw
 mkdir -p /etc/roundpen /etc/claude-code /etc/profile.d /home/roundpen/.claude
+modprobe qemu_fw_cfg 2>/dev/null || true
+for _ in 1 2 3 4 5; do
+  [[ -r "$FW" ]] && break
+  sleep 0.2
+done
 
 if [[ -r "$FW" ]]; then
   cp "$FW" "$DEST"

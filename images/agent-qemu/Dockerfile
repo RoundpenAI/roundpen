@@ -35,6 +35,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         locales \
     && rm -rf /var/lib/apt/lists/*
 
+# qemu_fw_cfg.ko lives in linux-modules-extra (~100MB). Copy only that module
+# so -fw_cfg opt/roundpen/env is visible under /sys/firmware/qemu_fw_cfg.
+RUN set -eux; \
+    kern="$(ls /lib/modules)"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends zstd; \
+    apt-get install -y --download-only "linux-modules-extra-${kern}"; \
+    mkdir -p /tmp/extra "/lib/modules/${kern}/kernel/drivers/firmware"; \
+    dpkg-deb -x /var/cache/apt/archives/linux-modules-extra-*.deb /tmp/extra; \
+    cp "/tmp/extra/lib/modules/${kern}/kernel/drivers/firmware/qemu_fw_cfg.ko.zst" \
+       "/lib/modules/${kern}/kernel/drivers/firmware/"; \
+    zstd -d -f "/lib/modules/${kern}/kernel/drivers/firmware/qemu_fw_cfg.ko.zst"; \
+    depmod -a "${kern}"; \
+    printf 'qemu_fw_cfg\n' > /etc/modules-load.d/qemu-fw-cfg.conf; \
+    rm -rf /tmp/extra /var/cache/apt/archives/* /var/lib/apt/lists/*
+
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 
 # Node 22 + Claude Code. USTC's node dist and npmreg 403 from this Docker
