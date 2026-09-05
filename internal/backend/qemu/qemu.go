@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -279,18 +280,69 @@ func kvmAvailable() bool {
 	return err == nil
 }
 
-// rewriteGuestURL rewrites control-plane loopback URLs to the slirp host
-// so the guest can reach roundpend / llmgw.
+// rewriteGuestURL rewrites control-plane loopback / wildcard listen URLs to
+// the slirp host so the guest can reach roundpend / llmgw.
+//
+// Uses url.Parse (not string prefix replace) so a listen addr like
+// 0.0.0.0:19001 cannot be glued onto http://127.0.0.1 and then partially
+// rewritten into http://10.0.2.20.0.0.0:19001 (Invalid URL for Claude).
 func rewriteGuestURL(v string) string {
-	r := strings.NewReplacer(
-		"http://127.0.0.1", "http://"+slirpHost,
-		"https://127.0.0.1", "https://"+slirpHost,
-		"http://localhost", "http://"+slirpHost,
-		"https://localhost", "https://"+slirpHost,
-		"http://[::1]", "http://"+slirpHost,
-		"https://[::1]", "https://"+slirpHost,
-	)
-	return r.Replace(v)
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return v
+	}
+	if !guestShouldRewriteHost(u.Hostname()) {
+		return v
+	}
+	if port := u.Port(); port == "" {
+		u.Host = slirpHost
+	} else {
+		u.Host = net.JoinHostPort(slirpHost, port)
+	}
+	return u.String()
+}
+
+func guestShouldRewriteHost(host string) bool {
+	switch strings.ToLower(strings.TrimSpace(host)) {
+	case "localhost", "127.0.0.1", "::1", "0.0.0.0", "::":
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
+}
+
+func validAbsHTTP(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	host := u.Hostname()
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return true
+	}
+	for _, r := range host {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+			return true
+		}
+	}
+	return false
+}
+
+func guestControlBase(raw string) string {
+	base := rewriteGuestURL(strings.TrimRight(strings.TrimSpace(raw), "/"))
+	if validAbsHTTP(base) {
+		return strings.TrimRight(base, "/")
+	}
+	port := "19001"
+	if u, err := url.Parse(raw); err == nil {
+		if p := u.Port(); p != "" {
+			port = p
+		}
+	}
+	return "http://" + slirpHost + ":" + port
 }
 
 func defaultGatewayBase() string {
@@ -310,12 +362,13 @@ func mergeGuestEnv(opts backend.CreateOpts) map[string]string {
 	base := strings.TrimRight(env["ROUNDPEN_URL"], "/")
 	if base == "" {
 		base = defaultGatewayBase()
-		env["ROUNDPEN_URL"] = base
 	}
-	if env["ANTHROPIC_BASE_URL"] == "" {
+	base = guestControlBase(base)
+	env["ROUNDPEN_URL"] = base
+	if env["ANTHROPIC_BASE_URL"] == "" || !validAbsHTTP(rewriteGuestURL(env["ANTHROPIC_BASE_URL"])) {
 		env["ANTHROPIC_BASE_URL"] = base + "/llmgw/anthropic"
 	}
-	if env["OPENAI_BASE_URL"] == "" {
+	if env["OPENAI_BASE_URL"] == "" || !validAbsHTTP(rewriteGuestURL(env["OPENAI_BASE_URL"])) {
 		env["OPENAI_BASE_URL"] = base + "/llmgw/openai"
 	}
 	key := env["ANTHROPIC_API_KEY"]

@@ -97,9 +97,35 @@ func TestRewriteGuestURL(t *testing.T) {
 	if got != "https://10.0.2.2/llmgw/openai" {
 		t.Fatalf("localhost: %s", got)
 	}
+	got = rewriteGuestURL("http://0.0.0.0:19001/llmgw/anthropic")
+	if got != "http://10.0.2.2:19001/llmgw/anthropic" {
+		t.Fatalf("unspecified: %s", got)
+	}
 	got = rewriteGuestURL("https://api.anthropic.com")
 	if got != "https://api.anthropic.com" {
 		t.Fatalf("upstream rewritten: %s", got)
+	}
+	// Prefix replace used to turn this into http://10.0.2.20.0.0.0:19001.
+	got = rewriteGuestURL("http://127.0.0.10.0.0.0:19001/llmgw/anthropic")
+	if got != "http://127.0.0.10.0.0.0:19001/llmgw/anthropic" {
+		t.Fatalf("must not prefix-replace 127.0.0.1 inside garbage host: %s", got)
+	}
+}
+
+func TestMergeGuestEnvSanitizesGluedListenAddr(t *testing.T) {
+	env := mergeGuestEnv(backend.CreateOpts{Env: map[string]string{
+		"ROUNDPEN_URL":       "http://127.0.0.10.0.0.0:19001",
+		"ANTHROPIC_BASE_URL": "http://127.0.0.10.0.0.0:19001/llmgw/anthropic",
+		"OPENAI_BASE_URL":    "http://0.0.0.0:19001/llmgw/openai",
+	}})
+	if env["ROUNDPEN_URL"] != "http://10.0.2.2:19001" {
+		t.Fatalf("base: %s", env["ROUNDPEN_URL"])
+	}
+	if env["ANTHROPIC_BASE_URL"] != "http://10.0.2.2:19001/llmgw/anthropic" {
+		t.Fatalf("anthropic: %s", env["ANTHROPIC_BASE_URL"])
+	}
+	if env["OPENAI_BASE_URL"] != "http://10.0.2.2:19001/llmgw/openai" {
+		t.Fatalf("openai: %s", env["OPENAI_BASE_URL"])
 	}
 }
 
