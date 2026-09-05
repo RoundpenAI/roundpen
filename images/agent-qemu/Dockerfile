@@ -4,13 +4,34 @@
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    TZ=UTC
+    TZ=UTC \
+    NODE_VERSION=22.23.2 \
+    NPM_CONFIG_REGISTRY=https://npmreg.proxy.ustc.edu.cn
+
+# Ubuntu 24.04 uses DEB822; rewrite both formats so apt never hits archive.ubuntu.com.
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
+      sed -i \
+        -e 's|http://archive.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|https://archive.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|http://security.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|https://security.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        /etc/apt/sources.list.d/ubuntu.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+      sed -i \
+        -e 's|http://archive.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|https://archive.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|http://security.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        -e 's|https://security.ubuntu.com/ubuntu|https://mirrors.ustc.edu.cn/ubuntu|g' \
+        /etc/apt/sources.list; \
+    fi
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         systemd systemd-sysv udev dbus \
         linux-image-virtual initramfs-tools \
         iproute2 iputils-ping \
-        ca-certificates curl wget gnupg \
+        ca-certificates curl wget gnupg xz-utils \
         git openssh-server sudo \
         python3 python3-minimal \
         build-essential \
@@ -19,13 +40,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 
-# Node 22 LTS (Claude Code is an npm CLI).
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && rm -rf /var/lib/apt/lists/* \
-    && node --version && npm --version
-
-RUN npm install -g @anthropic-ai/claude-code \
+# Node 22 from USTC dist mirror (USTC's nodesource repo sync is stopped).
+RUN curl -fsSL "https://mirrors.ustc.edu.cn/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+      | tar -xJ -C /usr/local --strip-components=1 \
+    && node --version && npm --version \
+    && npm install -g @anthropic-ai/claude-code \
     && claude --version
 
 COPY guest/modules /etc/initramfs-tools/modules
