@@ -9,7 +9,7 @@ Browser 槽位是一台独立 QEMU VM（与 Cloud Agent 不同机）。
 | 磁盘 | Template `browser-desktop` → `artifact_ref`（默认 `images/browser-qemu/out/browser.qcow2`） |
 | 引导 | 同目录 `vmlinuz` + `initrd.img` + `boot.json`；QEMU `-kernel`/`-initrd`（不是 GRUB/BIOS 盘） |
 | 后端 | `internal/backend/qemu`；经 `internal/backend/multi` 按 `slot=browser` 路由 |
-| CDP | Guest `:9222` ← user-mode `hostfwd` → Hub Dial |
+| CDP | Chrome `127.0.0.1:9333` → guest socat `:9222` ← user-mode `hostfwd` → Hub Dial |
 | 桌面 | QEMU `-vga virtio` + `-vnc unix:{data_root}/qemu/{id}/vnc.sock` → `GET /v1/me/environments/browser/desktop` → WS 代理 |
 
 **不要**在 Guest 内安装 noVNC / websockify / x11vnc。
