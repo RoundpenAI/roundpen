@@ -6,7 +6,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC \
     NODE_VERSION=22.23.2 \
-    NPM_CONFIG_REGISTRY=https://npmreg.proxy.ustc.edu.cn
+    NPM_CONFIG_REGISTRY=https://registry.npmmirror.com
 
 # Ubuntu 24.04 uses DEB822. Use USTC over HTTP: the base image has no
 # ca-certificates yet, so HTTPS apt fails with "issuer is unknown".
@@ -37,9 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 
-# Node 22 from USTC dist mirror (nodesource repo sync is stopped).
-# HTTP: USTC HTTPS returned 403 from this Docker builder.
-RUN curl -fsSL "http://mirrors.ustc.edu.cn/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+# Node 22 + Claude Code. USTC's node dist and npmreg 403 from this Docker
+# network (anti-leech); npmmirror serves the same binaries.
+RUN curl -fsSL "https://cdn.npmmirror.com/binaries/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
       | tar -xJ -C /usr/local --strip-components=1 \
     && node --version && npm --version \
     && npm install -g @anthropic-ai/claude-code \

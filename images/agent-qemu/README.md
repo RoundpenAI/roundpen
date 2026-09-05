@@ -23,9 +23,9 @@ Seeded template `agent-claude` points at the qcow2 (override with
 ## Build
 
 Needs Docker (and either `virt-make-fs`, `guestfish`, or privileged Docker to
-pack the qcow2). The Dockerfile uses the USTC Ubuntu / Node / npm mirrors
-(`mirrors.ustc.edu.cn`, `npmreg.proxy.ustc.edu.cn`) so the build does not
-depend on `archive.ubuntu.com`.
+pack the qcow2). Apt uses the USTC Ubuntu mirror (`mirrors.ustc.edu.cn`, HTTP
+because the base image has no CA bundle). Node 22 and npm use npmmirror:
+USTC's node dist / npmreg return 403 from this Docker network.
 
 ```bash
 ./images/agent-qemu/build.sh
