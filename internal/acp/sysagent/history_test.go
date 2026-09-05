@@ -68,6 +68,40 @@ func TestEndsWithUser(t *testing.T) {
 	}
 }
 
+func TestRestorePreamble_SameProjection(t *testing.T) {
+	toolMeta, _ := json.Marshal(agentsession.ToolMeta{
+		Type:   "tool_call",
+		ToolID: "call_1",
+		Title:  "roundpen_list_sandboxes",
+		Status: "completed",
+		Input:  map[string]any{},
+		Output: `{"sandboxes":[]}`,
+	})
+	rows := []*agentsession.Message{
+		{Role: agentsession.RoleUser, Content: "list envs"},
+		{Role: agentsession.RoleThought, Content: "thinking"},
+		{Role: agentsession.RoleTool, Content: "roundpen_list_sandboxes", Meta: toolMeta},
+		{Role: agentsession.RoleAssistant, Content: "You have none."},
+		{Role: agentsession.RoleUser, Content: "try again"},
+	}
+	got := RestorePreamble(rows, "try again")
+	if !strings.Contains(got, restoreIntro) {
+		t.Fatal("missing intro")
+	}
+	if !strings.Contains(got, "User: list envs") || !strings.Contains(got, "You called roundpen_list_sandboxes") {
+		t.Fatalf("got %s", got)
+	}
+	if !strings.Contains(got, "Assistant: You have none.") {
+		t.Fatalf("got %s", got)
+	}
+	if strings.Contains(got, "try again") || strings.Contains(got, "thinking") {
+		t.Fatalf("should omit current user and thoughts: %s", got)
+	}
+	if RestorePreamble(rows[:1], "list envs") != "" {
+		t.Fatal("only current user should yield empty preamble")
+	}
+}
+
 func TestCompactHistory_DropsOldestTurns(t *testing.T) {
 	var msgs []chatMessage
 	for i := 0; i < 6; i++ {

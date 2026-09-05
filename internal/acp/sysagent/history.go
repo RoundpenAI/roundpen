@@ -263,6 +263,51 @@ func toolResult(meta agentsession.ToolMeta, content string) string {
 	return interruptedResult
 }
 
+const (
+	restoreIntro  = "The following conversation was restored after a restart. Do not re-run past tool calls; treat their results as already known."
+	maxToolResult = 8000
+)
+
+// RestorePreamble is the same DB projection as System Agent, rendered as text
+// for Claude Code's first Prompt after a new ACP session (Claude owns the LLM
+// request, so we cannot inject OpenAI tool_calls).
+func RestorePreamble(rows []*agentsession.Message, currentUser string) string {
+	msgs := compactHistory(projectHistory(rows))
+	if endsWithUser(msgs, currentUser) && len(msgs) > 0 {
+		msgs = msgs[:len(msgs)-1]
+	}
+	if len(msgs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(restoreIntro)
+	for _, m := range msgs {
+		switch m.Role {
+		case "user":
+			fmt.Fprintf(&b, "\n\nUser: %s", m.Content)
+		case "assistant":
+			if len(m.ToolCalls) > 0 {
+				for _, tc := range m.ToolCalls {
+					fmt.Fprintf(&b, "\n\nYou called %s(%s)", tc.Function.Name, tc.Function.Arguments)
+				}
+			}
+			if strings.TrimSpace(m.Content) != "" {
+				fmt.Fprintf(&b, "\n\nAssistant: %s", m.Content)
+			}
+		case "tool":
+			fmt.Fprintf(&b, "\nTool result (%s): %s", m.Name, truncateRunes(m.Content, maxToolResult))
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
+}
+
 // used by tests to format a debug dump
 func formatRoles(msgs []chatMessage) string {
 	var b strings.Builder

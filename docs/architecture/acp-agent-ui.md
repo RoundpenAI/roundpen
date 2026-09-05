@@ -106,7 +106,11 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 
 当前用户这句话如果已经落库，不再重复追加。超过约 80k 字符时丢掉最老的完整 turn，并插入一条 omitted 提示；不做 LLM 摘要（下一步）。
 
-Claude Code（QEMU）仍由 guest 自己的 ACP session 记多轮；控制面不回放它的库。
+## Claude Code 上下文
+
+不能走 System Agent 那条「改 LLM messages 数组」的路径：`claude-agent-acp` 自己组请求。`session/load` 也只认 guest 磁盘上 Claude 自己的 session id，不是我们的 PG。
+
+同一套落库投影可以在 **stdio runtime 刚 `NewSession` 后的第一轮 Prompt** 里种进去：前面一块 restore 文本（user / assistant / tool 结果），后面仍是当前用户这句话。活着的 ACP session 后续轮次只发新字，避免和 Claude 内存历史叠两份。不要把历史再 `Prompt` 一遍，否则会重跑工具。
 
 ## 包布局
 

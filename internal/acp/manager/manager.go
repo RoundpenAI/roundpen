@@ -45,6 +45,10 @@ type Runtime struct {
 	conn   *acp.ClientSideConnection
 	acpSID acp.SessionId
 
+	// seedHistory: stdio/Claude just did NewSession; first Prompt gets a
+	// Postgres transcript preamble (same projection as System Agent).
+	seedHistory bool
+
 	cancel context.CancelFunc
 	mu     sync.Mutex
 }
@@ -198,13 +202,14 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	}
 
 	rt := &Runtime{
-		SessionID: sessionID,
-		SandboxID: sandboxID,
-		Provider:  p,
-		bridge:    bridge,
-		conn:      conn,
-		acpSID:    sess.SessionId,
-		cancel:    cancel,
+		SessionID:   sessionID,
+		SandboxID:   sandboxID,
+		Provider:    p,
+		bridge:      bridge,
+		conn:        conn,
+		acpSID:      sess.SessionId,
+		seedHistory: p.Mode == "stdio",
+		cancel:      cancel,
 	}
 	m.mu.Lock()
 	m.runtimes[sessionID] = rt
@@ -260,9 +265,19 @@ func (m *Manager) Prompt(ctx context.Context, sessionID, text string) (acp.StopR
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
+	blocks := []acp.ContentBlock{acp.TextBlock(text)}
+	rt.mu.Lock()
+	seed := rt.seedHistory
+	rt.seedHistory = false
+	rt.mu.Unlock()
+	if seed {
+		if pre := m.restorePreamble(ctx, sessionID, text); pre != "" {
+			blocks = []acp.ContentBlock{acp.TextBlock(pre), acp.TextBlock(text)}
+		}
+	}
 	resp, err := rt.conn.Prompt(ctx, acp.PromptRequest{
 		SessionId: rt.acpSID,
-		Prompt:    []acp.ContentBlock{acp.TextBlock(text)},
+		Prompt:    blocks,
 	})
 	if err != nil {
 		return "", err
@@ -277,4 +292,15 @@ func (m *Manager) Cancel(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("runtime not found")
 	}
 	return rt.conn.Cancel(ctx, acp.CancelNotification{SessionId: rt.acpSID})
+}
+
+func (m *Manager) restorePreamble(ctx context.Context, sessionID, current string) string {
+	if m.sys.History == nil || sessionID == "" {
+		return ""
+	}
+	rows, err := m.sys.History.ListMessages(ctx, sessionID, 2000)
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	return sysagent.RestorePreamble(rows, current)
 }
