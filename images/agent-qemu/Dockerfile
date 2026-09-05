@@ -37,8 +37,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN locale-gen en_US.UTF-8 && update-locale LANG=en_US.UTF-8
 
-# Node 22 from USTC dist mirror (USTC's nodesource repo sync is stopped).
-RUN curl -fsSL "https://mirrors.ustc.edu.cn/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
+# Node 22 from USTC dist mirror (nodesource repo sync is stopped).
+# HTTP: USTC HTTPS returned 403 from this Docker builder.
+RUN curl -fsSL "http://mirrors.ustc.edu.cn/node/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
       | tar -xJ -C /usr/local --strip-components=1 \
     && node --version && npm --version \
     && npm install -g @anthropic-ai/claude-code \
