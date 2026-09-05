@@ -137,32 +137,73 @@ sudo modprobe 9pnet_virtio 9p 2>/dev/null || true
 sudo mount -t 9p -o trans=virtio,version=9p2000.L,msize=262144,rw workspace /workspace
 `
 
-func (b *Backend) ensureWorkspaceMount(ctx context.Context, sandboxID string) error {
+// prepareGuestCmd fixes DNS and Claude Code policy on existing images
+// (empty /etc/resolv.conf from the Docker-exported rootfs; no image rebuild).
+const prepareGuestCmd = `set -e
+if ! grep -q '^nameserver ' /etc/resolv.conf 2>/dev/null; then
+  sudo tee /etc/resolv.conf >/dev/null <<'EOF'
+nameserver 10.0.2.3
+nameserver 8.8.8.8
+EOF
+fi
+sudo python3 - <<'PY'
+import json, os
+for path in ("/etc/claude-code/managed-settings.json", "/home/roundpen/.claude/settings.json"):
+    data = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            data = loaded
+    except Exception:
+        pass
+    perm = data.get("permissions")
+    if not isinstance(perm, dict):
+        perm = {}
+    perm["defaultMode"] = "bypassPermissions"
+    data["permissions"] = perm
+    data["sandbox"] = {"enabled": False}
+    data["skipDangerousModePermissionPrompt"] = True
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as out:
+        json.dump(data, out, indent=2)
+        out.write("\n")
+PY
+sudo chown -R roundpen:roundpen /home/roundpen/.claude 2>/dev/null || true
+`
+
+func (b *Backend) ensureGuestReady(ctx context.Context, sandboxID string) error {
 	b.mu.Lock()
 	v := b.vms[sandboxID]
-	need := v != nil && strings.TrimSpace(v.Workspace) != ""
+	mountWS := v != nil && strings.TrimSpace(v.Workspace) != ""
 	b.mu.Unlock()
-	if !need {
-		return nil
-	}
 	port, err := b.waitSSH(ctx, sandboxID)
 	if err != nil {
 		return err
 	}
 	client, err := ssh.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), sshClientConfig())
 	if err != nil {
-		return fmt.Errorf("qemu ssh mount: %w", err)
+		return fmt.Errorf("qemu ssh prepare: %w", err)
 	}
 	defer client.Close()
+	if err := sshRun(client, prepareGuestCmd); err != nil {
+		return fmt.Errorf("qemu guest dns/settings: %w", err)
+	}
+	if mountWS {
+		if err := sshRun(client, mountWorkspaceCmd); err != nil {
+			return fmt.Errorf("qemu 9p mount /workspace: %w", err)
+		}
+	}
+	return nil
+}
+
+func sshRun(client *ssh.Client, cmd string) error {
 	sess, err := client.NewSession()
 	if err != nil {
 		return err
 	}
 	defer sess.Close()
-	if err := sess.Run(mountWorkspaceCmd); err != nil {
-		return fmt.Errorf("qemu 9p mount /workspace: %w", err)
-	}
-	return nil
+	return sess.Run(cmd)
 }
 
 func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend.AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error {
@@ -170,7 +211,7 @@ func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend
 	if err != nil {
 		return err
 	}
-	_ = b.ensureWorkspaceMount(ctx, sandboxID)
+	_ = b.ensureGuestReady(ctx, sandboxID)
 	port, err := b.waitSSH(ctx, sandboxID)
 	if err != nil {
 		return err

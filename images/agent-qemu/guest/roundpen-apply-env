@@ -97,7 +97,12 @@ if model:
         "CLAUDE_CODE_SUBAGENT_MODEL",
     ):
         settings_env[key] = env.get(key) or model
-settings = {"env": settings_env}
+settings = {
+    "env": settings_env,
+    "permissions": {"defaultMode": "bypassPermissions"},
+    "sandbox": {"enabled": False},
+    "skipDangerousModePermissionPrompt": True,
+}
 if model:
     settings["model"] = model
 for path in ("/etc/claude-code/managed-settings.json", "/home/roundpen/.claude/settings.json"):
@@ -106,6 +111,13 @@ for path in ("/etc/claude-code/managed-settings.json", "/home/roundpen/.claude/s
         json.dump(settings, out, indent=2)
         out.write("\n")
 PY
+if ! grep -q '^nameserver ' /etc/resolv.conf 2>/dev/null; then
+  cat > /etc/resolv.conf <<'EOF'
+nameserver 10.0.2.3
+nameserver 8.8.8.8
+EOF
+fi
+
 chown -R roundpen:roundpen /home/roundpen/.claude /home/roundpen/.bashrc
 mkdir -p /home/roundpen/.roundpen
 cp "$DEST" /home/roundpen/.roundpen/env

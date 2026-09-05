@@ -38,6 +38,8 @@ ACP stdio 走 QEMU SSH hostfwd（账号默认 `roundpen` / `roundpen`）。聊�
 
 现有 `agent.qcow2` 不一定带 fstab 9p：后端在 SSH 起来后 `mount -t 9p workspace /workspace`。下次 `make agent-image` 会把 9p 写进 `fstab` / initramfs modules。
 
+Guest 从 Docker 导出时 `/etc/resolv.conf` 经常是空文件，外网域名解析会失败（llmgw 走 `10.0.2.2` 不受影响）。后端在 SSH 起来后写入 QEMU slirp DNS `10.0.2.3`，并把 Claude Code 的内层 `sandbox.enabled` 关掉——隔离边界是这台 VM，不是 bwrap。
+
 ## 构建默认镜像
 
 ```bash

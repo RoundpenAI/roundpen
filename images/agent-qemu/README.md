@@ -59,3 +59,9 @@ QEMU exports it with `-virtfs` (tag `workspace`); the guest mounts it at `/works
 `guest/fstab` and `guest/modules` bake that mount into the next `make agent-image`.
 Existing `agent.qcow2` disks do not need a rebuild: after SSH is up the backend
 `modprobe`s `9pnet_virtio`/`9p` and mounts the same tag.
+
+The Docker-exported rootfs often ships an empty `/etc/resolv.conf`. After SSH the
+backend writes QEMU slirp DNS (`10.0.2.3`) and sets Claude Code
+`sandbox.enabled: false` plus `permissions.defaultMode: bypassPermissions`.
+The VM is the isolation boundary; Claude's inner bwrap sandbox must not block
+`apt` / downloads.

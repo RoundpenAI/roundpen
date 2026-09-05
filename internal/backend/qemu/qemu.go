@@ -624,15 +624,12 @@ func (b *Backend) Start(ctx context.Context, sandboxID string) error {
 	if err := b.save(v); err != nil {
 		return err
 	}
-	ws := v.Workspace
 	sid := sandboxID
-	if ws != "" {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			_ = b.ensureWorkspaceMount(ctx, sid)
-		}()
-	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		_ = b.ensureGuestReady(ctx, sid)
+	}()
 	return nil
 }
 

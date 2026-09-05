@@ -246,6 +246,18 @@ func TestAttachShell(t *testing.T) {
 	}
 }
 
+func TestPrepareGuestCmd(t *testing.T) {
+	for _, want := range []string{
+		"nameserver 10.0.2.3",
+		`"enabled": False`,
+		"bypassPermissions",
+	} {
+		if !strings.Contains(prepareGuestCmd, want) {
+			t.Fatalf("missing %q", want)
+		}
+	}
+}
+
 func TestVirtfsSpec(t *testing.T) {
 	if virtfsSpec("") != "" {
 		t.Fatal("empty")

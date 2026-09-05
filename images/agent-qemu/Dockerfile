@@ -65,6 +65,7 @@ RUN curl -fsSL "https://cdn.npmmirror.com/binaries/node/v${NODE_VERSION}/node-v$
 
 COPY guest/modules /etc/initramfs-tools/modules
 COPY guest/fstab /etc/fstab
+COPY guest/resolv.conf /etc/resolv.conf
 COPY guest/20-wired.network /etc/systemd/network/20-wired.network
 COPY guest/sshd_config.d/roundpen.conf /etc/ssh/sshd_config.d/roundpen.conf
 COPY guest/roundpen-apply-env /usr/local/sbin/roundpen-apply-env
