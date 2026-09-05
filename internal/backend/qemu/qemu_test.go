@@ -148,6 +148,19 @@ func TestMergeGuestEnvRewritesAndFills(t *testing.T) {
 	}
 }
 
+func TestMergeGuestEnvFillsClaudeModelAliases(t *testing.T) {
+	env := mergeGuestEnv(backend.CreateOpts{Env: map[string]string{
+		"ROUNDPEN_URL":    "http://127.0.0.1:19001",
+		"ANTHROPIC_MODEL": "nvidia/nemotron-3.5-lightning:free",
+	}})
+	if env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "nvidia/nemotron-3.5-lightning:free" {
+		t.Fatalf("opus: %s", env["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	}
+	if env["ANTHROPIC_SMALL_FAST_MODEL"] != "nvidia/nemotron-3.5-lightning:free" {
+		t.Fatalf("small: %s", env["ANTHROPIC_SMALL_FAST_MODEL"])
+	}
+}
+
 func TestWriteGuestEnv(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "guest.env")

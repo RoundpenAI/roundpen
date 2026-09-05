@@ -390,6 +390,19 @@ func mergeGuestEnv(opts backend.CreateOpts) map[string]string {
 	if env["ACP_PERMISSION_MODE"] == "" {
 		env["ACP_PERMISSION_MODE"] = "bypassPermissions"
 	}
+	if model := strings.TrimSpace(env["ANTHROPIC_MODEL"]); model != "" {
+		for _, k := range []string{
+			"ANTHROPIC_DEFAULT_OPUS_MODEL",
+			"ANTHROPIC_DEFAULT_SONNET_MODEL",
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+			"ANTHROPIC_SMALL_FAST_MODEL",
+			"CLAUDE_CODE_SUBAGENT_MODEL",
+		} {
+			if strings.TrimSpace(env[k]) == "" {
+				env[k] = model
+			}
+		}
+	}
 	for k, v := range env {
 		env[k] = rewriteGuestURL(v)
 	}
