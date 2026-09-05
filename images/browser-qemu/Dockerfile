@@ -48,6 +48,16 @@ RUN chmod +x /usr/local/bin/roundpen-start-session \
     && ln -sf /dev/null /etc/systemd/system/apt-daily-upgrade.timer \
     && echo '/usr/sbin/lightdm' > /etc/X11/default-display-manager
 
+# Separate layer so the heavy XFCE/Chrome install stays cached.
+COPY guest/cdp-proxy.service /etc/systemd/system/cdp-proxy.service
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xserver-xorg-input-libinput xfonts-base socat \
+    && mkdir -p /home/roundpen/.config/google-chrome-cdp \
+    && chown -R roundpen:roundpen /home/roundpen/.config \
+    && ln -sf /etc/systemd/system/cdp-proxy.service /etc/systemd/system/multi-user.target.wants/cdp-proxy.service \
+    && rm -rf /var/lib/apt/lists/*
+
 # CDP is published by QEMU user-mode hostfwd; do not listen only on localhost.
 EXPOSE 9222
 

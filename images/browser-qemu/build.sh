@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT="$ROOT/out"
 IMG="$OUT/browser.qcow2"
-SIZE="${ROUNDPEN_BROWSER_DISK_SIZE:-20G}"
+SIZE="${ROUNDPEN_BROWSER_DISK_SIZE:-8G}"
 mkdir -p "$OUT"
 
 echo "==> building rootfs image roundpen-browser-rootfs"
@@ -72,34 +72,36 @@ tar-in $TAR /
 EOF
 }
 
-pack_with_docker_loop() {
-  echo "==> privileged docker loop+mkfs → $IMG"
+pack_with_host_tools() {
+  local mkfs=""
+  if command -v mkfs.ext4 >/dev/null 2>&1; then
+    mkfs=mkfs.ext4
+  elif [[ -x /usr/sbin/mkfs.ext4 ]]; then
+    mkfs=/usr/sbin/mkfs.ext4
+  else
+    return 1
+  fi
+  command -v qemu-img >/dev/null 2>&1 || return 1
+  command -v docker >/dev/null 2>&1 || return 1
+  echo "==> host mkfs + privileged docker tar → $IMG"
+  qemu-img create -f raw "$OUT/disk.raw" "$SIZE"
+  "$mkfs" -F -L root "$OUT/disk.raw"
   docker run --rm --privileged \
     -v "$OUT:/out" \
     ubuntu:24.04 \
-    bash -ceu '
-      export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq
-      apt-get install -y -qq qemu-utils e2fsprogs >/dev/null
-      qemu-img create -f raw /out/disk.raw '"$SIZE"'
-      mkfs.ext4 -F -L root /out/disk.raw
-      mkdir -p /mnt/root
-      mount -o loop /out/disk.raw /mnt/root
-      tar -xf /out/rootfs.tar -C /mnt/root
-      umount /mnt/root
-      qemu-img convert -f raw -O qcow2 /out/disk.raw /out/browser.qcow2
-      rm -f /out/disk.raw
-    '
+    bash -ceu 'mkdir -p /mnt/root && mount -o loop /out/disk.raw /mnt/root && tar -xf /out/rootfs.tar -C /mnt/root && sync && umount /mnt/root'
+  qemu-img convert -f raw -O qcow2 "$OUT/disk.raw" "$IMG"
+  rm -f "$OUT/disk.raw"
 }
 
 if command -v virt-make-fs >/dev/null 2>&1; then
   pack_with_virt_make_fs
 elif command -v guestfish >/dev/null 2>&1 && command -v qemu-img >/dev/null 2>&1; then
   pack_with_guestfish
-elif command -v docker >/dev/null 2>&1; then
-  pack_with_docker_loop
+elif command -v qemu-img >/dev/null 2>&1 && command -v docker >/dev/null 2>&1 && { command -v mkfs.ext4 >/dev/null 2>&1 || [[ -x /usr/sbin/mkfs.ext4 ]]; }; then
+  pack_with_host_tools
 else
-  echo "ERROR: need virt-make-fs, guestfish, or docker to pack the qcow2" >&2
+  echo "ERROR: need virt-make-fs, guestfish, or qemu-img+mkfs.ext4+docker to pack the qcow2" >&2
   exit 1
 fi
 
