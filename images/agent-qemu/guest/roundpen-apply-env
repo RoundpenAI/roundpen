@@ -21,6 +21,7 @@ OPENAI_BASE_URL=http://10.0.2.2:9527/llmgw/openai
 ANTHROPIC_API_KEY=vk-roundpen-internal
 ANTHROPIC_AUTH_TOKEN=vk-roundpen-internal
 OPENAI_API_KEY=vk-roundpen-internal
+ACP_PERMISSION_MODE=bypassPermissions
 EOF
 fi
 chmod 0644 "$DEST"
@@ -84,6 +85,7 @@ settings = {
         "ANTHROPIC_AUTH_TOKEN": env.get("ANTHROPIC_AUTH_TOKEN") or anth_key,
         "OPENAI_BASE_URL": env.get("OPENAI_BASE_URL", ""),
         "OPENAI_API_KEY": env.get("OPENAI_API_KEY", ""),
+        "ACP_PERMISSION_MODE": env.get("ACP_PERMISSION_MODE", "bypassPermissions"),
     }
 }
 for path in ("/etc/claude-code/managed-settings.json", "/home/roundpen/.claude/settings.json"):

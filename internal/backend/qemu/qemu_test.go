@@ -182,6 +182,29 @@ func TestQemuArgsKernelBoot(t *testing.T) {
 	}
 }
 
+func TestAttachShell(t *testing.T) {
+	got, err := attachShell(backend.AttachExecOpts{
+		Cmd:     []string{"claude-agent-acp"},
+		WorkDir: "/workspace",
+		Env:     map[string]string{"ACP_PERMISSION_MODE": "bypassPermissions"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		". /etc/roundpen/env",
+		"export ACP_PERMISSION_MODE='bypassPermissions'",
+		"cd '/workspace' && exec 'claude-agent-acp'",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in %s", want, got)
+		}
+	}
+	if _, err := attachShell(backend.AttachExecOpts{}); err == nil {
+		t.Fatal("empty cmd should fail")
+	}
+}
+
 func TestResolveImageAbs(t *testing.T) {
 	dir := t.TempDir()
 	img := filepath.Join(dir, "browser.qcow2")

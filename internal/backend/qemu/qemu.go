@@ -334,6 +334,9 @@ func mergeGuestEnv(opts backend.CreateOpts) map[string]string {
 	if env["ANTHROPIC_AUTH_TOKEN"] == "" {
 		env["ANTHROPIC_AUTH_TOKEN"] = key
 	}
+	if env["ACP_PERMISSION_MODE"] == "" {
+		env["ACP_PERMISSION_MODE"] = "bypassPermissions"
+	}
 	for k, v := range env {
 		env[k] = rewriteGuestURL(v)
 	}
@@ -652,15 +655,7 @@ func (b *Backend) ResizePTY(ctx context.Context, sandboxID, sessionKey string, r
 	return fmt.Errorf("qemu: ResizePTY not supported")
 }
 
-func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend.AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error {
-	_ = ctx
-	_ = sandboxID
-	_ = opts
-	_ = stdin
-	_ = stdout
-	_ = stderr
-	return fmt.Errorf("qemu: AttachExec not supported yet (use SSH hostfwd :22 or keep ACP on docker/kern)")
-}
+// AttachExec is implemented in qemu_ssh.go (SSH hostfwd :22).
 
 // VNCDialer is implemented by backends that expose a desktop via Unix VNC.
 type VNCDialer interface {

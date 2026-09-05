@@ -59,7 +59,9 @@ RUN curl -fsSL "https://cdn.npmmirror.com/binaries/node/v${NODE_VERSION}/node-v$
       | tar -xJ -C /usr/local --strip-components=1 \
     && node --version && npm --version \
     && npm install -g @anthropic-ai/claude-code \
-    && claude --version
+    && claude --version \
+    && npm install -g @agentclientprotocol/claude-agent-acp \
+    && command -v claude-agent-acp
 
 COPY guest/modules /etc/initramfs-tools/modules
 COPY guest/fstab /etc/fstab
@@ -74,8 +76,8 @@ RUN chmod 0755 /usr/local/sbin/roundpen-apply-env \
     && echo 'roundpen ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/roundpen \
     && chmod 0440 /etc/sudoers.d/roundpen \
     && mkdir -p /home/roundpen/.claude /home/roundpen/workspace /home/roundpen/.roundpen \
-               /etc/roundpen /etc/claude-code /var/run/sshd \
-    && chown -R roundpen:roundpen /home/roundpen \
+               /etc/roundpen /etc/claude-code /var/run/sshd /workspace \
+    && chown -R roundpen:roundpen /home/roundpen /workspace \
     && echo agent > /etc/hostname \
     && printf '127.0.0.1 localhost agent\n' > /etc/hosts \
     && rm -f /etc/machine-id /var/lib/dbus/machine-id \

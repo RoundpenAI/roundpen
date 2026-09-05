@@ -26,7 +26,7 @@ Guest `roundpen-apply-env.service` 把同一组变量写进 `/etc/environment`�
 
 **不要**在镜像里烘焙上游 API key。
 
-`AttachExec`（ACP stdio）本期仍不支持；聊天 Agent 请继续用 `code-agent`（docker/kern）。这台 VM 给 EnsureAgent / SSH 交互式 `claude` 用。
+ACP stdio 走 QEMU SSH hostfwd（账号默认 `roundpen` / `roundpen`）。聊天里选 **Claude Code**（provider `claude`）会拉起 `agent-claude` 并 `AttachExec claude-agent-acp`（官方 ACP 适配器；Claude Code CLI 本身没有 `--acp`）。LLM 仍只走 llmgw。
 
 ## 构建默认镜像
 

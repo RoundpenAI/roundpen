@@ -46,5 +46,7 @@ and writes `/etc/roundpen/env`, `/etc/environment`, profile.d, and Claude
 managed settings. Loopback control-plane URLs are rewritten to `10.0.2.2` on
 the host before fw_cfg is attached.
 
-ACP stdio (`AttachExec`) is not available in this VM; keep chat agents on
-`code-agent` (docker/kern) unless you SSH in and run `claude` interactively.
+ACP stdio uses QEMU SSH hostfwd. The guest also has
+`claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`). Provider `claude`
+runs that binary; set `ACP_PERMISSION_MODE=bypassPermissions` in the injected
+env so the sandbox can test without interactive permission prompts.
