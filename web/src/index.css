@@ -385,6 +385,8 @@ body {
 }
 
 .chat-tool-pre {
+  display: block;
+  width: 100%;
   margin: 0;
   max-width: 100%;
   min-width: 0;
@@ -400,7 +402,7 @@ body {
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  word-break: break-word;
+  word-break: break-all;
 }
 
 /* ChatGPT-style chats shell */
