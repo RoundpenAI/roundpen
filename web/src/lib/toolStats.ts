@@ -71,84 +71,246 @@ export function classifyTool(call: ToolCallLike): ToolBucket {
   return 'other'
 }
 
+type BucketAcc = {
+  running: ToolCallLike[]
+  done: ToolCallLike[]
+}
+
 export function formatGroupStats(calls: ToolCallLike[]): {
   label: string
   plus: number
   minus: number
 } {
-  const editFiles = new Set<string>()
-  const exploreFiles = new Set<string>()
-  let namelessEdits = 0
-  let namelessExplores = 0
-  let searches = 0
-  let commands = 0
+  const order: ToolBucket[] = []
+  const byBucket = new Map<ToolBucket, BucketAcc>()
   let failed = 0
   let plus = 0
   let minus = 0
-  let editing = false
 
   for (const call of calls) {
     if (call.status === 'failed') failed += 1
     const bucket = classifyTool(call)
-    if (bucket === 'edit' && isRunning(call.status)) editing = true
-
-    switch (bucket) {
-      case 'edit': {
-        const paths = collectPaths(call, false)
-        if (paths.length === 0) namelessEdits += 1
-        else paths.forEach((p) => editFiles.add(p))
-        const d = diffForCall(call)
-        plus += d.plus
-        minus += d.minus
-        break
-      }
-      case 'explore': {
-        const paths = collectPaths(call, true)
-        if (paths.length === 0) namelessExplores += 1
-        else paths.forEach((p) => exploreFiles.add(p))
-        break
-      }
-      case 'search':
-        searches += 1
-        break
-      case 'command':
-        commands += 1
-        break
-      default:
-        break
+    if (!byBucket.has(bucket)) {
+      byBucket.set(bucket, { running: [], done: [] })
+      order.push(bucket)
+    }
+    const acc = byBucket.get(bucket)!
+    if (isRunning(call.status)) acc.running.push(call)
+    else acc.done.push(call)
+    if (bucket === 'edit') {
+      const d = diffForCall(call)
+      plus += d.plus
+      minus += d.minus
     }
   }
 
-  const edited = editFiles.size + namelessEdits
-  const explored = exploreFiles.size + namelessExplores
-  const parts: string[] = []
+  const clauses: string[] = []
+  for (const bucket of order) {
+    const acc = byBucket.get(bucket)
+    if (!acc) continue
+    clauses.push(...phraseBucket(bucket, acc))
+  }
+  if (clauses.length === 0) {
+    clauses.push(`${calls.length} tool ${plural(calls.length, 'call')}`)
+  }
+  if (failed) clauses.push(`${failed} failed`)
 
-  if (edited) {
-    parts.push(
-      `${editing ? 'Editing' : 'Edited'} ${edited} ${plural(edited, 'file')}`,
-    )
-  }
-  if (explored) {
-    parts.push(`explored ${explored} ${plural(explored, 'file')}`)
-  }
-  if (searches) {
-    parts.push(`${searches} ${plural(searches, 'search', 'searches')}`)
-  }
-  if (commands) {
-    parts.push(`ran ${commands} ${plural(commands, 'command')}`)
-  }
-  if (parts.length === 0) {
-    parts.push(`${calls.length} tool ${plural(calls.length, 'call')}`)
-  }
-  if (failed) {
-    parts.push(`${failed} failed`)
-  }
-
-  return { label: parts.join(', '), plus, minus }
+  return { label: joinClauses(clauses), plus, minus }
 }
 
 function isRunning(status: string): boolean {
   return status === 'pending' || status === 'in_progress'
+}
+
+function phraseBucket(bucket: ToolBucket, acc: BucketAcc): string[] {
+  switch (bucket) {
+    case 'edit':
+      return phraseCounted(acc, {
+        doneOne: (call) => `Edited ${fileLabel(call)}`,
+        doneMany: (n) => `Edited ${n} files`,
+        runOne: (call) => `Editing ${fileLabel(call)}`,
+        runMany: (n) => `Editing ${n} files`,
+        files: true,
+      })
+    case 'explore':
+      return phraseExplore(acc)
+    case 'search':
+      return phraseCounted(acc, {
+        doneOne: (call) => {
+          const q = queryLabel(call)
+          return q ? `Searched for ${q}` : '1 search'
+        },
+        doneMany: (n) => `${n} searches`,
+        runOne: (call) => {
+          const q = queryLabel(call)
+          return q ? `Searching for ${q}` : 'Searching'
+        },
+        runMany: (n) => `Searching (${n})`,
+      })
+    case 'command':
+      return phraseCounted(acc, {
+        doneOne: (call) => `Ran ${commandLabel(call)}`,
+        doneMany: (n) => `Ran ${n} commands`,
+        runOne: (call) => `Running ${commandLabel(call)}`,
+        runMany: (n) => `Running ${n} commands`,
+      })
+    default:
+      return phraseOther(acc)
+  }
+}
+
+function phraseExplore(acc: BucketAcc): string[] {
+  const all = [...acc.done, ...acc.running]
+  if (all.length > 0 && all.every((c) => toolName(c).startsWith('browser_'))) {
+    return phraseCounted(acc, {
+      doneOne: (call) => {
+        const url = urlLabel(call)
+        return url ? `Opened ${url}` : 'Used the browser'
+      },
+      doneMany: (n) => `Used the browser ${n} times`,
+      runOne: (call) => {
+        const url = urlLabel(call)
+        return url ? `Opening ${url}` : 'Using the browser'
+      },
+      runMany: (n) => `Using the browser (${n})`,
+    })
+  }
+  const listing = (c: ToolCallLike) =>
+    /^(glob|ls|list|listdir|list_dir|readdir)$/.test(toolName(c))
+  if (all.length > 0 && all.every(listing)) {
+    return phraseCounted(acc, {
+      doneOne: (call) => {
+        const p = patternLabel(call)
+        return p ? `Listed ${p}` : 'Listed files'
+      },
+      doneMany: (n) => `Listed ${n} times`,
+      runOne: (call) => {
+        const p = patternLabel(call)
+        return p ? `Listing ${p}` : 'Listing files'
+      },
+      runMany: (n) => `Listing files (${n})`,
+    })
+  }
+  return phraseCounted(acc, {
+    doneOne: (call) => `Read ${fileLabel(call)}`,
+    doneMany: (n) => `Explored ${n} files`,
+    runOne: (call) => `Reading ${fileLabel(call)}`,
+    runMany: (n) => `Exploring ${n} files`,
+    files: true,
+  })
+}
+
+function phraseOther(acc: BucketAcc): string[] {
+  return phraseCounted(acc, {
+    doneOne: (call) => call.title || 'Used a tool',
+    doneMany: (n) => `Used ${n} tools`,
+    runOne: (call) => call.title || 'Working',
+    runMany: (n) => `Running ${n} tools`,
+  })
+}
+
+function phraseCounted(
+  acc: BucketAcc,
+  how: {
+    doneOne: (call: ToolCallLike) => string
+    doneMany: (n: number) => string
+    runOne: (call: ToolCallLike) => string
+    runMany: (n: number) => string
+    files?: boolean
+  },
+): string[] {
+  const doneN = how.files ? countFiles(acc.done) : acc.done.length
+  const runN = how.files ? countFiles(acc.running) : acc.running.length
+  const out: string[] = []
+  if (doneN) {
+    out.push(
+      doneN === 1 && acc.done[0] ? how.doneOne(acc.done[0]) : how.doneMany(doneN),
+    )
+  }
+  if (runN) {
+    out.push(
+      runN === 1 && acc.running[0]
+        ? how.runOne(acc.running[0])
+        : how.runMany(runN),
+    )
+  }
+  return out
+}
+
+function countFiles(calls: ToolCallLike[]): number {
+  const files = new Set<string>()
+  let nameless = 0
+  for (const call of calls) {
+    const paths = collectPaths(call, classifyTool(call) === 'explore')
+    if (paths.length === 0) nameless += 1
+    else paths.forEach((p) => files.add(p))
+  }
+  return files.size + nameless
+}
+
+function fileLabel(call: ToolCallLike): string {
+  const paths = collectPaths(call, classifyTool(call) === 'explore')
+  if (paths[0]) return shortPath(paths[0])
+  return 'a file'
+}
+
+function shortPath(path: string): string {
+  const clean = path.replace(/\\/g, '/').replace(/\/+$/, '')
+  const parts = clean.split('/').filter(Boolean)
+  const name = parts[parts.length - 1] || clean
+  return clip(name, 40)
+}
+
+function queryLabel(call: ToolCallLike): string {
+  const rec = asRecord(call.input)
+  const raw =
+    pickString(rec, ['pattern', 'query', 'regex', 'search', 'grep']) || ''
+  return raw ? clip(raw, 32) : ''
+}
+
+function patternLabel(call: ToolCallLike): string {
+  const rec = asRecord(call.input)
+  const raw =
+    pickString(rec, ['pattern', 'glob', 'glob_pattern', 'path', 'target']) || ''
+  return raw ? clip(raw, 36) : ''
+}
+
+function commandLabel(call: ToolCallLike): string {
+  const rec = asRecord(call.input)
+  const raw =
+    pickString(rec, ['command', 'cmd', 'script']) ||
+    (typeof rec._ === 'string' ? rec._ : '')
+  if (raw) return clip(raw.replace(/\s+/g, ' ').trim(), 42)
+  const title = (call.title || '').replace(/^(Bash|Shell|Command)\s*[·:]\s*/i, '')
+  return clip(title || 'a command', 42)
+}
+
+function urlLabel(call: ToolCallLike): string {
+  const rec = asRecord(call.input)
+  const raw = pickString(rec, ['url', 'href', 'target']) || ''
+  if (!raw) return ''
+  try {
+    return clip(new URL(raw).host || raw, 36)
+  } catch {
+    return clip(raw, 36)
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return {}
+}
+
+function clip(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max)}…` : value
+}
+
+function joinClauses(parts: string[]): string {
+  if (parts.length === 0) return ''
+  const rest = parts.slice(1).map((p) => p.charAt(0).toLowerCase() + p.slice(1))
+  return [parts[0], ...rest].join(', ')
 }
 
 function toolName(call: ToolCallLike): string {

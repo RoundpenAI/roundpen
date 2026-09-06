@@ -16,7 +16,7 @@ describe('classifyTool', () => {
 })
 
 describe('formatGroupStats', () => {
-  it('matches the Cursor-style activity line', () => {
+  it('aggregates a finished mixed turn', () => {
     const calls = [
       ...Array.from({ length: 18 }, (_, i) => ({
         title: 'Edit',
@@ -49,26 +49,74 @@ describe('formatGroupStats', () => {
     assert.equal(stats.minus, 18)
   })
 
-  it('uses Editing for a single in-progress write', () => {
+  it('names the file while a write is still running', () => {
     const stats = formatGroupStats([
       {
         title: 'Edit',
         status: 'in_progress',
         kind: 'edit',
-        input: { path: 'a.ts', old_string: 'x', new_string: 'y' },
+        input: { path: 'src/a.ts', old_string: 'x', new_string: 'y' },
       },
     ])
-    assert.equal(stats.label, 'Editing 1 file')
+    assert.equal(stats.label, 'Editing a.ts')
     assert.equal(stats.plus, 1)
     assert.equal(stats.minus, 1)
   })
 
-  it('counts unique files and keeps a failed suffix', () => {
+  it('switches a finished single edit to Edited', () => {
+    const stats = formatGroupStats([
+      {
+        title: 'Edit',
+        status: 'completed',
+        kind: 'edit',
+        input: { path: 'src/a.ts', old_string: 'x', new_string: 'y' },
+      },
+    ])
+    assert.equal(stats.label, 'Edited a.ts')
+  })
+
+  it('keeps finished work in the past while a later read is still going', () => {
+    const stats = formatGroupStats([
+      {
+        title: 'Edit',
+        status: 'completed',
+        kind: 'edit',
+        input: { path: 'a.ts', old_string: 'x', new_string: 'y' },
+      },
+      {
+        title: 'Read',
+        status: 'in_progress',
+        kind: 'read',
+        input: { path: 'b.ts' },
+      },
+    ])
+    assert.equal(stats.label, 'Edited a.ts, reading b.ts')
+  })
+
+  it('names a running command and a search query', () => {
+    const stats = formatGroupStats([
+      {
+        title: 'Grep',
+        status: 'in_progress',
+        kind: 'search',
+        input: { pattern: 'handleClick' },
+      },
+      {
+        title: 'Bash',
+        status: 'in_progress',
+        kind: 'execute',
+        input: { command: 'go test ./internal/acp/...' },
+      },
+    ])
+    assert.equal(stats.label, 'Searching for handleClick, running go test ./internal/acp/...')
+  })
+
+  it('dedupes reads and notes a failed command', () => {
     const stats = formatGroupStats([
       { title: 'Read', status: 'completed', input: { path: 'a.ts' } },
       { title: 'Read', status: 'completed', input: { path: 'a.ts' } },
-      { title: 'Bash', status: 'failed', kind: 'execute' },
+      { title: 'Bash', status: 'failed', kind: 'execute', input: { command: 'make' } },
     ])
-    assert.equal(stats.label, 'explored 1 file, ran 1 command, 1 failed')
+    assert.equal(stats.label, 'Read a.ts, ran make, 1 failed')
   })
 })
