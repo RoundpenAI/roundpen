@@ -43,7 +43,7 @@ describe('formatGroupStats', () => {
     const stats = formatGroupStats(calls)
     assert.equal(
       stats.label,
-      'Editing 18 files, explored 8 files, 3 searches, ran 2 commands',
+      'Edited 18 files, explored 8 files, 3 searches, ran 2 commands',
     )
     assert.equal(stats.plus, 36)
     assert.equal(stats.minus, 18)

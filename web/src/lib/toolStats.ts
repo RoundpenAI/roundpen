@@ -85,10 +85,12 @@ export function formatGroupStats(calls: ToolCallLike[]): {
   let failed = 0
   let plus = 0
   let minus = 0
+  let editing = false
 
   for (const call of calls) {
     if (call.status === 'failed') failed += 1
     const bucket = classifyTool(call)
+    if (bucket === 'edit' && isRunning(call.status)) editing = true
 
     switch (bucket) {
       case 'edit': {
@@ -122,7 +124,9 @@ export function formatGroupStats(calls: ToolCallLike[]): {
   const parts: string[] = []
 
   if (edited) {
-    parts.push(`Editing ${edited} ${plural(edited, 'file')}`)
+    parts.push(
+      `${editing ? 'Editing' : 'Edited'} ${edited} ${plural(edited, 'file')}`,
+    )
   }
   if (explored) {
     parts.push(`explored ${explored} ${plural(explored, 'file')}`)
@@ -141,6 +145,10 @@ export function formatGroupStats(calls: ToolCallLike[]): {
   }
 
   return { label: parts.join(', '), plus, minus }
+}
+
+function isRunning(status: string): boolean {
+  return status === 'pending' || status === 'in_progress'
 }
 
 function toolName(call: ToolCallLike): string {
