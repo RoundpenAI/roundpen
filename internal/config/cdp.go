@@ -81,11 +81,9 @@ func NormalizeCDP(c *CDPConfig) error {
 
 // ResolveCDPProvider picks the effective provider. hostChromeFound is true when
 // a Chrome/Chromium binary exists on the API process (laptop only).
+// Auto prefers dialing the Browser environment (docker/qemu Dial) over host Chrome.
 func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
 	if cfg == nil {
-		if hostChromeFound {
-			return CDPProviderHost
-		}
 		return CDPProviderDocker
 	}
 	p := strings.ToLower(strings.TrimSpace(cfg.CDP.Provider))
@@ -95,7 +93,8 @@ func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
 	if p != CDPProviderAuto {
 		return p
 	}
-	if strings.EqualFold(cfg.Backend, "docker") {
+	// Prefer guest CDP via Dial (works for docker sandboxes and qemu browser VMs).
+	if strings.EqualFold(cfg.Backend, "docker") || strings.EqualFold(cfg.Backend, "qemu") || cfg.QEMUEnabled {
 		return CDPProviderDocker
 	}
 	if hostChromeFound {
@@ -109,15 +108,12 @@ func CDPHint(cfg *Config, hostChromeFound bool) string {
 	resolved := ResolveCDPProvider(cfg, hostChromeFound)
 	switch resolved {
 	case CDPProviderDocker:
-		if cfg != nil && !strings.EqualFold(cfg.Backend, "docker") {
-			return "Docker Chrome needs ROUNDPEN_BACKEND=docker (and docker.sock on NAS). Or switch to remote/cloud CDP."
-		}
-		return "Connects to Chrome inside the sandbox via Dial on the CDP port. The sandbox image must expose DevTools."
+		return "Connects to Chrome inside the Browser environment via Dial on the CDP port (Docker or QEMU hostfwd)."
 	case CDPProviderHost:
 		if !hostChromeFound {
 			return "Host Chrome was selected but no chrome/chromium binary is on this process PATH (typical on NAS compose)."
 		}
-		return "Uses Chrome on the machine running roundpend. Laptop/debug only."
+		return "Uses Chrome on the machine running roundpend. Laptop/debug only — prefer Browser environment CDP."
 	case CDPProviderRemote:
 		return "Attaches to the configured CDP URL (Browserless or self-hosted Chrome)."
 	case CDPProviderCloud:

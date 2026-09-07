@@ -2,14 +2,17 @@ package llmgw
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -85,7 +88,7 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 		path = "/"
 	}
 
-	targetURL := upstream.BaseURL + path
+	targetURL := joinUpstreamURL(upstream.BaseURL, path)
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
 	}
@@ -112,8 +115,9 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 	}
 
 	upstreamBody := reqRaw
-	if matcher.Enabled() && len(reqRaw) > 0 {
-		mapped, err := mapModel(reqRaw, matcher)
+	defaultModel := g.defaultModelName()
+	if (matcher.Enabled() || defaultModel != "") && len(reqRaw) > 0 {
+		mapped, err := mapModel(reqRaw, matcher, defaultModel)
 		if err != nil {
 			g.logTransaction(ctx, Transaction{
 				RequestID: requestID, VirtualKey: vk.Key, VirtualName: vk.Name,
@@ -164,7 +168,7 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 	w.WriteHeader(upResp.StatusCode)
 
 	capture := newBodyCapture(logLimit)
-	_, copyErr := io.Copy(w, io.TeeReader(upResp.Body, capture))
+	copyErr := copyResponse(w, io.TeeReader(upResp.Body, capture))
 
 	tx := Transaction{
 		RequestID:     requestID,
@@ -190,6 +194,30 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 		bodies.ResponseTruncated = capture.truncated
 	}
 	g.logTransaction(ctx, tx, bodies)
+}
+
+// copyResponse streams the upstream body to the client, flushing when possible
+// so SSE / chunked LLM streams reach the browser incrementally.
+func copyResponse(w http.ResponseWriter, r io.Reader) error {
+	buf := make([]byte, 32*1024)
+	flusher, canFlush := w.(http.Flusher)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return werr
+			}
+			if canFlush {
+				flusher.Flush()
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
 }
 
 func (g *Gateway) authenticate(r *http.Request) (VirtualKey, string) {
@@ -232,7 +260,9 @@ func setUpstreamAuth(h http.Header, provider, apiKey string) {
 func copyHeaders(dst, src http.Header) {
 	for k, vs := range src {
 		lk := strings.ToLower(k)
-		if lk == "authorization" || lk == "x-api-key" || lk == "host" {
+		// Drop hop/auth headers. Skip Accept-Encoding so http.Transport can
+		// negotiate gzip itself and transparently decompress for logging.
+		if lk == "authorization" || lk == "x-api-key" || lk == "host" || lk == "accept-encoding" {
 			continue
 		}
 		for _, v := range vs {
@@ -248,10 +278,12 @@ func (g *Gateway) logTransaction(ctx context.Context, tx Transaction, bodies *Tr
 }
 
 func truncateForLog(data []byte, limit int) (string, bool) {
-	if len(data) <= limit {
-		return string(data), false
+	truncated := false
+	if len(data) > limit {
+		data = data[:limit]
+		truncated = true
 	}
-	return string(data[:limit]), true
+	return sanitizeLogBody(data), truncated
 }
 
 func bodiesIfLogged(logLimit int, partial *TransactionBodies) *TransactionBodies {
@@ -300,7 +332,39 @@ func (c *bodyCapture) Write(p []byte) (int, error) {
 }
 
 func (c *bodyCapture) text() string {
-	return c.buf.String()
+	return sanitizeLogBody(c.buf.Bytes())
+}
+
+// sanitizeLogBody makes body bytes safe for PostgreSQL TEXT (UTF-8).
+// Gzip payloads (often from Accept-Encoding passthrough) are noted, not stored raw.
+func sanitizeLogBody(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	if len(b) >= 2 && b[0] == 0x1f && b[1] == 0x8b {
+		if plain, err := gunzipPrefix(b); err == nil {
+			return sanitizeLogBody(plain)
+		}
+		return fmt.Sprintf("[binary gzip body, %d bytes captured]", len(b))
+	}
+	if utf8.Valid(b) {
+		return string(b)
+	}
+	return strings.ToValidUTF8(string(b), "\uFFFD")
+}
+
+func gunzipPrefix(b []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	out, err := io.ReadAll(io.LimitReader(r, 1<<20))
+	// Capture buffer may truncate mid-stream; keep whatever decoded.
+	if len(out) > 0 {
+		return out, nil
+	}
+	return nil, err
 }
 
 func newRequestID() string {

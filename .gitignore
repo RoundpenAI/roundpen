@@ -17,6 +17,9 @@ vendor/
 *.db
 .docker/
 
+# Local Go build cache (never commit)
+.gocache/
+
 # IDE / OS
 .idea/
 .vscode/
@@ -37,3 +40,7 @@ vendor/
 # Node (web/)
 /web/node_modules/
 /web/dist/
+/web/test-results/
+/web/playwright-report/
+/web/blob-report/
+/web/playwright/.cache/

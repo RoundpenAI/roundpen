@@ -5,6 +5,7 @@ export type TemplateCreateValues = {
   cpuCount: number
   memoryMB: number
   public: boolean
+  slot: 'agent' | 'browser'
 }
 
 type Props = {
@@ -20,6 +21,7 @@ const defaults: TemplateCreateValues = {
   cpuCount: 1,
   memoryMB: 512,
   public: true,
+  slot: 'agent',
 }
 
 export function TemplateCreateDialog({
@@ -34,6 +36,7 @@ export function TemplateCreateDialog({
   const [cpuCount, setCpuCount] = useState(defaults.cpuCount)
   const [memoryMB, setMemoryMB] = useState(defaults.memoryMB)
   const [isPublic, setIsPublic] = useState(defaults.public)
+  const [slot, setSlot] = useState<TemplateCreateValues['slot']>(defaults.slot)
 
   useEffect(() => {
     if (!open) return
@@ -41,6 +44,7 @@ export function TemplateCreateDialog({
     setCpuCount(defaults.cpuCount)
     setMemoryMB(defaults.memoryMB)
     setIsPublic(defaults.public)
+    setSlot(defaults.slot)
   }, [open])
 
   if (!open) return null
@@ -54,6 +58,7 @@ export function TemplateCreateDialog({
       cpuCount: cpuCount > 0 ? cpuCount : 1,
       memoryMB: memoryMB > 0 ? memoryMB : 512,
       public: isPublic,
+      slot,
     })
   }
 
@@ -61,14 +66,26 @@ export function TemplateCreateDialog({
     <dialog className="modal modal-bottom sm:modal-middle modal-open" aria-labelledby={titleId}>
       <div className="modal-box max-w-md">
         <h3 id={titleId} className="font-display text-lg font-semibold">
-          New template
+          New image
         </h3>
         <p className="mt-1 text-sm opacity-55">
-          Creates a template record and pending build. Configure the image in the
-          next step.
+          Creates an environment image template and pending build. Agent slots
+          build OCI images; Browser slots target qcow2 disks.
         </p>
 
         <form onSubmit={(e) => void submit(e)} className="mt-5 flex flex-col gap-4">
+          <label className="form-control w-full gap-1.5">
+            <span className="text-xs font-medium opacity-60">Slot</span>
+            <select
+              className="select select-bordered select-sm w-full"
+              value={slot}
+              onChange={(e) => setSlot(e.target.value as TemplateCreateValues['slot'])}
+            >
+              <option value="agent">Agent (OCI)</option>
+              <option value="browser">Browser (qcow2)</option>
+            </select>
+          </label>
+
           <label className="form-control w-full gap-1.5">
             <span className="text-xs font-medium opacity-60">Name</span>
             <input

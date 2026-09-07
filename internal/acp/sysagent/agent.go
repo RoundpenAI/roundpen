@@ -15,7 +15,8 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
 )
 
-const maxToolRounds = 8
+// keepLastToolResults is how many recent tool payloads stay verbatim in-context.
+const keepLastToolResults = 6
 
 type session struct {
 	cancel     context.CancelFunc
@@ -132,9 +133,13 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 		Update:    acp.UpdateAgentThoughtText("Working…"),
 	})
 
-	for round := 0; round < maxToolRounds; round++ {
+	var watch loopWatch
+	for {
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if historyChars(messages) > maxHistoryChars {
+			messages = shrinkOldToolResults(messages, keepLastToolResults)
 		}
 		var streamed bool
 		msg, finish, err := a.deps.LLM.chatStream(ctx, messages, openaiTools, func(chunk string) error {
@@ -158,6 +163,7 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 			return a.emitText(ctx, sid, text)
 		}
 
+		var recs []toolCallRec
 		for _, tc := range msg.ToolCalls {
 			name := tc.Function.Name
 			args := json.RawMessage(tc.Function.Arguments)
@@ -223,8 +229,10 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 			} else {
 				result, callErr = a.deps.Tools.Call(ctx, a.deps.Actor, name, args)
 				if callErr != nil {
-					result = "error: " + callErr.Error()
 					status = acp.ToolCallStatusFailed
+					if strings.TrimSpace(result) == "" {
+						result = tools.FormatToolError(callErr)
+					}
 				}
 			}
 			var outObj any = result
@@ -251,10 +259,27 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 				Name:       name,
 				Content:    result,
 			})
+			recs = append(recs, toolCallRec{name: name, args: string(args), result: result})
 		}
 		_ = finish
+		nudge, stop := watch.observe(recs)
+		if stop {
+			return a.emitText(ctx, sid, watch.stopText())
+		}
+		if nudge {
+			thought := "Same actions repeating — changing approach."
+			if watch.lastKind == "agent" {
+				thought = "Agent slot is absent — starting the Cloud Agent sandbox, not giving up after list."
+			} else if watch.infra > 0 {
+				thought = "Guest Chrome CDP is down — ensuring the Browser sandbox, not retrying page tools."
+			}
+			_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{
+				SessionId: acp.SessionId(sid),
+				Update:    acp.UpdateAgentThoughtText(thought),
+			})
+			messages = append(messages, chatMessage{Role: "user", Content: watch.nudgeText()})
+		}
 	}
-	return a.emitText(ctx, sid, "Stopped after too many tool rounds.")
 }
 
 func (a *Agent) emitText(ctx context.Context, sid, text string) error {

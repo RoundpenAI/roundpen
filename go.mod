@@ -3,6 +3,7 @@ module github.com/RoundpenAI/roundpen
 go 1.26
 
 require (
+	github.com/coder/acp-go-sdk v0.13.5
 	github.com/chromedp/cdproto v0.0.0-20260714215040-dc233986426f
 	github.com/chromedp/chromedp v0.16.0
 	github.com/creack/pty v1.1.24
@@ -53,3 +54,5 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 )
+
+replace github.com/coder/acp-go-sdk => ./third_party/acp-go-sdk

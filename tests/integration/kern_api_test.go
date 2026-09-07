@@ -20,7 +20,7 @@ func TestKernAPI_CreateExecDelete(t *testing.T) {
 		t.Fatalf("health: %s", resp.Status)
 	}
 
-	resp = h.mustDo(t, http.MethodPost, "/sandboxes", map[string]any{
+	resp = h.mustDo(t, http.MethodPost, "/v1/sandboxes", map[string]any{
 		"templateID": "host",
 		"timeout":    600,
 		"envVars":    map[string]string{"FOO": "bar"},
@@ -43,13 +43,13 @@ func TestKernAPI_CreateExecDelete(t *testing.T) {
 		t.Fatalf("state=%v", created["state"])
 	}
 
-	resp = h.mustDo(t, http.MethodGet, "/sandboxes/"+sid, nil)
+	resp = h.mustDo(t, http.MethodGet, "/v1/sandboxes/"+sid, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get: %s", resp.Status)
 	}
 
-	resp = h.mustDo(t, http.MethodGet, "/sandboxes", nil)
+	resp = h.mustDo(t, http.MethodGet, "/v1/sandboxes", nil)
 	defer resp.Body.Close()
 	var list []map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
@@ -96,21 +96,21 @@ func TestKernAPI_CreateExecDelete(t *testing.T) {
 		t.Fatalf("note.txt=%q", b)
 	}
 
-	resp = h.mustDo(t, http.MethodPost, "/sandboxes/"+sid+"/timeout", map[string]any{"timeout": 900})
+	resp = h.mustDo(t, http.MethodPost, "/v1/sandboxes/"+sid+"/timeout", map[string]any{"timeout": 900})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		raw, _ := io.ReadAll(resp.Body)
 		t.Fatalf("timeout: %s %s", resp.Status, raw)
 	}
 
-	resp = h.mustDo(t, http.MethodDelete, "/sandboxes/"+sid, nil)
+	resp = h.mustDo(t, http.MethodDelete, "/v1/sandboxes/"+sid, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		raw, _ := io.ReadAll(resp.Body)
 		t.Fatalf("delete: %s %s", resp.Status, raw)
 	}
 
-	resp = h.mustDo(t, http.MethodGet, "/sandboxes/"+sid, nil)
+	resp = h.mustDo(t, http.MethodGet, "/v1/sandboxes/"+sid, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404 after delete, got %s", resp.Status)
@@ -130,7 +130,7 @@ func TestKernAPI_ExecNotFound(t *testing.T) {
 
 func TestKernAPI_StopThenExecFails(t *testing.T) {
 	h := startKernHarness(t)
-	resp := h.mustDo(t, http.MethodPost, "/sandboxes", map[string]any{
+	resp := h.mustDo(t, http.MethodPost, "/v1/sandboxes", map[string]any{
 		"templateID": "host",
 		"timeout":    300,
 	})
@@ -156,7 +156,7 @@ func TestKernAPI_StopThenExecFails(t *testing.T) {
 		t.Fatal("expected exec on stopped sandbox to fail")
 	}
 
-	resp = h.mustDo(t, http.MethodDelete, "/sandboxes/"+sid, nil)
+	resp = h.mustDo(t, http.MethodDelete, "/v1/sandboxes/"+sid, nil)
 	defer resp.Body.Close()
 }
 

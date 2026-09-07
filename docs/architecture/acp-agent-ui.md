@@ -42,7 +42,12 @@ Control plane
 | `roundpen_list_templates` | 模板列表 |
 | `roundpen_list_agent_sessions` | 当前用户会话 |
 | `roundpen_get_settings` | 管理设置（admin） |
+| `roundpen_ensure_agent` / `sandbox_exec` | Cloud Agent 槽位：ensure + 在 `/workspace` 里跑 shell（git clone / 构建） |
 | `browser_navigate` / `snapshot` / `click` / `type` / `press` / `screenshot` / `set_viewport` / `evaluate` | 进程内 Browser Hub（对齐 MCP） |
+
+`sandbox_exec` 绑定 **Agent 槽位**（QEMU 模板 `agent-claude`）。`list_environments` 里 agent `status=absent` 只表示还没启动，应调用 `roundpen_ensure_agent` / `sandbox_exec`。
+
+Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 PostgreSQL → `EnsureAgent` 经 SSH 写入 guest `/workspace/.roundpen/git`（不写宿主机目录）。**禁止**把宿主机 `~/.ssh` 拷进镜像或沙箱。见 [git-credentials.md](../git-credentials.md)。
 
 LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-roundpen-internal`；model 回落 settings Default Model。
 

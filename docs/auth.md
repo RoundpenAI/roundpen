@@ -15,6 +15,8 @@ Roundpen 支持两种验证方式（对齐 ai-sandbox）：
 | POST | `/v1/auth/login` | public | `{ user, password }`（`user` 可为 username 或 email；也接受 `username` / `email`）→ 200 `{ user }` + Set-Cookie |
 | POST | `/v1/auth/logout` | session | 204，清除 Cookie |
 | GET | `/v1/auth/user` | Cookie 或 API key | 当前用户（API key 脱敏） |
+| GET/PUT | `/v1/me/git-credentials` | session 或 API key | 当前用户 git token（GET 脱敏）。见 [git-credentials.md](git-credentials.md) |
+| DELETE | `/v1/me/git-credentials/{id}` | session 或 API key | 删除一条 git token |
 | POST | `/v1/auth/password` | session | `{ current_password, new_password }` |
 | POST | `/v1/auth/apikey/rotate` | session | 返回新明文 key 一次 |
 | GET | `/v1/admin/users` | admin | 用户列表 |

@@ -46,8 +46,11 @@ func isPublicPath(r *http.Request) bool {
 	if strings.HasPrefix(path, "/llmgw/") {
 		return true
 	}
-	// Preview proxy validates its own short-lived token.
+	// Preview proxy and desktop VNC WS validate their own short-lived token.
 	if strings.HasPrefix(path, "/p/") {
+		return true
+	}
+	if path == "/v1/me/environments/browser/desktop/ws" {
 		return true
 	}
 	if r.Method == http.MethodPost {

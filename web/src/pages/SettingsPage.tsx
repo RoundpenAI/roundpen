@@ -9,6 +9,8 @@ import {
   type Template,
 } from '../api'
 import { useAuth } from '../auth'
+import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
+import { RuntimePanel } from '../components/RuntimePanel'
 import { PageShell } from '../components/PageShell'
 
 const emptySettings: AppSettings = {
@@ -28,6 +30,7 @@ const emptySettings: AppSettings = {
   llmgwPublicUrl: '',
   llmgwLogBodyMaxBytes: -1,
   llmgwEmbeddingModel: 'text-embedding-3-small',
+  llmgwDefaultModel: '',
   llmgwOpenaiBaseUrl: '',
   llmgwOpenaiApiKey: '',
   llmgwAnthropicBaseUrl: '',
@@ -138,12 +141,25 @@ function templateRef(t: Template): string {
   return name.includes('/') ? (name.split('/').pop() ?? name) : name
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: string
+  children: ReactNode
+}) {
   return (
-    <label className="form-control w-full min-w-0 gap-1.5">
-      <span className="label-text text-xs leading-snug opacity-60">{label}</span>
+    <div className="form-control w-full min-w-0 gap-1.5">
+      <span className="label-text block text-xs leading-snug opacity-60">
+        {label}
+      </span>
       {children}
-    </label>
+      {hint ? (
+        <p className="m-0 text-[0.7rem] leading-relaxed opacity-45">{hint}</p>
+      ) : null}
+    </div>
   )
 }
 
@@ -200,7 +216,14 @@ export function SettingsPage() {
   const [dirty, setDirty] = useState(false)
   const [templateList, setTemplateList] = useState<Template[]>([])
 
+  const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
+
   const load = useCallback(async () => {
+    if (!isAdmin) {
+      setLoading(false)
+      setError(null)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -217,7 +240,7 @@ export function SettingsPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [isAdmin])
 
   const defaultImageOptions = useMemo(() => {
     const fromTemplates = templateList.flatMap((tpl) => {
@@ -272,9 +295,6 @@ export function SettingsPage() {
   if (auth.status === 'anon') {
     return <Navigate to="/login" replace />
   }
-  if (auth.user.role !== 'admin') {
-    return <Navigate to="/" replace />
-  }
 
   function patch(partial: Partial<AppSettings>) {
     setForm((prev) => ({ ...prev, ...partial }))
@@ -305,7 +325,7 @@ export function SettingsPage() {
 
   return (
     <PageShell
-      subtitle="System settings"
+      subtitle={isAdmin ? 'Account and system settings' : 'Account settings'}
       current="settings"
       className="rp-settings !pb-0"
     >
@@ -316,10 +336,14 @@ export function SettingsPage() {
         </div>
       )}
 
-      {loading ? (
-        <p className="text-sm opacity-50">Loading…</p>
-      ) : (
-        <div className="flex flex-col gap-8 pb-28 sm:pb-24">
+      <div className="flex flex-col gap-8 pb-28 sm:pb-24">
+        <RuntimePanel />
+        <GitCredentialsPanel />
+
+      {isAdmin && loading ? (
+        <p className="text-sm opacity-50">Loading system settings…</p>
+      ) : isAdmin ? (
+        <>
           <Section title="General">
             <Toggle
               checked={form.allowPublicRegistration}
@@ -533,113 +557,187 @@ export function SettingsPage() {
           </Section>
 
           <Section title="LLM gateway">
+            <p className="text-xs leading-relaxed opacity-55">
+              Roundpen relays model calls so Agents never hold your real OpenAI /
+              Anthropic keys. Configure upstream credentials below; Agents and
+              Chats only receive a virtual key that calls /llmgw on this control
+              plane.
+            </p>
+
             <Toggle
               checked={form.llmgwEnabled}
               onChange={(v) => patch({ llmgwEnabled: v })}
             >
-              Enable LLM gateway relay
+              Enable relay (required for Agent Chats &amp; memory embeddings)
             </Toggle>
-            <Field label="Public base URL (for setup docs)">
-              <input
-                className={controlClass}
-                inputMode="url"
-                autoComplete="url"
-                placeholder="http://127.0.0.1:9527"
-                value={form.llmgwPublicUrl}
-                onChange={(e) => patch({ llmgwPublicUrl: e.target.value })}
-              />
-            </Field>
-            <Field label="Log body max bytes">
-              <select
-                className={selectClass}
-                value={form.llmgwLogBodyMaxBytes}
-                onChange={(e) =>
-                  patch({ llmgwLogBodyMaxBytes: Number(e.target.value) })
-                }
+
+            <div className="space-y-3 pt-1">
+              <h3 className="text-xs font-medium tracking-wide opacity-70">
+                1 · Upstream providers
+              </h3>
+              <p className="text-[0.7rem] leading-relaxed opacity-45">
+                Where Roundpen forwards requests. These API keys stay in the
+                control-plane database — they are never injected into sandboxes.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="OpenAI-compatible base URL"
+                  hint="Official OpenAI, Azure OpenAI, or any OpenAI-compatible proxy."
+                >
+                  <input
+                    className={controlClass}
+                    inputMode="url"
+                    autoComplete="off"
+                    placeholder="https://api.openai.com"
+                    value={form.llmgwOpenaiBaseUrl}
+                    onChange={(e) =>
+                      patch({ llmgwOpenaiBaseUrl: e.target.value })
+                    }
+                  />
+                </Field>
+                <Field
+                  label="OpenAI-compatible API key"
+                  hint="Leave masked to keep the stored secret."
+                >
+                  <input
+                    type="password"
+                    className={controlClass}
+                    autoComplete="new-password"
+                    placeholder="Leave masked to keep current"
+                    value={form.llmgwOpenaiApiKey}
+                    onChange={(e) =>
+                      patch({ llmgwOpenaiApiKey: e.target.value })
+                    }
+                  />
+                </Field>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Anthropic base URL"
+                  hint="Optional. Leave empty if you only use OpenAI-compatible models."
+                >
+                  <input
+                    className={controlClass}
+                    inputMode="url"
+                    autoComplete="off"
+                    placeholder="https://api.anthropic.com"
+                    value={form.llmgwAnthropicBaseUrl}
+                    onChange={(e) =>
+                      patch({ llmgwAnthropicBaseUrl: e.target.value })
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Anthropic API key"
+                  hint="Leave masked to keep the stored secret."
+                >
+                  <input
+                    type="password"
+                    className={controlClass}
+                    autoComplete="new-password"
+                    placeholder="Leave masked to keep current"
+                    value={form.llmgwAnthropicApiKey}
+                    onChange={(e) =>
+                      patch({ llmgwAnthropicApiKey: e.target.value })
+                    }
+                  />
+                </Field>
+              </div>
+            </div>
+
+            <div className="space-y-4 border-t border-base-300 pt-4">
+              <h3 className="text-xs font-medium tracking-wide opacity-70">
+                2 · What Agents use
+              </h3>
+              <p className="text-[0.7rem] leading-relaxed opacity-45">
+                Sandboxes get OPENAI_BASE_URL / ANTHROPIC_BASE_URL pointing at
+                this Roundpen, plus a virtual key as OPENAI_API_KEY.
+              </p>
+              <Field
+                label="Control-plane public URL"
+                hint="URL Agents inside sandboxes can reach (e.g. http://host.docker.internal:9527 or your LAN IP). Not the upstream OpenAI URL."
               >
-                {logBodyOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Embedding model (upstream)">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="text-embedding-3-small"
-                value={form.llmgwEmbeddingModel}
-                onChange={(e) => patch({ llmgwEmbeddingModel: e.target.value })}
-              />
-            </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="OpenAI base URL">
                 <input
                   className={controlClass}
                   inputMode="url"
-                  autoComplete="off"
-                  placeholder="https://api.openai.com"
-                  value={form.llmgwOpenaiBaseUrl}
-                  onChange={(e) =>
-                    patch({ llmgwOpenaiBaseUrl: e.target.value })
-                  }
+                  autoComplete="url"
+                  placeholder="http://127.0.0.1:9527"
+                  value={form.llmgwPublicUrl}
+                  onChange={(e) => patch({ llmgwPublicUrl: e.target.value })}
                 />
               </Field>
-              <Field label="OpenAI API key">
+              <Field
+                label="Default model"
+                hint="Used for both OpenAI and Anthropic relays when the request model is not in the upstream model map (and is not already an upstream target name). Leave empty to pass unknown models through."
+              >
                 <input
-                  type="password"
                   className={controlClass}
-                  autoComplete="new-password"
-                  placeholder="Leave masked to keep current"
-                  value={form.llmgwOpenaiApiKey}
-                  onChange={(e) =>
-                    patch({ llmgwOpenaiApiKey: e.target.value })
-                  }
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder="e.g. gpt-4o-mini or claude-sonnet-4"
+                  value={form.llmgwDefaultModel}
+                  onChange={(e) => patch({ llmgwDefaultModel: e.target.value })}
+                />
+              </Field>
+              <Field
+                label="Virtual keys"
+                hint="Client credentials for /llmgw. Format: vk-name:label or vk-name (comma-separated). Example: vk-dev:dev,vk-prod:prod. Agents pick a non-internal key automatically."
+              >
+                <input
+                  className={controlClass}
+                  spellCheck={false}
+                  autoComplete="off"
+                  placeholder="vk-dev:dev"
+                  value={form.llmgwVirtualKeys}
+                  onChange={(e) => patch({ llmgwVirtualKeys: e.target.value })}
                 />
               </Field>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Anthropic base URL">
-                <input
-                  className={controlClass}
-                  inputMode="url"
-                  autoComplete="off"
-                  placeholder="https://api.anthropic.com"
-                  value={form.llmgwAnthropicBaseUrl}
-                  onChange={(e) =>
-                    patch({ llmgwAnthropicBaseUrl: e.target.value })
-                  }
-                />
-              </Field>
-              <Field label="Anthropic API key">
-                <input
-                  type="password"
-                  className={controlClass}
-                  autoComplete="new-password"
-                  placeholder="Leave masked to keep current"
-                  value={form.llmgwAnthropicApiKey}
-                  onChange={(e) =>
-                    patch({ llmgwAnthropicApiKey: e.target.value })
-                  }
-                />
-              </Field>
-            </div>
-            <Field label="Virtual keys (vk-dev:dev,vk-prod)">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                autoComplete="off"
-                placeholder="vk-dev:dev"
-                value={form.llmgwVirtualKeys}
-                onChange={(e) => patch({ llmgwVirtualKeys: e.target.value })}
-              />
-            </Field>
-            <p className="text-xs leading-relaxed opacity-50">
-              API keys are stored in the database and shown masked. Leave a
-              masked field untouched to keep the existing secret. Changes apply
-              immediately without restart.
-            </p>
+
+            <details className="border-t border-base-300 pt-4">
+              <summary className="cursor-pointer text-xs font-medium opacity-70">
+                Advanced
+              </summary>
+              <div className="mt-3 space-y-4">
+                <Field
+                  label="Embedding model"
+                  hint="Upstream model aliased as roundpen-embed for long-term memory search."
+                >
+                  <input
+                    className={controlClass}
+                    spellCheck={false}
+                    placeholder="text-embedding-3-small"
+                    value={form.llmgwEmbeddingModel}
+                    onChange={(e) =>
+                      patch({ llmgwEmbeddingModel: e.target.value })
+                    }
+                  />
+                </Field>
+                <Field
+                  label="Request body logging"
+                  hint="How much of each relayed request/response to store for audit. Off = metadata only."
+                >
+                  <select
+                    className={selectClass}
+                    value={form.llmgwLogBodyMaxBytes}
+                    onChange={(e) =>
+                      patch({ llmgwLogBodyMaxBytes: Number(e.target.value) })
+                    }
+                  >
+                    {logBodyOptions.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <p className="text-[0.7rem] leading-relaxed opacity-45">
+                  Secrets are stored in PostgreSQL and shown masked. Leave a
+                  masked field unchanged to keep the existing value. Saves apply
+                  immediately — no restart.
+                </p>
+              </div>
+            </details>
           </Section>
 
           {sys && (
@@ -684,16 +782,19 @@ export function SettingsPage() {
                 </p>
               )}
               <p className="mt-3 text-xs leading-relaxed opacity-45">
-                Backend, database, and listen address require environment
-                variables and a process restart. Template builds and LLM gateway
-                settings above apply at runtime.
+                Database and listen address require environment variables and a
+                process restart. The default Agent engine (`ROUNDPEN_BACKEND`)
+                is only a fallback — users pick QEMU, Docker, or Kern in Agent
+                runtime above. Template builds and LLM gateway settings apply at
+                runtime.
               </p>
             </section>
           )}
-        </div>
-      )}
+        </>
+      ) : null}
+      </div>
 
-      {!loading && (
+      {isAdmin && !loading && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-base-300 bg-base-100/95 px-4 pt-3 backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center">
             {saveError && (

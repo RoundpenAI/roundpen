@@ -24,11 +24,15 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 		out.LlmgwPublicURL = fallback.LlmgwPublicURL
 		out.LlmgwLogBodyMaxBytes = fallback.LlmgwLogBodyMaxBytes
 		out.LlmgwEmbeddingModel = fallback.LlmgwEmbeddingModel
+		out.LlmgwDefaultModel = fallback.LlmgwDefaultModel
 		out.LlmgwOpenaiBaseURL = fallback.LlmgwOpenaiBaseURL
 		out.LlmgwOpenaiAPIKey = fallback.LlmgwOpenaiAPIKey
 		out.LlmgwAnthropicBaseURL = fallback.LlmgwAnthropicBaseURL
 		out.LlmgwAnthropicAPIKey = fallback.LlmgwAnthropicAPIKey
 		out.LlmgwVirtualKeys = fallback.LlmgwVirtualKeys
+	}
+	if _, ok := keys["llmgwDefaultModel"]; !ok {
+		out.LlmgwDefaultModel = fallback.LlmgwDefaultModel
 	}
 	if _, ok := keys["kanikoExecutor"]; !ok {
 		out.KanikoExecutor = fallback.KanikoExecutor

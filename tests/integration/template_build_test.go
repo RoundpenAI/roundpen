@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
-	"github.com/RoundpenAI/roundpen/internal/api/e2b"
+	"github.com/RoundpenAI/roundpen/internal/api/platform"
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
 	"github.com/RoundpenAI/roundpen/internal/preview"
@@ -31,7 +31,7 @@ func TestTemplateBuildDocker(t *testing.T) {
 	h := startLocalDockerHarness(t)
 	name := fmt.Sprintf("it-build-%d", time.Now().UnixNano())
 
-	create := h.mustDo(t, http.MethodPost, "/v3/templates", map[string]any{
+	create := h.mustDo(t, http.MethodPost, "/v1/templates", map[string]any{
 		"name":     name,
 		"cpuCount": 1,
 		"memoryMB": 512,
@@ -50,7 +50,7 @@ func TestTemplateBuildDocker(t *testing.T) {
 		t.Fatalf("missing ids: %#v", created)
 	}
 
-	start := h.mustDo(t, http.MethodPost, "/v2/templates/"+tplID+"/builds/"+buildID, map[string]any{
+	start := h.mustDo(t, http.MethodPost, "/v1/templates/"+tplID+"/builds/"+buildID, map[string]any{
 		"fromImage": "alpine:3.20",
 		"steps": []map[string]any{
 			{"type": "RUN", "args": []string{"echo roundpen-template-build > /tmp/mark"}},
@@ -63,7 +63,7 @@ func TestTemplateBuildDocker(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Minute)
 	for time.Now().Before(deadline) {
-		resp := h.mustDo(t, http.MethodGet, "/templates/"+tplID+"/builds/"+buildID+"/status", nil)
+		resp := h.mustDo(t, http.MethodGet, "/v1/templates/"+tplID+"/builds/"+buildID+"/status", nil)
 		var st map[string]any
 		_ = json.NewDecoder(resp.Body).Decode(&st)
 		resp.Body.Close()
@@ -125,7 +125,7 @@ func startLocalDockerHarness(t *testing.T) *harness {
 
 	mux := http.NewServeMux()
 	auth.Mount(mux, users, sessions, func() bool { return false })
-	(&e2b.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
+	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr}
 	native.Mount(mux)
 	(&preview.Handler{Manager: mgr, Tokens: preview.NewStore(15 * time.Minute)}).Mount(mux)
@@ -146,17 +146,17 @@ func TestTemplateBuildCacheHit(t *testing.T) {
 	}
 
 	buildOnce := func(name string) string {
-		create := h.mustDo(t, http.MethodPost, "/v3/templates", map[string]any{"name": name})
+		create := h.mustDo(t, http.MethodPost, "/v1/templates", map[string]any{"name": name})
 		defer create.Body.Close()
 		var created map[string]any
 		_ = json.NewDecoder(create.Body).Decode(&created)
 		tplID, _ := created["templateID"].(string)
 		buildID, _ := created["buildID"].(string)
-		start := h.mustDo(t, http.MethodPost, "/v2/templates/"+tplID+"/builds/"+buildID, spec)
+		start := h.mustDo(t, http.MethodPost, "/v1/templates/"+tplID+"/builds/"+buildID, spec)
 		start.Body.Close()
 		deadline := time.Now().Add(5 * time.Minute)
 		for time.Now().Before(deadline) {
-			resp := h.mustDo(t, http.MethodGet, "/templates/"+tplID+"/builds/"+buildID+"/status", nil)
+			resp := h.mustDo(t, http.MethodGet, "/v1/templates/"+tplID+"/builds/"+buildID+"/status", nil)
 			var st map[string]any
 			_ = json.NewDecoder(resp.Body).Decode(&st)
 			resp.Body.Close()

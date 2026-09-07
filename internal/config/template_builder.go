@@ -12,6 +12,9 @@ func (c *Config) ResolveTemplateBuilder() string {
 		if strings.EqualFold(c.Backend, "docker") {
 			return "docker"
 		}
+		if strings.EqualFold(c.Backend, "qemu") && c.KanikoDestination != "" {
+			return "kaniko"
+		}
 		if c.KanikoDestination != "" {
 			return "kaniko"
 		}

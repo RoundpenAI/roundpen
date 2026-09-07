@@ -21,6 +21,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
@@ -42,6 +43,7 @@ type Handler struct {
 	LLMGW       *llmgw.Gateway
 	Hub         *browser.Hub
 	Envs        *userenv.Service
+	Tasks       *browsetask.Store
 	DestroySbx  bool // delete sandbox on session delete
 }
 
@@ -55,6 +57,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", h.listMessages)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/ws", h.sessionWS)
 	h.mountBrowser(mux)
+	h.mountTasks(mux)
 }
 
 func (h *Handler) listAgents(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +128,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		}
 		res, err := prov.Provision(r.Context(), sess.ID, req.ProviderID, user.Username)
 		if err != nil {
-			_ = h.Store.MarkStopped(r.Context(), sess.ID)
+			_ = h.Store.Delete(r.Context(), sess.ID)
 			writeErr(w, http.StatusBadGateway, "provision sandbox: "+err.Error())
 			return
 		}
@@ -207,8 +210,13 @@ func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	h.ACP.Stop(id)
-	_ = h.Store.MarkStopped(r.Context(), id)
+	if h.ACP != nil {
+		h.ACP.Stop(id)
+	}
+	if err := h.Store.Delete(r.Context(), id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if h.DestroySbx && sess.SandboxID != "" && h.Sandboxes != nil {
 		_ = h.Sandboxes.Delete(r.Context(), sess.SandboxID)
 	}

@@ -128,6 +128,28 @@ func attachShell(opts backend.AttachExecOpts) (string, error) {
 	return b.String(), nil
 }
 
+const mountWorkspaceDiskCmd = `set -e
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 20; do
+  if [ -b /dev/vdb ]; then break; fi
+  sleep 0.4
+done
+if [ ! -b /dev/vdb ]; then
+  echo "qemu: /dev/vdb (workspace disk) not present" >&2
+  exit 1
+fi
+if ! sudo blkid /dev/vdb >/dev/null 2>&1; then
+  sudo mkfs.ext4 -F -L workspace /dev/vdb
+fi
+sudo mkdir -p /workspace
+if grep -q ' workspace /workspace 9p ' /proc/mounts 2>/dev/null; then
+  sudo umount /workspace || true
+fi
+if ! grep -q ' /workspace ' /proc/mounts 2>/dev/null; then
+  sudo mount /dev/vdb /workspace
+fi
+sudo chown roundpen:roundpen /workspace
+`
+
 const mountWorkspaceCmd = `set -e
 if grep -q ' workspace /workspace 9p ' /proc/mounts 2>/dev/null; then
   exit 0
@@ -175,7 +197,8 @@ sudo chown -R roundpen:roundpen /home/roundpen/.claude 2>/dev/null || true
 func (b *Backend) ensureGuestReady(ctx context.Context, sandboxID string) error {
 	b.mu.Lock()
 	v := b.vms[sandboxID]
-	mountWS := v != nil && strings.TrimSpace(v.Workspace) != ""
+	mountWS := v != nil && strings.TrimSpace(v.Workspace) != "" && strings.TrimSpace(v.WorkspaceDisk) == ""
+	mountDisk := v != nil && strings.TrimSpace(v.WorkspaceDisk) != ""
 	b.mu.Unlock()
 	port, err := b.waitSSH(ctx, sandboxID)
 	if err != nil {
@@ -189,7 +212,11 @@ func (b *Backend) ensureGuestReady(ctx context.Context, sandboxID string) error 
 	if err := sshRun(client, prepareGuestCmd); err != nil {
 		return fmt.Errorf("qemu guest dns/settings: %w", err)
 	}
-	if mountWS {
+	if mountDisk {
+		if err := sshRun(client, mountWorkspaceDiskCmd); err != nil {
+			return fmt.Errorf("qemu mount workspace disk: %w", err)
+		}
+	} else if mountWS {
 		if err := sshRun(client, mountWorkspaceCmd); err != nil {
 			return fmt.Errorf("qemu 9p mount /workspace: %w", err)
 		}

@@ -24,11 +24,15 @@ func (s *Store) CreateTemplate(ctx context.Context, req CreateTemplateRequest) (
 	}
 	profile := req.Profile
 	if profile == "" {
-		if strings.EqualFold(name, "browser") {
+		if strings.EqualFold(name, "browser") || strings.EqualFold(req.Slot, "browser") {
 			profile = "browser"
 		} else {
 			profile = "dev"
 		}
+	}
+	slot := NormalizeSlot(req.Slot)
+	if req.Slot == "" {
+		slot = SlotFromProfile(profile)
 	}
 	cpu := req.CPUCount
 	if cpu <= 0 {
@@ -59,9 +63,9 @@ func (s *Store) CreateTemplate(ctx context.Context, req CreateTemplateRequest) (
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO templates (id, namespace, name, profile, public, build_count, created_by)
-		VALUES ($1,$2,$3,$4,$5,0,$6)`,
-		tplID, ns, name, profile, req.Public, req.CreatedBy)
+		INSERT INTO templates (id, namespace, name, profile, slot, public, build_count, created_by)
+		VALUES ($1,$2,$3,$4,$5,$6,0,$7)`,
+		tplID, ns, name, profile, slot, req.Public, req.CreatedBy)
 	if err != nil {
 		return CreateTemplateResult{}, err
 	}

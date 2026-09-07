@@ -38,11 +38,10 @@ pack the qcow2):
 | Display | QEMU `-vnc unix:…/vnc.sock` (host side) |
 | Init | systemd → LightDM autologin (`roundpen`) → XFCE |
 
-Chrome flags (see `guest/chrome-cdp.desktop`):
+Chrome is started by systemd `chrome-cdp.service` after LightDM (not XFCE autostart):
 
 ```
---remote-debugging-port=9333 --user-data-dir=… --disable-gpu
+--remote-debugging-port=9333 --no-sandbox --user-data-dir=… --disable-gpu
 ```
 
 A systemd `cdp-proxy` (`socat`) publishes that onto `0.0.0.0:9222` so QEMU hostfwd can reach it. Chrome 120+ refuses to bind DevTools on a public address.
-```

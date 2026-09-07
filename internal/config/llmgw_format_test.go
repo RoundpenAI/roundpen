@@ -18,12 +18,15 @@ func TestFormatVirtualKeys(t *testing.T) {
 
 func TestApplyLLMGWSettings(t *testing.T) {
 	var cfg config.LLMGWConfig
-	if err := config.ApplyLLMGWSettings(&cfg, true, "https://rp.test", "embed-model", 1024,
+	if err := config.ApplyLLMGWSettings(&cfg, true, "https://rp.test", "embed-model", "gpt-default", 1024,
 		"https://api.openai.com", "sk-test", "", "", "vk-a:a"); err != nil {
 		t.Fatal(err)
 	}
 	if !cfg.Enabled || cfg.OpenAI == nil || cfg.OpenAI.APIKey != "sk-test" {
 		t.Fatalf("cfg: %+v", cfg)
+	}
+	if cfg.DefaultModel != "gpt-default" {
+		t.Fatalf("DefaultModel = %q", cfg.DefaultModel)
 	}
 	if len(cfg.VirtualKeys) != 1 || cfg.VirtualKeys[0].Key != "vk-a" {
 		t.Fatalf("keys: %+v", cfg.VirtualKeys)

@@ -2,10 +2,10 @@ package template
 
 import "github.com/RoundpenAI/roundpen/internal/template/builder"
 
-// BuildSpec is the E2B-aligned template build request body (v2 start build).
+// BuildSpec is the template build request body.
 type BuildSpec = builder.Spec
 
-// Step is one layer in a template build (E2B TemplateStep).
+// Step is one layer in a template build.
 type Step = builder.Step
 
 // BuildInfo is a single build record.
@@ -34,7 +34,7 @@ type LogEntry struct {
 	Step      string
 }
 
-// CreateTemplateRequest is the input for POST /v3/templates.
+// CreateTemplateRequest is the input for POST /v1/templates.
 type CreateTemplateRequest struct {
 	Name      string
 	Namespace string
@@ -44,6 +44,7 @@ type CreateTemplateRequest struct {
 	MemoryMB  int
 	Public    bool
 	Profile   string
+	Slot      string
 	CreatedBy string
 }
 

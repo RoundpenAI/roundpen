@@ -53,4 +53,8 @@ func (b *Backend) ResizePTY(ctx context.Context, sandboxID, sessionKey string, r
 	return fmt.Errorf("k8s.ResizePTY: not implemented (phase 4)")
 }
 
+func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend.AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error {
+	return fmt.Errorf("k8s.AttachExec: not implemented (phase 4)")
+}
+
 var _ backend.Backend = (*Backend)(nil)

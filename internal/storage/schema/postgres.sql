@@ -171,6 +171,7 @@ CREATE TABLE IF NOT EXISTS templates (
     name            TEXT NOT NULL,
     description     TEXT NOT NULL DEFAULT '',
     profile         TEXT NOT NULL DEFAULT 'dev',
+    slot            TEXT NOT NULL DEFAULT 'agent',
     public          BOOLEAN NOT NULL DEFAULT false,
     spawn_count     BIGINT NOT NULL DEFAULT 0,
     build_count     INTEGER NOT NULL DEFAULT 1,
@@ -181,6 +182,12 @@ CREATE TABLE IF NOT EXISTS templates (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS templates_namespace_name_uniq
     ON templates (namespace, name);
+
+-- Slot model: agent (OCI) | browser (qcow2) | mobile (reserved)
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS slot TEXT NOT NULL DEFAULT 'agent';
+UPDATE templates SET slot = 'browser' WHERE lower(profile) = 'browser' AND (slot = '' OR slot = 'agent');
+UPDATE templates SET slot = 'agent' WHERE slot IS NULL OR slot = '';
+CREATE INDEX IF NOT EXISTS templates_slot_idx ON templates (slot);
 
 CREATE TABLE IF NOT EXISTS template_builds (
     id              TEXT PRIMARY KEY,
@@ -233,5 +240,78 @@ CREATE TABLE IF NOT EXISTS app_settings (
     id          TEXT PRIMARY KEY DEFAULT 'global',
     payload     JSONB NOT NULL DEFAULT '{}',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Agent Web UI sessions (ACP gateway)
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    title        TEXT NOT NULL DEFAULT '',
+    provider_id  TEXT NOT NULL DEFAULT 'mock',
+    sandbox_id   TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'active',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS agent_sessions_user_idx ON agent_sessions (user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_messages (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL REFERENCES agent_sessions (id) ON DELETE CASCADE,
+    role         TEXT NOT NULL,
+    content      TEXT NOT NULL DEFAULT '',
+    meta         JSONB,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS agent_messages_session_idx ON agent_messages (session_id, created_at);
+
+-- Fixed per-user environment slots (one machine per slot)
+CREATE TABLE IF NOT EXISTS user_environments (
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    slot         TEXT NOT NULL,
+    sandbox_id   TEXT NOT NULL,
+    template_id  TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, slot)
+);
+CREATE INDEX IF NOT EXISTS user_environments_sandbox_idx ON user_environments (sandbox_id);
+
+-- Browser explore / verify tasks (backed by an agent session)
+CREATE TABLE IF NOT EXISTS browser_tasks (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    kind         TEXT NOT NULL,
+    url          TEXT NOT NULL,
+    brief        TEXT NOT NULL DEFAULT '',
+    session_id   TEXT REFERENCES agent_sessions (id) ON DELETE SET NULL,
+    status       TEXT NOT NULL DEFAULT 'open',
+    prompt       TEXT NOT NULL DEFAULT '',
+    report       JSONB,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS browser_tasks_user_idx ON browser_tasks (user_id, created_at DESC);
+
+-- Per-user git tokens (never baked into images). Injected into /workspace/.roundpen/git.
+CREATE TABLE IF NOT EXISTS user_git_credentials (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    provider     TEXT NOT NULL DEFAULT 'gitea',
+    host         TEXT NOT NULL,
+    username     TEXT NOT NULL DEFAULT '',
+    label        TEXT NOT NULL DEFAULT '',
+    token        TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, host)
+);
+CREATE INDEX IF NOT EXISTS user_git_credentials_user_idx ON user_git_credentials (user_id, host);
+
+-- Per-user agent engine preference (qemu | docker | kern)
+CREATE TABLE IF NOT EXISTS user_runtime (
+    user_id       TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
+    agent_engine  TEXT NOT NULL DEFAULT '',
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -223,6 +223,33 @@ func TestQemuArgsKernelBoot(t *testing.T) {
 	}
 }
 
+func TestQemuArgsWorkspaceDiskNot9p(t *testing.T) {
+	v := &vm{
+		SandboxID:     "sb1",
+		Disk:          "/tmp/disk.qcow2",
+		VNCSock:       "/tmp/qemu/sb1/vnc.sock",
+		CDPHostPort:   19222,
+		SSHHostPort:   19223,
+		WorkspaceDisk: "/data/sandboxes/user-admin/workspace.qcow2",
+	}
+	joined := strings.Join(qemuArgs(v, true), " ")
+	if !strings.Contains(joined, "file=/data/sandboxes/user-admin/workspace.qcow2,if=virtio") {
+		t.Fatalf("missing workspace drive: %s", joined)
+	}
+	if strings.Contains(joined, "-virtfs") {
+		t.Fatalf("agent must not 9p-export host files: %s", joined)
+	}
+}
+
+func TestUseVirtioWorkspace(t *testing.T) {
+	if !useVirtioWorkspace(backend.CreateOpts{Slot: "agent"}) {
+		t.Fatal("agent")
+	}
+	if useVirtioWorkspace(backend.CreateOpts{Slot: "browser"}) {
+		t.Fatal("browser keeps 9p")
+	}
+}
+
 func TestAttachShell(t *testing.T) {
 	got, err := attachShell(backend.AttachExecOpts{
 		Cmd:     []string{"claude-agent-acp"},

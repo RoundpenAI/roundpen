@@ -18,7 +18,7 @@ type ParsedRef struct {
 	BuildID   string // set when ref is a bare build UUID
 }
 
-// ParseRef interprets an E2B-style template reference.
+// ParseRef interprets a template reference (name or namespace/name).
 func ParseRef(raw string) ParsedRef {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -58,7 +58,7 @@ func ParseRef(raw string) ParsedRef {
 	return ParsedRef{Namespace: ns, Name: name, Tag: tag}
 }
 
-// ValidateName checks E2B template name rules.
+// ValidateName checks template name rules.
 func ValidateName(name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	return namePartRe.MatchString(name)

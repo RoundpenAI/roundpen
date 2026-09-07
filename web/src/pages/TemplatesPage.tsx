@@ -103,7 +103,7 @@ export function TemplatesPage() {
 
   return (
     <PageShell
-      subtitle="Templates"
+      subtitle="Environment images"
       current="templates"
       maxWidthClass="max-w-4xl"
     >
@@ -117,7 +117,7 @@ export function TemplatesPage() {
             setCreateOpen(true)
           }}
         >
-          New template
+          New image
         </button>
         <button
           type="button"
@@ -128,6 +128,11 @@ export function TemplatesPage() {
         </button>
       </div>
 
+      <p className="mb-4 text-sm opacity-55">
+        Customize Agent (OCI) and Browser (qcow2) slot images. Built-ins are seeded
+        on startup.
+      </p>
+
       {error && (
         <div className="mb-4 text-sm text-error" role="alert">
           {error}
@@ -135,8 +140,7 @@ export function TemplatesPage() {
       )}
 
       <p className="mb-4 text-xs leading-relaxed opacity-50">
-        Built-in templates are seeded on startup (editable, not deletable). Rebuild
-        reuses the build ID when the spec is unchanged; changing base image / RUN /
+        Rebuild reuses the build ID when the spec is unchanged; changing base image / RUN /
         start / ready allocates a new build. Optional tags resolve as{' '}
         <code className="font-mono">name:tag</code>.
       </p>

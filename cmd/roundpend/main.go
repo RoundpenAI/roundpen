@@ -13,21 +13,31 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/acp/manager"
+	"github.com/RoundpenAI/roundpen/internal/acp/providers"
+	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
+	"github.com/RoundpenAI/roundpen/internal/agentenv"
+	"github.com/RoundpenAI/roundpen/internal/agentsession"
+	"github.com/RoundpenAI/roundpen/internal/api/agentapi"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
-	"github.com/RoundpenAI/roundpen/internal/api/e2b"
+	"github.com/RoundpenAI/roundpen/internal/api/envapi"
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
-	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
-	kernbackend "github.com/RoundpenAI/roundpen/internal/backend/kern"
+	"github.com/RoundpenAI/roundpen/internal/api/platform"
+	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/ui"
+	"github.com/RoundpenAI/roundpen/internal/userenv"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
 	"github.com/RoundpenAI/roundpen/internal/workspace/sshfs"
@@ -141,34 +151,36 @@ func main() {
 	browserHub.SetConfig(cfg)
 	defer browserHub.Close()
 
-	switch cfg.Backend {
-	case "docker":
-		be, err := dockerbackend.New(cfg.DockerHost, cfg.DockerRuntime)
-		if err != nil {
-			logger.Error("docker backend", slog.Any("err", err))
-			os.Exit(1)
-		}
-		defer be.Close()
-		if err := be.Ping(ctx); err != nil {
-			logger.Error("docker ping", slog.Any("err", err))
-			os.Exit(1)
-		}
-		mgr = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
-		sbSvc = mgr.(*sandbox.Service)
-	case "kern":
-		be := kernbackend.New()
-		sbSvc = sandbox.NewService(store, be, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
-		mgr = sbSvc
-		logger.Info("using kern backend (daemonless host processes)")
-	default:
-		logger.Error("backend not implemented", slog.String("backend", cfg.Backend))
-		os.Exit(1)
+	eng := multi.New(multi.Options{
+		DataRoot:      dataRoot,
+		DockerHost:    cfg.DockerHost,
+		DockerRuntime: cfg.DockerRuntime,
+		DefaultAgent:  cfg.Backend,
+		DisableQEMU:   !cfg.QEMUEnabled,
+	})
+	eng.Warm()
+	defer func() { _ = eng.Close() }()
+	if err := eng.QEMUErr(); err != nil {
+		logger.Warn("qemu not ready", slog.Any("err", err))
+	} else {
+		logger.Info("qemu backend enabled")
 	}
+	probe := &runtime.Probe{Cfg: cfg}
+	if eng.HasDocker() {
+		probe.DockerReady = true
+		logger.Info("docker backend enabled")
+	} else if err := eng.DockerErr(); err != nil {
+		probe.DockerErr = err.Error()
+		logger.Warn("docker not ready", slog.Any("err", err))
+	}
+	sbSvc = sandbox.NewService(store, eng, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
+	mgr = sbSvc
+	logger.Info("using multi backend", slog.String("default_agent_engine", cfg.Backend))
 	browserHub.SetDialer(sbSvc)
 
 	mux := http.NewServeMux()
 	auth.Mount(mux, userStore, sessionStore, allowRegistration)
-	(&e2b.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
+	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr}
 	native.Mount(mux)
 	native.MountTerminal(mux)
@@ -179,6 +191,35 @@ func main() {
 		PublicURL: cfg.PreviewPublicURL,
 	}
 	previewHandler.Mount(mux)
+
+	envStore := &userenv.Store{DB: db.SQL}
+	gitStore := &gitcred.Store{DB: db.SQL}
+	prefStore := &runtime.PrefStore{DB: db.SQL}
+	envSvc := &userenv.Service{
+		Store:     envStore,
+		Sandboxes: mgr,
+		Git:       gitStore,
+		Probe:     probe,
+		Prefs:     prefStore,
+		Config: userenv.Config{
+			BrowserTemplate: cfg.DefaultBrowserTemplate,
+			AgentTemplate:   cfg.DefaultAgentTemplate,
+			DefaultEngine:   cfg.Backend,
+		},
+	}
+	publicBase := cfg.PreviewPublicURL
+	if publicBase == "" {
+		publicBase = cfg.LLMGW.PublicURL
+	}
+	(&envapi.Handler{
+		Envs:      envSvc,
+		Prefs:     prefStore,
+		Tokens:    previewHandler.Tokens,
+		PublicURL: publicBase,
+		VNC:       eng,
+	}).Mount(mux)
+	(&gitcred.Handler{Store: gitStore}).Mount(mux)
+	(&runtime.Handler{Probe: probe, Prefs: prefStore}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)
 	memSvc := &memory.Service{Store: memStore, Logger: logger}
@@ -228,6 +269,49 @@ func main() {
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
+
+	publicURL := cfg.LLMGW.PublicURL
+	if publicURL == "" {
+		publicURL = cfg.PreviewPublicURL
+	}
+	if publicURL == "" {
+		// HTTPAddr is a listen address (":19001" or "0.0.0.0:19001"), not a URL.
+		// Concatenating it onto http://127.0.0.1 produced http://127.0.0.10.0.0.0:19001.
+		publicURL = sysagent.LoopbackBase(cfg.HTTPAddr)
+	}
+	envSvc.SetGateway(publicURL, llmgw.InternalVirtualKey)
+	envSvc.Config.DefaultModel = gw.DefaultModel
+	agentStore := &agentsession.Store{DB: db.SQL}
+	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
+	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
+		LoopbackBase: loopback,
+		LLMKey:       llmgw.InternalVirtualKey,
+		DefaultModel: gw.DefaultModel,
+		BrowserHub:   browserHub,
+		BrowserSlots: envSvc,
+		AgentSlots:   envSvc,
+		History:      agentStore,
+	})
+	provisioner := &agentenv.Provisioner{
+		Sandboxes: mgr,
+		Config: agentenv.Config{
+			PublicURL:  publicURL,
+			TemplateID: cfg.DefaultAgentTemplate,
+			Category:   "Agent",
+		},
+	}
+	(&agentapi.Handler{
+		Log:         logger,
+		Store:       agentStore,
+		ACP:         acpMgr,
+		Provisioner: provisioner,
+		Sandboxes:   mgr,
+		LLMGW:       gw,
+		Hub:         browserHub,
+		Envs:        envSvc,
+		Tasks:       &browsetask.Store{DB: db.SQL},
+		DestroySbx:  true,
+	}).Mount(mux)
 
 	// Console SPA last — catch-all for non-API GET paths (embedded via internal/ui).
 	mux.Handle("/", ui.Handler())

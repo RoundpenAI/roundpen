@@ -25,6 +25,12 @@ export type DirEntry = {
   mod_time?: string
 }
 
+export type SetupStep = {
+  title: string
+  detail?: string
+  command?: string
+}
+
 export type FileList = {
   entries: DirEntry[]
   path?: string
@@ -33,21 +39,45 @@ export type FileList = {
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  code?: string
+  engine?: string
+  setup?: SetupStep[]
+  constructor(status: number, message: string, extra?: Partial<ApiError>) {
     super(message)
     this.status = status
+    this.code = extra?.code
+    this.engine = extra?.engine
+    this.setup = extra?.setup
   }
+}
+
+function apiErrorMessage(body: unknown, fallback: string): string {
+  if (body && typeof body === 'object') {
+    const o = body as { error?: unknown; message?: unknown }
+    if (typeof o.error === 'string' && o.error.trim()) return o.error
+    if (typeof o.message === 'string' && o.message.trim()) return o.message
+  }
+  return fallback
 }
 
 async function parseError(res: Response): Promise<ApiError> {
   let message = res.statusText
+  let extra: Partial<ApiError> = {}
   try {
-    const body = (await res.json()) as { message?: string }
-    if (body.message) message = body.message
+    const body = await res.json()
+    message = apiErrorMessage(body, message)
+    if (body && typeof body === 'object') {
+      const o = body as { code?: unknown; engine?: unknown; setup?: unknown }
+      extra = {
+        code: typeof o.code === 'string' ? o.code : undefined,
+        engine: typeof o.engine === 'string' ? o.engine : undefined,
+        setup: Array.isArray(o.setup) ? (o.setup as SetupStep[]) : undefined,
+      }
+    }
   } catch {
     /* ignore */
   }
-  return new ApiError(res.status, message)
+  return new ApiError(res.status, message, extra)
 }
 
 export async function api<T>(
@@ -87,6 +117,8 @@ export type Template = {
   memoryMB: number
   diskSizeMB: number
   public: boolean
+  profile?: string
+  slot?: string
   names: string[]
   aliases: string[]
   buildStatus: string
@@ -121,6 +153,7 @@ export type TemplateDetail = Template & {
   name: string
   description: string
   profile: string
+  slot: string
   builds: TemplateBuildSummary[]
   tags: TemplateTag[]
 }
@@ -135,6 +168,7 @@ export type TemplatePatch = {
   description?: string
   public?: boolean
   profile?: string
+  slot?: string
   cpuCount?: number
   memoryMB?: number
   diskSizeMB?: number
@@ -194,28 +228,32 @@ export function templateDisplayName(t: Template): string {
 }
 
 export const templates = {
-  list: () => api<Template[]>('/templates'),
-  get: (templateID: string) => api<TemplateDetail>(`/templates/${templateID}`),
+  list: () => api<Template[]>('/v1/templates'),
+  get: (templateID: string) => api<TemplateDetail>(`/v1/templates/${templateID}`),
   update: (templateID: string, patch: TemplatePatch) =>
-    api<Template>(`/templates/${templateID}`, {
+    api<Template>(`/v1/templates/${templateID}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
   remove: (templateID: string) =>
-    api<void>(`/templates/${templateID}`, { method: 'DELETE' }),
+    api<void>(`/v1/templates/${templateID}`, { method: 'DELETE' }),
   create: (input: {
     name: string
     cpuCount?: number
     memoryMB?: number
     public?: boolean
+    slot?: string
+    profile?: string
   }) =>
-    api<CreateTemplateResult>('/v3/templates', {
+    api<CreateTemplateResult>('/v1/templates', {
       method: 'POST',
       body: JSON.stringify({
         name: input.name,
         cpuCount: input.cpuCount,
         memoryMB: input.memoryMB,
         public: input.public ?? true,
+        slot: input.slot,
+        profile: input.profile ?? (input.slot === 'browser' ? 'browser' : 'dev'),
       }),
     }),
   createBuild: (
@@ -228,7 +266,7 @@ export const templates = {
       diskSizeMB?: number
     },
   ) =>
-    api<CreateBuildResult>(`/v2/templates/${templateID}/builds`, {
+    api<CreateBuildResult>(`/v1/templates/${templateID}/builds`, {
       method: 'POST',
       body: JSON.stringify({
         tags: input?.tags,
@@ -243,13 +281,13 @@ export const templates = {
     buildID: string,
     spec: BuildSpec & { tags?: string[]; assignDefault?: boolean },
   ) =>
-    api<StartBuildResult>(`/v2/templates/${templateID}/builds/${buildID}`, {
+    api<StartBuildResult>(`/v1/templates/${templateID}/builds/${buildID}`, {
       method: 'POST',
       body: JSON.stringify(spec),
     }),
   buildStatus: (templateID: string, buildID: string, logsOffset = 0) =>
     api<BuildStatus>(
-      `/templates/${templateID}/builds/${buildID}/status?logsOffset=${logsOffset}&limit=200`,
+      `/v1/templates/${templateID}/builds/${buildID}/status?logsOffset=${logsOffset}&limit=200`,
     ),
 }
 
@@ -270,17 +308,17 @@ export type PatchSandboxInput = {
 export const sandboxes = {
   list: (category?: string) => {
     const q = category ? `?category=${encodeURIComponent(category)}` : ''
-    return api<Sandbox[]>(`/sandboxes${q}`)
+    return api<Sandbox[]>(`/v1/sandboxes${q}`)
   },
-  get: (id: string) => api<Sandbox>(`/sandboxes/${id}`),
+  get: (id: string) => api<Sandbox>(`/v1/sandboxes/${id}`),
   resolve: (opts: { name?: string; category?: string }) => {
     const params = new URLSearchParams()
     if (opts.name) params.set('name', opts.name)
     if (opts.category) params.set('category', opts.category)
-    return api<Sandbox>(`/sandboxes/resolve?${params}`)
+    return api<Sandbox>(`/v1/sandboxes/resolve?${params}`)
   },
   create: (input: CreateSandboxInput) =>
-    api<Sandbox>('/sandboxes', {
+    api<Sandbox>('/v1/sandboxes', {
       method: 'POST',
       body: JSON.stringify({
         templateID: input.templateID,
@@ -291,13 +329,13 @@ export const sandboxes = {
       }),
     }),
   patch: (id: string, input: PatchSandboxInput) =>
-    api<Sandbox>(`/sandboxes/${id}`, {
+    api<Sandbox>(`/v1/sandboxes/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(input),
     }),
   rename: (id: string, name: string) => sandboxes.patch(id, { name }),
   remove: (id: string) =>
-    api<void>(`/sandboxes/${id}`, { method: 'DELETE' }),
+    api<void>(`/v1/sandboxes/${id}`, { method: 'DELETE' }),
   stop: (id: string) =>
     api<void>(`/v1/sandboxes/${id}/stop`, { method: 'POST' }),
 }
@@ -366,6 +404,92 @@ export function terminalWsUrl(id: string): string {
   return `${proto}://${window.location.host}/v1/sandboxes/${id}/terminal`
 }
 
+export type EnvironmentView = {
+  slot: string
+  sandboxId?: string
+  templateId?: string
+  status: string
+  name?: string
+}
+
+export type DesktopLink = {
+  sandboxId: string
+  wsUrl: string
+  token: string
+  expiresAt: string
+}
+
+export const environments = {
+  list: () =>
+    api<{ environments: EnvironmentView[] }>('/v1/me/environments'),
+  ensureBrowser: () =>
+    api<{ slot: string; sandboxId: string; status: string; name: string }>(
+      '/v1/me/environments/browser/ensure',
+      { method: 'POST' },
+    ),
+  ensureAgent: (engine?: string) =>
+    api<{ slot: string; sandboxId: string; status: string; name: string }>(
+      '/v1/me/environments/agent/ensure',
+      {
+        method: 'POST',
+        body: engine ? JSON.stringify({ engine }) : JSON.stringify({}),
+      },
+    ),
+  browserDesktop: () =>
+    api<DesktopLink>('/v1/me/environments/browser/desktop'),
+}
+
+export type EngineStatus = {
+  id: string
+  label: string
+  summary: string
+  ready: boolean
+  agentReady: boolean
+  browserReady?: boolean
+  missing?: string[]
+  setup?: SetupStep[]
+}
+
+export type RuntimeSnapshot = {
+  defaultAgentEngine: string
+  agentEngine: string
+  engines: EngineStatus[]
+}
+
+export const runtime = {
+  get: () => api<RuntimeSnapshot>('/v1/runtime'),
+  setAgentEngine: (agentEngine: string) =>
+    api<RuntimeSnapshot>('/v1/runtime', {
+      method: 'PUT',
+      body: JSON.stringify({ agentEngine }),
+    }),
+}
+
+export type BrowserTask = {
+  id: string
+  userId: string
+  kind: 'explore' | 'verify' | string
+  url: string
+  brief: string
+  sessionId?: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export const browserTasks = {
+  list: () => api<{ tasks: BrowserTask[] }>('/v1/browser-tasks'),
+  create: (body: { kind: 'explore' | 'verify'; url: string; brief?: string }) =>
+    api<{
+      task: BrowserTask
+      sessionId: string
+      prompt: string
+    }>('/v1/browser-tasks', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+}
+
 /** Suggested categories for agent resolve (e.g. open Browser → default). */
 export const SUGGESTED_CATEGORIES = ['Browser', 'Code', 'Shell'] as const
 
@@ -386,6 +510,7 @@ export type AppSettings = {
   llmgwPublicUrl: string
   llmgwLogBodyMaxBytes: number
   llmgwEmbeddingModel: string
+  llmgwDefaultModel: string
   llmgwOpenaiBaseUrl: string
   llmgwOpenaiApiKey: string
   llmgwAnthropicBaseUrl: string
@@ -424,3 +549,150 @@ export const adminSettings = {
       body: JSON.stringify(settings),
     }),
 }
+
+export type AgentProvider = {
+  id: string
+  name: string
+  description?: string
+  enabled: boolean
+  mode: string
+  templateId?: string
+}
+
+export type AgentSession = {
+  id: string
+  userId: string
+  title: string
+  providerId: string
+  sandboxId: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AgentMessageMeta = {
+  type?: string
+  toolId?: string
+  title?: string
+  status?: string
+  kind?: string
+  input?: unknown
+  output?: unknown
+  stopReason?: string
+  durationMs?: number
+  requestId?: string
+  optionId?: string
+  outcome?: string
+  options?: { optionId: string; name: string; kind?: string }[]
+}
+
+export type AgentMessage = {
+  id: string
+  sessionId: string
+  role: string
+  content: string
+  meta?: AgentMessageMeta | null
+  createdAt: string
+}
+
+export type AgentBrowserStatus = {
+  sessionId: string
+  hubId: string
+  attached: boolean
+  url: string
+  width: number
+  height: number
+  takeover: boolean
+}
+
+export const agents = {
+  list: () => api<{ agents: AgentProvider[] }>('/v1/agents'),
+  sessions: () => api<{ sessions: AgentSession[] }>('/v1/agent-sessions'),
+  createSession: (body: { title?: string; providerId?: string }) =>
+    api<AgentSession>('/v1/agent-sessions', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getSession: (id: string) => api<AgentSession>(`/v1/agent-sessions/${id}`),
+  deleteSession: (id: string) =>
+    api<void>(`/v1/agent-sessions/${id}`, { method: 'DELETE' }),
+  messages: (id: string) =>
+    api<{ messages: AgentMessage[] }>(`/v1/agent-sessions/${id}/messages`),
+  sessionWsUrl: (id: string) => {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+    return `${proto}://${window.location.host}/v1/agent-sessions/${id}/ws`
+  },
+  browserStatus: (id: string) =>
+    api<AgentBrowserStatus>(`/v1/agent-sessions/${id}/browser`),
+  browserScreenshotUrl: (id: string, bust?: number) =>
+    `/v1/agent-sessions/${id}/browser/screenshot${bust != null ? `?t=${bust}` : ''}`,
+  setBrowserTakeover: (id: string, enabled: boolean) =>
+    api<{
+      ok: boolean
+      attached?: boolean
+      takeover: boolean
+      url: string
+      width: number
+      height: number
+    }>(`/v1/agent-sessions/${id}/browser/takeover`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
+  browserScreenshotBlob: async (id: string): Promise<Blob> => {
+    const res = await fetch(`/v1/agent-sessions/${id}/browser/screenshot?t=${Date.now()}`, {
+      credentials: 'include',
+    })
+    if (!res.ok) {
+      let message = res.statusText
+      try {
+        message = apiErrorMessage(await res.json(), message)
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(res.status, message)
+    }
+    return res.blob()
+  },
+  browserInput: (
+    id: string,
+    body:
+      | { type: 'click' | 'move'; x: number; y: number }
+      | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number }
+      | { type: 'type'; text: string }
+      | { type: 'key'; key: string },
+  ) =>
+    api<{ ok: boolean; url?: string }>(`/v1/agent-sessions/${id}/browser/input`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+}
+
+export type GitCredential = {
+  id: string
+  userId: string
+  provider: string
+  host: string
+  username: string
+  label?: string
+  token?: string
+  hasToken: boolean
+}
+
+export const gitCredentials = {
+  list: () => api<{ credentials: GitCredential[] }>('/v1/me/git-credentials'),
+  upsert: (body: {
+    id?: string
+    provider: string
+    host: string
+    username?: string
+    label?: string
+    token?: string
+  }) =>
+    api<GitCredential>('/v1/me/git-credentials', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  remove: (id: string) =>
+    api<void>(`/v1/me/git-credentials/${id}`, { method: 'DELETE' }),
+}
+

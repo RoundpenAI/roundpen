@@ -1,6 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Chrome CDP
-Exec=/usr/bin/google-chrome-stable --no-first-run --no-default-browser-check --disable-gpu --disable-dev-shm-usage --user-data-dir=/home/roundpen/.config/google-chrome-cdp --remote-allow-origins=* --remote-debugging-port=9333 about:blank
-X-GNOME-Autostart-enabled=true
-X-XFCE-Autostart-enabled=true
+Hidden=true
+Exec=/usr/local/bin/chrome-cdp.sh
+X-GNOME-Autostart-enabled=false
+X-XFCE-Autostart-enabled=false

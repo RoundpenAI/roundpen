@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -40,6 +41,7 @@ const (
 	minImageBytes   = 32 << 20
 	slirpHost       = "10.0.2.2"
 	defaultVKey     = "vk-roundpen-internal"
+	workspaceDiskGB = 20
 )
 
 // Backend launches and manages QEMU VMs under dataRoot/qemu/{sandboxID}.
@@ -52,22 +54,23 @@ type Backend struct {
 }
 
 type vm struct {
-	SandboxID   string      `json:"sandbox_id"`
-	PID         int         `json:"pid"`
-	Image       string      `json:"image"`
-	Disk        string      `json:"disk"`
-	VNCSock     string      `json:"vnc_sock"`
-	CDPHostPort int         `json:"cdp_host_port"`
-	SSHHostPort int         `json:"ssh_host_port,omitempty"`
-	Ports       map[int]int `json:"ports"` // guest -> host
-	MemoryMB    int         `json:"memory_mb,omitempty"`
-	CPUs        int         `json:"cpus,omitempty"`
-	Kernel      string      `json:"kernel,omitempty"`
-	Initrd      string      `json:"initrd,omitempty"`
-	Append      string      `json:"append,omitempty"`
-	EnvFile     string      `json:"env_file,omitempty"`
-	Workspace   string      `json:"workspace,omitempty"` // host path exported via 9p as /workspace
-	cmd         *exec.Cmd   `json:"-"`
+	SandboxID     string      `json:"sandbox_id"`
+	PID           int         `json:"pid"`
+	Image         string      `json:"image"`
+	Disk          string      `json:"disk"`
+	VNCSock       string      `json:"vnc_sock"`
+	CDPHostPort   int         `json:"cdp_host_port"`
+	SSHHostPort   int         `json:"ssh_host_port,omitempty"`
+	Ports         map[int]int `json:"ports"` // guest -> host
+	MemoryMB      int         `json:"memory_mb,omitempty"`
+	CPUs          int         `json:"cpus,omitempty"`
+	Kernel        string      `json:"kernel,omitempty"`
+	Initrd        string      `json:"initrd,omitempty"`
+	Append        string      `json:"append,omitempty"`
+	EnvFile       string      `json:"env_file,omitempty"`
+	Workspace     string      `json:"workspace,omitempty"`      // host path exported via 9p (browser)
+	WorkspaceDisk string      `json:"workspace_disk,omitempty"` // qcow2 attached as virtio /dev/vdb (agent)
+	cmd           *exec.Cmd   `json:"-"`
 }
 
 type bootConfig struct {
@@ -76,21 +79,44 @@ type bootConfig struct {
 	Append string `json:"append"`
 }
 
+func qemuSystemBin() string {
+	bin := os.Getenv("ROUNDPEN_QEMU_BIN")
+	if bin == "" {
+		return "qemu-system-x86_64"
+	}
+	return bin
+}
+
+// BinariesAvailable reports whether qemu-system and qemu-img are on PATH.
+func BinariesAvailable() error {
+	bin := qemuSystemBin()
+	if _, err := exec.LookPath(bin); err != nil {
+		return fmt.Errorf("qemu: %s not found on PATH (install qemu-system-x86)", bin)
+	}
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		return fmt.Errorf("qemu: qemu-img not found on PATH (install qemu-utils)")
+	}
+	return nil
+}
+
+// ValidateImage checks that a qcow2 plus kernel sidecars are built and bootable.
+func ValidateImage(img string) error {
+	p, err := resolveImage(img)
+	if err != nil {
+		return err
+	}
+	return checkImage(p)
+}
+
 // New returns a QEMU backend. dataRoot is the Roundpen data directory.
 func New(dataRoot string) (*Backend, error) {
 	if dataRoot == "" {
 		return nil, fmt.Errorf("qemu: data root is required")
 	}
-	bin := os.Getenv("ROUNDPEN_QEMU_BIN")
-	if bin == "" {
-		bin = "qemu-system-x86_64"
+	if err := BinariesAvailable(); err != nil {
+		return nil, err
 	}
-	if _, err := exec.LookPath(bin); err != nil {
-		return nil, fmt.Errorf("qemu: %s not found on PATH (install qemu-system-x86)", bin)
-	}
-	if _, err := exec.LookPath("qemu-img"); err != nil {
-		return nil, fmt.Errorf("qemu: qemu-img not found on PATH (install qemu-utils)")
-	}
+	bin := qemuSystemBin()
 	root := filepath.Join(dataRoot, "qemu")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
@@ -478,7 +504,9 @@ func qemuArgs(v *vm, kvm bool) []string {
 	if v.EnvFile != "" {
 		args = append(args, "-fw_cfg", "name=opt/roundpen/env,file="+v.EnvFile)
 	}
-	if tag := virtfsSpec(v.Workspace); tag != "" {
+	if v.WorkspaceDisk != "" {
+		args = append(args, "-drive", fmt.Sprintf("file=%s,if=virtio,cache=writeback", v.WorkspaceDisk))
+	} else if tag := virtfsSpec(v.Workspace); tag != "" {
 		args = append(args, "-virtfs", tag)
 	}
 	return args
@@ -490,6 +518,31 @@ func virtfsSpec(hostPath string) string {
 		return ""
 	}
 	return fmt.Sprintf("local,path=%s,mount_tag=workspace,security_model=mapped-xattr,id=ws", hostPath)
+}
+
+func useVirtioWorkspace(opts backend.CreateOpts) bool {
+	slot := strings.ToLower(strings.TrimSpace(opts.Slot))
+	if slot == "" {
+		slot = strings.ToLower(strings.TrimSpace(opts.Env["ROUNDPEN_SLOT"]))
+	}
+	return slot != "browser" && slot != "mobile"
+}
+
+func ensureWorkspaceDisk(path string) error {
+	if path == "" {
+		return fmt.Errorf("qemu: workspace disk path required")
+	}
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	cmd := exec.Command("qemu-img", "create", "-f", "qcow2", path, fmt.Sprintf("%dG", workspaceDiskGB))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("qemu-img create workspace disk: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // Create provisions a VM directory and overlay disk; Start launches QEMU.
@@ -533,11 +586,24 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 			ws = abs
 		}
 		if strings.ContainsAny(ws, ",\n\r") {
-			return "", fmt.Errorf("qemu: workspace path is not exportable via 9p")
+			return "", fmt.Errorf("qemu: workspace path is not exportable")
 		}
 		if err := os.MkdirAll(ws, 0o755); err != nil {
 			return "", fmt.Errorf("qemu: workspace: %w", err)
 		}
+	}
+
+	var wsDisk string
+	if useVirtioWorkspace(opts) {
+		if ws != "" {
+			wsDisk = filepath.Join(filepath.Dir(ws), "workspace.qcow2")
+		} else {
+			wsDisk = filepath.Join(dir, "workspace.qcow2")
+		}
+		if err := ensureWorkspaceDisk(wsDisk); err != nil {
+			return "", err
+		}
+		ws = "" // do not also export 9p — guest owns the filesystem
 	}
 
 	b.mu.Lock()
@@ -545,20 +611,21 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 	cdpHost := b.allocPort()
 	sshHost := b.allocPort()
 	v := &vm{
-		SandboxID:   opts.SandboxID,
-		Image:       img,
-		Disk:        disk,
-		VNCSock:     filepath.Join(dir, "vnc.sock"),
-		CDPHostPort: cdpHost,
-		SSHHostPort: sshHost,
-		Ports:       map[int]int{cdpGuestPort: cdpHost, sshGuestPort: sshHost},
-		MemoryMB:    memoryMBFromOpts(opts),
-		CPUs:        cpusFromOpts(opts),
-		Kernel:      boot.Kernel,
-		Initrd:      boot.Initrd,
-		Append:      boot.Append,
-		EnvFile:     envFile,
-		Workspace:   ws,
+		SandboxID:     opts.SandboxID,
+		Image:         img,
+		Disk:          disk,
+		VNCSock:       filepath.Join(dir, "vnc.sock"),
+		CDPHostPort:   cdpHost,
+		SSHHostPort:   sshHost,
+		Ports:         map[int]int{cdpGuestPort: cdpHost, sshGuestPort: sshHost},
+		MemoryMB:      memoryMBFromOpts(opts),
+		CPUs:          cpusFromOpts(opts),
+		Kernel:        boot.Kernel,
+		Initrd:        boot.Initrd,
+		Append:        boot.Append,
+		EnvFile:       envFile,
+		Workspace:     ws,
+		WorkspaceDisk: wsDisk,
 	}
 	b.vms[opts.SandboxID] = v
 	if err := b.save(v); err != nil {
@@ -666,10 +733,43 @@ func (b *Backend) Remove(ctx context.Context, sandboxID string) error {
 }
 
 func (b *Backend) Exec(ctx context.Context, sandboxID string, opts backend.ExecOpts) (*backend.ExecResult, error) {
-	_ = ctx
-	_ = sandboxID
-	_ = opts
-	return nil, fmt.Errorf("qemu: Exec not supported yet (use CDP/desktop)")
+	cmd, err := attachShell(backend.AttachExecOpts{Cmd: opts.Cmd, WorkDir: opts.WorkDir, Env: opts.Env})
+	if err != nil {
+		return nil, err
+	}
+	_ = b.ensureGuestReady(ctx, sandboxID)
+	port, err := b.waitSSH(ctx, sandboxID)
+	if err != nil {
+		return nil, err
+	}
+	client, err := ssh.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), sshClientConfig())
+	if err != nil {
+		return nil, fmt.Errorf("qemu ssh: %w", err)
+	}
+	defer client.Close()
+
+	sess, err := client.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("qemu ssh session: %w", err)
+	}
+	defer sess.Close()
+
+	var stdout, stderr strings.Builder
+	sess.Stdout = &stdout
+	sess.Stderr = &stderr
+	runErr := sess.Run(cmd)
+	res := &backend.ExecResult{Stdout: []byte(stdout.String()), Stderr: []byte(stderr.String())}
+	if runErr == nil {
+		return res, nil
+	}
+	if ee, ok := runErr.(*ssh.ExitError); ok {
+		res.ExitCode = ee.ExitStatus()
+		return res, nil
+	}
+	if ctx.Err() != nil {
+		return res, ctx.Err()
+	}
+	return res, runErr
 }
 
 func (b *Backend) Logs(ctx context.Context, sandboxID string) (io.ReadCloser, error) {

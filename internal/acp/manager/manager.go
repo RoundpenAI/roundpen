@@ -32,6 +32,8 @@ type SysDeps struct {
 	LLMKey       string
 	DefaultModel func() string
 	BrowserHub   *browser.Hub
+	BrowserSlots tools.BrowserSlot
+	AgentSlots   tools.AgentSlot
 	History      sysagent.MessageSource
 }
 
@@ -125,7 +127,15 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		a2cR, a2cW := io.Pipe()
 		reg := tools.NewRegistry()
 		tools.RegisterRoundpen(reg, &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase})
-		tools.RegisterBrowser(reg, &tools.BrowserBinder{Hub: m.sys.BrowserHub, SessionID: sessionID})
+		tools.RegisterBrowser(reg, &tools.BrowserBinder{
+			Hub:       m.sys.BrowserHub,
+			Slots:     m.sys.BrowserSlots,
+			SessionID: sessionID,
+		})
+		tools.RegisterShell(reg, &tools.AgentBinder{
+			Slots: m.sys.AgentSlots,
+			Exec:  m.sandboxes,
+		})
 		agent := sysagent.New(sysagent.Deps{
 			LLM: sysagent.LLMConfig{
 				BaseURL:      strings.TrimRight(m.sys.LoopbackBase, "/") + "/llmgw/openai",

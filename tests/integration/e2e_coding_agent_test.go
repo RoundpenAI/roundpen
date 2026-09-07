@@ -20,12 +20,12 @@ func TestE2E_CodingAgentWorkflow(t *testing.T) {
 		"metadata":   map[string]string{"agent": "coding-e2e"},
 	})
 	t.Cleanup(func() {
-		resp := h.mustDo(t, http.MethodDelete, "/sandboxes/"+sid, nil)
+		resp := h.mustDo(t, http.MethodDelete, "/v1/sandboxes/"+sid, nil)
 		resp.Body.Close()
 	})
 
-	// 1. Connect (E2B SDK entry)
-	resp := h.mustDo(t, http.MethodPost, "/sandboxes/"+sid+"/connect", map[string]any{})
+	// 1. Connect
+	resp := h.mustDo(t, http.MethodPost, "/v1/sandboxes/"+sid+"/connect", map[string]any{})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("connect: %s", resp.Status)
@@ -95,7 +95,7 @@ func TestE2E_CodingAgentWorkflow(t *testing.T) {
 	}
 
 	// 5. Refresh TTL
-	resp = h.mustDo(t, http.MethodPost, "/sandboxes/"+sid+"/refreshes", nil)
+	resp = h.mustDo(t, http.MethodPost, "/v1/sandboxes/"+sid+"/refreshes", nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("refreshes: %s", resp.Status)
@@ -121,7 +121,7 @@ func TestE2E_CodingAgentWorkflow(t *testing.T) {
 	}
 
 	// 7. Connect resume + exec again
-	resp = h.mustDo(t, http.MethodPost, "/sandboxes/"+sid+"/connect", map[string]any{})
+	resp = h.mustDo(t, http.MethodPost, "/v1/sandboxes/"+sid+"/connect", map[string]any{})
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("connect resume: %s", resp.Status)
@@ -148,7 +148,7 @@ func TestE2E_CodingAgentWorkflow(t *testing.T) {
 
 func e2eCreateSandbox(t *testing.T, h *harness, body map[string]any) string {
 	t.Helper()
-	resp := h.mustDo(t, http.MethodPost, "/sandboxes", body)
+	resp := h.mustDo(t, http.MethodPost, "/v1/sandboxes", body)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		b, _ := io.ReadAll(resp.Body)

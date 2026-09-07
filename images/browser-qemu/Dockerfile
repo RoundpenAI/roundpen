@@ -50,12 +50,17 @@ RUN chmod +x /usr/local/bin/roundpen-start-session \
 
 # Separate layer so the heavy XFCE/Chrome install stays cached.
 COPY guest/cdp-proxy.service /etc/systemd/system/cdp-proxy.service
+COPY guest/chrome-cdp.sh /usr/local/bin/chrome-cdp.sh
+COPY guest/chrome-cdp.service /etc/systemd/system/chrome-cdp.service
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xserver-xorg-input-libinput xfonts-base socat \
-    && mkdir -p /home/roundpen/.config/google-chrome-cdp \
+    xserver-xorg-input-libinput xfonts-base socat openssh-server \
+    && chmod +x /usr/local/bin/chrome-cdp.sh \
+    && mkdir -p /home/roundpen/.config/google-chrome-cdp /run/sshd \
     && chown -R roundpen:roundpen /home/roundpen/.config \
     && ln -sf /etc/systemd/system/cdp-proxy.service /etc/systemd/system/multi-user.target.wants/cdp-proxy.service \
+    && ln -sf /etc/systemd/system/chrome-cdp.service /etc/systemd/system/graphical.target.wants/chrome-cdp.service \
+    && ln -sf /lib/systemd/system/ssh.service /etc/systemd/system/multi-user.target.wants/ssh.service \
     && rm -rf /var/lib/apt/lists/*
 
 # CDP is published by QEMU user-mode hostfwd; do not listen only on localhost.

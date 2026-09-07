@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl wget gnupg xz-utils \
         git openssh-server sudo \
         python3 python3-minimal \
+        e2fsprogs \
         build-essential \
         locales \
     && rm -rf /var/lib/apt/lists/*
