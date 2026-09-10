@@ -28,8 +28,8 @@ func TestResolveTemplateBuilder(t *testing.T) {
 			want: "docker",
 		},
 		{
-			name: "auto kern with kaniko destination",
-			cfg:  config.Config{Backend: "kern", KanikoDestination: "reg/t"},
+			name: "auto qemu with kaniko destination",
+			cfg:  config.Config{Backend: "qemu", KanikoDestination: "reg/t"},
 			want: "kaniko",
 		},
 		{

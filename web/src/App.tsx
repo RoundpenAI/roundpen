@@ -1,7 +1,10 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { RequireAuth } from './auth'
+import { ChatLayout } from './components/ChatLayout'
+import { BrowserPage } from './pages/BrowserPage'
+import { ChatSessionPage } from './pages/ChatSessionPage'
+import { ChatsPage } from './pages/ChatsPage'
 import { LoginPage } from './pages/LoginPage'
-import { SandboxesPage } from './pages/SandboxesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TemplatesPage } from './pages/TemplatesPage'
 import { WorkbenchPage } from './pages/WorkbenchPage'
@@ -11,11 +14,23 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={<Navigate to="/chats" replace />} />
         <Route
-          path="/"
+          path="/chats"
           element={
             <RequireAuth>
-              <SandboxesPage />
+              <ChatLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<ChatsPage />} />
+          <Route path=":id" element={<ChatSessionPage />} />
+        </Route>
+        <Route
+          path="/browser"
+          element={
+            <RequireAuth>
+              <BrowserPage />
             </RequireAuth>
           }
         />
@@ -43,7 +58,7 @@ export default function App() {
             </RequireAuth>
           }
         />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<Navigate to="/chats" replace />} />
       </Routes>
     </BrowserRouter>
   )

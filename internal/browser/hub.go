@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/config"
 )
+
+const cdpReadyWait = 45 * time.Second
 
 // Hub owns per-sandbox browser sessions attached via a CDP provider.
 type Hub struct {
@@ -30,6 +33,7 @@ type Session struct {
 	Engine    Engine
 	Width     int
 	Height    int
+	Takeover  bool
 	release   func()
 }
 
@@ -100,13 +104,70 @@ func (h *Hub) Close() {
 
 // Status reports whether a session is attached, without starting a browser.
 func (h *Hub) Status(id string) (attached bool, url string, width, height int) {
+	st := h.StatusEx(id)
+	return st.Attached, st.URL, st.Width, st.Height
+}
+
+// SessionStatus is a non-mutating view of a Hub session.
+type SessionStatus struct {
+	Attached bool
+	URL      string
+	Width    int
+	Height   int
+	Takeover bool
+}
+
+// StatusEx reports attachment and takeover without starting a browser.
+func (h *Hub) StatusEx(id string) SessionStatus {
+	if h == nil {
+		return SessionStatus{}
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	sess := h.sessions[id]
 	if sess == nil || sess.Engine == nil {
-		return false, "", 0, 0
+		return SessionStatus{}
 	}
-	return true, sess.Engine.URL(), sess.Width, sess.Height
+	return SessionStatus{
+		Attached: true,
+		URL:      sess.Engine.URL(),
+		Width:    sess.Width,
+		Height:   sess.Height,
+		Takeover: sess.Takeover,
+	}
+}
+
+// Takeover reports whether the session is under human control.
+func (h *Hub) Takeover(id string) bool {
+	if h == nil {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	sess := h.sessions[id]
+	return sess != nil && sess.Takeover
+}
+
+// SetTakeover enables or disables human takeover for an existing session.
+// If the session is not attached yet, Ensure is required first when enabling.
+func (h *Hub) SetTakeover(id string, on bool) error {
+	if h == nil {
+		return fmt.Errorf("browser hub not configured")
+	}
+	if id == "" {
+		return fmt.Errorf("session id is required")
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	sess := h.sessions[id]
+	if sess == nil {
+		if !on {
+			return nil
+		}
+		return fmt.Errorf("browser session not attached")
+	}
+	sess.Takeover = on
+	return nil
 }
 
 // Ensure attaches a CDP session for the sandbox if needed.
@@ -121,7 +182,7 @@ func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
 	}
 	h.mu.Unlock()
 
-	sess, err := h.attach(ctx, id)
+	sess, err := h.attachReady(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +201,57 @@ func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
 	h.mu.Unlock()
 	h.logger.Info("browser session started", slog.String("sandbox", id))
 	return sess, nil
+}
+
+func (h *Hub) attachReady(ctx context.Context, id string) (*Session, error) {
+	if h.newEngine != nil {
+		return h.attach(ctx, id)
+	}
+	wait := cdpReadyWait
+	if deadline, ok := ctx.Deadline(); ok {
+		if remain := time.Until(deadline); remain > 0 && remain < wait {
+			wait = remain
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+
+	var last error
+	for {
+		sess, err := h.attach(ctx, id)
+		if err == nil {
+			return sess, nil
+		}
+		last = err
+		if !cdpRetryable(err) {
+			return nil, err
+		}
+		if h.logger != nil {
+			h.logger.Info("waiting for guest chrome CDP", slog.String("sandbox", id), slog.Any("err", err))
+		}
+		select {
+		case <-ctx.Done():
+			return nil, last
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func cdpRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	if strings.Contains(s, "requires a sandbox dialer") {
+		return false
+	}
+	return strings.Contains(s, "nothing listening") ||
+		strings.Contains(s, "not serving devtools") ||
+		strings.Contains(s, "cdp attach") ||
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "empty reply") ||
+		strings.Contains(s, "eof")
 }
 
 func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
@@ -197,14 +309,17 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		if cfg != nil && cfg.CDP.Port > 0 {
 			port = cfg.CDP.Port
 		}
+		if err := probeGuestCDP(ctx, dial, id, port); err != nil {
+			return nil, err
+		}
 		localURL, stop, err := startCDPProxy(dial, id, port)
 		if err != nil {
-			return nil, fmt.Errorf("docker cdp: %w", err)
+			return nil, fmt.Errorf("env cdp: %w", err)
 		}
 		eng, err := newRemoteEngine(localURL, width, height)
 		if err != nil {
 			stop()
-			return nil, fmt.Errorf("docker cdp (nothing listening on guest :%d): %w", port, err)
+			return nil, fmt.Errorf("env cdp (nothing listening on guest :%d): %w", port, err)
 		}
 		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height, release: stop}, nil
 	default:

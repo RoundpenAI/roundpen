@@ -86,8 +86,8 @@ if [[ "$fail" -ne 0 ]]; then
 fi
 
 if ! need_cmd docker; then
-	echo "note: Docker is not installed. Default ROUNDPEN_BACKEND=kern still works;"
-	echo "      set ROUNDPEN_BACKEND=docker when you have a local/remote engine."
+	echo "note: Docker is not installed. Sandboxes run under QEMU (ROUNDPEN_BACKEND=qemu)."
+	echo "      Docker is only needed to rebuild agent/browser qcow2 images."
 fi
 
 if ! need_cmd bwrap; then
@@ -138,8 +138,9 @@ fi
 ensure_env_key DATABASE_URL "$DSN_DEFAULT"
 ensure_env_key ROUNDPEN_TEST_DATABASE_URL "$TEST_DSN_DEFAULT"
 ensure_env_key ROUNDPEN_HTTP_ADDR ":${API_PORT}"
-ensure_env_key ROUNDPEN_BACKEND "kern"
-ensure_env_key ROUNDPEN_DEFAULT_IMAGE "host"
+ensure_env_key ROUNDPEN_BACKEND "qemu"
+ensure_env_key ROUNDPEN_DEFAULT_IMAGE "images/agent-qemu/out/agent.qcow2"
+ensure_env_key ROUNDPEN_DEFAULT_AGENT_TEMPLATE "agent-claude"
 ensure_env_key ROUNDPEN_DATA_ROOT "./data"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
@@ -189,12 +190,19 @@ set +a
 export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
 export ROUNDPEN_HTTP_ADDR="${ROUNDPEN_HTTP_ADDR:-:${API_PORT}}"
 export DATABASE_URL="${DATABASE_URL:-$DSN_DEFAULT}"
-export ROUNDPEN_BACKEND="${ROUNDPEN_BACKEND:-kern}"
+export ROUNDPEN_BACKEND="${ROUNDPEN_BACKEND:-qemu}"
 export ROUNDPEN_DATA_ROOT="${ROUNDPEN_DATA_ROOT:-./data}"
 export ROUNDPEN_HTTP_ADDR="${ROUNDPEN_HTTP_ADDR:-0.0.0.0:${API_PORT}}"
 export ROUNDPEN_PREVIEW_PUBLIC_URL="${ROUNDPEN_PREVIEW_PUBLIC_URL:-http://${LAN_IP}:${API_PORT}}"
 export DOCKER_CONFIG="${DOCKER_CONFIG:-$ROOT/.docker}"
 ./scripts/gitea-registry-auth.sh
+
+if [[ "${ROUNDPEN_BACKEND}" == "docker" ]] && need_cmd docker; then
+	if ! docker image inspect roundpen-code-agent:local >/dev/null 2>&1; then
+		echo "Building roundpen-code-agent:local (git/ssh/curl) ..."
+		docker build -t roundpen-code-agent:local images/code-agent
+	fi
+fi
 
 dsn_host="${DATABASE_URL#*@}"
 dsn_host="${dsn_host%%/*}"
@@ -210,29 +218,83 @@ pg0_status() {
 	'
 }
 
+# True when DATABASE_URL (or pg0 CLI) can SELECT 1.
+# pg0 list/psql can be stale (shows stopped / wrong role) while postgres is up.
+pg_ready() {
+	if command -v psql >/dev/null 2>&1; then
+		if psql "$DATABASE_URL" -Atqc 'SELECT 1' >/dev/null 2>&1; then
+			return 0
+		fi
+	fi
+	# Fallback: pg0's bundled psql via URI (avoids pg0 CLI's stored role mismatch).
+	local bin=""
+	bin="$(ls -1 "$HOME"/.pg0/installation/*/bin/psql 2>/dev/null | sort -V | tail -1 || true)"
+	if [[ -n "$bin" ]]; then
+		if "$bin" "$DATABASE_URL" -Atqc 'SELECT 1' >/dev/null 2>&1; then
+			return 0
+		fi
+	fi
+	if pg0 psql --name "$PG0_NAME" -- -Atqc 'SELECT 1' >/dev/null 2>&1; then
+		return 0
+	fi
+	return 1
+}
+
+# Run SQL against DATABASE_URL (preferred) or pg0 psql.
+pg_exec() {
+	local db="${1:-}"
+	shift || true
+	local url="$DATABASE_URL"
+	if [[ -n "$db" && "$db" != "$PG0_DB" ]]; then
+		# Swap DB name in URI: .../roundpen?... → .../other?...
+		url="$(printf '%s' "$DATABASE_URL" | sed -E "s#/([^/?]+)(\\?|$)#/${db}\\2#")"
+	fi
+	if command -v psql >/dev/null 2>&1; then
+		psql "$url" "$@"
+		return $?
+	fi
+	local bin=""
+	bin="$(ls -1 "$HOME"/.pg0/installation/*/bin/psql 2>/dev/null | sort -V | tail -1 || true)"
+	if [[ -n "$bin" ]]; then
+		"$bin" "$url" "$@"
+		return $?
+	fi
+	if [[ -n "$db" && "$db" != "$PG0_DB" ]]; then
+		pg0 psql --name "$PG0_NAME" -- "$db" "$@"
+	else
+		pg0 psql --name "$PG0_NAME" -- "$@"
+	fi
+}
+
 wait_pg0() {
 	local i
 	for i in $(seq 1 40); do
-		if pg0 psql --name "$PG0_NAME" -- -Atqc 'SELECT 1' >/dev/null 2>&1; then
+		if pg_ready; then
 			return 0
 		fi
 		sleep 0.25
 	done
-	echo "error: pg0 instance '${PG0_NAME}' did not become ready on port ${PG0_PORT}" >&2
 	return 1
 }
 
 start_pg0() {
-	if pg0 psql --name "$PG0_NAME" -- -Atqc 'SELECT 1' >/dev/null 2>&1; then
-		echo "pg0: instance '${PG0_NAME}' already running"
+	if pg_ready; then
+		echo "pg0: postgres already accepting connections via DATABASE_URL"
 		return 0
 	fi
-	local st
+	local st out
 	st="$(pg0_status)"
 	case "$st" in
 	stopped)
 		echo "pg0: starting existing instance '${PG0_NAME}'..."
-		pg0 start --name "$PG0_NAME" || true
+		# Metadata can say stopped while a postmaster still holds the port.
+		# "already running" is OK if DATABASE_URL then becomes ready.
+		out="$(pg0 start --name "$PG0_NAME" 2>&1)" || true
+		if echo "$out" | grep -qi 'already running'; then
+			echo "pg0: instance reports already running; checking DATABASE_URL..."
+		elif [[ -n "$out" ]]; then
+			echo "$out"
+		fi
 		;;
 	running)
 		echo "pg0: list says running; waiting for connections..."
@@ -243,24 +305,31 @@ start_pg0() {
 			--username "$PG0_USER" --password "$PG0_PASS" --database "$PG0_DB" || true
 		;;
 	esac
-	wait_pg0
+	if wait_pg0; then
+		return 0
+	fi
+	echo "error: postgres for '${PG0_NAME}' did not become ready on port ${PG0_PORT}" >&2
+	echo "  hint: verify with: psql \"\$DATABASE_URL\" -c 'SELECT 1'" >&2
+	echo "  if pg0 metadata is stale: pg0 stop --name ${PG0_NAME}; pg0 start --name ${PG0_NAME}" >&2
+	pg0 list 2>&1 | sed 's/^/  /' >&2 || true
+	return 1
 }
 
 ensure_extensions() {
 	echo "pg0: ensuring pgcrypto + vector extensions..."
 	pg0 install-extension --name "$PG0_NAME" vector >/dev/null 2>&1 || true
-	pg0 psql --name "$PG0_NAME" -- -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null
-	pg0 psql --name "$PG0_NAME" -- -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
+	pg_exec "" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null
+	pg_exec "" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
 }
 
 ensure_test_db() {
 	local test_db=roundpen_test
-	if ! pg0 psql --name "$PG0_NAME" -- -Atqc "SELECT 1 FROM pg_database WHERE datname='${test_db}'" | grep -q 1; then
+	if ! pg_exec "" -Atqc "SELECT 1 FROM pg_database WHERE datname='${test_db}'" | grep -q 1; then
 		echo "pg0: creating test database '${test_db}'..."
-		pg0 psql --name "$PG0_NAME" -- -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${test_db} OWNER ${PG0_USER};"
+		pg_exec "" -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${test_db} OWNER ${PG0_USER};"
 	fi
-	pg0 psql --name "$PG0_NAME" -- "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null
-	pg0 psql --name "$PG0_NAME" -- "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
+	pg_exec "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null
+	pg_exec "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
 }
 
 ensure_kaniko_db_settings() {
@@ -269,7 +338,7 @@ ensure_kaniko_db_settings() {
 	local insecure="${ROUNDPEN_KANIKO_INSECURE:-false}"
 	local skip_tls="${ROUNDPEN_KANIKO_SKIP_TLS_VERIFY:-false}"
 	echo "pg0: ensuring dev kaniko settings in app_settings..."
-	pg0 psql --name "$PG0_NAME" -- -v ON_ERROR_STOP=1 -c "
+	pg_exec "" -v ON_ERROR_STOP=1 -c "
 UPDATE app_settings
 SET payload = payload
   || jsonb_build_object(
@@ -316,18 +385,55 @@ cleanup() {
 	trap - EXIT INT TERM
 	echo
 	echo "stopping preview processes..."
-	if [[ -n "${WEB_PID}" ]]; then kill "${WEB_PID}" 2>/dev/null || true; fi
-	if [[ -n "${API_PID}" ]]; then kill "${API_PID}" 2>/dev/null || true; fi
+	# Kill process groups so `go run` / npm child binaries die too.
+	if [[ -n "${WEB_PID}" ]]; then kill -- "-${WEB_PID}" 2>/dev/null || kill "${WEB_PID}" 2>/dev/null || true; fi
+	if [[ -n "${API_PID}" ]]; then kill -- "-${API_PID}" 2>/dev/null || kill "${API_PID}" 2>/dev/null || true; fi
 	wait >/dev/null 2>&1 || true
+	# Sweep ports in case a child outlived the group (same as make stop).
+	"$ROOT/scripts/dev-stop.sh" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
+# Clear stale listeners before bind (common after crashed make dev).
+"$ROOT/scripts/dev-stop.sh"
+
+# go run writes the binary under /tmp; that tmpfs often hits quota while Vite
+# still starts, leaving the UI up with ECONNREFUSED on :19001.
+export GOTMPDIR="${GOTMPDIR:-$HOME/.cache/roundpen-gotmp}"
+mkdir -p "$GOTMPDIR" bin
+echo "Building bin/roundpend ..."
+if ! go build -o bin/roundpend ./cmd/roundpend; then
+	echo "error: go build ./cmd/roundpend failed" >&2
+	exit 1
+fi
+
 echo "Starting roundpend on ${ROUNDPEN_HTTP_ADDR} ..."
-go run ./cmd/roundpend &
+# New session so Ctrl+C / cleanup can signal the whole tree.
+setsid ./bin/roundpend &
 API_PID=$!
 
+wait_api() {
+	local i
+	for i in $(seq 1 80); do
+		if ! kill -0 "$API_PID" 2>/dev/null; then
+			return 1
+		fi
+		if curl -sf --max-time 0.4 "http://127.0.0.1:${API_PORT}/health" >/dev/null 2>&1 \
+			|| curl -sf --max-time 0.4 "http://127.0.0.1:${API_PORT}/v1/ready" >/dev/null 2>&1; then
+			return 0
+		fi
+		sleep 0.25
+	done
+	return 1
+}
+if ! wait_api; then
+	echo "error: roundpend did not become ready on :${API_PORT} (Vite not started)." >&2
+	echo "  hint: if the build said disk quota, /tmp is full; this script now builds to bin/." >&2
+	exit 1
+fi
+
 echo "Starting Vite UI on ${DEV_BIND}:${UI_PORT} (proxy → 127.0.0.1:${API_PORT}) ..."
-(cd web && npm run dev -- --host "${DEV_BIND}" --port "${UI_PORT}") &
+setsid bash -c "cd web && npm run dev -- --host '${DEV_BIND}' --port '${UI_PORT}'" &
 WEB_PID=$!
 
 echo
@@ -335,7 +441,7 @@ echo "Dev preview (LAN bind ${DEV_BIND}, advertised as ${LAN_IP}):"
 echo "  UI  http://${LAN_IP}:${UI_PORT}/"
 echo "  API http://${LAN_IP}:${API_PORT}/"
 echo "  UI  http://127.0.0.1:${UI_PORT}/  (local)"
-echo "Ctrl+C stops API and Vite (pg0 stays running)."
+echo "Ctrl+C or make stop → API/Vite (pg0 stays running)."
 echo
 
 wait

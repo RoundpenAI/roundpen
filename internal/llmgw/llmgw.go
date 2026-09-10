@@ -31,10 +31,11 @@ type Gateway struct {
 	logger     *slog.Logger
 	httpClient *http.Client
 
-	mu        sync.RWMutex
-	enabled   bool
-	logLimit  int
-	publicURL string
+	mu           sync.RWMutex
+	enabled      bool
+	logLimit     int
+	publicURL    string
+	defaultModel string
 }
 
 // New builds a Gateway. Call SeedFromConfig after construction to bootstrap from env.

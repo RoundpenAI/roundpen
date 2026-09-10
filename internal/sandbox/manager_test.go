@@ -269,6 +269,10 @@ func (b *stubBackend) ResizePTY(_ context.Context, _, _ string, _, _ uint16) err
 	return nil
 }
 
+func (b *stubBackend) AttachExec(_ context.Context, _ string, _ backend.AttachExecOpts, _ io.Reader, _, _ io.Writer) error {
+	return nil
+}
+
 func newTestService(t *testing.T, be backend.Backend) (*sandbox.Service, *memStore, string) {
 	t.Helper()
 	root := t.TempDir()

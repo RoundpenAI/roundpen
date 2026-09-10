@@ -104,7 +104,7 @@ OCI Runtime            ← runc / gVisor / Kata 等（按部署选择）
 
 ### 6. 开放协议，降低接入成本
 
-Roundpen 兼容 [E2B](https://e2b.dev/) 协议，便于接入 DeepSeek Harness、AgentScope 等框架；同时提供原生 REST API 与 Web 控制台。开放协议使用户在自托管前提下仍能复用生态，避免为安全而重写全部集成。
+Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 Agent / Browser 环境槽位，便于私有化部署与策略审计。
 
 ## 已交付能力
 

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Chrome CDP
+Hidden=true
+Exec=/usr/local/bin/chrome-cdp.sh
+X-GNOME-Autostart-enabled=false
+X-XFCE-Autostart-enabled=false

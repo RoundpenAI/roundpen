@@ -1,0 +1,14 @@
+[Unit]
+Description=Apply Roundpen / llmgw env from QEMU fw_cfg
+DefaultDependencies=no
+After=sysinit.target
+Before=ssh.service
+Before=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/roundpen-apply-env
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

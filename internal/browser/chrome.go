@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/cdproto/input"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
 
@@ -56,6 +58,10 @@ const snapshotJS = `(() => {
       ref, role, name, tag: el.tagName.toLowerCase(),
       value: ('value' in el && typeof el.value === 'string') ? String(el.value).slice(0, 80) : '',
       href: el.href || '',
+      x: Math.round(rect.x + rect.width / 2),
+      y: Math.round(rect.y + rect.height / 2),
+      w: Math.round(rect.width),
+      h: Math.round(rect.height),
     };
     if (el.type === 'checkbox' || el.type === 'radio' || role === 'checkbox' || role === 'switch') {
       node.checked = !!el.checked;
@@ -122,14 +128,19 @@ func newChromeEngine(userDataDir string, width, height int) (*chromeEngine, erro
 	if err := os.MkdirAll(userDataDir, 0o700); err != nil {
 		return nil, err
 	}
+	// Override chromedp defaults that scream "automation" (enable-automation,
+	// classic headless). Sites still fingerprint; this only removes the easy tells.
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(bin),
 		chromedp.UserDataDir(userDataDir),
-		chromedp.Flag("headless", true),
+		chromedp.Flag("headless", "new"),
+		chromedp.Flag("enable-automation", false),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("hide-scrollbars", false),
+		chromedp.UserAgent(desktopChromeUA),
 		chromedp.WindowSize(width, height),
 	)
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -143,11 +154,45 @@ func newChromeEngine(userDataDir string, width, height int) (*chromeEngine, erro
 	}
 	// The first Run owns the browser lifetime — do not wrap it in a cancellable
 	// timeout or chromedp will tear Chrome down when that context ends.
-	if err := chromedp.Run(ctx, emulation.SetDeviceMetricsOverride(int64(width), int64(height), 1, false)); err != nil {
+	if err := chromedp.Run(ctx,
+		emulation.SetDeviceMetricsOverride(int64(width), int64(height), 1, false),
+		emulation.SetUserAgentOverride(desktopChromeUA),
+		stealthInitAction(),
+	); err != nil {
 		eng.Close()
 		return nil, fmt.Errorf("chrome start: %w", err)
 	}
 	return eng, nil
+}
+
+// desktopChromeUA looks like a normal desktop Chrome (no HeadlessChrome token).
+const desktopChromeUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+// stealthInitJS strips the most common automation globals before page scripts run.
+const stealthInitJS = `(() => {
+  try {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+  } catch (e) {}
+  try {
+    // Chrome automation often leaves an empty chrome.runtime; keep a stub.
+    window.chrome = window.chrome || { runtime: {} };
+  } catch (e) {}
+  try {
+    const orig = navigator.permissions && navigator.permissions.query;
+    if (orig) {
+      navigator.permissions.query = (params) =>
+        params && params.name === 'notifications'
+          ? Promise.resolve({ state: Notification.permission })
+          : orig(params);
+    }
+  } catch (e) {}
+})()`
+
+func stealthInitAction() chromedp.Action {
+	return chromedp.ActionFunc(func(ctx context.Context) error {
+		_, err := page.AddScriptToEvaluateOnNewDocument(stealthInitJS).Do(ctx)
+		return err
+	})
 }
 
 func (e *chromeEngine) run(ctx context.Context, actions ...chromedp.Action) error {
@@ -230,6 +275,10 @@ func (e *chromeEngine) Snapshot(ctx context.Context) (Snapshot, error) {
 			Tag:   strField(n, "tag"),
 			Value: strField(n, "value"),
 			Href:  strField(n, "href"),
+			X:     numField(n, "x"),
+			Y:     numField(n, "y"),
+			W:     numField(n, "w"),
+			H:     numField(n, "h"),
 		}
 		if v, ok := n["checked"].(bool); ok {
 			node.Checked = &v
@@ -252,6 +301,56 @@ func (e *chromeEngine) Snapshot(ctx context.Context) (Snapshot, error) {
 func strField(m map[string]any, key string) string {
 	v, _ := m[key].(string)
 	return v
+}
+
+func numField(m map[string]any, key string) float64 {
+	switch v := m[key].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case json.Number:
+		n, _ := v.Float64()
+		return n
+	default:
+		return 0
+	}
+}
+
+func (e *chromeEngine) Hover(ctx context.Context, ref string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	js := fmt.Sprintf(`(() => {
+      const el = window.__rpRefs && window.__rpRefs[%q];
+      if (!el) return { ok: false, err: "unknown ref" };
+      el.scrollIntoView({block: "center", inline: "center"});
+      const rect = el.getBoundingClientRect();
+      const x = rect.x + rect.width / 2;
+      const y = rect.y + rect.height / 2;
+      for (const type of ["pointerover", "mouseover", "mouseenter"]) {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y }));
+      }
+      return { ok: true, x, y };
+    })()`, ref)
+	var res map[string]any
+	if err := e.run(ctx, chromedp.Evaluate(js, &res)); err != nil {
+		return err
+	}
+	if ok, _ := res["ok"].(bool); !ok {
+		errMsg, _ := res["err"].(string)
+		if errMsg == "" {
+			errMsg = "hover failed"
+		}
+		return fmt.Errorf("%s: %s", ref, errMsg)
+	}
+	x, y := numField(res, "x"), numField(res, "y")
+	if x != 0 || y != 0 {
+		if err := e.run(ctx, input.DispatchMouseEvent(input.MouseMoved, x, y)); err != nil {
+			return err
+		}
+	}
+	time.Sleep(120 * time.Millisecond)
+	return nil
 }
 
 func (e *chromeEngine) Click(ctx context.Context, ref string) error {
@@ -332,6 +431,18 @@ func (e *chromeEngine) Press(ctx context.Context, key string) error {
 		return e.run(ctx, chromedp.KeyEvent("\u001b"))
 	case "backspace":
 		k = "\b"
+	case "space", " ":
+		k = " "
+	case "pageup", "pagedown", "home", "end", "arrowup", "arrowdown", "arrowleft", "arrowright", "delete":
+		// Prefer named key events for navigation keys.
+		name := map[string]string{
+			"pageup": "PageUp", "pagedown": "PageDown",
+			"home": "Home", "end": "End",
+			"arrowup": "ArrowUp", "arrowdown": "ArrowDown",
+			"arrowleft": "ArrowLeft", "arrowright": "ArrowRight",
+			"delete": "Delete",
+		}[strings.ToLower(k)]
+		return e.run(ctx, chromedp.KeyEvent(name))
 	}
 	return e.run(ctx, chromedp.KeyEvent(k))
 }
@@ -340,10 +451,58 @@ func (e *chromeEngine) Screenshot(ctx context.Context) ([]byte, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	var buf []byte
-	if err := e.run(ctx, chromedp.FullScreenshot(&buf, 90)); err != nil {
+	// Viewport screenshot so panel click coordinates match the image.
+	if err := e.run(ctx, chromedp.CaptureScreenshot(&buf)); err != nil {
 		return nil, err
 	}
 	return buf, nil
+}
+
+func (e *chromeEngine) InputClick(ctx context.Context, x, y float64) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	// CDP requires buttons bitfield (Left=1) on press/release or many pages ignore the click.
+	return e.run(ctx,
+		input.DispatchMouseEvent(input.MouseMoved, x, y),
+		input.DispatchMouseEvent(input.MousePressed, x, y).
+			WithButton(input.Left).
+			WithButtons(1).
+			WithClickCount(1),
+		input.DispatchMouseEvent(input.MouseReleased, x, y).
+			WithButton(input.Left).
+			WithButtons(0).
+			WithClickCount(1),
+	)
+}
+
+func (e *chromeEngine) InputMove(ctx context.Context, x, y float64) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.run(ctx, input.DispatchMouseEvent(input.MouseMoved, x, y))
+}
+
+func (e *chromeEngine) InputWheel(ctx context.Context, x, y, deltaX, deltaY float64) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.run(ctx,
+		input.DispatchMouseEvent(input.MouseMoved, x, y),
+		input.DispatchMouseEvent(input.MouseWheel, x, y).
+			WithDeltaX(deltaX).
+			WithDeltaY(deltaY),
+	)
+}
+
+func (e *chromeEngine) InputType(ctx context.Context, text string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if text == "" {
+		return nil
+	}
+	return e.run(ctx, input.InsertText(text))
+}
+
+func (e *chromeEngine) InputKey(ctx context.Context, key string) error {
+	return e.Press(ctx, key)
 }
 
 func (e *chromeEngine) SetViewport(ctx context.Context, width, height int) error {

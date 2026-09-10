@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,7 @@ func (f *fakeEngine) Snapshot(context.Context) (Snapshot, error) {
 		Nodes: []SnapNode{{Ref: "e1", Role: "button", Name: "Go"}},
 	}, nil
 }
+func (f *fakeEngine) Hover(context.Context, string) error { return nil }
 func (f *fakeEngine) Click(_ context.Context, ref string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -68,7 +70,19 @@ func (f *fakeEngine) SetViewport(context.Context, int, int) error { return nil }
 func (f *fakeEngine) Evaluate(context.Context, string) (json.RawMessage, error) {
 	return json.RawMessage(`"ok"`), nil
 }
-func (f *fakeEngine) Close() error { return nil }
+func (f *fakeEngine) InputClick(_ context.Context, x, y float64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.clicks = append(f.clicks, fmt.Sprintf("xy:%.0f,%.0f", x, y))
+	return nil
+}
+func (f *fakeEngine) InputMove(context.Context, float64, float64) error { return nil }
+func (f *fakeEngine) InputWheel(context.Context, float64, float64, float64, float64) error {
+	return nil
+}
+func (f *fakeEngine) InputType(context.Context, string) error { return nil }
+func (f *fakeEngine) InputKey(context.Context, string) error  { return nil }
+func (f *fakeEngine) Close() error                            { return nil }
 
 type stubView struct {
 	sb *sandbox.Sandbox

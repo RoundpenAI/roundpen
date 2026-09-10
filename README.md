@@ -1,78 +1,71 @@
 # Roundpen
 
-**轻量级、可私有化部署的 Agent 沙箱基础设施。**
+**轻量级、可私有化部署的 Agent 固定环境基础设施。**
 
-Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作区、记忆与策略控制，并可在个人电脑、NAS 与服务器上自托管。控制面使用 Go 实现，默认兼容 [E2B](https://e2b.dev/) 协议，便于接入 DeepSeek Harness、AgentScope 等主流 Agent 框架。
+Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作区、记忆与策略控制，并可在 NAS 与 Linux 服务器上自托管。控制面使用 Go 实现，提供原生 REST API 与 Web 控制台。
 
 > 安全隔离的「驯马圈」，加上记忆与工具的「草料」、策略与审计的「缰绳」——在本地或私有环境里驯服 Agent。
 
 ## 特性
 
-- **轻量自托管**：单二进制控制面，面向低配 NAS、笔记本与单机服务器
-- **跨平台**：Mac / Windows / Linux 统一构建与分发
-- **可插拔后端**：默认 `Kern`（开发用弱隔离、免守护本机进程）；生产应改 Docker，以及未来的 Kubernetes
-- **可选 OCI 运行时**：`runc` / `crun` / `gVisor` / `Kata`，按安全与性能需求配置
-- **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）；文件落本地盘，元数据进库
-- **生态友好**：E2B 兼容 API；控制面为 HTTP REST（无 gRPC）
-- **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key 两种验证
-- **开源核心**：Apache 2.0；企业能力（SSO、多租户、合规审计等）走 Open Core
+- **轻量自托管**：单二进制控制面，面向 NAS、笔记本与单机服务器
+- **固定环境槽位**：登录即可用 **Cloud Agent**、**Browser**（及后续 Mobile），一槽位一机器；不是多开沙箱 SDK
+- **可插拔后端**：Agent 槽位默认 Docker / Kern（Kern 为开发用弱隔离）；Browser 槽位使用 **QEMU**（qcow2 + CDP hostfwd + VNC unix sock）
+- **可定制镜像**：Templates = 槽位镜像配方（`slot=agent|browser`）；Agent→OCI，Browser→qcow2
+- **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）
+- **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key（入库为哈希）；沙箱/记忆按属主隔离
+- **开源核心**：Apache 2.0；企业能力走 Open Core
 
-## 架构
+## 产品模型
+
+| 槽位 | 本期 | 形态 |
+|------|------|------|
+| Cloud Agent | Docker / Kern | coding / stdio ACP |
+| Browser | QEMU | XFCE + Chrome；CDP + 主机 VNC→WebSocket |
+| Mobile | 预留 | 后续独立 VM |
+
+## 架构（摘要）
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   控制面 (Go)                        │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐          │
-│  │ 网关层   │ │ 鉴权/属主 │ │ 最小审计 │          │
-│  └──────────┘ └──────────┘ └──────────┘          │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────┐│
-│  │ 记忆存储 │ │（规划）  │ │ LLM 网关 │ │E2B适配││
-│  │          │ │ 工具网关 │ │          │ │      ││
-│  └──────────┘ └──────────┘ └──────────┘ └──────┘│
-├─────────────────────────────────────────────────────┤
-│              沙箱抽象层 (Sandbox Interface)          │
-├─────────────────────────────────────────────────────┤
-│              可插拔后端 (引擎 / 编排)                │
-│  ┌───────┐ ┌──────────┐ ┌──────┐ ┌───────┐ ┌──────┐│
-│  │Docker │ │Containerd│ │Podman│ │ Kern  │ │ K8s  ││
-│  │Daemon │ │          │ │      │ │(免守护)│ │(未来)││
-│  └───────┘ └──────────┘ └──────┘ └───────┘ └──────┘│
-├─────────────────────────────────────────────────────┤
-│         OCI 运行时层（由后端调用；Kern 可绕过）       │
-│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐               │
-│  │runc │ │crun │ │gVisor│ │Kata │               │
-│  └─────┘ └─────┘ └─────┘ └─────┘               │
-└─────────────────────────────────────────────────────┘
+User → Agent env (OCI) + Browser env (qcow2/QEMU)
+Browser: Chrome CDP :9222 via hostfwd；桌面 = QEMU -vnc unix:…/vnc.sock → /v1/me/environments/browser/desktop
 ```
 
 | 层级 | 说明 |
 |------|------|
-| 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、E2B 适配。`policy` / `toolgw` 仍是空包 |
-| Sandbox 抽象 | 统一生命周期与 exec，不绑定具体引擎 |
-| 可插拔后端 | Docker / Containerd / Podman / Kern / K8s |
-| OCI 运行时 | 由引擎调用；`Kern` 作为免守护后端可绕过该层 |
+| 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、`/v1/me/environments`。`policy` / `toolgw` 仍是空包 |
+| 环境抽象 | Sandbox Manager + 用户槽位映射（`user_environments`） |
+| 后端 | Docker / Kern（agent）+ QEMU（browser）；`multi` 按 slot 路由 |
+| 镜像 | `internal/template`（slot）+ `images/browser-qemu/` |
 
-仓库布局与包边界见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。沙箱之上的 Agent 环境服务（Terminal / Workspace / Ports）见 [docs/architecture/environment-services.md](docs/architecture/environment-services.md)。Agent 安全设计与能力边界见 [docs/security.md](docs/security.md)；对外宣传稿见 [docs/agent-security.md](docs/agent-security.md)。
+仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。QEMU Browser 部署见 [docs/architecture/qemu-browser.md](docs/architecture/qemu-browser.md)。Agent 安全见 [docs/security.md](docs/security.md)。
 
 ## 核心能力
 
-1. **沙箱执行**：`Sandbox` 接口抽象后端与运行时；本地默认 `Kern`（弱隔离），生产应使用 Docker + `runc`。沙箱按属主隔离，admin 可看全部
-2. **记忆与文件**：PostgreSQL 承载短期（JSONB + TTL）与长期（`pgvector`）记忆；工作区目录挂载为沙箱内 `/workspace`。长期记忆 Agent API 对齐 mem0（`/v1/memories/add|search`），写入/检索时经 llmgw 自动 embedding，并绑定登录身份
-3. **策略引擎**（未交付）：`internal/policy` 为空包，控制面不经过它
-4. **工具网关**（未交付）：`internal/toolgw` 为空包
-5. **LLM 网关**：兼容 model-relay 的 Anthropic / OpenAI 透传；自动种子内部 Virtual Key（`vk-roundpen-internal`）与 embedding 别名（`roundpen-embed`）；请求流水进 PG（默认不记 body）
-6. **最小审计**：创建 / 删除 / exec / settings 写 slog；不是完整可观测或强制终止
-7. **用户体系**：密码登录（`roundpen_session` Cookie）与 `rp-...` API Key（入库为哈希）；详见 [docs/auth.md](docs/auth.md)
-8. **Environment P0**：Workspace 文件 API、Ports 预览（`/p/...` + token）、Terminal WS；详见 [docs/architecture/environment-services.md](docs/architecture/environment-services.md)
-9. **Web 控制台**：嵌入 `roundpend` 的 SPA（登录、沙箱列表、文件 / 终端 / 预览工作台）；开发时在 `web/` 下 `npm run dev`
+1. **固定环境**：`EnsureBrowser` / `EnsureAgent`；API `/v1/me/environments`；按属主隔离，admin 可看全部
+2. **记忆与文件**：PostgreSQL + `/workspace` 挂载；长期记忆绑定登录身份
+3. **LLM 网关**：Anthropic / OpenAI 透传；内部 Virtual Key；请求流水进 PG（默认不记 body）
+4. **Web 控制台**：Chats / Browser / Images（镜像）/ Settings
+5. **ACP Agent 网关**：会话 UI；Browser CDP 绑用户 Browser 环境
+6. **最小审计**：创建 / 删除 / exec / settings 写 slog
+
+## 快速开始
+
+见下文 Docker Compose / `make dev`。构建 Browser 盘：
+
+```bash
+./images/browser-qemu/build.sh   # docker；打包盘可用 virt-make-fs 或 privileged docker
+```
+
+环境变量示例见 `.env.example`（`ROUNDPEN_QEMU_ENABLED`、`ROUNDPEN_BROWSER_IMAGE`）。
 
 ## 部署方式
 
-| 模式 | 适用场景 | 是否需要 Node |
-|------|----------|---------------|
-| **Docker Compose（推荐）** | NAS / 小团队一键私有化 | 否（镜像构建阶段内置） |
-| `./roundpend` 单二进制 | 本地开发、已有 PG 的机器 | 构建时需要；运行时不需要 |
-| Kubernetes（规划中） | 企业集群扩展 | — |
+| 模式 | 适用场景 |
+|------|----------|
+| **Docker Compose（推荐）** | NAS / 小团队一键私有化 |
+| `./roundpend` 单二进制 | 本地开发、已有 PG |
+| Kubernetes（规划中） | 企业集群 |
 
 ### 一键私有化（最终用户）
 
@@ -85,41 +78,16 @@ docker compose up -d --build
 # 首次启动：docker compose logs roundpend | head   # admin 密码与 API Key 各打印一次
 ```
 
+Browser 槽位需要宿主机 `qemu-system-x86_64`、`qemu-img`，以及 `make browser-image` 产出的 `out/browser.qcow2` + `vmlinuz`/`initrd.img`（见 [docs/architecture/qemu-browser.md](docs/architecture/qemu-browser.md)）。
+
 详见 [deploy/compose/README.md](deploy/compose/README.md)。
 
 ### 本地开发（贡献者）
 
-一次拉起 pg0 + API + Vite 控制台（对齐 ai-sandbox 的 `make dev`）：
-
 ```bash
 make setup          # 首次：.env、go mod、npm
-make dev            # 检查工具 → pg0 → roundpend :19001 + UI :19000
+make dev            # pg0 → roundpend :19001 + UI :19000
 # 浏览器打开 http://127.0.0.1:19000/
-# Ctrl+C 停 API/Vite；pg0 继续跑。仅检查工具：make dev-check
-```
-
-也可手写环境变量后跑二进制（推荐仍用 [pg0](https://github.com/vectorize-io/pg0)）：
-
-```bash
-make build          # npm 编 UI → embed → go build（仅开发机构建需要 Node）
-./bin/roundpen version
-
-export DATABASE_URL='postgres://roundpen:roundpen@127.0.0.1:5432/roundpen?sslmode=disable'
-export ROUNDPEN_BACKEND=kern
-./bin/roundpend
-# 首次启动日志会打印 admin 初始密码和 API Key（各一次）
-
-# 另开终端（用启动日志里的 API Key）：
-export ROUNDPEN_API_KEY='rp-...'
-curl -s localhost:9527/health
-SID=$(curl -s -X POST localhost:9527/sandboxes \
-  -H "X-API-Key: $ROUNDPEN_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"templateID":"host","timeout":600}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["sandboxID"])')
-curl -s -X POST localhost:9527/v1/sandboxes/$SID/exec \
-  -H "X-API-Key: $ROUNDPEN_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"command":["/bin/sh","-c","echo hi > note.txt && cat note.txt"]}'
-curl -s -X DELETE localhost:9527/sandboxes/$SID \
-  -H "X-API-Key: $ROUNDPEN_API_KEY" -o /dev/null -w '%{http_code}\n'
 ```
 
 环境变量示例见 [.env.example](.env.example)。
@@ -129,25 +97,17 @@ curl -s -X DELETE localhost:9527/sandboxes/$SID \
 | 维度 | 选择 |
 |------|------|
 | 语言 | Go（跨平台单二进制） |
-| 协议 | E2B 兼容；REST + gRPC |
-| 默认后端 | `Kern`（bubblewrap 轻量 jail：`/workspace` + `/home`，适合无 Docker 本地开发） |
-| 生产常用后端 | Docker Daemon（`runc`） |
-| 轻量 / 加固运行时 | `crun`；`gVisor`；`Kata`（需 KVM，Linux 优先） |
-| 免守护后端 | `Kern`（与 Docker 同层抽象） |
-| 记忆 | PostgreSQL + `pgvector`（MVP 不引入 Redis / 专用向量库） |
-| 文件 | 本地目录或 SSH 远端目录（`WorkspaceFS`）；元数据在 PG；后期可接 S3 |
-
-| 许可 | Apache 2.0（Open Core） |
-
-**平台说明**：Mac 推荐 OrbStack + Docker；Windows 使用 Docker Desktop + WSL2；`gVisor` / `Kata` 以 Linux 为主，其他平台按能力降级或禁用。
-
-**集成**：可作为 DeepSeek Harness、AgentScope 等的底层沙箱执行器；K8s 预留适配接口，但不做成 Operator。
+| API | 原生 REST（`/v1/...`） |
+| Agent 后端 | Docker Daemon 或 `Kern` |
+| Browser 后端 | QEMU（qcow2 + VNC unix + CDP hostfwd） |
+| 记忆 | PostgreSQL + `pgvector` |
+| 文件 | 本地目录或 SSH 远端（`WorkspaceFS`） |
 
 ## 路线图
 
-- **近期**：单机与 Compose 私有化可用，跑通主流 Agent 框架对接
-- **中期**：更丰富的隔离与后端选择，覆盖从个人调试到小团队自托管
-- **远期**：集群扩展与企业能力（多租户、SSO、合规审计），以及可选的托管服务
+- **近期**：固定环境模型 + Browser QEMU；删除多开沙箱 / E2B 兼容
+- **中期**：Agent 独立 QEMU；镜像可视化定制加深
+- **远期**：Mobile 槽位、集群扩展与企业能力
 
 ## 二进制与模块
 

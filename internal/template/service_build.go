@@ -218,7 +218,7 @@ func (s *Service) runBuild(templateID, buildID string, spec BuildSpec, cacheKey 
 	}
 }
 
-// GetBuildStatus returns build status and logs (E2B-compatible).
+// GetBuildStatus returns build status and logs.
 func (s *Service) GetBuildStatus(ctx context.Context, templateID, buildID string, logsOffset, limit int) (BuildInfo, []LogEntry, error) {
 	info, err := s.store.GetBuild(ctx, templateID, buildID)
 	if err != nil {

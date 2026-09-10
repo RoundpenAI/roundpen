@@ -96,7 +96,7 @@ func TestMapModel(t *testing.T) {
 
 	t.Run("maps known model", func(t *testing.T) {
 		in := []byte(`{"model":"gpt-alias","messages":[{"role":"user","content":"hi"}]}`)
-		out, err := mapModel(in, m)
+		out, err := mapModel(in, m, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,9 +111,9 @@ func TestMapModel(t *testing.T) {
 		}
 	})
 
-	t.Run("passes through unknown model", func(t *testing.T) {
+	t.Run("passes through unknown model without default", func(t *testing.T) {
 		in := []byte(`{"model":"other","messages":[]}`)
-		out, err := mapModel(in, m)
+		out, err := mapModel(in, m, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -122,9 +122,54 @@ func TestMapModel(t *testing.T) {
 		}
 	})
 
+	t.Run("falls back to default for unknown model", func(t *testing.T) {
+		in := []byte(`{"model":"other","messages":[]}`)
+		out, err := mapModel(in, m, "gpt-default")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Model != "gpt-default" {
+			t.Fatalf("model = %q, want gpt-default", parsed.Model)
+		}
+	})
+
+	t.Run("keeps known upstream target", func(t *testing.T) {
+		in := []byte(`{"model":"gpt-real","messages":[]}`)
+		out, err := mapModel(in, m, "gpt-default")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(out) != string(in) {
+			t.Fatalf("body changed: %s", out)
+		}
+	})
+
+	t.Run("default with empty map", func(t *testing.T) {
+		in := []byte(`{"model":"whatever"}`)
+		out, err := mapModel(in, &ModelMatcher{}, "fallback")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(out, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Model != "fallback" {
+			t.Fatalf("model = %q", parsed.Model)
+		}
+	})
+
 	t.Run("passes through non json", func(t *testing.T) {
 		in := []byte(`not json`)
-		out, err := mapModel(in, m)
+		out, err := mapModel(in, m, "x")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,7 +180,7 @@ func TestMapModel(t *testing.T) {
 
 	t.Run("disabled matcher", func(t *testing.T) {
 		in := []byte(`{"model":"gpt-alias"}`)
-		out, err := mapModel(in, &ModelMatcher{})
+		out, err := mapModel(in, &ModelMatcher{}, "")
 		if err != nil {
 			t.Fatal(err)
 		}

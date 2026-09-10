@@ -1,0 +1,5 @@
+out
+.git
+*.qcow2
+*.img
+README.md

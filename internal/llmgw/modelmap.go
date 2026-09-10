@@ -12,6 +12,7 @@ type ModelMatcher struct {
 	exact   map[string]string
 	globs   []globRule
 	regexes []regexRule
+	targets map[string]struct{}
 }
 
 type globRule struct {
@@ -26,9 +27,17 @@ type regexRule struct {
 
 // NewModelMatcher builds a matcher from exact map + ordered patterns.
 func NewModelMatcher(exact map[string]string, patterns []ModelPattern) (*ModelMatcher, error) {
-	m := &ModelMatcher{exact: exact}
+	m := &ModelMatcher{
+		exact:   exact,
+		targets: map[string]struct{}{},
+	}
 	if m.exact == nil {
 		m.exact = map[string]string{}
+	}
+	for _, target := range m.exact {
+		if target != "" {
+			m.targets[target] = struct{}{}
+		}
 	}
 
 	for i, p := range patterns {
@@ -38,6 +47,7 @@ func NewModelMatcher(exact map[string]string, patterns []ModelPattern) (*ModelMa
 		if p.Target == "" {
 			return nil, fmt.Errorf("model_patterns[%d].target is empty", i)
 		}
+		m.targets[p.Target] = struct{}{}
 		if p.Regex {
 			re, err := regexp.Compile(p.Pattern)
 			if err != nil {
@@ -63,6 +73,15 @@ func (m *ModelMatcher) Enabled() bool {
 	return len(m.exact) > 0 || len(m.globs) > 0 || len(m.regexes) > 0
 }
 
+// IsKnownUpstream reports whether model is already an upstream target name.
+func (m *ModelMatcher) IsKnownUpstream(model string) bool {
+	if m == nil || model == "" {
+		return false
+	}
+	_, ok := m.targets[model]
+	return ok
+}
+
 // Map returns the upstream model name and whether a rule matched.
 func (m *ModelMatcher) Map(model string) (string, bool) {
 	if target, ok := m.exact[model]; ok {
@@ -81,8 +100,26 @@ func (m *ModelMatcher) Map(model string) (string, bool) {
 	return model, false
 }
 
-func mapModel(body []byte, matcher *ModelMatcher) ([]byte, error) {
-	if !matcher.Enabled() || len(body) == 0 {
+// Resolve maps a client model, falling back to defaultModel when unknown.
+// Known upstream target names pass through unchanged.
+func (m *ModelMatcher) Resolve(model, defaultModel string) string {
+	if mapped, ok := m.Map(model); ok {
+		return mapped
+	}
+	if defaultModel == "" {
+		return model
+	}
+	if m.IsKnownUpstream(model) {
+		return model
+	}
+	return defaultModel
+}
+
+func mapModel(body []byte, matcher *ModelMatcher, defaultModel string) ([]byte, error) {
+	if len(body) == 0 {
+		return body, nil
+	}
+	if !matcher.Enabled() && defaultModel == "" {
 		return body, nil
 	}
 
@@ -101,12 +138,12 @@ func mapModel(body []byte, matcher *ModelMatcher) ([]byte, error) {
 		return body, nil
 	}
 
-	mapped, ok := matcher.Map(model)
-	if !ok {
+	resolved := matcher.Resolve(model, defaultModel)
+	if resolved == model {
 		return body, nil
 	}
 
-	encoded, err := json.Marshal(mapped)
+	encoded, err := json.Marshal(resolved)
 	if err != nil {
 		return body, err
 	}

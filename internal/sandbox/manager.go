@@ -122,7 +122,10 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 			if resolved.Profile != "" {
 				req.Metadata["profile"] = resolved.Profile
 			}
-			if strings.EqualFold(resolved.Profile, "browser") {
+			if resolved.Slot != "" {
+				req.Metadata["slot"] = resolved.Slot
+			}
+			if strings.EqualFold(resolved.Slot, "browser") || strings.EqualFold(resolved.Profile, "browser") {
 				useImageCmd = true
 			}
 		}
@@ -211,15 +214,31 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		return nil, fmt.Errorf("store insert: %w", err)
 	}
 
+	createEnv := req.Env
+	if createEnv == nil {
+		createEnv = map[string]string{}
+	} else {
+		copied := make(map[string]string, len(req.Env)+1)
+		for k, v := range req.Env {
+			copied[k] = v
+		}
+		createEnv = copied
+	}
+	if slot := sb.Metadata["slot"]; slot != "" {
+		createEnv["ROUNDPEN_SLOT"] = slot
+	}
+
 	engineID, err := s.backend.Create(ctx, backend.CreateOpts{
 		SandboxID:   id,
 		Name:        name,
 		Image:       image,
 		MountDir:    hostPath,
-		Env:         req.Env,
+		Env:         createEnv,
 		CPULimit:    float64(cpuCount),
 		MemoryLimit: int64(memoryMB) * 1024 * 1024,
 		UseImageCmd: useImageCmd,
+		Slot:        sb.Metadata["slot"],
+		Engine:      sb.Metadata["engine"],
 	})
 	if err != nil {
 		sb.Status = StatusFailed
@@ -452,7 +471,7 @@ func (s *Service) SetTimeout(ctx context.Context, id string, ttl time.Duration) 
 }
 
 // Connect returns sandbox details, starting the backend when stopped or paused.
-// The bool is true when the sandbox was resumed (E2B 201); false when already running (E2B 200).
+// The bool is true when the sandbox was resumed; false when already running.
 func (s *Service) Connect(ctx context.Context, id string) (*Sandbox, bool, error) {
 	sb, err := s.load(ctx, id)
 	if err != nil {
@@ -497,7 +516,7 @@ func (s *Service) Connect(ctx context.Context, id string) (*Sandbox, bool, error
 	}
 }
 
-// Refresh extends sandbox TTL from now using the current TTLSeconds (E2B refreshes).
+// Refresh extends sandbox TTL from now using the current TTLSeconds.
 func (s *Service) Refresh(ctx context.Context, id string) (*Sandbox, error) {
 	sb, err := s.load(ctx, id)
 	if err != nil {
@@ -677,7 +696,7 @@ func (s *Service) mountPath(ctx context.Context, sb *Sandbox) (string, error) {
 
 // hydrate re-attaches in-memory backends (kern) after roundpend restart.
 func (s *Service) hydrate(ctx context.Context, sb *Sandbox) error {
-	if s.backend.Name() != "kern" {
+	if !needsKernHydrate(s.backend.Name(), sb) {
 		return nil
 	}
 	mount, err := s.mountPath(ctx, sb)
@@ -689,6 +708,8 @@ func (s *Service) hydrate(ctx context.Context, sb *Sandbox) error {
 		Name:      sb.Name,
 		Image:     sb.Image,
 		MountDir:  mount,
+		Slot:      sb.Metadata["slot"],
+		Engine:    sb.Metadata["engine"],
 	}); err != nil {
 		return fmt.Errorf("hydrate: %w", err)
 	}
@@ -698,6 +719,19 @@ func (s *Service) hydrate(ctx context.Context, sb *Sandbox) error {
 		}
 	}
 	return nil
+}
+
+func needsKernHydrate(backendName string, sb *Sandbox) bool {
+	if backendName == "kern" {
+		return true
+	}
+	if backendName != "multi" || sb == nil {
+		return false
+	}
+	if sb.Metadata != nil && strings.EqualFold(sb.Metadata["engine"], "kern") {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(sb.Image), "host")
 }
 
 func (s *Service) ListFiles(ctx context.Context, id, relPath string) ([]workspace.DirEntry, error) {
@@ -798,6 +832,23 @@ func (s *Service) AttachTerminal(ctx context.Context, id, sessionKey string, opt
 
 func (s *Service) ResizeTerminal(ctx context.Context, id, sessionKey string, rows, cols uint16) error {
 	return s.backend.ResizePTY(ctx, id, sessionKey, rows, cols)
+}
+
+func (s *Service) AttachExec(ctx context.Context, id string, opts AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error {
+	sb, err := s.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if sb.Status != StatusRunning {
+		return fmt.Errorf("sandbox %s is %s", id, sb.Status)
+	}
+	if err := s.hydrate(ctx, sb); err != nil {
+		return err
+	}
+	_ = s.Touch(ctx, id)
+	return s.backend.AttachExec(ctx, id, backend.AttachExecOpts{
+		Cmd: opts.Cmd, WorkDir: opts.WorkDir, Env: opts.Env,
+	}, stdin, stdout, stderr)
 }
 
 var _ Manager = (*Service)(nil)

@@ -10,7 +10,7 @@ import (
 func TestTemplateResolveSandboxResources(t *testing.T) {
 	h := startKernHarness(t)
 
-	resp := h.mustDo(t, http.MethodPost, "/sandboxes", map[string]any{
+	resp := h.mustDo(t, http.MethodPost, "/v1/sandboxes", map[string]any{
 		"templateID": "python",
 		"timeout":    300,
 	})
@@ -38,7 +38,7 @@ func TestTemplateResolveSandboxResources(t *testing.T) {
 		t.Fatal("empty sandboxID")
 	}
 	t.Cleanup(func() {
-		del := h.mustDo(t, http.MethodDelete, "/sandboxes/"+id, nil)
+		del := h.mustDo(t, http.MethodDelete, "/v1/sandboxes/"+id, nil)
 		del.Body.Close()
 	})
 }
@@ -46,7 +46,7 @@ func TestTemplateResolveSandboxResources(t *testing.T) {
 func TestTemplateListIncludesSeeded(t *testing.T) {
 	h := startKernHarness(t)
 
-	resp := h.mustDo(t, http.MethodGet, "/templates", nil)
+	resp := h.mustDo(t, http.MethodGet, "/v1/templates", nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)

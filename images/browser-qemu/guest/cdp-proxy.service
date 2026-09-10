@@ -1,0 +1,12 @@
+[Unit]
+Description=Expose Chrome CDP on the virtio NIC
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP-LISTEN:9222,bind=0.0.0.0,fork,reuseaddr TCP:127.0.0.1:9333
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

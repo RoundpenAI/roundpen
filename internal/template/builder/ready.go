@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// ReadyShell converts E2B-style ready helpers to a shell probe command.
+// ReadyShell converts ready helpers to a shell probe command.
 func ReadyShell(ready string) string {
 	ready = strings.TrimSpace(ready)
 	if ready == "" {

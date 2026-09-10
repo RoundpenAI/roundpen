@@ -11,7 +11,7 @@ import (
 func TestKernAPI_FilesCRUD(t *testing.T) {
 	h := startKernHarness(t)
 
-	resp := h.mustDo(t, http.MethodPost, "/sandboxes", map[string]any{
+	resp := h.mustDo(t, http.MethodPost, "/v1/sandboxes", map[string]any{
 		"templateID": "host",
 		"timeout":    300,
 	})
@@ -84,6 +84,6 @@ func TestKernAPI_FilesCRUD(t *testing.T) {
 		t.Fatalf("delete: %s %s", resp.Status, b)
 	}
 
-	resp = h.mustDo(t, http.MethodDelete, "/sandboxes/"+sid, nil)
+	resp = h.mustDo(t, http.MethodDelete, "/v1/sandboxes/"+sid, nil)
 	defer resp.Body.Close()
 }

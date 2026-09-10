@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
-	"github.com/RoundpenAI/roundpen/internal/api/e2b"
+	"github.com/RoundpenAI/roundpen/internal/api/platform"
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
@@ -81,7 +81,7 @@ func startHarness(t *testing.T, be backend.Backend, fs workspace.FS, dataRoot, d
 
 	mux := http.NewServeMux()
 	auth.Mount(mux, users, sessions, func() bool { return false })
-	(&e2b.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
+	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr}
 	native.Mount(mux)
 	native.MountTerminal(mux)

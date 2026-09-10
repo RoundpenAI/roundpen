@@ -33,6 +33,24 @@ func (g *Gateway) publicBase() string {
 	return g.publicURL
 }
 
+// SetDefaultModel sets the fallback model used when a request model is unknown.
+func (g *Gateway) SetDefaultModel(model string) {
+	g.mu.Lock()
+	g.defaultModel = model
+	g.mu.Unlock()
+}
+
+func (g *Gateway) defaultModelName() string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.defaultModel
+}
+
+// DefaultModel returns the configured fallback model name.
+func (g *Gateway) DefaultModel() string {
+	return g.defaultModelName()
+}
+
 func (g *Gateway) bodyLogLimit() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -56,6 +74,7 @@ func (g *Gateway) ApplyConfig(ctx context.Context, cfg config.LLMGWConfig) error
 	g.SetEnabled(cfg.Enabled)
 	g.SetPublicURL(cfg.PublicURL)
 	g.SetLogBodyMaxBytes(cfg.LogBodyMaxBytes)
+	g.SetDefaultModel(cfg.DefaultModel)
 
 	seed := SeedConfig{Keys: make([]VirtualKey, 0, len(cfg.VirtualKeys))}
 	if cfg.OpenAI != nil {

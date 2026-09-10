@@ -373,6 +373,77 @@ func (b *Backend) ResizePTY(ctx context.Context, sandboxID, sessionKey string, r
 	return pty.Setsize(ptmx, &pty.Winsize{Rows: rows, Cols: cols})
 }
 
+func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend.AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(opts.Cmd) == 0 {
+		return fmt.Errorf("cmd is required")
+	}
+	b.mu.RLock()
+	inst, err := b.getLocked(sandboxID)
+	if err != nil {
+		b.mu.RUnlock()
+		return err
+	}
+	if inst.status != statusRunning {
+		b.mu.RUnlock()
+		return fmt.Errorf("sandbox %s is %s", sandboxID, inst.status)
+	}
+	mount := inst.mount
+	home := inst.home
+	host := guestHostname(sandboxID, inst.name)
+	baseEnv := copyMap(inst.env)
+	b.mu.RUnlock()
+
+	hostWork, err := resolveWorkDir(mount, opts.WorkDir)
+	if err != nil {
+		return err
+	}
+	guestPWD, err := guestWorkDir(mount, hostWork)
+	if err != nil {
+		return err
+	}
+	if _, err := ensureSandboxDirs(mount); err != nil {
+		return err
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+
+	env := buildJailEnv(baseEnv, opts.Env, guestPWD, host)
+	path, args, err := wrapBwrap(host, mount, home, guestPWD, opts.Cmd, env)
+	if err != nil {
+		return err
+	}
+	c := exec.CommandContext(ctx, path, args...)
+	if stdin != nil {
+		c.Stdin = stdin
+	}
+	c.Stdout = stdout
+	c.Stderr = stderr
+	if err := c.Start(); err != nil {
+		return fmt.Errorf("attach exec start: %w", err)
+	}
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- c.Wait() }()
+	select {
+	case <-ctx.Done():
+		_ = c.Process.Kill()
+		<-waitCh
+		return ctx.Err()
+	case err := <-waitCh:
+		if err != nil {
+			if ee, ok := err.(*exec.ExitError); ok {
+				_ = ee
+				return nil
+			}
+			return err
+		}
+		return nil
+	}
+}
+
 func (b *Backend) getLocked(id string) (*instance, error) {
 	inst, ok := b.inst[id]
 	if !ok {

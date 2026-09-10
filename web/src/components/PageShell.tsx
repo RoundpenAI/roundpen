@@ -3,12 +3,13 @@ import { Link, useNavigate } from 'react-router-dom'
 import { doLogout, useAuth } from '../auth'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
 
-export type AppSection = 'sandboxes' | 'templates' | 'settings'
+export type AppSection = 'chats' | 'browser' | 'templates' | 'settings' | 'sandboxes'
 
-const NAV: { id: AppSection; to: string; label: string; admin?: boolean }[] = [
-  { id: 'sandboxes', to: '/', label: 'Sandboxes' },
-  { id: 'templates', to: '/registry', label: 'Templates' },
-  { id: 'settings', to: '/settings', label: 'Settings', admin: true },
+export const NAV: { id: AppSection; to: string; label: string; admin?: boolean }[] = [
+  { id: 'chats', to: '/chats', label: 'Chats' },
+  { id: 'browser', to: '/browser', label: 'Browser' },
+  { id: 'templates', to: '/registry', label: 'Images' },
+  { id: 'settings', to: '/settings', label: 'Settings' },
 ]
 
 type Props = {

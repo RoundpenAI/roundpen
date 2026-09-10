@@ -3,11 +3,13 @@ package template
 // BuiltinNames are seeded system templates that cannot be deleted.
 // Metadata and resources may be edited; image builds can be triggered by admins.
 var BuiltinNames = map[string]struct{}{
-	"host":       {},
-	"base":       {},
-	"python":     {},
-	"node":       {},
-	"code-agent": {},
+	"host":            {},
+	"base":            {},
+	"python":          {},
+	"node":            {},
+	"code-agent":      {},
+	"agent-claude":    {},
+	"browser-desktop": {},
 }
 
 // IsBuiltin reports whether a template row is a seeded built-in.
