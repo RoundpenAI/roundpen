@@ -132,6 +132,14 @@ func TestHandler_navigateAndSnapshot(t *testing.T) {
 		t.Fatalf("url=%q", eng.url)
 	}
 
+	bad, _ := json.Marshal(map[string]string{"url": "file:///etc/passwd"})
+	req = httptest.NewRequest(http.MethodPost, "/v1/sandboxes/sb-1/browser/navigate", bytes.NewReader(bad))
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("file url status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
 	req = httptest.NewRequest(http.MethodGet, "/v1/browser", nil)
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)

@@ -19,7 +19,8 @@ const maxFileBytes = 50 << 20 // 50 MiB
 
 // Handler is the native admin / ops API for sandboxes.
 type Handler struct {
-	Manager sandbox.Manager
+	Manager   sandbox.Manager
+	PublicURL string
 }
 
 type execReq struct {
@@ -78,7 +79,7 @@ func (h *Handler) exec(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, execResp{
@@ -96,7 +97,7 @@ func (h *Handler) stop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

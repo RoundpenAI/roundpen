@@ -76,7 +76,7 @@ func (h *Handler) listTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := h.Templates.List(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	out := make([]templateResp, 0, len(list))

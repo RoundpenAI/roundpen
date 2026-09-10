@@ -259,15 +259,25 @@ func setUpstreamAuth(h http.Header, provider, apiKey string) {
 
 func copyHeaders(dst, src http.Header) {
 	for k, vs := range src {
-		lk := strings.ToLower(k)
-		// Drop hop/auth headers. Skip Accept-Encoding so http.Transport can
-		// negotiate gzip itself and transparently decompress for logging.
-		if lk == "authorization" || lk == "x-api-key" || lk == "host" || lk == "accept-encoding" {
+		// Allowlist only. Omitting Accept-Encoding lets http.Transport negotiate gzip.
+		if !relayHeaderAllowed(k) {
 			continue
 		}
 		for _, v := range vs {
 			dst.Add(k, v)
 		}
+	}
+}
+
+func relayHeaderAllowed(name string) bool {
+	switch strings.ToLower(name) {
+	case "accept", "accept-language", "content-type", "content-length",
+		"anthropic-version", "anthropic-beta", "anthropic-dangerous-direct-browser-access",
+		"openai-beta", "openai-organization", "openai-project",
+		"x-request-id":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -27,10 +27,10 @@ func TestResolveCDPProvider(t *testing.T) {
 			want:   config.CDPProviderDocker,
 		},
 		{
-			name:   "auto kern with chrome",
+			name:   "auto kern with chrome stays docker",
 			cfg:    &config.Config{Backend: "kern", CDP: config.CDPConfig{Provider: "auto"}},
 			chrome: true,
-			want:   config.CDPProviderHost,
+			want:   config.CDPProviderDocker,
 		},
 		{
 			name:   "auto kern without chrome (NAS)",

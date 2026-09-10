@@ -1,6 +1,6 @@
 # Roundpen 项目结构
 
-单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：Agent 槽位 Docker/Kern，Browser 槽位 QEMU。
+单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：Agent 槽位 Docker/Kern（Kern 为开发档弱隔离），Browser 槽位 QEMU。`policy` / `toolgw` 仍是空包。
 
 ## 目录树
 
@@ -16,16 +16,19 @@ roundpen/
 │   │   ├── httpapi/           # exec / files / terminal
 │   │   ├── agentapi/          # Agent sessions + browser CDP UI
 │   │   └── auth/
+│   ├── authz/                 # 请求 Actor（属主 / admin）
+│   ├── httpx/                 # 可信代理、ClientIP / Scheme
 │   ├── userenv/               # 用户 → agent/browser 槽位映射
 │   ├── template/              # 槽位镜像（slot=agent|browser|mobile）
-│   ├── sandbox/               # 环境生命周期 Manager
+│   ├── sandbox/               # 环境生命周期 Manager（按属主隔离）
 │   ├── backend/
 │   │   ├── docker/            # Agent OCI
-│   │   ├── kern/              # 本地免守护
+│   │   ├── kern/              # 本地免守护（弱隔离）
 │   │   ├── qemu/              # Browser/Agent VM（通用）
 │   │   └── multi/             # 按 slot 路由
 │   ├── browser/               # CDP Hub（Dial 进 Browser env）
 │   ├── acp/                   # ACP / sysagent
+│   ├── audit/                 # 最小 slog 审计
 │   └── …
 ├── migrations/
 └── docs/architecture/
@@ -37,8 +40,9 @@ roundpen/
 
 | 包 | 职责 |
 |----|------|
-| `api/platform` | 内部沙箱/模板 HTTP（非对外多开 SDK） |
+| `api/platform` | 内部沙箱/模板 HTTP（非对外多开 SDK）；模板写操作需 admin |
 | `api/envapi` | 固定环境 Ensure + 桌面 WS |
+| `authz` / `httpx` | 属主上下文；可信代理下的 IP / HTTPS 判定 |
 | `userenv` | PG `user_environments` |
 | `template` | slot 镜像配方与构建产物 |
 | `backend/qemu` | qcow2 生命周期、CDP hostfwd、VNC unix sock |
@@ -46,7 +50,7 @@ roundpen/
 
 ## 装配
 
-`roundpend`：config → PG migrate → seed templates → docker|kern + optional qemu → multi → sandbox Manager → platform / envapi / agentapi / browser Hub。
+`roundpend`：config → 可信代理 → PG migrate → seed templates → docker|kern + optional qemu → multi → sandbox Manager → platform / envapi / agentapi / browser Hub。
 
 ## 演进
 

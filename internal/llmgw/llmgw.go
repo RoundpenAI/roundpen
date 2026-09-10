@@ -15,7 +15,7 @@ const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
 
-	defaultLogBodyMaxBytes = 65536
+	defaultLogBodyMaxBytes = 0
 )
 
 // Options configures the gateway.
@@ -42,7 +42,7 @@ type Gateway struct {
 func New(db *storage.DB, opts Options) *Gateway {
 	limit := opts.LogBodyMaxBytes
 	if limit < 0 {
-		limit = defaultLogBodyMaxBytes
+		limit = 0
 	}
 	logger := opts.Logger
 	if logger == nil {

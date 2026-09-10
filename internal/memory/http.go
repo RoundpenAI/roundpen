@@ -7,9 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/RoundpenAI/roundpen/internal/authz"
 )
 
 // Handler exposes memory REST endpoints.
@@ -62,7 +65,12 @@ type putShortReq struct {
 }
 
 func (h *Handler) listShort(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.Store.ListShort(r.Context(), r.PathValue("sid"))
+	sid, err := scopedSession(r.Context(), r.PathValue("sid"))
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	entries, err := h.Store.ListShort(r.Context(), sid)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -87,24 +95,42 @@ func (h *Handler) putShort(w http.ResponseWriter, r *http.Request) {
 	if len(payload) == 0 {
 		payload = []byte("{}")
 	}
+	sid, err := scopedSession(r.Context(), r.PathValue("sid"))
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	e := ShortEntry{
-		ID: id, SessionID: r.PathValue("sid"), Payload: payload,
+		ID: id, SessionID: sid, Payload: payload,
 		ExpiresAt: req.ExpiresAt, CreatedAt: time.Now().UTC(),
 	}
 	if err := h.Store.PutShort(r.Context(), e); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusCreated, e)
 }
 
 func (h *Handler) deleteShort(w http.ResponseWriter, r *http.Request) {
+	e, err := h.Store.GetShort(r.Context(), r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if !ownsSession(r.Context(), e.SessionID) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err := h.Store.DeleteShort(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -193,6 +219,10 @@ func (h *Handler) listMemories(w http.ResponseWriter, r *http.Request) {
 		RunID:   firstNonEmpty(q.Get("run_id"), q.Get("session_id")),
 		Kind:    LongKind(q.Get("kind")),
 	}
+	if err := applyListScope(r.Context(), &f); err != nil {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	if f.AgentID == "" && f.UserID == "" && f.RunID == "" {
 		writeErr(w, http.StatusBadRequest, "agent_id, user_id, or run_id required")
 		return
@@ -219,7 +249,7 @@ func (h *Handler) listMemories(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := h.Store.ListLong(r.Context(), f)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	count, _ := h.Store.CountLong(r.Context(), f)
@@ -240,7 +270,11 @@ func (h *Handler) getMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if err := canAccessMemory(r.Context(), e.UserID); err != nil {
+		writeErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	writeJSON(w, http.StatusOK, toAgentMemory(e, 0))
@@ -285,12 +319,25 @@ func (h *Handler) updateMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) deleteMemory(w http.ResponseWriter, r *http.Request) {
+	e, err := h.Store.GetLong(r.Context(), r.PathValue("id"))
+	if errors.Is(err, ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if err := canAccessMemory(r.Context(), e.UserID); err != nil {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
 	if err := h.Store.DeleteLong(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			writeErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -353,6 +400,28 @@ func filterString(m map[string]any, key string) string {
 	default:
 		return ""
 	}
+}
+
+func scopedSession(ctx context.Context, sid string) (string, error) {
+	a, ok := authz.From(ctx)
+	if !ok {
+		return "", errors.New("unauthorized")
+	}
+	if a.Admin {
+		return sid, nil
+	}
+	return a.Username + ":" + sid, nil
+}
+
+func ownsSession(ctx context.Context, stored string) bool {
+	a, ok := authz.From(ctx)
+	if !ok {
+		return false
+	}
+	if a.Admin {
+		return true
+	}
+	return strings.HasPrefix(stored, a.Username+":")
 }
 
 func firstNonEmpty(a, b string) string {

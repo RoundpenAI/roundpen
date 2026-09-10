@@ -109,7 +109,7 @@ func (f *FS) resolve(id, relPath string) (string, error) {
 	base := f.base(id)
 	cleaned := filepath.Clean(strings.TrimSpace(relPath))
 	if cleaned == "." || cleaned == "" || cleaned == string(filepath.Separator) {
-		return base, nil
+		return confineExisting(base, base)
 	}
 	// Never pass an absolute cleaned path to Join — it would discard base.
 	cleaned = strings.TrimPrefix(cleaned, string(filepath.Separator))
@@ -121,12 +121,94 @@ func (f *FS) resolve(id, relPath string) (string, error) {
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path escapes workspace")
 	}
-	return full, nil
+	return confinePath(base, full)
+}
+
+func stayUnder(base, path string) error {
+	rel, err := filepath.Rel(base, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("path escapes workspace")
+	}
+	return nil
+}
+
+func confineExisting(base, path string) (string, error) {
+	if err := stayUnder(base, path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func followIfSafe(base, path string) (string, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		return path, nil
+	}
+	target, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("path escapes workspace")
+	}
+	if err := stayUnder(base, target); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+// confinePath walks parent directories with Lstat. Intermediate symlinks may
+// be followed only when the target stays under base. The final component is
+// returned as-is so callers can unlink a dangling or outbound symlink.
+func confinePath(base, full string) (string, error) {
+	rel, err := filepath.Rel(base, full)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path escapes workspace")
+	}
+	if rel == "." {
+		return confineExisting(base, base)
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	current := base
+	for i, part := range parts {
+		if part == "." || part == "" {
+			continue
+		}
+		next := filepath.Join(current, part)
+		last := i == len(parts)-1
+		fi, err := os.Lstat(next)
+		if os.IsNotExist(err) {
+			return full, nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			if last {
+				return next, nil
+			}
+			target, err := filepath.EvalSymlinks(next)
+			if err != nil {
+				return "", fmt.Errorf("path escapes workspace")
+			}
+			if err := stayUnder(base, target); err != nil {
+				return "", err
+			}
+			current = target
+			continue
+		}
+		current = next
+	}
+	return current, nil
 }
 
 func (f *FS) Open(ctx context.Context, id, relPath string) (io.ReadCloser, error) {
 	_ = ctx
 	p, err := f.resolve(id, relPath)
+	if err != nil {
+		return nil, err
+	}
+	p, err = followIfSafe(f.base(id), p)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +223,11 @@ func (f *FS) Write(ctx context.Context, id, relPath string, r io.Reader) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
+	}
+	if _, err := os.Lstat(p); err == nil {
+		if _, err := followIfSafe(f.base(id), p); err != nil {
+			return err
+		}
 	}
 	file, err := os.Create(p)
 	if err != nil {
@@ -157,12 +244,20 @@ func (f *FS) Stat(ctx context.Context, id, relPath string) (os.FileInfo, error) 
 	if err != nil {
 		return nil, err
 	}
+	p, err = followIfSafe(f.base(id), p)
+	if err != nil {
+		return nil, err
+	}
 	return os.Stat(p)
 }
 
 func (f *FS) List(ctx context.Context, id, relPath string) ([]workspace.DirEntry, error) {
 	_ = ctx
 	p, err := f.resolve(id, relPath)
+	if err != nil {
+		return nil, err
+	}
+	p, err = followIfSafe(f.base(id), p)
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +285,13 @@ func (f *FS) RemovePath(ctx context.Context, id, relPath string) error {
 	p, err := f.resolve(id, relPath)
 	if err != nil {
 		return err
+	}
+	fi, err := os.Lstat(p)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return os.Remove(p)
 	}
 	return os.RemoveAll(p)
 }

@@ -244,8 +244,7 @@ func (b *Backend) Dial(ctx context.Context, sandboxID string, destPort int) (net
 	if inst.status != statusRunning {
 		return nil, fmt.Errorf("sandbox %s is %s", sandboxID, inst.status)
 	}
-	var d net.Dialer
-	return d.DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", destPort))
+	return nil, fmt.Errorf("preview is not supported on the kern backend")
 }
 
 func (b *Backend) AttachPTY(ctx context.Context, sandboxID, sessionKey string, opts backend.PTYOpts, stdin io.Reader, stdout io.Writer) error {

@@ -75,7 +75,7 @@ func NewSandboxStore(db *DB) *SandboxStore {
 
 const sandboxCols = `id, container_id, image, status, workspace_id, workspace_path,
 	metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at, name, category, is_default,
-	cpu_count, memory_mb, disk_size_mb, template_build_id`
+	cpu_count, memory_mb, disk_size_mb, template_build_id, COALESCE(owner, '')`
 
 // Insert creates a sandbox row.
 func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
@@ -90,11 +90,11 @@ func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
 		INSERT INTO sandboxes (
 			id, container_id, image, status, workspace_id, workspace_path,
 			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at,
-			name, category, is_default, cpu_count, memory_mb, disk_size_mb, template_build_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+			name, category, is_default, cpu_count, memory_mb, disk_size_mb, template_build_id, owner
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
 		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
 		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.CreatedAt, sb.UpdatedAt,
-		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild,
+		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild, sb.Owner,
 	)
 	return mapUniqueViolation(err)
 }
@@ -113,11 +113,11 @@ func (s *SandboxStore) Update(ctx context.Context, sb *sandbox.Sandbox) error {
 			container_id=$2, image=$3, status=$4, workspace_id=$5, workspace_path=$6,
 			metadata=$7, ttl_seconds=$8, expires_at=$9, last_active_at=$10, updated_at=$11,
 			name=$12, category=$13, is_default=$14, cpu_count=$15, memory_mb=$16,
-			disk_size_mb=$17, template_build_id=$18
+			disk_size_mb=$17, template_build_id=$18, owner=$19
 		WHERE id=$1 AND deleted_at IS NULL`,
 		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
 		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.UpdatedAt,
-		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild,
+		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild, sb.Owner,
 	)
 	if err != nil {
 		return mapUniqueViolation(err)
@@ -155,27 +155,39 @@ func (s *SandboxStore) Get(ctx context.Context, id string) (*sandbox.Sandbox, er
 }
 
 // GetByName returns a sandbox by case-insensitive name.
-func (s *SandboxStore) GetByName(ctx context.Context, name string) (*sandbox.Sandbox, error) {
+func (s *SandboxStore) GetByName(ctx context.Context, name, owner string) (*sandbox.Sandbox, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return nil, sandbox.ErrNotFound
 	}
-	row := s.db.SQL.QueryRowContext(ctx, `
-		SELECT `+sandboxCols+`
-		FROM sandboxes WHERE deleted_at IS NULL AND lower(name)=lower($1)`, name)
+	q := `
+		SELECT ` + sandboxCols + `
+		FROM sandboxes WHERE deleted_at IS NULL AND lower(name)=lower($1)`
+	args := []any{name}
+	if owner != "" {
+		q += ` AND owner=$2`
+		args = append(args, owner)
+	}
+	row := s.db.SQL.QueryRowContext(ctx, q, args...)
 	return scanSandbox(row)
 }
 
 // GetDefaultByCategory returns the default sandbox in a category, if any.
-func (s *SandboxStore) GetDefaultByCategory(ctx context.Context, category string) (*sandbox.Sandbox, error) {
+func (s *SandboxStore) GetDefaultByCategory(ctx context.Context, category, owner string) (*sandbox.Sandbox, error) {
 	category = strings.TrimSpace(category)
 	if category == "" {
 		return nil, sandbox.ErrNotFound
 	}
-	row := s.db.SQL.QueryRowContext(ctx, `
-		SELECT `+sandboxCols+`
+	q := `
+		SELECT ` + sandboxCols + `
 		FROM sandboxes
-		WHERE deleted_at IS NULL AND is_default AND lower(category)=lower($1)`, category)
+		WHERE deleted_at IS NULL AND is_default AND lower(category)=lower($1)`
+	args := []any{category}
+	if owner != "" {
+		q += ` AND owner=$2`
+		args = append(args, owner)
+	}
+	row := s.db.SQL.QueryRowContext(ctx, q, args...)
 	return scanSandbox(row)
 }
 
@@ -209,15 +221,20 @@ func (s *SandboxStore) ListByCategory(ctx context.Context, category string) ([]*
 }
 
 // ClearDefaultInCategory clears is_default for other sandboxes in the category.
-func (s *SandboxStore) ClearDefaultInCategory(ctx context.Context, category, exceptID string) error {
+func (s *SandboxStore) ClearDefaultInCategory(ctx context.Context, category, exceptID, owner string) error {
 	category = strings.TrimSpace(category)
 	if category == "" {
 		return nil
 	}
-	_, err := s.db.SQL.ExecContext(ctx, `
+	q := `
 		UPDATE sandboxes SET is_default=false, updated_at=now()
-		WHERE deleted_at IS NULL AND is_default AND lower(category)=lower($1) AND id<>$2`,
-		category, exceptID)
+		WHERE deleted_at IS NULL AND is_default AND lower(category)=lower($1) AND id<>$2`
+	args := []any{category, exceptID}
+	if owner != "" {
+		q += ` AND owner=$3`
+		args = append(args, owner)
+	}
+	_, err := s.db.SQL.ExecContext(ctx, q, args...)
 	return err
 }
 
@@ -248,7 +265,7 @@ func scanSandbox(row scannable) (*sandbox.Sandbox, error) {
 	err := row.Scan(
 		&sb.ID, &sb.ContainerID, &sb.Image, &status, &sb.WorkspaceID, &sb.WorkspacePath,
 		&metaRaw, &sb.TTLSeconds, &expires, &sb.LastActiveAt, &sb.CreatedAt, &sb.UpdatedAt,
-		&sb.Name, &sb.Category, &sb.IsDefault, &sb.CPUCount, &sb.MemoryMB, &sb.DiskSizeMB, &sb.TemplateBuild,
+		&sb.Name, &sb.Category, &sb.IsDefault, &sb.CPUCount, &sb.MemoryMB, &sb.DiskSizeMB, &sb.TemplateBuild, &sb.Owner,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, sandbox.ErrNotFound

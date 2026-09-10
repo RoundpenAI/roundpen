@@ -14,10 +14,15 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/RoundpenAI/roundpen/internal/audit"
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
+
+// ErrUnauthorized is returned when a Manager method is called without an actor.
+var ErrUnauthorized = errors.New("unauthorized")
 
 // BrowserCloser tears down a host-side browser sidecar for a sandbox.
 type BrowserCloser interface {
@@ -163,8 +168,12 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	}
 	category := NormalizeCategory(req.Category)
 	isDefault := req.IsDefault && category != ""
+	actor, err := requireActor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if isDefault {
-		if err := s.store.ClearDefaultInCategory(ctx, category, id); err != nil {
+		if err := s.store.ClearDefaultInCategory(ctx, category, id, actor.Username); err != nil {
 			_ = s.fs.Remove(ctx, wsID)
 			return nil, err
 		}
@@ -174,6 +183,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		Name:          name,
 		Category:      category,
 		IsDefault:     isDefault,
+		Owner:         actor.Username,
 		Status:        StatusCreating,
 		Image:         image,
 		WorkspaceID:   wsID,
@@ -267,23 +277,62 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		s.templates.RecordSpawn(ctx, internalTemplateID)
 	}
 	s.logger.Info("sandbox created", slog.String("id", id), slog.String("image", image), slog.String("template", templateRef))
+	audit.Record(ctx, "sandbox.create", "sandbox_id", id, "image", image, "backend", s.backend.Name())
 	return sb, nil
 }
 
-func (s *Service) Get(ctx context.Context, id string) (*Sandbox, error) {
+func requireActor(ctx context.Context) (authz.Actor, error) {
+	a, ok := authz.From(ctx)
+	if !ok {
+		return authz.Actor{}, ErrUnauthorized
+	}
+	return a, nil
+}
+
+func (s *Service) load(ctx context.Context, id string) (*Sandbox, error) {
 	sb, err := s.store.Get(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := authorize(ctx, sb); err != nil {
 		return nil, err
 	}
 	fillDefaultName(sb)
 	return sb, nil
 }
 
+func authorize(ctx context.Context, sb *Sandbox) error {
+	a, err := requireActor(ctx)
+	if err != nil {
+		return err
+	}
+	if !a.CanAccess(sb.Owner) {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func ownerScope(ctx context.Context) (owner string, admin bool, err error) {
+	a, err := requireActor(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	if a.Admin {
+		return "", true, nil
+	}
+	return a.Username, false, nil
+}
+
+func (s *Service) Get(ctx context.Context, id string) (*Sandbox, error) {
+	return s.load(ctx, id)
+}
+
 func (s *Service) List(ctx context.Context, filter ListFilter) ([]*Sandbox, error) {
-	var (
-		list []*Sandbox
-		err  error
-	)
+	owner, admin, err := ownerScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var list []*Sandbox
 	if cat := NormalizeCategory(filter.Category); cat != "" {
 		list, err = s.store.ListByCategory(ctx, cat)
 	} else {
@@ -292,16 +341,32 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]*Sandbox, erro
 	if err != nil {
 		return nil, err
 	}
+	out := make([]*Sandbox, 0, len(list))
 	for _, sb := range list {
+		if !admin && sb.Owner != owner {
+			continue
+		}
 		fillDefaultName(sb)
+		out = append(out, sb)
 	}
-	return list, nil
+	return out, nil
 }
 
 func (s *Service) Resolve(ctx context.Context, req ResolveRequest) (*Sandbox, error) {
+	owner, admin, err := ownerScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if name := NormalizeName(req.Name); name != "" {
-		sb, err := s.store.GetByName(ctx, name)
+		lookupOwner := owner
+		if admin {
+			lookupOwner = ""
+		}
+		sb, err := s.store.GetByName(ctx, name, lookupOwner)
 		if err != nil {
+			return nil, err
+		}
+		if err := authorize(ctx, sb); err != nil {
 			return nil, err
 		}
 		fillDefaultName(sb)
@@ -311,24 +376,33 @@ func (s *Service) Resolve(ctx context.Context, req ResolveRequest) (*Sandbox, er
 	if cat == "" {
 		return nil, fmt.Errorf("name or category is required")
 	}
-	sb, err := s.store.GetDefaultByCategory(ctx, cat)
+	lookupOwner := owner
+	if admin {
+		lookupOwner = ""
+	}
+	sb, err := s.store.GetDefaultByCategory(ctx, cat, lookupOwner)
 	if err == nil {
+		if err := authorize(ctx, sb); err != nil {
+			return nil, err
+		}
 		fillDefaultName(sb)
 		return sb, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
-	// No explicit default: pick most recently active in the category.
 	list, listErr := s.store.ListByCategory(ctx, cat)
 	if listErr != nil {
 		return nil, listErr
 	}
-	if len(list) == 0 {
-		return nil, ErrNotFound
+	for _, cand := range list {
+		if !admin && cand.Owner != owner {
+			continue
+		}
+		fillDefaultName(cand)
+		return cand, nil
 	}
-	fillDefaultName(list[0])
-	return list[0], nil
+	return nil, ErrNotFound
 }
 
 func fillDefaultName(sb *Sandbox) {
@@ -338,7 +412,7 @@ func fillDefaultName(sb *Sandbox) {
 }
 
 func (s *Service) Stop(ctx context.Context, id string) error {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -354,7 +428,7 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -370,11 +444,15 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 			_ = s.fs.Remove(ctx, sb.WorkspaceID)
 		}
 	}
-	return s.store.SoftDelete(ctx, id, time.Now().UTC())
+	if err := s.store.SoftDelete(ctx, id, time.Now().UTC()); err != nil {
+		return err
+	}
+	audit.Record(ctx, "sandbox.delete", "sandbox_id", id)
+	return nil
 }
 
 func (s *Service) SetTimeout(ctx context.Context, id string, ttl time.Duration) (*Sandbox, error) {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -395,7 +473,7 @@ func (s *Service) SetTimeout(ctx context.Context, id string, ttl time.Duration) 
 // Connect returns sandbox details, starting the backend when stopped or paused.
 // The bool is true when the sandbox was resumed; false when already running.
 func (s *Service) Connect(ctx context.Context, id string) (*Sandbox, bool, error) {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return nil, false, err
 	}
@@ -440,7 +518,7 @@ func (s *Service) Connect(ctx context.Context, id string) (*Sandbox, bool, error
 
 // Refresh extends sandbox TTL from now using the current TTLSeconds.
 func (s *Service) Refresh(ctx context.Context, id string) (*Sandbox, error) {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -457,7 +535,7 @@ func (s *Service) Rename(ctx context.Context, id, name string) (*Sandbox, error)
 }
 
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Sandbox, error) {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -478,7 +556,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Sa
 		sb.IsDefault = false
 	}
 	if sb.IsDefault {
-		if err := s.store.ClearDefaultInCategory(ctx, sb.Category, sb.ID); err != nil {
+		if err := s.store.ClearDefaultInCategory(ctx, sb.Category, sb.ID, sb.Owner); err != nil {
 			return nil, err
 		}
 	}
@@ -552,7 +630,7 @@ func defaultName(id string) string {
 }
 
 func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecResult, error) {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -572,11 +650,12 @@ func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecRe
 		return nil, err
 	}
 	_ = s.Touch(ctx, id)
+	audit.Record(ctx, "sandbox.exec", "sandbox_id", id, "exit_code", res.ExitCode)
 	return &ExecResult{ExitCode: res.ExitCode, Stdout: res.Stdout, Stderr: res.Stderr}, nil
 }
 
 func (s *Service) workspaceID(ctx context.Context, id string) (string, error) {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -588,7 +667,7 @@ func (s *Service) workspaceID(ctx context.Context, id string) (string, error) {
 
 // WorkspaceHostPath returns the absolute host directory for a sandbox workspace.
 func (s *Service) WorkspaceHostPath(ctx context.Context, id string) (string, error) {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return "", err
 	}
@@ -705,7 +784,7 @@ func (s *Service) RemoveFile(ctx context.Context, id, relPath string) error {
 }
 
 func (s *Service) Dial(ctx context.Context, id string, port int) (net.Conn, error) {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -719,7 +798,7 @@ func (s *Service) Dial(ctx context.Context, id string, port int) (net.Conn, erro
 }
 
 func (s *Service) Touch(ctx context.Context, id string) error {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -734,7 +813,7 @@ func (s *Service) Touch(ctx context.Context, id string) error {
 }
 
 func (s *Service) AttachTerminal(ctx context.Context, id, sessionKey string, opts TerminalOpts, stdin io.Reader, stdout io.Writer) error {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return err
 	}

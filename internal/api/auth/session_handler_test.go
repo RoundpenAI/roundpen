@@ -163,6 +163,79 @@ func TestHealthIsPublic(t *testing.T) {
 	}
 }
 
+func TestChangePassword(t *testing.T) {
+	h, users := newSessionTestMux(t, false)
+	hash, err := HashPassword("old-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Upsert(t.Context(), storage.User{
+		Username:     "carol",
+		Email:        "carol@example.com",
+		APIKey:       "rp-carol",
+		Role:         storage.RoleUser,
+		PasswordHash: hash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	loginBody, _ := json.Marshal(map[string]string{
+		"user": "carol", "password": "old-secret",
+	})
+	req := httptest.NewRequest("POST", "/v1/auth/login", bytes.NewReader(loginBody))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected session cookie")
+	}
+
+	wrongBody, _ := json.Marshal(map[string]string{
+		"current_password": "nope", "new_password": "new-secret1",
+	})
+	req = httptest.NewRequest("POST", "/v1/auth/password", bytes.NewReader(wrongBody))
+	req.AddCookie(sessionCookie)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong current password status = %d", rec.Code)
+	}
+
+	okBody, _ := json.Marshal(map[string]string{
+		"current_password": "old-secret", "new_password": "new-secret1",
+	})
+	req = httptest.NewRequest("POST", "/v1/auth/password", bytes.NewReader(okBody))
+	req.AddCookie(sessionCookie)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("change password status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	fresh, err := users.GetByUsername(t.Context(), "carol")
+	if err != nil || !CheckPassword(fresh.PasswordHash, "new-secret1") {
+		t.Fatalf("password not updated: err=%v", err)
+	}
+
+	loginBody, _ = json.Marshal(map[string]string{
+		"user": "carol", "password": "new-secret1",
+	})
+	req = httptest.NewRequest("POST", "/v1/auth/login", bytes.NewReader(loginBody))
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login with new password status = %d", rec.Code)
+	}
+}
+
 func TestEnsurePassword(t *testing.T) {
 	users := storage.NewMemoryUserStore()
 	u := storage.User{Username: "admin", Email: "admin@example.com", APIKey: "rp-x", Role: storage.RoleAdmin}

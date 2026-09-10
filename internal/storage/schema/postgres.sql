@@ -60,11 +60,17 @@ ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS is_default BOOLEAN NOT NULL DEFAU
 CREATE INDEX IF NOT EXISTS sandboxes_status_idx ON sandboxes (status) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS sandboxes_expires_at_idx ON sandboxes (expires_at) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS sandboxes_category_idx ON sandboxes (lower(category)) WHERE deleted_at IS NULL AND category <> '';
-CREATE UNIQUE INDEX IF NOT EXISTS sandboxes_name_uniq
-    ON sandboxes (lower(name))
+ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT '';
+UPDATE sandboxes SET owner = 'admin' WHERE owner = '';
+CREATE INDEX IF NOT EXISTS sandboxes_owner_idx ON sandboxes (owner) WHERE deleted_at IS NULL;
+
+DROP INDEX IF EXISTS sandboxes_name_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS sandboxes_owner_name_uniq
+    ON sandboxes (owner, lower(name))
     WHERE deleted_at IS NULL AND name <> '';
-CREATE UNIQUE INDEX IF NOT EXISTS sandboxes_category_default_uniq
-    ON sandboxes (lower(category))
+DROP INDEX IF EXISTS sandboxes_category_default_uniq;
+CREATE UNIQUE INDEX IF NOT EXISTS sandboxes_owner_category_default_uniq
+    ON sandboxes (owner, lower(category))
     WHERE deleted_at IS NULL AND is_default AND category <> '';
 
 -- LLM gateway (virtual keys, upstream vault, request log)

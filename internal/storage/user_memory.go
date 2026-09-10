@@ -22,7 +22,7 @@ func (m *MemoryUserStore) GetByAPIKey(_ context.Context, apiKey string) (*User, 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, u := range m.users {
-		if u.APIKey == apiKey {
+		if u.APIKey == apiKey || u.APIKey == HashAPIKey(apiKey) {
 			cp := u
 			return &cp, nil
 		}
@@ -80,6 +80,7 @@ func (m *MemoryUserStore) Upsert(_ context.Context, user User) error {
 		user.Role = RoleUser
 	}
 	user.UpdatedAt = time.Now().UTC()
+	user.APIKey = storedAPIKey(user.APIKey)
 	m.users[user.Username] = user
 	return nil
 }

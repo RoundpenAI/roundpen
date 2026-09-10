@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/audit"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -97,6 +98,7 @@ func (s *Service) Update(ctx context.Context, next AppSettings) error {
 	s.mu.Lock()
 	s.current = next
 	s.mu.Unlock()
+	audit.Record(ctx, "settings.update")
 	return nil
 }
 

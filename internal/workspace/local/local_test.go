@@ -64,3 +64,33 @@ func TestPathEscapeRejected(t *testing.T) {
 		t.Fatal("expected refuse root remove")
 	}
 }
+
+func TestSymlinkEscapeRejected(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("nope"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fs := local.New(root)
+	ctx := context.Background()
+	info, err := fs.Create(ctx, "ws1", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(info.HostPath, "leak")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.Open(ctx, "ws1", "leak"); err == nil {
+		t.Fatal("expected symlink escape error")
+	}
+	if _, err := fs.Stat(ctx, "ws1", "leak"); err == nil {
+		t.Fatal("expected symlink escape error")
+	}
+	if err := fs.RemovePath(ctx, "ws1", "leak"); err != nil {
+		t.Fatalf("remove symlink: %v", err)
+	}
+	if _, err := os.Stat(secret); err != nil {
+		t.Fatalf("outside file must remain: %v", err)
+	}
+}

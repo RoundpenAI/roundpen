@@ -10,10 +10,10 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 
 - **轻量自托管**：单二进制控制面，面向 NAS、笔记本与单机服务器
 - **固定环境槽位**：登录即可用 **Cloud Agent**、**Browser**（及后续 Mobile），一槽位一机器；不是多开沙箱 SDK
-- **可插拔后端**：Agent 槽位默认 Docker / Kern；Browser 槽位使用 **QEMU**（qcow2 + CDP hostfwd + VNC unix sock）
+- **可插拔后端**：Agent 槽位默认 Docker / Kern（Kern 为开发用弱隔离）；Browser 槽位使用 **QEMU**（qcow2 + CDP hostfwd + VNC unix sock）
 - **可定制镜像**：Templates = 槽位镜像配方（`slot=agent|browser`）；Agent→OCI，Browser→qcow2
 - **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）
-- **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key
+- **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key（入库为哈希）；沙箱/记忆按属主隔离
 - **开源核心**：Apache 2.0；企业能力走 Open Core
 
 ## 产品模型
@@ -33,7 +33,7 @@ Browser: Chrome CDP :9222 via hostfwd；桌面 = QEMU -vnc unix:…/vnc.sock →
 
 | 层级 | 说明 |
 |------|------|
-| 控制面 | 网关、策略、审计、记忆、工具 / LLM 网关、`/v1/me/environments` |
+| 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、`/v1/me/environments`。`policy` / `toolgw` 仍是空包 |
 | 环境抽象 | Sandbox Manager + 用户槽位映射（`user_environments`） |
 | 后端 | Docker / Kern（agent）+ QEMU（browser）；`multi` 按 slot 路由 |
 | 镜像 | `internal/template`（slot）+ `images/browser-qemu/` |
@@ -42,11 +42,12 @@ Browser: Chrome CDP :9222 via hostfwd；桌面 = QEMU -vnc unix:…/vnc.sock →
 
 ## 核心能力
 
-1. **固定环境**：`EnsureBrowser` / `EnsureAgent`；API `/v1/me/environments`
-2. **记忆与文件**：PostgreSQL + `/workspace` 挂载
-3. **LLM 网关**：Anthropic / OpenAI 透传；内部 Virtual Key
+1. **固定环境**：`EnsureBrowser` / `EnsureAgent`；API `/v1/me/environments`；按属主隔离，admin 可看全部
+2. **记忆与文件**：PostgreSQL + `/workspace` 挂载；长期记忆绑定登录身份
+3. **LLM 网关**：Anthropic / OpenAI 透传；内部 Virtual Key；请求流水进 PG（默认不记 body）
 4. **Web 控制台**：Chats / Browser / Images（镜像）/ Settings
 5. **ACP Agent 网关**：会话 UI；Browser CDP 绑用户 Browser 环境
+6. **最小审计**：创建 / 删除 / exec / settings 写 slog
 
 ## 快速开始
 

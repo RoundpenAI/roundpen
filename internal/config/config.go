@@ -31,6 +31,7 @@ type Config struct {
 	LLMGW                   LLMGWConfig
 	PreviewPublicURL        string        // absolute base URL for preview links
 	PreviewTokenTTL         time.Duration // default 15m
+	TrustedProxies          string        // comma-separated CIDRs that may send X-Forwarded-*
 	TemplateBuilder         string        // docker | kaniko | auto
 	KanikoExecutor          string
 	KanikoDestination       string
@@ -63,6 +64,7 @@ func Load() (*Config, error) {
 		LogLevel:                slog.LevelInfo,
 		PreviewPublicURL:        os.Getenv("ROUNDPEN_PREVIEW_PUBLIC_URL"),
 		PreviewTokenTTL:         15 * time.Minute,
+		TrustedProxies:          strings.TrimSpace(os.Getenv("ROUNDPEN_TRUSTED_PROXIES")),
 		TemplateBuilder:         strings.ToLower(strings.TrimSpace(os.Getenv("ROUNDPEN_TEMPLATE_BUILDER"))),
 		KanikoExecutor:          getenv("ROUNDPEN_KANIKO_EXECUTOR", "executor"),
 		KanikoDestination:       strings.TrimSpace(os.Getenv("ROUNDPEN_KANIKO_DESTINATION")),

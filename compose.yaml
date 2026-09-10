@@ -23,9 +23,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    ports:
-      # Optional: expose for host-side tools / pg0-less local API.
-      - "${POSTGRES_PORT:-5432}:5432"
+    # Do not publish Postgres on the host by default. For host-side tools:
+    #   ports:
+    #     - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
 
   roundpend:
     build:

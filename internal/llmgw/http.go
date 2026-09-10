@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -28,17 +30,17 @@ func (g *Gateway) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("/llmgw/anthropic/", g.serveAnthropic)
 	mux.HandleFunc("/llmgw/openai/", g.serveOpenAI)
 
-	mux.HandleFunc("GET /v1/llmgw/virtual-keys", g.handleVirtualKeys)
-	mux.HandleFunc("GET /v1/llmgw/logs", g.handleLogs)
-	mux.HandleFunc("GET /v1/llmgw/logs/{id}", g.handleLogDetail)
-	mux.HandleFunc("GET /v1/llmgw/stats", g.handleStats)
-	mux.HandleFunc("GET /v1/llmgw/setup", g.handleSetup)
+	mux.HandleFunc("GET /v1/llmgw/virtual-keys", auth.RequireAdmin(g.handleVirtualKeys))
+	mux.HandleFunc("GET /v1/llmgw/logs", auth.RequireAdmin(g.handleLogs))
+	mux.HandleFunc("GET /v1/llmgw/logs/{id}", auth.RequireAdmin(g.handleLogDetail))
+	mux.HandleFunc("GET /v1/llmgw/stats", auth.RequireAdmin(g.handleStats))
+	mux.HandleFunc("GET /v1/llmgw/setup", auth.RequireAdmin(g.handleSetup))
 }
 
 func (g *Gateway) handleVirtualKeys(w http.ResponseWriter, r *http.Request) {
 	keys, err := g.store.ListVirtualKeys(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	type keyInfo struct {
@@ -48,7 +50,7 @@ func (g *Gateway) handleVirtualKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]keyInfo, 0, len(keys))
 	for _, vk := range keys {
-		out = append(out, keyInfo{Key: vk.Key, Name: vk.Name, Enabled: vk.Enabled})
+		out = append(out, keyInfo{Key: maskVirtualKey(vk.Key), Name: vk.Name, Enabled: vk.Enabled})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -62,7 +64,7 @@ func (g *Gateway) handleLogs(w http.ResponseWriter, r *http.Request) {
 		Offset:     parseIntDefault(q.Get("offset"), 0),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, logs)
@@ -90,7 +92,7 @@ func (g *Gateway) handleLogDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	detail := logDetail{Transaction: tx}
@@ -108,7 +110,7 @@ func (g *Gateway) handleLogDetail(w http.ResponseWriter, r *http.Request) {
 func (g *Gateway) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := g.store.Stats(r.Context(), r.URL.Query().Get("virtual_key"))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
@@ -137,15 +139,20 @@ type setupResponse struct {
 func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
 	upstreams, err := g.store.ListUpstreams(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	keys, err := g.store.ListVirtualKeys(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
+	masked := make([]VirtualKey, 0, len(keys))
+	for _, vk := range keys {
+		vk.Key = maskVirtualKey(vk.Key)
+		masked = append(masked, vk)
+	}
 	out := setupResponse{
 		BaseURL:   publicBaseURL(r, g.publicBase()),
 		Providers: map[string]setupProvider{},
@@ -153,7 +160,7 @@ func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
 			ProviderAnthropic: {},
 			ProviderOpenAI:    {},
 		},
-		VirtualKeys: keys,
+		VirtualKeys: masked,
 	}
 
 	for _, u := range upstreams {
@@ -194,17 +201,7 @@ func publicBaseURL(r *http.Request, configured string) string {
 	if u := strings.TrimRight(strings.TrimSpace(configured), "/"); u != "" {
 		return u
 	}
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	} else if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = strings.TrimSpace(strings.Split(proto, ",")[0])
-	}
-	host := r.Host
-	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
-		host = strings.TrimSpace(strings.Split(fwd, ",")[0])
-	}
-	return scheme + "://" + host
+	return httpx.DefaultTrust.Scheme(r) + "://" + httpx.DefaultTrust.Host(r)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

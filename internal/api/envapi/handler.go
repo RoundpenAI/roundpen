@@ -154,7 +154,7 @@ func (h *Handler) desktopLink(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	token, exp, err := h.Tokens.Issue(sb.ID, 0) // port 0 = desktop/VNC
+	token, exp, err := h.Tokens.Issue(sb.ID, 0, user.Username) // port 0 = desktop/VNC
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -190,7 +190,7 @@ func (h *Handler) desktopWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token := r.URL.Query().Get("token")
-	sandboxID, _, ok := h.Tokens.Lookup(token)
+	sandboxID, _, _, ok := h.Tokens.Lookup(token)
 	if !ok || sandboxID == "" {
 		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
 		return

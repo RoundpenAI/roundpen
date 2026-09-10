@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/preview"
@@ -78,6 +80,13 @@ func main() {
 		logger.Error("migrate", slog.Any("err", err))
 		os.Exit(1)
 	}
+
+	trust, err := httpx.ParseTrust(cfg.TrustedProxies)
+	if err != nil {
+		logger.Error("trusted proxies", slog.Any("err", err))
+		os.Exit(1)
+	}
+	httpx.SetDefaultTrust(trust)
 
 	settingsStore := settings.NewStore(db.SQL)
 	appSettings, err := settings.Bootstrap(ctx, settingsStore, cfg)
@@ -181,7 +190,7 @@ func main() {
 	mux := http.NewServeMux()
 	auth.Mount(mux, userStore, sessionStore, allowRegistration)
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
-	native := &httpapi.Handler{Manager: mgr}
+	native := &httpapi.Handler{Manager: mgr, PublicURL: firstNonEmpty(cfg.PreviewPublicURL, cfg.LLMGW.PublicURL)}
 	native.Mount(mux)
 	native.MountTerminal(mux)
 	(&browser.Handler{Sandboxes: mgr, Hub: browserHub}).Mount(mux)
@@ -320,6 +329,9 @@ func main() {
 		Addr:              cfg.HTTPAddr,
 		Handler:           auth.Middleware(userStore, sessionStore)(mux),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      0, // LLM relay and terminal WS stream past a write deadline
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
@@ -353,4 +365,13 @@ func newWorkspaceFS(cfg *config.Config, dataRoot string, logger *slog.Logger) (w
 		return nil, err
 	}
 	return local.New(dataRoot), nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

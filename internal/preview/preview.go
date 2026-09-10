@@ -17,6 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
@@ -32,6 +35,7 @@ type Store struct {
 type entry struct {
 	SandboxID string
 	Port      int
+	Owner     string
 	Expires   time.Time
 }
 
@@ -54,7 +58,7 @@ func (s *Store) SetTTL(ttl time.Duration) {
 }
 
 // Issue creates a token for sandboxID:port.
-func (s *Store) Issue(sandboxID string, port int) (token string, expires time.Time, err error) {
+func (s *Store) Issue(sandboxID string, port int, owner string) (token string, expires time.Time, err error) {
 	var b [16]byte
 	if _, err = rand.Read(b[:]); err != nil {
 		return "", time.Time{}, err
@@ -63,15 +67,15 @@ func (s *Store) Issue(sandboxID string, port int) (token string, expires time.Ti
 	expires = time.Now().UTC().Add(s.ttl)
 	s.mu.Lock()
 	s.gcLocked()
-	s.tokens[token] = entry{SandboxID: sandboxID, Port: port, Expires: expires}
+	s.tokens[token] = entry{SandboxID: sandboxID, Port: port, Owner: owner, Expires: expires}
 	s.mu.Unlock()
 	return token, expires, nil
 }
 
-// Lookup validates a token and returns sandbox id + port.
-func (s *Store) Lookup(token string) (sandboxID string, port int, ok bool) {
+// Lookup validates a token and returns sandbox id, port, and owner.
+func (s *Store) Lookup(token string) (sandboxID string, port int, owner string, ok bool) {
 	if token == "" {
-		return "", 0, false
+		return "", 0, "", false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -79,9 +83,9 @@ func (s *Store) Lookup(token string) (sandboxID string, port int, ok bool) {
 	e, found := s.tokens[token]
 	if !found || time.Now().UTC().After(e.Expires) {
 		delete(s.tokens, token)
-		return "", 0, false
+		return "", 0, "", false
 	}
-	return e.SandboxID, e.Port, true
+	return e.SandboxID, e.Port, e.Owner, true
 }
 
 func (s *Store) gcLocked() {
@@ -133,12 +137,13 @@ func (h *Handler) previewLink(w http.ResponseWriter, r *http.Request) {
 		pathSuffix = "/" + pathSuffix
 	}
 
-	if _, err := h.Manager.Get(r.Context(), id); err != nil {
+	sb, err := h.Manager.Get(r.Context(), id)
+	if err != nil {
 		writeErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 
-	token, exp, err := h.Tokens.Issue(id, port)
+	token, exp, err := h.Tokens.Issue(id, port, sb.Owner)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "token issue failed")
 		return
@@ -146,7 +151,7 @@ func (h *Handler) previewLink(w http.ResponseWriter, r *http.Request) {
 
 	base := strings.TrimRight(h.PublicURL, "/")
 	if base == "" {
-		base = "http://" + r.Host
+		base = httpx.DefaultTrust.Scheme(r) + "://" + httpx.DefaultTrust.Host(r)
 	}
 	u := fmt.Sprintf("%s/p/%s/%d%s", base, id, port, pathSuffix)
 	if strings.Contains(u, "?") {
@@ -169,27 +174,37 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
 	token := r.URL.Query().Get("token")
 	if token == "" {
 		if c, err := r.Cookie("roundpen_preview"); err == nil {
 			token = c.Value
 		}
 	}
-	sid, tokPort, ok := h.Tokens.Lookup(token)
-	if !ok || sid != id || tokPort != port {
+	sid, tokPort, owner, tokOK := h.Tokens.Lookup(token)
+	switch {
+	case tokOK && sid == id && tokPort == port:
+		if owner != "" {
+			ctx = authz.WithActor(ctx, authz.Actor{Username: owner})
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     "roundpen_preview",
+			Value:    token,
+			Path:     fmt.Sprintf("/p/%s/%d", id, port),
+			HttpOnly: true,
+			Secure:   httpx.DefaultTrust.Scheme(r) == "https",
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   int(h.Tokens.ttl.Seconds()),
+		})
+	case auth.GetUser(r.Context()) != nil:
+		if _, err := h.Manager.Get(r.Context(), id); err != nil {
+			http.Error(w, "unauthorized preview", http.StatusUnauthorized)
+			return
+		}
+	default:
 		http.Error(w, "unauthorized preview", http.StatusUnauthorized)
 		return
 	}
-
-	// Sticky cookie so subsequent asset requests without ?token= still work.
-	http.SetCookie(w, &http.Cookie{
-		Name:     "roundpen_preview",
-		Value:    token,
-		Path:     fmt.Sprintf("/p/%s/%d", id, port),
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(h.Tokens.ttl.Seconds()),
-	})
 
 	prefix := fmt.Sprintf("/p/%s/%d", id, port)
 	targetPath := strings.TrimPrefix(r.URL.Path, prefix)
@@ -197,13 +212,13 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
 		targetPath = "/"
 	}
 
-	conn, err := h.Manager.Dial(r.Context(), id, port)
+	conn, err := h.Manager.Dial(ctx, id, port)
 	if err != nil {
-		http.Error(w, "dial failed: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, "dial failed", http.StatusBadGateway)
 		return
 	}
 
-	_ = h.Manager.Touch(r.Context(), id)
+	_ = h.Manager.Touch(ctx, id)
 
 	if isWebSocket(r) {
 		h.proxyWebSocket(w, r, conn, targetPath)
