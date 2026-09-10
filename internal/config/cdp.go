@@ -82,10 +82,8 @@ func NormalizeCDP(c *CDPConfig) error {
 // ResolveCDPProvider picks the effective provider. hostChromeFound is true when
 // a Chrome/Chromium binary exists on the API process (laptop only).
 func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
+	_ = hostChromeFound
 	if cfg == nil {
-		if hostChromeFound {
-			return CDPProviderHost
-		}
 		return CDPProviderDocker
 	}
 	p := strings.ToLower(strings.TrimSpace(cfg.CDP.Provider))
@@ -94,12 +92,6 @@ func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
 	}
 	if p != CDPProviderAuto {
 		return p
-	}
-	if strings.EqualFold(cfg.Backend, "docker") {
-		return CDPProviderDocker
-	}
-	if hostChromeFound {
-		return CDPProviderHost
 	}
 	return CDPProviderDocker
 }

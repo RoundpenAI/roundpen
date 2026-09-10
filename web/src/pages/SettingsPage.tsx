@@ -26,7 +26,7 @@ const emptySettings: AppSettings = {
   kanikoExtraArgs: '',
   llmgwEnabled: false,
   llmgwPublicUrl: '',
-  llmgwLogBodyMaxBytes: -1,
+  llmgwLogBodyMaxBytes: 0,
   llmgwEmbeddingModel: 'text-embedding-3-small',
   llmgwOpenaiBaseUrl: '',
   llmgwOpenaiApiKey: '',
@@ -76,8 +76,8 @@ const PREVIEW_TTL_OPTIONS = [
 ] as const
 
 const LOG_BODY_OPTIONS = [
-  { value: -1, label: 'Default (64 KiB)' },
-  { value: 0, label: 'Off' },
+  { value: 0, label: 'Off (default)' },
+  { value: -1, label: 'Legacy default (off)' },
   { value: 4096, label: '4 KiB' },
   { value: 16384, label: '16 KiB' },
   { value: 65536, label: '64 KiB' },

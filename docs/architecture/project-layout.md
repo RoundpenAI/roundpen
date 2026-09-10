@@ -1,6 +1,6 @@
 # Roundpen 项目结构
 
-单 Go module，按「控制面 → Sandbox 抽象 → 后端 → 存储」分层。Phase 1 只实现 Docker 后端 + E2B HTTP + PG + 本地工作区；其余目录预留，不提前写死实现。
+单 Go module，按「控制面 → Sandbox 抽象 → 后端 → 存储」分层。当前默认后端是 Kern（开发档弱隔离）；Docker 是生产档。`policy` / `toolgw` 仍是空包。
 
 ## 目录树
 
@@ -20,18 +20,18 @@ roundpen/                      # 仓库根
 │   ├── ui/                    # //go:embed dist — 控制台静态资源
 │   ├── sandbox/               # Sandbox 领域模型 + Manager（不绑具体后端）
 │   ├── backend/               # 可插拔引擎接口
-│   │   ├── docker/            # Phase 1：Docker Daemon
-│   │   ├── kern/              # Phase 2：免守护后端（占位）
-│   │   └── k8s/               # Phase 4：占位
+│   │   ├── docker/            # 生产档：Docker Daemon
+│   │   ├── kern/              # 默认开发档：免守护本机进程（弱隔离）
+│   │   └── k8s/               # 占位
 │   ├── memory/                # 短期 JSONB + 长期 pgvector；mem0 风格 Agent API + llmgw 自动 embed
 │   ├── workspace/             # WorkspaceFS 接口 + local / sshfs
 │   │   ├── local/             # 本机目录（Kern / 本地 Docker）
 │   │   └── sshfs/             # SSH 远端目录（DOCKER_HOST=ssh://…）
 │   ├── storage/               # PG 连接、迁移辅助、通用 store
-│   ├── policy/                # 策略引擎（Token / 工具白名单等）
-│   ├── toolgw/                # 工具网关
+│   ├── policy/                # 空包（未接入）
+│   ├── toolgw/                # 空包（未接入）
 │   ├── llmgw/                 # LLM 网关（内部 vkey + roundpen-embed 别名；PG 流水）
-│   ├── audit/                 # 审计与轨迹
+│   ├── audit/                 # 最小 slog 审计（创建 / 删除 / exec / settings）
 │   └── observability/         # 日志 / metrics 钩子
 ├── migrations/                # SQL 迁移（与 schema 折叠策略后续定）
 ├── deploy/
@@ -57,14 +57,15 @@ roundpen/                      # 仓库根
 | `memory` | 短期 JSONB + 长期向量 | → `storage` |
 | `api/e2b` | 协议适配，无业务逻辑 | → `sandbox` |
 | `api/auth` | 登录 session、API key、admin 用户 | → `storage` |
-| `policy` / `toolgw` / `llmgw` / `audit` | 控制面横切能力 | → `storage`；被 `api` / `sandbox` 调用 |
+| `llmgw` / `audit` | LLM 网关与最小审计 | → `storage` / slog；被 `api` / `sandbox` 调用 |
+| `policy` / `toolgw` | 空包，不是围栏 | 无调用方 |
 
 禁止：`backend` 依赖 `api`；`storage` 依赖 `sandbox`。
 
 ## 二进制
 
 - `roundpend`：加载 config → 连 PG → 装配 Backend / WorkspaceFS / Manager → 挂 HTTP（含 E2B）
-- `roundpen`：轻量 CLI，调 `roundpend` 的 HTTP/gRPC（MVP 可先 HTTP）
+- `roundpen`：轻量 CLI，调 `roundpend` 的 HTTP API
 
 ## Module path
 

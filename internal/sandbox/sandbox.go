@@ -50,6 +50,7 @@ type Sandbox struct {
 	MemoryMB      int
 	DiskSizeMB    int
 	TemplateBuild string
+	Owner         string // username that created the sandbox; empty = legacy/unowned
 }
 
 // CreateRequest is the input to create a sandbox.
@@ -114,11 +115,11 @@ type Store interface {
 	Update(ctx context.Context, sb *Sandbox) error
 	SoftDelete(ctx context.Context, id string, at time.Time) error
 	Get(ctx context.Context, id string) (*Sandbox, error)
-	GetByName(ctx context.Context, name string) (*Sandbox, error)
-	GetDefaultByCategory(ctx context.Context, category string) (*Sandbox, error)
+	GetByName(ctx context.Context, name, owner string) (*Sandbox, error)
+	GetDefaultByCategory(ctx context.Context, category, owner string) (*Sandbox, error)
 	List(ctx context.Context) ([]*Sandbox, error)
 	ListByCategory(ctx context.Context, category string) ([]*Sandbox, error)
-	ClearDefaultInCategory(ctx context.Context, category, exceptID string) error
+	ClearDefaultInCategory(ctx context.Context, category, exceptID, owner string) error
 }
 
 // Manager orchestrates sandbox lifecycle via a Backend and WorkspaceFS.

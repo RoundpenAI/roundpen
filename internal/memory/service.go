@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/RoundpenAI/roundpen/internal/authz"
 )
 
 // Service is the agent-facing memory facade (embed + store).
@@ -66,6 +68,10 @@ func (s *Service) Add(ctx context.Context, in AddInput) (LongEntry, error) {
 	if strings.TrimSpace(in.AgentID) == "" {
 		return LongEntry{}, fmt.Errorf("agent_id is required")
 	}
+	userID, err := boundUserID(ctx, in.UserID)
+	if err != nil {
+		return LongEntry{}, err
+	}
 	kind := in.Kind
 	if kind == "" {
 		kind = LongFact
@@ -77,7 +83,7 @@ func (s *Service) Add(ctx context.Context, in AddInput) (LongEntry, error) {
 	e := LongEntry{
 		ID:              uuid.NewString(),
 		AgentID:         in.AgentID,
-		UserID:          in.UserID,
+		UserID:          userID,
 		Kind:            kind,
 		Content:         content,
 		Metadata:        in.Metadata,
@@ -106,6 +112,9 @@ func (s *Service) Add(ctx context.Context, in AddInput) (LongEntry, error) {
 func (s *Service) Search(ctx context.Context, in SearchInput) ([]ScoredMemory, error) {
 	if strings.TrimSpace(in.Query) == "" && len(in.Embedding) == 0 {
 		return nil, fmt.Errorf("query is required")
+	}
+	if err := applySearchScope(ctx, &in.Filters); err != nil {
+		return nil, err
 	}
 	if in.Filters.AgentID == "" && in.Filters.UserID == "" && in.Filters.RunID == "" {
 		return nil, fmt.Errorf("filters must include agent_id, user_id, or run_id")
@@ -153,6 +162,9 @@ func (s *Service) Update(ctx context.Context, id string, patch UpdateInput) (Lon
 	if err != nil {
 		return LongEntry{}, err
 	}
+	if err := canAccessMemory(ctx, e.UserID); err != nil {
+		return LongEntry{}, err
+	}
 	contentChanged := false
 	if patch.Content != nil && *patch.Content != e.Content {
 		e.Content = *patch.Content
@@ -171,7 +183,11 @@ func (s *Service) Update(ctx context.Context, id string, patch UpdateInput) (Lon
 		e.ExpiresAt = patch.ExpiresAt
 	}
 	if patch.UserID != nil {
-		e.UserID = *patch.UserID
+		uid, err := boundUserID(ctx, *patch.UserID)
+		if err != nil {
+			return LongEntry{}, err
+		}
+		e.UserID = uid
 	}
 	if patch.RunID != nil {
 		e.SourceSessionID = *patch.RunID
@@ -204,6 +220,52 @@ type UpdateInput struct {
 	UserID     *string
 	RunID      *string
 	Embedding  []float32
+}
+
+func boundUserID(ctx context.Context, requested string) (string, error) {
+	a, ok := authz.From(ctx)
+	if !ok {
+		return "", fmt.Errorf("unauthorized")
+	}
+	if a.Admin && strings.TrimSpace(requested) != "" {
+		return requested, nil
+	}
+	return a.Username, nil
+}
+
+func applySearchScope(ctx context.Context, f *SearchFilter) error {
+	a, ok := authz.From(ctx)
+	if !ok {
+		return fmt.Errorf("unauthorized")
+	}
+	if a.Admin {
+		return nil
+	}
+	f.UserID = a.Username
+	return nil
+}
+
+func applyListScope(ctx context.Context, f *LongFilter) error {
+	a, ok := authz.From(ctx)
+	if !ok {
+		return fmt.Errorf("unauthorized")
+	}
+	if a.Admin {
+		return nil
+	}
+	f.UserID = a.Username
+	return nil
+}
+
+func canAccessMemory(ctx context.Context, owner string) error {
+	a, ok := authz.From(ctx)
+	if !ok {
+		return ErrNotFound
+	}
+	if !a.CanAccess(owner) {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func contentFromMessages(msgs []Message) string {

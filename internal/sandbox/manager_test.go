@@ -12,12 +12,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
 )
+
+func adminCtx() context.Context {
+	return authz.WithActor(context.Background(), authz.Actor{Username: "admin", Admin: true})
+}
+
+func userCtx(name string) context.Context {
+	return authz.WithActor(context.Background(), authz.Actor{Username: name})
+}
 
 type memStore struct {
 	mu      sync.Mutex
@@ -54,7 +63,7 @@ func (m *memStore) Insert(_ context.Context, sb *sandbox.Sandbox) error {
 		if m.deleted[existing.ID] {
 			continue
 		}
-		if strings.EqualFold(existing.Name, sb.Name) {
+		if strings.EqualFold(existing.Name, sb.Name) && existing.Owner == sb.Owner {
 			return sandbox.ErrConflict
 		}
 	}
@@ -72,7 +81,7 @@ func (m *memStore) Update(_ context.Context, sb *sandbox.Sandbox) error {
 		if m.deleted[existing.ID] || existing.ID == sb.ID {
 			continue
 		}
-		if strings.EqualFold(existing.Name, sb.Name) {
+		if strings.EqualFold(existing.Name, sb.Name) && existing.Owner == sb.Owner {
 			return sandbox.ErrConflict
 		}
 	}
@@ -103,30 +112,38 @@ func (m *memStore) Get(_ context.Context, id string) (*sandbox.Sandbox, error) {
 	return m.clone(sb), nil
 }
 
-func (m *memStore) GetByName(_ context.Context, name string) (*sandbox.Sandbox, error) {
+func (m *memStore) GetByName(_ context.Context, name, owner string) (*sandbox.Sandbox, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, sb := range m.byID {
 		if m.deleted[sb.ID] {
 			continue
 		}
-		if strings.EqualFold(sb.Name, name) {
-			return m.clone(sb), nil
+		if !strings.EqualFold(sb.Name, name) {
+			continue
 		}
+		if owner != "" && sb.Owner != owner {
+			continue
+		}
+		return m.clone(sb), nil
 	}
 	return nil, sandbox.ErrNotFound
 }
 
-func (m *memStore) GetDefaultByCategory(_ context.Context, category string) (*sandbox.Sandbox, error) {
+func (m *memStore) GetDefaultByCategory(_ context.Context, category, owner string) (*sandbox.Sandbox, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, sb := range m.byID {
 		if m.deleted[sb.ID] {
 			continue
 		}
-		if sb.Category == category && sb.IsDefault {
-			return m.clone(sb), nil
+		if sb.Category != category || !sb.IsDefault {
+			continue
 		}
+		if owner != "" && sb.Owner != owner {
+			continue
+		}
+		return m.clone(sb), nil
 	}
 	return nil, sandbox.ErrNotFound
 }
@@ -157,11 +174,14 @@ func (m *memStore) ListByCategory(_ context.Context, category string) ([]*sandbo
 	return out, nil
 }
 
-func (m *memStore) ClearDefaultInCategory(_ context.Context, category, exceptID string) error {
+func (m *memStore) ClearDefaultInCategory(_ context.Context, category, exceptID, owner string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, sb := range m.byID {
 		if m.deleted[id] || sb.Category != category || sb.ID == exceptID {
+			continue
+		}
+		if owner != "" && sb.Owner != owner {
 			continue
 		}
 		sb.IsDefault = false
@@ -267,7 +287,7 @@ func TestNewService_DefaultLogger(t *testing.T) {
 func TestService_CreateGetListDelete(t *testing.T) {
 	be := newStubBackend("stub")
 	svc, _, _ := newTestService(t, be)
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{
 		Name:       "  Lab One  ",
@@ -334,7 +354,7 @@ func TestService_CreateGetListDelete(t *testing.T) {
 
 func TestService_CreateNameConflict(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("stub"))
-	ctx := context.Background()
+	ctx := adminCtx()
 	if _, err := svc.Create(ctx, sandbox.CreateRequest{Name: "dup"}); err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +364,7 @@ func TestService_CreateNameConflict(t *testing.T) {
 }
 
 func TestService_CreateBackendFailures(t *testing.T) {
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	be := newStubBackend("stub")
 	be.createErr = errors.New("create failed")
@@ -363,7 +383,7 @@ func TestService_CreateBackendFailures(t *testing.T) {
 
 func TestService_Resolve(t *testing.T) {
 	svc, store, _ := newTestService(t, newStubBackend("stub"))
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	a, err := svc.Create(ctx, sandbox.CreateRequest{Name: "alpha", Category: "Browser"})
 	if err != nil {
@@ -406,7 +426,7 @@ func TestService_Resolve(t *testing.T) {
 
 func TestService_UpdateRenameTimeoutTouch(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("kern"))
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{Name: "old", Category: "Code"})
 	if err != nil {
@@ -449,7 +469,7 @@ func TestService_UpdateRenameTimeoutTouch(t *testing.T) {
 
 func TestService_FileOps(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("stub"))
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
 	if err != nil {
@@ -480,7 +500,7 @@ func TestService_FileOps(t *testing.T) {
 func TestService_HydrateKernBackend(t *testing.T) {
 	be := newStubBackend("kern")
 	svc, _, _ := newTestService(t, be)
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{Name: "hydrate-me"})
 	if err != nil {
@@ -504,7 +524,7 @@ func TestService_HydrateKernBackend(t *testing.T) {
 
 func TestService_DialRequiresRunning(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("stub"))
-	ctx := context.Background()
+	ctx := adminCtx()
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -526,9 +546,49 @@ func TestService_GetFillDefaultName(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}
 	svc := sandbox.NewService(store, newStubBackend("stub"), local.New(t.TempDir()), "host", time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	got, err := svc.Get(context.Background(), id)
+	got, err := svc.Get(adminCtx(), id)
 	if err != nil || got.Name == "" || !strings.HasPrefix(got.Name, "sandbox-") {
 		t.Fatalf("get: err=%v name=%q", err, got.Name)
+	}
+}
+
+func TestService_OwnerIsolation(t *testing.T) {
+	svc, _, _ := newTestService(t, newStubBackend("stub"))
+
+	alice := userCtx("alice")
+	bob := userCtx("bob")
+	sb, err := svc.Create(alice, sandbox.CreateRequest{Name: "alice-box"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sb.Owner != "alice" {
+		t.Fatalf("owner=%q", sb.Owner)
+	}
+
+	if _, err := svc.Get(bob, sb.ID); !errors.Is(err, sandbox.ErrNotFound) {
+		t.Fatalf("bob get: %v", err)
+	}
+	if _, err := svc.Exec(bob, sb.ID, sandbox.ExecRequest{Cmd: []string{"true"}}); !errors.Is(err, sandbox.ErrNotFound) {
+		t.Fatalf("bob exec: %v", err)
+	}
+	if err := svc.Delete(bob, sb.ID); !errors.Is(err, sandbox.ErrNotFound) {
+		t.Fatalf("bob delete: %v", err)
+	}
+	list, err := svc.List(bob, sandbox.ListFilter{})
+	if err != nil || len(list) != 0 {
+		t.Fatalf("bob list: err=%v len=%d", err, len(list))
+	}
+
+	got, err := svc.Get(alice, sb.ID)
+	if err != nil || got.ID != sb.ID {
+		t.Fatalf("alice get: err=%v", err)
+	}
+	adminList, err := svc.List(adminCtx(), sandbox.ListFilter{})
+	if err != nil || len(adminList) != 1 {
+		t.Fatalf("admin list: err=%v len=%d", err, len(adminList))
+	}
+	if _, err := svc.Create(context.Background(), sandbox.CreateRequest{}); !errors.Is(err, sandbox.ErrUnauthorized) {
+		t.Fatalf("no actor: %v", err)
 	}
 }
 
@@ -537,7 +597,7 @@ func TestService_DeleteKeepsPersistentWorkspace(t *testing.T) {
 	fs := local.New(root)
 	store := newMemStore()
 	svc := sandbox.NewService(store, newStubBackend("stub"), fs, "host", time.Minute, nil)
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{WorkspaceID: "shared-ws"})
 	if err != nil {
@@ -553,7 +613,7 @@ func TestService_DeleteKeepsPersistentWorkspace(t *testing.T) {
 
 func TestService_AttachAndResizeTerminal(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("kern"))
-	ctx := context.Background()
+	ctx := adminCtx()
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -568,7 +628,7 @@ func TestService_AttachAndResizeTerminal(t *testing.T) {
 
 func TestService_UpdateConflictAndClearDefault(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("kern"))
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	first, err := svc.Create(ctx, sandbox.CreateRequest{Name: "first", Category: "Lab", IsDefault: true})
 	if err != nil {
@@ -598,7 +658,7 @@ func TestService_MountPathFromWorkspaceFS(t *testing.T) {
 	root := t.TempDir()
 	fs := local.New(root)
 	svc := sandbox.NewService(store, newStubBackend("stub"), fs, "host", time.Minute, nil)
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
 	if err != nil {
@@ -616,7 +676,7 @@ func TestService_MountPathFromWorkspaceFS(t *testing.T) {
 
 func TestService_SetTimeoutUsesDefault(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("stub"))
-	ctx := context.Background()
+	ctx := adminCtx()
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -629,7 +689,7 @@ func TestService_SetTimeoutUsesDefault(t *testing.T) {
 
 func TestService_NotFoundAndMissingWorkspace(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("stub"))
-	ctx := context.Background()
+	ctx := adminCtx()
 	if _, err := svc.Get(ctx, "missing"); !errors.Is(err, sandbox.ErrNotFound) {
 		t.Fatalf("get missing: err=%v", err)
 	}
@@ -647,7 +707,7 @@ func TestService_NotFoundAndMissingWorkspace(t *testing.T) {
 func TestService_ConnectResumeAndRefresh(t *testing.T) {
 	be := newStubBackend("kern")
 	svc, _, _ := newTestService(t, be)
-	ctx := context.Background()
+	ctx := adminCtx()
 
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{TemplateID: "host"})
 	if err != nil {
@@ -680,7 +740,7 @@ func TestService_ConnectResumeAndRefresh(t *testing.T) {
 
 func TestService_StatFile(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("stub"))
-	ctx := context.Background()
+	ctx := adminCtx()
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -696,7 +756,7 @@ func TestService_StatFile(t *testing.T) {
 
 func TestService_StopKeepsFilesAccessible(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("stub"))
-	ctx := context.Background()
+	ctx := adminCtx()
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -727,7 +787,7 @@ func TestService_CreateWithTemplateResolver(t *testing.T) {
 	if dsn == "" {
 		t.Skip("set DATABASE_URL or ROUNDPEN_TEST_DATABASE_URL")
 	}
-	ctx := context.Background()
+	ctx := adminCtx()
 	db, err := storage.OpenPostgres(ctx, dsn)
 	if err != nil {
 		t.Fatalf("postgres: %v", err)

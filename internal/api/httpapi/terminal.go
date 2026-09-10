@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,10 +15,24 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
-var terminalUpgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin:     func(r *http.Request) bool { return true },
+func (h *Handler) checkTerminalOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	if h.PublicURL != "" {
+		if pu, err := url.Parse(h.PublicURL); err == nil && strings.EqualFold(u.Host, pu.Host) {
+			return true
+		}
+	}
+	return false
 }
 
 // MountTerminal registers the interactive PTY WebSocket.
@@ -27,7 +42,12 @@ func (h *Handler) MountTerminal(mux *http.ServeMux) {
 
 func (h *Handler) terminal(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	conn, err := terminalUpgrader.Upgrade(w, r, nil)
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin:     h.checkTerminalOrigin,
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}

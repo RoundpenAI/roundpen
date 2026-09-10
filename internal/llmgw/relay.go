@@ -231,13 +231,24 @@ func setUpstreamAuth(h http.Header, provider, apiKey string) {
 
 func copyHeaders(dst, src http.Header) {
 	for k, vs := range src {
-		lk := strings.ToLower(k)
-		if lk == "authorization" || lk == "x-api-key" || lk == "host" {
+		if !relayHeaderAllowed(k) {
 			continue
 		}
 		for _, v := range vs {
 			dst.Add(k, v)
 		}
+	}
+}
+
+func relayHeaderAllowed(name string) bool {
+	switch strings.ToLower(name) {
+	case "accept", "accept-language", "content-type", "content-length",
+		"anthropic-version", "anthropic-beta", "anthropic-dangerous-direct-browser-access",
+		"openai-beta", "openai-organization", "openai-project",
+		"x-request-id":
+		return true
+	default:
+		return false
 	}
 }
 

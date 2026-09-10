@@ -78,6 +78,14 @@ export const auth = {
       body: JSON.stringify({ user, password }),
     }),
   logout: () => api<void>('/v1/auth/logout', { method: 'POST' }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api<void>('/v1/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    }),
 }
 
 export type Template = {

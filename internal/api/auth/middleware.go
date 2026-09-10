@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -103,28 +104,28 @@ func extractAPIKey(r *http.Request) string {
 func Middleware(users storage.UserStore, sessions storage.SessionStore) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isPublicPath(r) {
-				next.ServeHTTP(w, r)
-				return
-			}
 			if users == nil {
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			user, key, sessionID := resolveAuth(r, users, sessions)
-			if user == nil {
+			if user == nil && !isPublicPath(r) {
 				slog.Warn("unauthorized", slog.String("path", r.URL.Path), slog.String("remote", r.RemoteAddr))
 				writeErr(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
-			ctx := WithUser(r.Context(), user)
-			if key != "" {
-				ctx = context.WithValue(ctx, apiKeyContextKey, key)
-			}
-			if sessionID != "" {
-				ctx = context.WithValue(ctx, sessionIDContextKey, sessionID)
+			ctx := r.Context()
+			if user != nil {
+				ctx = WithUser(ctx, user)
+				ctx = authz.WithActor(ctx, authz.Actor{Username: user.Username, Admin: user.Role == storage.RoleAdmin})
+				if key != "" {
+					ctx = context.WithValue(ctx, apiKeyContextKey, key)
+				}
+				if sessionID != "" {
+					ctx = context.WithValue(ctx, sessionIDContextKey, sessionID)
+				}
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

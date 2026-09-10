@@ -2,10 +2,38 @@ package storage
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 )
+
+// HashAPIKey SHA-256-hex encodes a plaintext API key for storage and lookup.
+func HashAPIKey(plain string) string {
+	sum := sha256.Sum256([]byte(plain))
+	return hex.EncodeToString(sum[:])
+}
+
+func looksHashedAPIKey(key string) bool {
+	if len(key) != 64 {
+		return false
+	}
+	for _, c := range key {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func storedAPIKey(key string) string {
+	if key == "" || looksHashedAPIKey(key) || !strings.HasPrefix(key, "rp-") {
+		return key
+	}
+	return HashAPIKey(key)
+}
 
 const sessionTTL = 7 * 24 * time.Hour
 
@@ -95,7 +123,8 @@ func scanUser(row scannable) (*User, error) {
 }
 
 func (s *PgUserStore) GetByAPIKey(ctx context.Context, apiKey string) (*User, error) {
-	row := s.db.SQL.QueryRowContext(ctx, "SELECT "+userCols+" FROM users WHERE api_key = $1", apiKey)
+	hashed := HashAPIKey(apiKey)
+	row := s.db.SQL.QueryRowContext(ctx, "SELECT "+userCols+" FROM users WHERE api_key = $1 OR api_key = $2", hashed, apiKey)
 	return scanUser(row)
 }
 
@@ -134,7 +163,7 @@ func (s *PgUserStore) Upsert(ctx context.Context, u User) error {
 			password_hash  = COALESCE(EXCLUDED.password_hash, users.password_hash),
 			auth_provider  = COALESCE(NULLIF(EXCLUDED.auth_provider, ''), users.auth_provider),
 			updated_at     = EXCLUDED.updated_at
-	`, u.Username, u.Email, u.FullName, u.OrgName, u.APIKey, u.Role, u.PasswordHash, u.AuthProvider, u.CreatedAt, u.UpdatedAt)
+	`, u.Username, u.Email, u.FullName, u.OrgName, storedAPIKey(u.APIKey), u.Role, u.PasswordHash, u.AuthProvider, u.CreatedAt, u.UpdatedAt)
 	return err
 }
 

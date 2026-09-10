@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/template"
 )
@@ -70,14 +71,14 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /sandboxes/{sandboxID}/refreshes", h.refreshes)
 	mux.HandleFunc("GET /templates", h.listTemplates)
 	mux.HandleFunc("GET /templates/{templateID}", h.getTemplate)
-	mux.HandleFunc("PATCH /templates/{templateID}", h.patchTemplate)
-	mux.HandleFunc("DELETE /templates/{templateID}", h.deleteTemplate)
+	mux.HandleFunc("PATCH /templates/{templateID}", auth.RequireAdmin(h.patchTemplate))
+	mux.HandleFunc("DELETE /templates/{templateID}", auth.RequireAdmin(h.deleteTemplate))
 	mux.HandleFunc("GET /v2/templates", h.listTemplatesV2)
-	mux.HandleFunc("POST /v3/templates", h.createTemplateV3)
-	mux.HandleFunc("POST /v2/templates/{templateID}/builds", h.createTemplateBuildV2)
-	mux.HandleFunc("POST /v2/templates/{templateID}/builds/{buildID}", h.startTemplateBuildV2)
+	mux.HandleFunc("POST /v3/templates", auth.RequireAdmin(h.createTemplateV3))
+	mux.HandleFunc("POST /v2/templates/{templateID}/builds", auth.RequireAdmin(h.createTemplateBuildV2))
+	mux.HandleFunc("POST /v2/templates/{templateID}/builds/{buildID}", auth.RequireAdmin(h.startTemplateBuildV2))
 	mux.HandleFunc("GET /templates/{templateID}/builds/{buildID}/status", h.getTemplateBuildStatus)
-	mux.HandleFunc("POST /v1/templates/build", h.buildTemplate)
+	mux.HandleFunc("POST /v1/templates/build", auth.RequireAdmin(h.buildTemplate))
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -105,8 +106,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
+	if errors.Is(err, sandbox.ErrUnauthorized) {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusCreated, toResp(sb))
@@ -117,7 +122,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		Category: r.URL.Query().Get("category"),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	out := make([]sandboxResp, 0, len(list))
@@ -151,7 +156,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	writeJSON(w, http.StatusOK, toResp(sb))
@@ -200,7 +205,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -219,7 +224,7 @@ func (h *Handler) timeout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -241,7 +246,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	code := http.StatusOK
@@ -259,7 +264,7 @@ func (h *Handler) refreshes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

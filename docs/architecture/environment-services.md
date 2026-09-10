@@ -115,7 +115,7 @@ type DirEntry struct {
 ```go
 // Dial 建立到沙箱内 destPort 的 TCP 连接。
 // Docker：经容器 IP（本机 bridge 直连；远端 SSH/已有 docker 上下文另议）。
-// Kern：拨 127.0.0.1 或沙箱网络命名空间内地址。
+// Kern：不支持 Ports（拒绝 Dial，避免打到控制面回环）。
 Dial(ctx context.Context, engineID string, destPort int) (net.Conn, error)
 ```
 

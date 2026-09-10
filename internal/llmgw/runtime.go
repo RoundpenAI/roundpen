@@ -40,11 +40,11 @@ func (g *Gateway) bodyLogLimit() int {
 }
 
 // SetLogBodyMaxBytes updates request/response body logging limits.
-// Values < 0 use the default (64 KiB); 0 disables body logging.
+// Values <= 0 disable body logging. Positive values cap stored bytes.
 func (g *Gateway) SetLogBodyMaxBytes(n int) {
 	limit := n
 	if limit < 0 {
-		limit = defaultLogBodyMaxBytes
+		limit = 0
 	}
 	g.mu.Lock()
 	g.logLimit = limit

@@ -185,6 +185,9 @@ func (h *Handler) callTool(r *http.Request, bc browserCtx, name string, args map
 		if strings.TrimSpace(url) == "" {
 			return "", nil, errString("url is required")
 		}
+		if !allowedNavigateURL(url) {
+			return "", nil, errString("unsupported url scheme")
+		}
 		if err := sess.Engine.Navigate(ctx, url); err != nil {
 			return "", nil, err
 		}

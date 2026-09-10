@@ -1,6 +1,7 @@
-import { type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { doLogout, useAuth } from '../auth'
+import { ChangePasswordDialog } from './ChangePasswordDialog'
 
 export type AppSection = 'sandboxes' | 'templates' | 'settings'
 
@@ -25,9 +26,10 @@ export function PageShell({
   maxWidthClass = 'max-w-3xl',
   className = '',
 }: Props) {
-  const auth = useAuth()
+  const authState = useAuth()
   const navigate = useNavigate()
-  const user = auth.status === 'ok' ? auth.user : null
+  const user = authState.status === 'ok' ? authState.user : null
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false)
 
   return (
     <div
@@ -45,6 +47,15 @@ export function PageShell({
             <span className="max-w-[40vw] truncate opacity-60 sm:max-w-[12rem]">
               {user.username}
             </span>
+          )}
+          {user && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm min-h-11 shrink-0 sm:min-h-0"
+              onClick={() => setChangePasswordOpen(true)}
+            >
+              Change password
+            </button>
           )}
           <button
             type="button"
@@ -79,6 +90,11 @@ export function PageShell({
       </nav>
 
       {children}
+
+      <ChangePasswordDialog
+        open={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+      />
     </div>
   )
 }

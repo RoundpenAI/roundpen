@@ -11,7 +11,7 @@ import (
 type LLMGWConfig struct {
 	Enabled         bool
 	PublicURL       string
-	LogBodyMaxBytes int    // -1 = default (64KiB), 0 = disable body logging
+	LogBodyMaxBytes int    // 0 = disable body logging (default); >0 caps stored bytes
 	EmbeddingModel  string // upstream model for roundpen-embed alias
 	OpenAI          *LLMGWUpstream
 	Anthropic       *LLMGWUpstream
@@ -33,7 +33,7 @@ type LLMGWVirtualKey struct {
 func loadLLMGW() (LLMGWConfig, error) {
 	cfg := LLMGWConfig{
 		PublicURL:       strings.TrimSpace(os.Getenv("ROUNDPEN_LLMGW_PUBLIC_URL")),
-		LogBodyMaxBytes: -1,
+		LogBodyMaxBytes: 0,
 		EmbeddingModel:  strings.TrimSpace(os.Getenv("ROUNDPEN_LLMGW_EMBEDDING_MODEL")),
 	}
 	if cfg.EmbeddingModel == "" {

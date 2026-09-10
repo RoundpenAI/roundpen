@@ -17,6 +17,10 @@ func TestMemoryUserStore_APIKeyAndEmail(t *testing.T) {
 	if err != nil || got.Username != "alice" {
 		t.Fatalf("GetByAPIKey: %v %#v", err, got)
 	}
+	stored, err := s.GetByUsername(ctx, "alice")
+	if err != nil || stored.APIKey != HashAPIKey("rp-1") {
+		t.Fatalf("stored key should be hashed: %#v err=%v", stored, err)
+	}
 	got, err = s.GetByEmail(ctx, "alice@example.com")
 	if err != nil || got.Username != "alice" {
 		t.Fatalf("GetByEmail: %v %#v", err, got)

@@ -10,10 +10,10 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 
 - **轻量自托管**：单二进制控制面，面向低配 NAS、笔记本与单机服务器
 - **跨平台**：Mac / Windows / Linux 统一构建与分发
-- **可插拔后端**：默认 `Kern`（免守护、本地进程）；亦可 Docker，以及未来的 Kubernetes
+- **可插拔后端**：默认 `Kern`（开发用弱隔离、免守护本机进程）；生产应改 Docker，以及未来的 Kubernetes
 - **可选 OCI 运行时**：`runc` / `crun` / `gVisor` / `Kata`，按安全与性能需求配置
 - **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）；文件落本地盘，元数据进库
-- **生态友好**：E2B 兼容 API；REST / gRPC 供控制面集成
+- **生态友好**：E2B 兼容 API；控制面为 HTTP REST（无 gRPC）
 - **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key 两种验证
 - **开源核心**：Apache 2.0；企业能力（SSO、多租户、合规审计等）走 Open Core
 
@@ -23,10 +23,11 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 ┌─────────────────────────────────────────────────────┐
 │                   控制面 (Go)                        │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐          │
-│  │ 网关层   │ │ 策略引擎 │ │ 监控审计 │          │
+│  │ 网关层   │ │ 鉴权/属主 │ │ 最小审计 │          │
 │  └──────────┘ └──────────┘ └──────────┘          │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────┐│
-│  │ 记忆存储 │ │ 工具网关 │ │ LLM 网关 │ │E2B适配││
+│  │ 记忆存储 │ │（规划）  │ │ LLM 网关 │ │E2B适配││
+│  │          │ │ 工具网关 │ │          │ │      ││
 │  └──────────┘ └──────────┘ └──────────┘ └──────┘│
 ├─────────────────────────────────────────────────────┤
 │              沙箱抽象层 (Sandbox Interface)          │
@@ -46,7 +47,7 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 
 | 层级 | 说明 |
 |------|------|
-| 控制面 | 网关、策略、审计、记忆、工具 / LLM 网关、E2B 适配 |
+| 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、E2B 适配。`policy` / `toolgw` 仍是空包 |
 | Sandbox 抽象 | 统一生命周期与 exec，不绑定具体引擎 |
 | 可插拔后端 | Docker / Containerd / Podman / Kern / K8s |
 | OCI 运行时 | 由引擎调用；`Kern` 作为免守护后端可绕过该层 |
@@ -55,13 +56,13 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 
 ## 核心能力
 
-1. **沙箱执行**：`Sandbox` 接口抽象后端与运行时；本地默认 `Kern`，生产可用 Docker + `runc`
-2. **记忆与文件**：PostgreSQL 承载短期（JSONB + TTL）与长期（`pgvector`）记忆；工作区目录挂载为沙箱内 `/workspace`。长期记忆 Agent API 对齐 mem0（`/v1/memories/add|search`），写入/检索时经 llmgw 自动 embedding
-3. **策略引擎**：Token 预算、工具白名单、敏感内容过滤等动态围栏
-4. **工具网关**：统一注册与调用，凭证隔离
-5. **LLM 网关**：兼容 model-relay 的 Anthropic / OpenAI 透传；自动种子内部 Virtual Key（`vk-roundpen-internal`）与 embedding 别名（`roundpen-embed`）；请求流水进 PG
-6. **监控审计**：执行轨迹、异常检测与强制终止
-7. **用户体系**：密码登录（`roundpen_session` Cookie）与 `rp-...` API Key；详见 [docs/auth.md](docs/auth.md)
+1. **沙箱执行**：`Sandbox` 接口抽象后端与运行时；本地默认 `Kern`（弱隔离），生产应使用 Docker + `runc`。沙箱按属主隔离，admin 可看全部
+2. **记忆与文件**：PostgreSQL 承载短期（JSONB + TTL）与长期（`pgvector`）记忆；工作区目录挂载为沙箱内 `/workspace`。长期记忆 Agent API 对齐 mem0（`/v1/memories/add|search`），写入/检索时经 llmgw 自动 embedding，并绑定登录身份
+3. **策略引擎**（未交付）：`internal/policy` 为空包，控制面不经过它
+4. **工具网关**（未交付）：`internal/toolgw` 为空包
+5. **LLM 网关**：兼容 model-relay 的 Anthropic / OpenAI 透传；自动种子内部 Virtual Key（`vk-roundpen-internal`）与 embedding 别名（`roundpen-embed`）；请求流水进 PG（默认不记 body）
+6. **最小审计**：创建 / 删除 / exec / settings 写 slog；不是完整可观测或强制终止
+7. **用户体系**：密码登录（`roundpen_session` Cookie）与 `rp-...` API Key（入库为哈希）；详见 [docs/auth.md](docs/auth.md)
 8. **Environment P0**：Workspace 文件 API、Ports 预览（`/p/...` + token）、Terminal WS；详见 [docs/architecture/environment-services.md](docs/architecture/environment-services.md)
 9. **Web 控制台**：嵌入 `roundpend` 的 SPA（登录、沙箱列表、文件 / 终端 / 预览工作台）；开发时在 `web/` 下 `npm run dev`
 

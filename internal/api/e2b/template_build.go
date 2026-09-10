@@ -190,7 +190,7 @@ func (h *Handler) getTemplateBuildStatus(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	resp := buildStatusResp{

@@ -2,13 +2,50 @@ package llmgw
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
+
+func hashVirtualKey(plain string) string {
+	sum := sha256.Sum256([]byte(plain))
+	return hex.EncodeToString(sum[:])
+}
+
+func storedVirtualKey(key string) string {
+	if key == "" || looksHashedKey(key) {
+		return key
+	}
+	return hashVirtualKey(key)
+}
+
+func looksHashedKey(key string) bool {
+	if len(key) != 64 {
+		return false
+	}
+	for _, c := range key {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func maskVirtualKey(key string) string {
+	if key == "" {
+		return ""
+	}
+	if !strings.HasPrefix(key, "vk-") || len(key) < 8 {
+		return "vk-****"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
+}
 
 // Store persists llmgw vault rows and transaction logs in PostgreSQL.
 type Store struct {
@@ -112,7 +149,7 @@ func (s *Store) UpsertVirtualKey(vk VirtualKey) error {
 		ON CONFLICT (key) DO UPDATE SET
 			name=EXCLUDED.name,
 			enabled=EXCLUDED.enabled`,
-		vk.Key, vk.Name, vk.Enabled, vk.CreatedAt.UTC(),
+		storedVirtualKey(vk.Key), vk.Name, vk.Enabled, vk.CreatedAt.UTC(),
 	)
 	return err
 }
@@ -121,7 +158,7 @@ func (s *Store) UpsertVirtualKey(vk VirtualKey) error {
 func (s *Store) GetVirtualKey(ctx context.Context, key string) (*VirtualKey, error) {
 	row := s.db.SQL.QueryRowContext(ctx, `
 		SELECT key, name, enabled, created_at
-		FROM llmgw_virtual_keys WHERE key=$1 AND enabled=true`, key)
+		FROM llmgw_virtual_keys WHERE (key=$1 OR key=$2) AND enabled=true`, key, hashVirtualKey(key))
 	var vk VirtualKey
 	var created time.Time
 	err := row.Scan(&vk.Key, &vk.Name, &vk.Enabled, &created)
