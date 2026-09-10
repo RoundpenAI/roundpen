@@ -31,6 +31,7 @@ type AppSettings struct {
 	LlmgwPublicURL          string `json:"llmgwPublicUrl"`
 	LlmgwLogBodyMaxBytes    int    `json:"llmgwLogBodyMaxBytes"`
 	LlmgwEmbeddingModel     string `json:"llmgwEmbeddingModel"`
+	LlmgwDefaultModel       string `json:"llmgwDefaultModel"`
 	LlmgwOpenaiBaseURL      string `json:"llmgwOpenaiBaseUrl"`
 	LlmgwOpenaiAPIKey       string `json:"llmgwOpenaiApiKey"`
 	LlmgwAnthropicBaseURL   string `json:"llmgwAnthropicBaseUrl"`
@@ -76,6 +77,7 @@ func FromConfig(cfg *config.Config) AppSettings {
 		LlmgwPublicURL:          cfg.LLMGW.PublicURL,
 		LlmgwLogBodyMaxBytes:    cfg.LLMGW.LogBodyMaxBytes,
 		LlmgwEmbeddingModel:     cfg.LLMGW.EmbeddingModel,
+		LlmgwDefaultModel:       cfg.LLMGW.DefaultModel,
 		LlmgwOpenaiBaseURL:      llmgwUpstreamBase(cfg.LLMGW.OpenAI),
 		LlmgwOpenaiAPIKey:       llmgwUpstreamKey(cfg.LLMGW.OpenAI),
 		LlmgwAnthropicBaseURL:   llmgwUpstreamBase(cfg.LLMGW.Anthropic),
@@ -142,6 +144,7 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 		s.LlmgwEnabled,
 		s.LlmgwPublicURL,
 		s.LlmgwEmbeddingModel,
+		s.LlmgwDefaultModel,
 		s.LlmgwLogBodyMaxBytes,
 		s.LlmgwOpenaiBaseURL,
 		s.LlmgwOpenaiAPIKey,

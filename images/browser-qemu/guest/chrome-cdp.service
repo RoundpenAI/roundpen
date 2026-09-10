@@ -1,0 +1,16 @@
+[Unit]
+Description=Chrome DevTools on 127.0.0.1:9333
+After=lightdm.service display-manager.service
+Wants=lightdm.service
+
+[Service]
+Type=simple
+User=roundpen
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/roundpen/.Xauthority
+ExecStart=/usr/local/bin/chrome-cdp.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical.target

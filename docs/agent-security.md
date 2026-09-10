@@ -114,7 +114,7 @@ Roundpen 的 LLM 网关对外发放**虚拟密钥**：Agent 和内部服务只�
 
 ### 原则六：开放协议，降低接入成本
 
-Roundpen 兼容主流沙箱协议（E2B），便于接入 DeepSeek Harness、AgentScope 等框架；同时提供 REST API 与 Web 控制台。
+Roundpen 提供原生 REST API 与 Web 控制台；固定环境槽位面向私有化 Agent / Browser。
 
 开放不是为了炫技，而是让用户**在自托管前提下仍能复用生态**，避免「为了安全，重写所有集成」。
 

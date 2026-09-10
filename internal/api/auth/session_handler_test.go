@@ -189,7 +189,7 @@ func TestEnsurePassword(t *testing.T) {
 
 func TestSandboxRequiresAuth(t *testing.T) {
 	h, _ := newSessionTestMux(t, false)
-	req := httptest.NewRequest("POST", "/sandboxes", bytes.NewReader([]byte(`{}`)))
+	req := httptest.NewRequest("POST", "/v1/sandboxes", bytes.NewReader([]byte(`{}`)))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {

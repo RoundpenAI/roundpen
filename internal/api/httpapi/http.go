@@ -17,7 +17,7 @@ import (
 
 const maxFileBytes = 50 << 20 // 50 MiB
 
-// Handler is the native admin / ops API (distinct from E2B compatibility).
+// Handler is the native admin / ops API for sandboxes.
 type Handler struct {
 	Manager sandbox.Manager
 }

@@ -27,13 +27,14 @@ func FormatVirtualKeys(keys []LLMGWVirtualKey) string {
 }
 
 // ApplyLLMGWSettings writes admin settings into LLMGWConfig.
-func ApplyLLMGWSettings(dst *LLMGWConfig, enabled bool, publicURL, embeddingModel string, logBodyMaxBytes int, openaiBase, openaiKey, anthropicBase, anthropicKey, virtualKeysRaw string) error {
+func ApplyLLMGWSettings(dst *LLMGWConfig, enabled bool, publicURL, embeddingModel, defaultModel string, logBodyMaxBytes int, openaiBase, openaiKey, anthropicBase, anthropicKey, virtualKeysRaw string) error {
 	dst.Enabled = enabled
 	dst.PublicURL = strings.TrimSpace(publicURL)
 	dst.EmbeddingModel = strings.TrimSpace(embeddingModel)
 	if dst.EmbeddingModel == "" {
 		dst.EmbeddingModel = "text-embedding-3-small"
 	}
+	dst.DefaultModel = strings.TrimSpace(defaultModel)
 	dst.LogBodyMaxBytes = logBodyMaxBytes
 
 	openaiBase = strings.TrimSpace(openaiBase)

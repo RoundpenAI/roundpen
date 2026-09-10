@@ -425,4 +425,71 @@ func (b *Backend) ResizePTY(ctx context.Context, sandboxID, sessionKey string, r
 	})
 }
 
+func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend.AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(opts.Cmd) == 0 {
+		return fmt.Errorf("cmd is required")
+	}
+	workdir := opts.WorkDir
+	if workdir == "" {
+		workdir = "/workspace"
+	}
+	env := make([]string, 0, len(opts.Env))
+	for k, v := range opts.Env {
+		env = append(env, k+"="+v)
+	}
+	if stdout == nil {
+		stdout = io.Discard
+	}
+	if stderr == nil {
+		stderr = io.Discard
+	}
+
+	createResp, err := b.cli.ContainerExecCreate(ctx, containerName(sandboxID), types.ExecConfig{
+		AttachStdin:  true,
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          false,
+		Env:          env,
+		WorkingDir:   workdir,
+		Cmd:          opts.Cmd,
+	})
+	if err != nil {
+		return fmt.Errorf("attach exec create: %w", err)
+	}
+
+	attach, err := b.cli.ContainerExecAttach(ctx, createResp.ID, types.ExecStartCheck{Tty: false})
+	if err != nil {
+		return fmt.Errorf("attach exec attach: %w", err)
+	}
+	defer attach.Close()
+
+	errCh := make(chan error, 2)
+	go func() {
+		if stdin == nil {
+			_ = attach.CloseWrite()
+			errCh <- nil
+			return
+		}
+		_, copyErr := io.Copy(attach.Conn, stdin)
+		_ = attach.CloseWrite()
+		errCh <- copyErr
+	}()
+	go func() {
+		_, copyErr := stdcopy.StdCopy(stdout, stderr, attach.Reader)
+		errCh <- copyErr
+	}()
+
+	select {
+	case <-ctx.Done():
+		attach.Close()
+		return ctx.Err()
+	case err := <-errCh:
+		attach.Close()
+		if err != nil && ctx.Err() == nil && err != io.EOF {
+			return err
+		}
+		return nil
+	}
+}
+
 var _ backend.Backend = (*Backend)(nil)

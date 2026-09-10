@@ -1,6 +1,6 @@
 package builder
 
-// Spec is the E2B-aligned template build request body.
+// Spec is the template build request body.
 type Spec struct {
 	FromImage    string `json:"fromImage,omitempty"`
 	FromTemplate string `json:"fromTemplate,omitempty"`

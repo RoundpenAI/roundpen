@@ -17,6 +17,7 @@ type UpdateTemplateRequest struct {
 	Description *string
 	Public      *bool
 	Profile     *string
+	Slot        *string
 	CPUCount    *int
 	MemoryMB    *int
 	DiskSizeMB  *int
@@ -36,7 +37,7 @@ type BuildSummary struct {
 }
 
 const templateSelectCols = `
-	t.id, t.namespace, t.name, t.description, t.profile, t.public,
+	t.id, t.namespace, t.name, t.description, t.profile, t.slot, t.public,
 	t.spawn_count, t.build_count, t.last_spawned_at, t.created_by, t.created_at, t.updated_at,
 	b.id, b.status, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb, b.envd_version`
 
@@ -105,7 +106,7 @@ func (s *Store) UpdateTemplate(ctx context.Context, templateID string, req Updat
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if req.Description != nil || req.Public != nil || req.Profile != nil {
+	if req.Description != nil || req.Public != nil || req.Profile != nil || req.Slot != nil {
 		desc := rec.Description
 		if req.Description != nil {
 			desc = *req.Description
@@ -121,9 +122,17 @@ func (s *Store) UpdateTemplate(ctx context.Context, templateID string, req Updat
 				profile = "dev"
 			}
 		}
+		slot := rec.Slot
+		if req.Slot != nil {
+			slot = NormalizeSlot(*req.Slot)
+		} else if req.Profile != nil {
+			slot = SlotFromProfile(profile)
+		} else if slot == "" {
+			slot = SlotFromProfile(profile)
+		}
 		res, err := tx.ExecContext(ctx, `
-			UPDATE templates SET description=$2, public=$3, profile=$4, updated_at=now()
-			WHERE id=$1`, templateID, desc, public, profile)
+			UPDATE templates SET description=$2, public=$3, profile=$4, slot=$5, updated_at=now()
+			WHERE id=$1`, templateID, desc, public, profile, slot)
 		if err != nil {
 			return err
 		}
@@ -206,6 +215,14 @@ func (req UpdateTemplateRequest) Validate() error {
 		p := strings.TrimSpace(*req.Profile)
 		if p != "" && len([]rune(p)) > 32 {
 			return fmt.Errorf("profile too long")
+		}
+	}
+	if req.Slot != nil {
+		s := strings.ToLower(strings.TrimSpace(*req.Slot))
+		switch s {
+		case "", "agent", "browser", "mobile":
+		default:
+			return fmt.Errorf("slot must be agent, browser, or mobile")
 		}
 	}
 	return nil

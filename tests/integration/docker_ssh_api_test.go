@@ -17,7 +17,7 @@ import (
 func TestDockerSSHAPI_CreateExecDelete(t *testing.T) {
 	h := startDockerSSHHarness(t)
 
-	resp := h.mustDo(t, http.MethodPost, "/sandboxes", map[string]any{
+	resp := h.mustDo(t, http.MethodPost, "/v1/sandboxes", map[string]any{
 		"templateID": "alpine:3.20",
 		"timeout":    600,
 		"metadata":   map[string]string{"suite": "docker-ssh"},
@@ -69,7 +69,7 @@ func TestDockerSSHAPI_CreateExecDelete(t *testing.T) {
 		t.Fatalf("remote file=%q", b)
 	}
 
-	resp = h.mustDo(t, http.MethodDelete, "/sandboxes/"+sid, nil)
+	resp = h.mustDo(t, http.MethodDelete, "/v1/sandboxes/"+sid, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		raw, _ := io.ReadAll(resp.Body)

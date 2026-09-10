@@ -1,4 +1,4 @@
-// Package template manages sandbox template registry and name resolution (E2B-aligned T0).
+// Package template manages environment image templates (slot=agent|browser|mobile).
 package template
 
 import "time"
@@ -9,7 +9,7 @@ const (
 	EnvdVersion      = "0.0.0-roundpen"
 )
 
-// BuildStatus mirrors E2B TemplateBuildStatus (subset for T0).
+// BuildStatus is the status of a template build.
 type BuildStatus string
 
 const (
@@ -27,6 +27,7 @@ type Record struct {
 	Name          string
 	Description   string
 	Profile       string
+	Slot          string // agent | browser | mobile
 	Public        bool
 	CPUCount      int
 	MemoryMB      int
@@ -39,7 +40,7 @@ type Record struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	CreatedBy     string
-	Aliases       []string // deprecated E2B field; mirrors names
+	Aliases       []string // legacy alias list; mirrors names
 	Names         []string
 }
 
@@ -51,6 +52,7 @@ type Resolved struct {
 	Alias       string // user-facing ref, e.g. host or default/python
 	Image       string // artifact_ref passed to backend
 	Profile     string
+	Slot        string // agent | browser | mobile
 	CPUCount    int
 	MemoryMB    int
 	DiskSizeMB  int

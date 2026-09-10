@@ -67,8 +67,14 @@ func (s *Service) Resolve(ctx context.Context, templateID string) (Resolved, err
 		if res.Alias == "" {
 			res.Alias = templateID
 		}
-		if strings.EqualFold(res.Profile, "browser") {
+		if strings.EqualFold(res.Slot, "browser") || strings.EqualFold(res.Profile, "browser") {
 			res.UseImageCmd = true
+			if res.Slot == "" {
+				res.Slot = "browser"
+			}
+		}
+		if res.Slot == "" {
+			res.Slot = "agent"
 		}
 		return res, nil
 	}
@@ -84,6 +90,7 @@ func (s *Service) Resolve(ctx context.Context, templateID string) (Resolved, err
 		Alias:      templateID,
 		Image:      img,
 		Profile:    "dev",
+		Slot:       "agent",
 		CPUCount:   1,
 		MemoryMB:   512,
 		DiskSizeMB: 5120,

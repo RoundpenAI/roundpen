@@ -17,6 +17,9 @@ vendor/
 *.db
 .docker/
 
+# Local Go build cache (never commit)
+.gocache/
+
 # IDE / OS
 .idea/
 .vscode/
@@ -30,6 +33,14 @@ vendor/
 /internal/ui/dist/*
 !/internal/ui/dist/.gitkeep
 
+# Browser / agent QEMU build artifacts (qcow2 + kernel sidecars)
+/images/browser-qemu/out/
+/images/agent-qemu/out/
+
 # Node (web/)
 /web/node_modules/
 /web/dist/
+/web/test-results/
+/web/playwright-report/
+/web/blob-report/
+/web/playwright/.cache/

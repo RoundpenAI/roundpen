@@ -170,6 +170,8 @@ export function TemplateDetailDialog({
               <dd className="font-mono">{detail.namespace}</dd>
               <dt>Profile</dt>
               <dd className="font-mono">{detail.profile || 'dev'}</dd>
+              <dt>Slot</dt>
+              <dd className="font-mono">{detail.slot || 'agent'}</dd>
               <dt>Usage</dt>
               <dd>
                 {detail.spawnCount ?? 0} spawns · {detail.buildCount ?? 0} builds

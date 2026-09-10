@@ -58,7 +58,7 @@ type CreateRequest struct {
 	Category    string // optional class for resolve-by-category
 	IsDefault   bool   // mark as default within Category
 	Image       string
-	TemplateID  string // E2B-style alias; maps to Image when Image empty
+	TemplateID  string // template alias; maps to Image when Image empty
 	WorkspaceID string // empty => ephemeral workspace = sandbox id
 	TTL         time.Duration
 	Env         map[string]string
@@ -108,6 +108,13 @@ type TerminalOpts struct {
 	Cols    uint16
 }
 
+// AttachExecOpts configures a long-lived non-TTY process (ACP agent stdio).
+type AttachExecOpts struct {
+	Cmd     []string
+	WorkDir string
+	Env     map[string]string
+}
+
 // Store persists sandbox records.
 type Store interface {
 	Insert(ctx context.Context, sb *Sandbox) error
@@ -148,4 +155,7 @@ type Manager interface {
 
 	AttachTerminal(ctx context.Context, id, sessionKey string, opts TerminalOpts, stdin io.Reader, stdout io.Writer) error
 	ResizeTerminal(ctx context.Context, id, sessionKey string, rows, cols uint16) error
+
+	// AttachExec runs a long-lived non-TTY process inside the sandbox (ACP stdio).
+	AttachExec(ctx context.Context, id string, opts AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error
 }
