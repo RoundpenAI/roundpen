@@ -98,7 +98,7 @@ export function BrowserPage() {
       } catch {
         /* ignore */
       }
-      navigate(`/chats/${created.sessionId}`, {
+      navigate(`/a`, {
         state: { pendingPrompt: created.prompt },
       })
     } catch (e) {
@@ -239,7 +239,7 @@ export function BrowserPage() {
                     {t.url}
                   </span>
                   {t.sessionId ? (
-                    <Link to={`/chats/${t.sessionId}`} className="link link-hover shrink-0">
+                    <Link to={`/a`} className="link link-hover shrink-0">
                       Open chat
                     </Link>
                   ) : (

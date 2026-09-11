@@ -17,10 +17,10 @@ test('settings page loads for admin', async ({ page }) => {
   await expect(page.locator('.alert-error')).toHaveCount(0)
 })
 
-test('nav reaches browser from chats', async ({ page }) => {
+test('nav reaches settings from assistants', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
-  await page.goto('/chats')
-  await page.getByRole('link', { name: 'Browser' }).first().click()
-  await expect(page.getByRole('heading', { name: 'Browser' })).toBeVisible()
+  await page.goto('/a')
+  await page.getByRole('link', { name: '设置' }).first().click()
+  await expect(page.getByText('Allow public registration')).toBeVisible()
 })

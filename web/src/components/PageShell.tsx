@@ -3,13 +3,24 @@ import { Link, useNavigate } from 'react-router-dom'
 import { doLogout, useAuth } from '../auth'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
 
-export type AppSection = 'chats' | 'browser' | 'templates' | 'settings' | 'sandboxes'
+export type AppSection =
+  | 'assistants'
+  | 'browser'
+  | 'templates'
+  | 'settings'
+  | 'sandboxes'
 
-export const NAV: { id: AppSection; to: string; label: string; admin?: boolean }[] = [
-  { id: 'chats', to: '/chats', label: 'Chats' },
-  { id: 'browser', to: '/browser', label: 'Browser' },
-  { id: 'templates', to: '/registry', label: 'Images' },
-  { id: 'settings', to: '/settings', label: 'Settings' },
+export const NAV: {
+  id: AppSection
+  to: string
+  label: string
+  admin?: boolean
+  advanced?: boolean
+}[] = [
+  { id: 'assistants', to: '/a', label: '助手' },
+  { id: 'settings', to: '/settings', label: '设置' },
+  { id: 'browser', to: '/browser', label: '浏览器', advanced: true },
+  { id: 'templates', to: '/registry', label: '镜像', admin: true },
 ]
 
 type Props = {
@@ -69,7 +80,7 @@ export function PageShell({
       </header>
 
       <nav className="mb-6 flex flex-wrap gap-x-4 gap-y-2 border-b border-base-300 pb-4 text-sm">
-        {NAV.map((item) => {
+        {NAV.filter((item) => !item.advanced).map((item) => {
           if (item.admin && user?.role !== 'admin') return null
           if (item.id === current) {
             return (

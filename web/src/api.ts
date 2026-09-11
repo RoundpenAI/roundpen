@@ -573,9 +573,78 @@ export type AgentSession = {
   title: string
   providerId: string
   sandboxId: string
+  assistantId?: string
   status: string
   createdAt: string
   updatedAt: string
+}
+
+export type AssistantCapabilities = {
+  shell: boolean
+  browser: boolean
+  mobile: boolean
+  desktop: boolean
+}
+
+export type AssistantDirectoryGrant = {
+  path: string
+  mode: 'read' | 'readwrite'
+  createdAt?: string
+}
+
+export type Assistant = {
+  id: string
+  userId: string
+  name: string
+  bio: string
+  identityMode: 'proxy_user' | 'independent'
+  capabilities: AssistantCapabilities
+  networkTier: 'none' | 'dev_sites' | 'all'
+  networkAllowlist: string[]
+  directoryGrants: AssistantDirectoryGrant[]
+  status: 'active' | 'disabled'
+  primarySessionId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export const assistantsApi = {
+  list: () => api<{ assistants: Assistant[] }>('/v1/assistants'),
+  create: (body: {
+    name: string
+    bio?: string
+    identityMode: 'proxy_user' | 'independent'
+    preset?: string
+    capabilities?: AssistantCapabilities
+  }) =>
+    api<Assistant>('/v1/assistants', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  get: (id: string) => api<Assistant>(`/v1/assistants/${id}`),
+  update: (
+    id: string,
+    body: Partial<{
+      name: string
+      bio: string
+      identityMode: 'proxy_user' | 'independent'
+      confirmIdentityChange: boolean
+      capabilities: AssistantCapabilities
+      networkTier: 'none' | 'dev_sites' | 'all'
+      networkAllowlist: string[]
+      directoryGrants: AssistantDirectoryGrant[]
+      status: 'active' | 'disabled'
+    }>,
+  ) =>
+    api<Assistant>(`/v1/assistants/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  ensureSession: (id: string) =>
+    api<{ sessionId: string }>(`/v1/assistants/${id}/ensure-session`, {
+      method: 'POST',
+      body: '{}',
+    }),
 }
 
 export type AgentMessageMeta = {

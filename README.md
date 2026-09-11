@@ -45,9 +45,11 @@ Browser: Chrome CDP :9222 via hostfwd；桌面 = QEMU -vnc unix:…/vnc.sock →
 1. **固定环境**：`EnsureBrowser` / `EnsureAgent`；API `/v1/me/environments`；按属主隔离，admin 可看全部
 2. **记忆与文件**：PostgreSQL + `/workspace` 挂载；长期记忆绑定登录身份
 3. **LLM 网关**：Anthropic / OpenAI 透传；内部 Virtual Key；请求流水进 PG（默认不记 body）
-4. **Web 控制台**：Chats / Browser / Images（镜像）/ Settings
-5. **ACP Agent 网关**：会话 UI；Browser CDP 绑用户 Browser 环境
+4. **Web 控制台**：助手优先（`/a`）/ 设置；浏览器与镜像入口为高级/管理员
+5. **ACP Agent 网关**：助手绑定会话 UI；Browser CDP 绑用户 Browser 环境
 6. **最小审计**：创建 / 删除 / exec / settings 写 slog
+
+助手产品模型见 [docs/superpowers/specs/2026-09-12-assistant-first-ui-design.md](docs/superpowers/specs/2026-09-12-assistant-first-ui-design.md)。
 
 ## 快速开始
 

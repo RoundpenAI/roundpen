@@ -1,9 +1,14 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { RequireAuth } from './auth'
-import { ChatLayout } from './components/ChatLayout'
+import {
+  AssistantLayout,
+  AssistantsIndexRedirect,
+} from './components/AssistantLayout'
+import { AssistantChatRedirect } from './pages/AssistantChatRedirect'
+import { AssistantCreatePage } from './pages/AssistantCreatePage'
+import { AssistantDetailPage } from './pages/AssistantDetailPage'
 import { BrowserPage } from './pages/BrowserPage'
 import { ChatSessionPage } from './pages/ChatSessionPage'
-import { ChatsPage } from './pages/ChatsPage'
 import { LoginPage } from './pages/LoginPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { TemplatesPage } from './pages/TemplatesPage'
@@ -14,18 +19,23 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<Navigate to="/chats" replace />} />
+        <Route path="/" element={<Navigate to="/a" replace />} />
         <Route
-          path="/chats"
+          path="/a"
           element={
             <RequireAuth>
-              <ChatLayout />
+              <AssistantLayout />
             </RequireAuth>
           }
         >
-          <Route index element={<ChatsPage />} />
-          <Route path=":id" element={<ChatSessionPage />} />
+          <Route index element={<AssistantsIndexRedirect />} />
+          <Route path="new" element={<AssistantCreatePage />} />
+          <Route path=":assistantId" element={<AssistantDetailPage />} />
+          <Route path=":assistantId/chat" element={<AssistantChatRedirect />} />
+          <Route path=":assistantId/s/:id" element={<ChatSessionPage />} />
         </Route>
+        <Route path="/chats" element={<Navigate to="/a" replace />} />
+        <Route path="/chats/*" element={<Navigate to="/a" replace />} />
         <Route
           path="/browser"
           element={
@@ -58,7 +68,7 @@ export default function App() {
             </RequireAuth>
           }
         />
-        <Route path="*" element={<Navigate to="/chats" replace />} />
+        <Route path="*" element={<Navigate to="/a" replace />} />
       </Routes>
     </BrowserRouter>
   )

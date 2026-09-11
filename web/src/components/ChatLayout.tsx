@@ -103,7 +103,7 @@ export function ChatLayout() {
   const endSession = async (sessionId: string) => {
     try {
       await agents.deleteSession(sessionId)
-      if (sessionId === activeId) navigate('/chats')
+      if (sessionId === activeId) navigate('/a')
       await refresh()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -136,12 +136,12 @@ export function ChatLayout() {
           <SidebarIcon />
         </button>
         {!collapsed && (
-          <Link to="/chats" className="font-display truncate text-lg font-semibold">
+          <Link to="/a" className="font-display truncate text-lg font-semibold">
             Roundpen
           </Link>
         )}
         <Link
-          to="/chats"
+          to="/a"
           className="chat-icon-btn ml-auto"
           title="New chat"
           aria-label="New chat"
@@ -151,7 +151,7 @@ export function ChatLayout() {
       </div>
 
       {!collapsed && (
-        <Link to="/chats" className="chat-new-btn">
+        <Link to="/a" className="chat-new-btn">
           <NewChatIcon />
           New chat
         </Link>
@@ -170,7 +170,7 @@ export function ChatLayout() {
                 className={`chat-session-row ${active ? 'active' : ''}`}
               >
                 <NavLink
-                  to={`/chats/${s.id}`}
+                  to={`/a`}
                   className="chat-session-link"
                   title={s.title || s.id}
                 >
@@ -205,7 +205,7 @@ export function ChatLayout() {
 
       <div className="chat-sidebar-foot">
         {!collapsed &&
-          NAV.filter((item) => item.id !== 'chats').map((item) => {
+          NAV.filter((item) => item.id !== 'assistants').map((item) => {
             if (item.admin && user?.role !== 'admin') return null
             return (
               <Link
@@ -280,7 +280,7 @@ export function ChatLayout() {
             <div className="ml-auto hidden items-center gap-3 text-sm md:flex">
               {NAV.map((item) => {
                 if (item.admin && user?.role !== 'admin') return null
-                const current: AppSection = 'chats'
+                const current: AppSection = 'assistants'
                 if (item.id === current) {
                   return (
                     <span key={item.id} className="opacity-40">

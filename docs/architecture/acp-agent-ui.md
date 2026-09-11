@@ -1,12 +1,12 @@
 # ACP Gateway & Agent Web UI
 
-会话优先的多 Agent 控制面：浏览器经 WebSocket 对话，控制面作为 ACP Client。**System Agent** 在控制面进程内运行（无沙箱）；coding / stdio Agent 仍在沙箱内拉起。
+助手优先的控制面：浏览器经 WebSocket 与助手对话，控制面作为 ACP Client。**System Agent** 在控制面进程内运行（无沙箱）；coding / stdio Agent 仍在沙箱内拉起。每个助手（`/v1/assistants`）绑定一条主会话（`agent_sessions.assistant_id`）。
 
-相关：[environment-services.md](./environment-services.md)、[project-layout.md](./project-layout.md)。
+相关：[environment-services.md](./environment-services.md)、[project-layout.md](./project-layout.md)、[assistant-first UI](../superpowers/specs/2026-09-12-assistant-first-ui-design.md)。
 
 ## 目标
 
-- 顶层 `/chats` 管理多 Agent / 多会话。
+- 顶层 `/a` 管理助手；对话挂在助手下。
 - 控制面 = ACP Client + 网关；禁止宿主机裸跑用户 coding Agent。
 - System Agent：以当前用户权限调用 Roundpen API + Browser；经 llmgw 做真实 LLM tool-calling。
 
@@ -14,18 +14,20 @@
 
 | 概念 | 含义 |
 |------|------|
-| Provider | Agent 入口：`sysadmin`（进程内）、`claude`（QEMU `claude-agent-acp`）、或 `stdio`（自定义 AttachExec） |
-| Agent Session | 用户对话会话；stdio 绑定 1 sandbox，sysadmin 可不绑沙箱 |
+| Assistant | 用户可见主体：简介、身份、能力、网络与目录授权 |
+| Provider | Agent 入口：`sysadmin`（进程内）、`claude`（QEMU `claude-agent-acp`）、或 `stdio`（自定义 AttachExec）；助手 ensure-session 默认 `claude` |
+| Agent Session | 助手下的对话会话；stdio 绑定 1 sandbox，sysadmin 可不绑沙箱 |
 | Provisioner | `internal/agentenv`：仅 NeedsSandbox 的 provider 创建沙箱并注入环境 |
 | AttachExec | 非 TTY 长驻 stdio 附着（coding ACP） |
 
 ## 架构
 
 ```
-Browser (/chats)
+Browser (/a)
     │  WS + REST
 Control plane
-    ├── agentsession (PG)
+    ├── assistants (PG)
+    ├── agentsession (PG, assistant_id)
     ├── agentenv.Provisioner → sandbox.Create(+env)   [stdio only]
     └── acp.Manager
             ├── sysadmin → sysagent (in-process pipes)
