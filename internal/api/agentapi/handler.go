@@ -24,6 +24,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
@@ -82,8 +83,9 @@ func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 type createReq struct {
-	Title      string `json:"title"`
-	ProviderID string `json:"providerId"`
+	Title       string `json:"title"`
+	ProviderID  string `json:"providerId"`
+	AssistantID string `json:"assistantId"`
 }
 
 func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
@@ -101,22 +103,52 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		req.Title = "New chat"
 	}
 
-	provMeta, ok := providers.ByID(h.ACP.Providers(), req.ProviderID)
-	if !ok || !provMeta.Enabled {
-		writeErr(w, http.StatusBadRequest, "unknown provider")
+	sess, err := h.startSession(r.Context(), user, req.Title, req.ProviderID, req.AssistantID)
+	if err != nil {
+		writeSessionStartErr(w, err)
 		return
 	}
+	writeJSON(w, http.StatusCreated, sess)
+}
 
-	// Create DB row first so session id is stable for injection.
-	sess, err := h.Store.Create(r.Context(), user.Username, req.Title, req.ProviderID, "", "")
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+type sessionStartError struct {
+	Code int
+	Msg  string
+}
+
+func (e *sessionStartError) Error() string { return e.Msg }
+
+func writeSessionStartErr(w http.ResponseWriter, err error) {
+	var se *sessionStartError
+	if errors.As(err, &se) {
+		writeErr(w, se.Code, se.Msg)
 		return
+	}
+	writeErr(w, http.StatusInternalServerError, err.Error())
+}
+
+// StartForAssistant creates or is used by assistants ensure-session (claude runtime).
+func (h *Handler) StartForAssistant(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error) {
+	if title == "" {
+		title = "Chat"
+	}
+	return h.startSession(ctx, user, title, "claude", assistantID)
+}
+
+func (h *Handler) startSession(ctx context.Context, user *storage.User, title, providerID, assistantID string) (*agentsession.Session, error) {
+	provMeta, ok := providers.ByID(h.ACP.Providers(), providerID)
+	if !ok || !provMeta.Enabled {
+		return nil, &sessionStartError{Code: http.StatusBadRequest, Msg: "unknown provider"}
+	}
+
+	sess, err := h.Store.Create(ctx, user.Username, title, providerID, "", assistantID)
+	if err != nil {
+		return nil, err
 	}
 
 	sandboxID := ""
 	if providers.NeedsSandbox(provMeta) {
-		vkey := h.pickVirtualKey(r.Context())
+		vkey := h.pickVirtualKey(ctx)
 		prov := *h.Provisioner
 		prov.Config.APIKey = user.APIKey
 		prov.Config.VirtualKey = vkey
@@ -126,13 +158,12 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		if h.LLMGW != nil {
 			prov.Config.DefaultModel = h.LLMGW.DefaultModel()
 		}
-		res, err := prov.Provision(r.Context(), sess.ID, req.ProviderID, user.Username)
+		res, err := prov.Provision(ctx, sess.ID, providerID, user.Username)
 		if err != nil {
-			_ = h.Store.Delete(r.Context(), sess.ID)
-			writeErr(w, http.StatusBadGateway, "provision sandbox: "+err.Error())
-			return
+			_ = h.Store.Delete(ctx, sess.ID)
+			return nil, &sessionStartError{Code: http.StatusBadGateway, Msg: "provision sandbox: " + err.Error()}
 		}
-		_ = h.Store.UpdateSandbox(r.Context(), sess.ID, res.Sandbox.ID)
+		_ = h.Store.UpdateSandbox(ctx, sess.ID, res.Sandbox.ID)
 		sess.SandboxID = res.Sandbox.ID
 		sandboxID = res.Sandbox.ID
 	}
@@ -142,13 +173,12 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		Role:     string(user.Role),
 		APIKey:   user.APIKey,
 	}
-	if _, err := h.ACP.Start(r.Context(), sess.ID, sandboxID, req.ProviderID, manager.StartOpts{
+	if _, err := h.ACP.Start(ctx, sess.ID, sandboxID, providerID, manager.StartOpts{
 		Actor: actor,
 	}); err != nil {
-		writeErr(w, http.StatusBadGateway, "start agent: "+err.Error())
-		return
+		return nil, &sessionStartError{Code: http.StatusBadGateway, Msg: "start agent: " + err.Error()}
 	}
-	writeJSON(w, http.StatusCreated, sess)
+	return sess, nil
 }
 
 func (h *Handler) pickVirtualKey(ctx context.Context) string {

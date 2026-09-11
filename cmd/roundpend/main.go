@@ -24,6 +24,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	"github.com/RoundpenAI/roundpen/internal/api/platform"
+	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
@@ -309,7 +310,7 @@ func main() {
 			Category:   "Agent",
 		},
 	}
-	(&agentapi.Handler{
+	agentHandler := &agentapi.Handler{
 		Log:         logger,
 		Store:       agentStore,
 		ACP:         acpMgr,
@@ -320,6 +321,13 @@ func main() {
 		Envs:        envSvc,
 		Tasks:       &browsetask.Store{DB: db.SQL},
 		DestroySbx:  true,
+	}
+	agentHandler.Mount(mux)
+	assistantStore := &assistant.Store{DB: db.SQL}
+	(&assistant.Handler{
+		Store:    assistantStore,
+		Sessions: agentStore,
+		Starter:  agentHandler,
 	}).Mount(mux)
 
 	// Console SPA last — catch-all for non-API GET paths (embedded via internal/ui).
