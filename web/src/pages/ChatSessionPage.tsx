@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   agents,
+  assistantsApi,
   type AgentMessage,
   type AgentSession,
   ApiError,
