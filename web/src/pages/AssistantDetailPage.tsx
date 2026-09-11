@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import {
   assistantsApi,
   ApiError,
+  type ActivityItem,
+  type AssistTicket,
   type Assistant,
   type AssistantCapabilities,
   type AssistantDirectoryGrant,
@@ -13,6 +15,9 @@ export function AssistantDetailPage() {
   const { assistantId = '' } = useParams()
   const { refresh } = useAssistantLayout()
   const [a, setA] = useState<Assistant | null>(null)
+  const [activity, setActivity] = useState<ActivityItem[]>([])
+  const [busyNow, setBusyNow] = useState(false)
+  const [tickets, setTickets] = useState<AssistTicket[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [name, setName] = useState('')
@@ -23,11 +28,23 @@ export function AssistantDetailPage() {
 
   const load = useCallback(async () => {
     try {
-      const got = await assistantsApi.get(assistantId)
+      const [got, act, tix] = await Promise.all([
+        assistantsApi.get(assistantId),
+        assistantsApi.activity(assistantId).catch(() => ({
+          activity: [] as ActivityItem[],
+          busy: false,
+        })),
+        assistantsApi.listTickets(assistantId, true).catch(() => ({
+          tickets: [] as AssistTicket[],
+        })),
+      ])
       setA(got)
       setName(got.name)
       setBio(got.bio)
       setAllowText((got.networkAllowlist ?? []).join('\n'))
+      setActivity(act.activity ?? [])
+      setBusyNow(Boolean(act.busy))
+      setTickets(tix.tickets ?? [])
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -160,9 +177,85 @@ export function AssistantDetailPage() {
 
       <section className="space-y-2">
         <h2 className="font-medium">此刻</h2>
-        <p className="rounded-lg border border-base-300 p-4 text-sm opacity-60">
-          活动时间线将在后续版本提供。需要监督时，可先打开对话或协助视图。
+        <p className="text-sm opacity-55">
+          {busyNow ? '正在工作中…' : '当前空闲'}
+          {a.primarySessionId ? ' · 有主对话' : ''}
         </p>
+        {tickets.length > 0 && (
+          <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
+            <p className="text-sm font-medium">待处理协助单</p>
+            {tickets.map((t) => (
+              <div key={t.id} className="text-sm">
+                <p>{t.title}</p>
+                <p className="text-xs opacity-60">{t.askHuman || t.reason}</p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {t.kind === 'policy_apply' ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-xs"
+                        onClick={() =>
+                          void assistantsApi
+                            .resolveTicket(t.id, { resolution: 'allow_once' })
+                            .then(() => load())
+                        }
+                      >
+                        允许一次
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-primary"
+                        onClick={() =>
+                          void assistantsApi
+                            .resolveTicket(t.id, { resolution: 'permanent' })
+                            .then(() => {
+                              void refresh()
+                              return load()
+                            })
+                        }
+                      >
+                        写入档案并继续
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-ghost"
+                        onClick={() =>
+                          void assistantsApi
+                            .resolveTicket(t.id, { resolution: 'reject' })
+                            .then(() => load())
+                        }
+                      >
+                        拒绝
+                      </button>
+                    </>
+                  ) : null}
+                  <Link className="btn btn-xs btn-ghost" to={`/a/${a.id}/chat`}>
+                    在对话中处理
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <ul className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-base-300 p-3 text-xs">
+          {activity.length === 0 && (
+            <li className="opacity-45">暂无活动记录</li>
+          )}
+          {[...activity]
+            .sort((x, y) => Date.parse(y.at) - Date.parse(x.at))
+            .slice(0, 40)
+            .map((it) => (
+              <li key={`${it.source}-${it.id}`} className="opacity-80">
+                <span className="opacity-40">
+                  {new Date(it.at).toLocaleString()}
+                </span>{' '}
+                <span className="opacity-50">[{it.kind}]</span> {it.title}
+                {it.detail ? (
+                  <span className="opacity-45"> — {it.detail}</span>
+                ) : null}
+              </li>
+            ))}
+        </ul>
       </section>
 
       <section className="space-y-3">

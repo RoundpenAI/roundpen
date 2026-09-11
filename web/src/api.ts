@@ -645,6 +645,93 @@ export const assistantsApi = {
       method: 'POST',
       body: '{}',
     }),
+  activity: (id: string) =>
+    api<{ activity: ActivityItem[]; busy: boolean }>(
+      `/v1/assistants/${id}/activity`,
+    ),
+  policyCheck: (
+    id: string,
+    body: {
+      dimension: 'network' | 'directory' | 'capability'
+      target: string
+      mode?: string
+      sessionId?: string
+      record?: boolean
+    },
+  ) =>
+    api<PolicyDecision>(`/v1/assistants/${id}/policy/check`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  listTickets: (id: string, pendingOnly = false) =>
+    api<{ tickets: AssistTicket[] }>(
+      `/v1/assistants/${id}/assist-tickets${pendingOnly ? '?pending=1' : ''}`,
+    ),
+  createTicket: (
+    id: string,
+    body: {
+      sessionId?: string
+      kind?: string
+      title: string
+      reason?: string
+      contextSummary?: string
+      askHuman?: string
+      payload?: unknown
+    },
+  ) =>
+    api<AssistTicket>(`/v1/assistants/${id}/assist-tickets`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  resolveTicket: (
+    ticketId: string,
+    body: { resolution: 'allow_once' | 'permanent' | 'reject'; note?: string },
+  ) =>
+    api<AssistTicket>(`/v1/assist-tickets/${ticketId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  pendingTickets: () =>
+    api<{ count: number; tickets: AssistTicket[] }>(
+      '/v1/me/assist-tickets/pending',
+    ),
+}
+
+export type ActivityItem = {
+  id: string
+  at: string
+  kind: string
+  title: string
+  detail?: string
+  status?: string
+  source: string
+}
+
+export type PolicyDecision = {
+  allowed: boolean
+  dimension: string
+  target: string
+  reason: string
+  appliable: boolean
+}
+
+export type AssistTicket = {
+  id: string
+  userId: string
+  assistantId: string
+  sessionId: string
+  kind: string
+  status: string
+  title: string
+  reason: string
+  contextSummary: string
+  askHuman: string
+  payload?: unknown
+  resolution?: string
+  resolutionNote?: string
+  createdAt: string
+  updatedAt: string
+  resolvedAt?: string
 }
 
 export type AgentMessageMeta = {

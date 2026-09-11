@@ -10,6 +10,8 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -23,6 +25,8 @@ type Handler struct {
 	Store    *Store
 	Sessions *agentsession.Store
 	Starter  SessionStarter
+	Tickets  *assistticket.Store
+	Denials  *policy.DenialStore
 }
 
 // Mount registers routes.
@@ -32,6 +36,12 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/assistants/{id}", h.get)
 	mux.HandleFunc("PATCH /v1/assistants/{id}", h.patch)
 	mux.HandleFunc("POST /v1/assistants/{id}/ensure-session", h.ensureSession)
+	mux.HandleFunc("GET /v1/assistants/{id}/activity", h.activity)
+	mux.HandleFunc("POST /v1/assistants/{id}/policy/check", h.policyCheck)
+	mux.HandleFunc("GET /v1/assistants/{id}/assist-tickets", h.listTickets)
+	mux.HandleFunc("POST /v1/assistants/{id}/assist-tickets", h.createTicket)
+	mux.HandleFunc("POST /v1/assist-tickets/{id}/resolve", h.resolveTicket)
+	mux.HandleFunc("GET /v1/me/assist-tickets/pending", h.pendingTickets)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {

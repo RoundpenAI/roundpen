@@ -36,6 +36,7 @@ type PermReq = {
   requestId: string
   title: string
   options: { optionId: string; name: string; kind?: string }[]
+  ticketId?: string
 }
 
 function permButtonClass(optionId: string): string {
@@ -164,10 +165,14 @@ function ensureTurn(out: ChatBlock[], id: string): Extract<ChatBlock, { kind: 't
   return turn
 }
 
-function groupChatLines(lines: ChatLine[]): ChatBlock[] {
+function groupChatLines(lines: ChatLine[], quiet = true): ChatBlock[] {
   const out: ChatBlock[] = []
   for (const line of lines) {
     if (line.kind === 'permission') continue
+    // Quiet mode: tools/thoughts live in 详情「此刻」, not the transcript.
+    if (quiet && (line.kind === 'thought' || line.kind === 'tool_call')) {
+      continue
+    }
     if (line.kind === 'thought') {
       ensureTurn(out, line.id).thoughts.push(line)
       continue
@@ -461,17 +466,15 @@ export function ChatSessionPage() {
             const status = (e.status ?? '').trim()
             if (isBrowserTool(title)) {
               setBrowserSeen(true)
-              setShowBrowser(true)
+              // Quiet mode: do not auto-open browser; user opens from 协助/详情.
             }
             if (
               e.type === 'tool_call_update' &&
               (status === 'completed' || status === 'failed')
             ) {
-              setStatusHint('Working…')
+              setStatusHint('工作中')
             } else {
-              setStatusHint(
-                title ? `Running ${title}…` : 'Running tool…',
-              )
+              setStatusHint('工作中')
             }
             setLines((prev) =>
               upsertToolLine(prev, {
@@ -506,11 +509,12 @@ export function ChatSessionPage() {
             )
             return
           }
-          setStatusHint('Waiting for permission…')
+          setStatusHint('等待你处理协助单…')
           setPerm({
             requestId: msg.requestId ?? '',
             title: msg.title ?? 'Permission',
             options,
+            ticketId: (msg as { ticketId?: string }).ticketId,
           })
         } else if (msg.type === 'done') {
           setBusy(false)
@@ -659,19 +663,28 @@ export function ChatSessionPage() {
         optionId,
       }),
     )
+    if (perm.ticketId) {
+      const resolution =
+        optionId.includes('reject') || optionId === 'reject'
+          ? 'reject'
+          : 'allow_once'
+      void assistantsApi
+        .resolveTicket(perm.ticketId, { resolution, note: optionId })
+        .catch(() => undefined)
+    }
     setLines((prev) => [
       ...prev,
       {
         id: `perm-${Date.now()}`,
         kind: 'permission',
-        text: `${perm.title} · ${optionId}`,
+        text: `协助单已处理 · ${optionId}`,
         title: perm.title,
         optionId,
         outcome: 'selected',
       },
     ])
     setPerm(null)
-    setStatusHint('Working…')
+    setStatusHint('工作中')
   }
 
   const showWorking =
@@ -685,26 +698,29 @@ export function ChatSessionPage() {
   return (
     <div className="chat-thread">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs">
-        {session?.sandboxId && (
-          <Link to={`/s/${session.sandboxId}`} className="link link-hover opacity-70">
-            Open workbench
+        {session?.assistantId && (
+          <Link
+            to={`/a/${session.assistantId}`}
+            className="link link-hover opacity-70"
+          >
+            助手详情
           </Link>
         )}
         {session && (
           <span className="opacity-40">
-            {session.providerId} · {session.status}
+            {busy ? '工作中' : session.status}
           </span>
         )}
         <span className={wsOpen ? 'opacity-40' : 'text-warning'}>
-          {wsOpen ? 'live' : 'reconnecting'}
+          {wsOpen ? '已连接' : '重连中'}
         </span>
         <button
           type="button"
           className={`btn btn-xs ml-auto ${autoMode ? 'btn-primary' : 'btn-ghost'}`}
           title={
             autoMode
-              ? 'Auto: ordinary permissions are approved'
-              : 'Ask before running tools'
+              ? '自动批准常见工具权限'
+              : '工具权限需你确认（协助单）'
           }
           onClick={toggleAuto}
         >
@@ -715,7 +731,7 @@ export function ChatSessionPage() {
           className="btn btn-ghost btn-xs"
           onClick={() => setShowBrowser((v) => !v)}
         >
-          {showBrowser ? 'Hide browser' : 'Show browser'}
+          {showBrowser ? '收起浏览器' : '打开画面'}
         </button>
       </div>
 
@@ -821,7 +837,20 @@ export function ChatSessionPage() {
                   aria-live="polite"
                 >
                   <span className="loading loading-spinner loading-xs shrink-0" />
-                  <span className="min-w-0 truncate">{statusHint ?? 'Working…'}</span>
+                  <span className="min-w-0 truncate">
+                    {statusHint ?? '工作中'}
+                    {session?.assistantId && (
+                      <>
+                        {' · '}
+                        <Link
+                          to={`/a/${session.assistantId}`}
+                          className="link link-hover"
+                        >
+                          查看此刻
+                        </Link>
+                      </>
+                    )}
+                  </span>
                 </div>
               )}
               <div ref={bottomRef} />
@@ -830,12 +859,12 @@ export function ChatSessionPage() {
 
           <ChatComposerDock>
             {perm && (
-              <div className="chat-composer-dock-inner mb-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3">
-                <p className="mb-1 text-sm font-medium">
-                  Allow tool: {perm.title}
-                </p>
+              <div className="chat-composer-dock-inner mb-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3">
+                <p className="mb-1 text-sm font-medium">协助单</p>
+                <p className="mb-1 text-sm">{perm.title}</p>
                 <p className="mb-2 text-xs opacity-60">
-                  Prefer session allow so sandboxed agents ask less often.
+                  为什么找你：工具需要你的确认才能继续。
+                  {perm.ticketId ? ` · #${perm.ticketId.slice(0, 8)}` : ''}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {perm.options.map((o) => (
@@ -849,6 +878,15 @@ export function ChatSessionPage() {
                       {o.name || o.optionId}
                     </button>
                   ))}
+                  {showBrowser || browserSeen ? (
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => setShowBrowser(true)}
+                    >
+                      打开协助画面
+                    </button>
+                  ) : null}
                 </div>
               </div>
             )}

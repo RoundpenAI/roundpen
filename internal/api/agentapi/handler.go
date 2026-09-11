@@ -20,6 +20,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
@@ -45,6 +46,7 @@ type Handler struct {
 	Hub         *browser.Hub
 	Envs        *userenv.Service
 	Tasks       *browsetask.Store
+	Tickets     *assistticket.Store
 	DestroySbx  bool // delete sandbox on session delete
 }
 
@@ -295,6 +297,7 @@ type wsOut struct {
 	RequestID  string `json:"requestId,omitempty"`
 	Title      string `json:"title,omitempty"`
 	Options    any    `json:"options,omitempty"`
+	TicketID   string `json:"ticketId,omitempty"`
 }
 
 func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
@@ -517,7 +520,27 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 			Options:   req.Options,
 			ToolID:    reqID,
 		})
-		write(wsOut{Type: "permission_request", RequestID: reqID, Title: title, Options: req.Options})
+		ticketID := ""
+		if h.Tickets != nil && sess.AssistantID != "" {
+			t, err := h.Tickets.Create(r.Context(), sess.UserID, assistticket.CreateInput{
+				AssistantID:    sess.AssistantID,
+				SessionID:      sess.ID,
+				Kind:           assistticket.KindPermission,
+				Title:          "需要确认：" + title,
+				Reason:         "工具权限请求",
+				ContextSummary: title,
+				AskHuman:       "请选择允许一次、本会话记住，或拒绝",
+				Payload: map[string]any{
+					"requestId": reqID,
+					"options":   req.Options,
+					"toolTitle": title,
+				},
+			})
+			if err == nil {
+				ticketID = t.ID
+			}
+		}
+		write(wsOut{Type: "permission_request", RequestID: reqID, Title: title, Options: req.Options, TicketID: ticketID})
 		select {
 		case opt := <-ch:
 			persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{

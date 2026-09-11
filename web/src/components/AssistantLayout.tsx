@@ -7,7 +7,12 @@ import {
   useState,
 } from 'react'
 import { Link, NavLink, Navigate, Outlet, useNavigate, useParams } from 'react-router-dom'
-import { assistantsApi, ApiError, type Assistant } from '../api'
+import {
+  assistantsApi,
+  ApiError,
+  type Assistant,
+  type AssistTicket,
+} from '../api'
 import { doLogout, useAuth } from '../auth'
 import { NAV } from './PageShell'
 
@@ -49,14 +54,20 @@ export function AssistantLayout() {
   const user = auth.status === 'ok' ? auth.user : null
 
   const [assistants, setAssistants] = useState<Assistant[]>([])
+  const [pending, setPending] = useState<AssistTicket[]>([])
+  const [pendingOpen, setPendingOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
-      const res = await assistantsApi.list()
+      const [res, pend] = await Promise.all([
+        assistantsApi.list(),
+        assistantsApi.pendingTickets().catch(() => ({ count: 0, tickets: [] })),
+      ])
       setAssistants(res.assistants ?? [])
+      setPending(pend.tickets ?? [])
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -138,7 +149,43 @@ export function AssistantLayout() {
         >
           +
         </Link>
+        <button
+          type="button"
+          className="chat-icon-btn relative"
+          title="待处理协助单"
+          aria-label="待处理"
+          onClick={() => setPendingOpen((v) => !v)}
+        >
+          ◎
+          {pending.length > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-0.5 text-[10px] text-warning-content">
+              {pending.length}
+            </span>
+          )}
+        </button>
       </div>
+
+      {pendingOpen && !collapsed && (
+        <div className="border-b border-base-300 px-3 py-2 text-xs">
+          <p className="mb-1 font-medium opacity-70">待处理</p>
+          {pending.length === 0 && (
+            <p className="opacity-45">没有待处理协助单</p>
+          )}
+          {pending.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className="mb-1 block w-full truncate rounded px-2 py-1 text-left hover:bg-base-200"
+              onClick={() => {
+                setPendingOpen(false)
+                void openAssistant(t.assistantId)
+              }}
+            >
+              {t.title}
+            </button>
+          ))}
+        </div>
+      )}
 
       {!collapsed && (
         <Link to="/a/new" className="chat-new-btn">
