@@ -401,7 +401,9 @@ type SessionStarter interface {
 
 Implement `SessionStarter` in `agentapi` wrapping current create+provision+acp start.
 
-- [ ] **Step 2: Handler test for create+list (table-driven or httptestUse `httptest` + auth test helper from `internal/api/auth/session_handler_test.go` if available; otherwise store-level integration is enough and add a thin `TestValidatePatch` for JSON decode.
+- [ ] **Step 2: Handler test for create+list**
+
+Use `net/http/httptest` + auth test helper from `internal/api/auth/session_handler_test.go` if available; otherwise store-level integration is enough and add a thin `TestValidatePatch` for JSON decode.
 
 At minimum:
 

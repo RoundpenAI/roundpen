@@ -61,7 +61,7 @@ func TestStore_UpsertToolMessage(t *testing.T) {
 	})
 
 	store := &Store{DB: db.SQL}
-	sess, err := store.Create(ctx, user, "tools", "sysadmin", "")
+	sess, err := store.Create(ctx, user, "tools", "sysadmin", "", "")
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestStore_DeleteRemovesFromList(t *testing.T) {
 	})
 
 	store := &Store{DB: db.SQL}
-	sess, err := store.Create(ctx, user, "gone", "sysadmin", "")
+	sess, err := store.Create(ctx, user, "gone", "sysadmin", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -108,7 +108,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Create DB row first so session id is stable for injection.
-	sess, err := h.Store.Create(r.Context(), user.Username, req.Title, req.ProviderID, "")
+	sess, err := h.Store.Create(r.Context(), user.Username, req.Title, req.ProviderID, "", "")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
