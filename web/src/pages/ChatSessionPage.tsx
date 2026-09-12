@@ -1,232 +1,63 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
+  AIChatDialogue,
+  AIChatInput,
+  Banner,
+  Button,
+  Modal,
+  Spin,
+  Typography,
+} from '@douyinfe/semi-ui-19'
+import type { MessageContent } from '@douyinfe/semi-ui-19/lib/es/aiChatInput/interface'
+import {
   agents,
+  assistantsApi,
   type AgentMessage,
   type AgentSession,
   ApiError,
 } from '../api'
 import { AgentBrowserPanel } from '../components/AgentBrowserPanel'
-import { ChatComposer, ChatComposerDock } from '../components/ChatComposer'
-import { MarkdownBody } from '../components/MarkdownBody'
 import {
-  ToolCallGroup,
-  type ToolCallData,
-} from '../components/ToolCallCard'
-
-type ChatLine =
-  | {
-      id: string
-      kind: 'user' | 'assistant' | 'agent_message' | 'system' | 'event' | 'thought' | 'permission'
-      text: string
-      streaming?: boolean
-      title?: string
-      optionId?: string
-      outcome?: string
-      at?: number
-      durationMs?: number
-    }
-  | {
-      id: string
-      kind: 'tool_call'
-      tool: ToolCallData
-    }
+  agentMessagesToSemi,
+  type SemiChatMessage,
+} from '../lib/semiChatAdapter'
+import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
+import {
+  WS_CONNECT_TIMEOUT_MS,
+  wsCanSendProp,
+  wsCloseDetail,
+  wsConnectTimeoutDetail,
+  wsInputPlaceholder,
+  wsReconnectDelayMs,
+  wsStatusLabel,
+  type WsUiStatus,
+} from '../lib/sessionWsUi'
+import {
+  drainOutbox,
+  enqueueOutbox,
+  outboxWaitingHint,
+} from '../lib/sessionOutbox'
+import {
+  detachSocket,
+  shouldApplySocketOpen,
+  socketLooksOpen,
+} from '../lib/sessionWsConnect'
 
 type PermReq = {
   requestId: string
   title: string
   options: { optionId: string; name: string; kind?: string }[]
+  ticketId?: string
 }
 
-function permButtonClass(optionId: string): string {
-  switch (optionId) {
-    case 'allow_all':
-      return 'btn btn-sm btn-primary'
-    case 'allow_tool':
-      return 'btn btn-sm btn-secondary'
-    case 'allow':
-      return 'btn btn-sm'
-    case 'reject_tool':
-    case 'reject':
-      return 'btn btn-sm btn-ghost'
-    default:
-      return 'btn btn-sm'
-  }
+const ROLE_CONFIG = {
+  user: { name: '' },
+  assistant: { name: '' },
+  system: { name: '' },
 }
 
-function upsertToolLine(
-  prev: ChatLine[],
-  patch: Partial<ToolCallData> & { toolId: string },
-): ChatLine[] {
-  const idx = prev.findIndex(
-    (l) => l.kind === 'tool_call' && l.tool.toolId === patch.toolId,
-  )
-  if (idx >= 0) {
-    const cur = prev[idx]
-    if (cur.kind !== 'tool_call') return prev
-    const next = [...prev]
-    next[idx] = {
-      ...cur,
-      tool: {
-        ...cur.tool,
-        ...patch,
-        title: patch.title || cur.tool.title,
-        status: patch.status || cur.tool.status,
-        input: patch.input !== undefined ? patch.input : cur.tool.input,
-        output: patch.output !== undefined ? patch.output : cur.tool.output,
-        kind: patch.kind || cur.tool.kind,
-      },
-    }
-    return next
-  }
-  return [
-    ...prev,
-    {
-      id: `tool-${patch.toolId}`,
-      kind: 'tool_call',
-      tool: {
-        toolId: patch.toolId,
-        title: patch.title || patch.toolId,
-        status: patch.status || 'pending',
-        kind: patch.kind,
-        input: patch.input,
-        output: patch.output,
-      },
-    },
-  ]
-}
-
-type TextLine = Exclude<ChatLine, { kind: 'tool_call' }>
-
-type ChatBlock =
-  | { kind: 'line'; line: TextLine }
-  | { kind: 'turn'; id: string; thoughts: TextLine[]; tools: ToolCallData[] }
-
-function messageToChatLine(m: AgentMessage): ChatLine {
-  const meta = m.meta
-  const typ = meta?.type || m.role
-  if (m.role === 'tool' || typ === 'tool_call' || (meta?.toolId && typ !== 'permission')) {
-    return {
-      id: m.id,
-      kind: 'tool_call',
-      tool: {
-        toolId: meta?.toolId || m.id,
-        title: meta?.title || m.content || meta?.toolId || 'tool',
-        status: meta?.status || 'completed',
-        kind: meta?.kind,
-        input: meta?.input,
-        output: meta?.output,
-      },
-    }
-  }
-  if (m.role === 'thought' || typ === 'thought') {
-    const at = Date.parse(m.createdAt)
-    return {
-      id: m.id,
-      kind: 'thought',
-      text: m.content,
-      at: Number.isNaN(at) ? undefined : at,
-      durationMs: meta?.durationMs,
-    }
-  }
-  if (m.role === 'permission' || typ === 'permission') {
-    return {
-      id: m.id,
-      kind: 'permission',
-      text: m.content,
-      title: meta?.title,
-      optionId: meta?.optionId,
-      outcome: meta?.outcome,
-    }
-  }
-  return {
-    id: m.id,
-    kind:
-      m.role === 'user'
-        ? 'user'
-        : m.role === 'assistant'
-          ? 'assistant'
-          : 'event',
-    text: m.content,
-  }
-}
-
-function ensureTurn(out: ChatBlock[], id: string): Extract<ChatBlock, { kind: 'turn' }> {
-  const last = out[out.length - 1]
-  if (last?.kind === 'turn') return last
-  const turn: Extract<ChatBlock, { kind: 'turn' }> = {
-    kind: 'turn',
-    id: `turn-${id}`,
-    thoughts: [],
-    tools: [],
-  }
-  out.push(turn)
-  return turn
-}
-
-function groupChatLines(lines: ChatLine[]): ChatBlock[] {
-  const out: ChatBlock[] = []
-  for (const line of lines) {
-    if (line.kind === 'permission') continue
-    if (line.kind === 'thought') {
-      ensureTurn(out, line.id).thoughts.push(line)
-      continue
-    }
-    if (line.kind === 'tool_call') {
-      ensureTurn(out, line.id).tools.push(line.tool)
-      continue
-    }
-    out.push({ kind: 'line', line })
-  }
-  return out
-}
-
-function appendThought(prev: ChatLine[], text: string): ChatLine[] {
-  for (let i = prev.length - 1; i >= 0; i--) {
-    const l = prev[i]
-    if (
-      l.kind === 'user' ||
-      l.kind === 'assistant' ||
-      l.kind === 'agent_message'
-    ) {
-      break
-    }
-    if (l.kind === 'thought') {
-      const next = [...prev]
-      next[i] = { ...l, text: l.text + text, streaming: true }
-      return next
-    }
-  }
-  return [
-    ...prev,
-    {
-      id: `thought-${Date.now()}`,
-      kind: 'thought',
-      text,
-      streaming: true,
-      at: Date.now(),
-    },
-  ]
-}
-
-function thoughtSeconds(thoughts: TextLine[], now: number): number {
-  const summed = thoughts.reduce((s, t) => s + (t.durationMs ?? 0), 0)
-  if (summed > 0) return summed / 1000
-  const times = thoughts
-    .map((t) => t.at)
-    .filter((n): n is number => typeof n === 'number' && n > 0)
-  if (times.length === 0) return thoughts.some((t) => t.streaming) ? 0 : 1
-  const start = Math.min(...times)
-  const streaming = thoughts.some((t) => t.streaming)
-  const end = streaming ? now : Math.max(...times)
-  return Math.max(0, (end - start) / 1000)
-}
-
-function formatThoughtSecs(sec: number, streaming?: boolean): string {
-  if (streaming && sec < 0.5) return 'Thought'
-  const n = Math.max(1, Math.round(sec || 1))
-  return `Thought ${n}s`
-}
+const DIALOGUE_RENDER = chatDialogueRenderConfig()
 
 function pickOrdinaryAllow(
   options: { optionId: string; kind?: string }[],
@@ -254,47 +85,156 @@ function isBrowserTool(title: string): boolean {
   return title.startsWith('browser_')
 }
 
-function permLabel(outcome?: string): string {
-  switch (outcome) {
-    case 'auto':
-      return 'Auto-allowed'
-    case 'cancelled':
-      return 'Denied'
-    case 'requested':
-      return 'Asked'
-    default:
-      return 'Allowed'
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+function isStreamingMessage(m: AgentMessage): boolean {
+  return m.meta?.status === 'in_progress' || m.meta?.status === 'pending'
+}
+
+function clearStreaming(prev: AgentMessage[]): AgentMessage[] {
+  return prev.map((m) =>
+    isStreamingMessage(m)
+      ? { ...m, meta: { ...m.meta, status: 'completed' } }
+      : m,
+  )
+}
+
+function upsertToolMessage(
+  prev: AgentMessage[],
+  sessionId: string,
+  patch: {
+    toolId: string
+    title?: string
+    status?: string
+    kind?: string
+    input?: unknown
+    output?: unknown
+  },
+): AgentMessage[] {
+  const idx = prev.findIndex((m) => m.meta?.toolId === patch.toolId)
+  if (idx >= 0) {
+    const cur = prev[idx]
+    const next = [...prev]
+    next[idx] = {
+      ...cur,
+      content:
+        typeof patch.output === 'string'
+          ? patch.output
+          : patch.output !== undefined
+            ? formatUnknown(patch.output)
+            : cur.content,
+      meta: {
+        ...cur.meta,
+        type: 'tool_call',
+        toolId: patch.toolId,
+        title: patch.title || cur.meta?.title,
+        status: patch.status || cur.meta?.status,
+        kind: patch.kind || cur.meta?.kind,
+        input: patch.input !== undefined ? patch.input : cur.meta?.input,
+        output: patch.output !== undefined ? patch.output : cur.meta?.output,
+      },
+    }
+    return next
+  }
+  return [
+    ...prev,
+    {
+      id: `tool-${patch.toolId}`,
+      sessionId,
+      role: 'tool',
+      content:
+        typeof patch.output === 'string'
+          ? patch.output
+          : patch.output !== undefined
+            ? formatUnknown(patch.output)
+            : '',
+      meta: {
+        type: 'tool_call',
+        toolId: patch.toolId,
+        title: patch.title || patch.toolId,
+        status: patch.status || 'pending',
+        kind: patch.kind,
+        input: patch.input,
+        output: patch.output,
+      },
+      createdAt: nowIso(),
+    },
+  ]
+}
+
+function formatUnknown(value: unknown): string {
+  if (value == null) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
   }
 }
 
-function ThoughtBlock({
-  text,
-  streaming,
-  seconds,
-}: {
-  text: string
-  streaming?: boolean
-  seconds?: number
-}) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="chat-thought">
-      <button
-        type="button"
-        className="chat-thought-summary"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <span className={`chat-tool-chevron ${open ? 'open' : ''}`} aria-hidden>
-          ▸
-        </span>
-        {streaming ? (
-          <span className="loading loading-spinner loading-xs shrink-0 opacity-50" />
-        ) : null}
-        <span>{formatThoughtSecs(seconds ?? 0, streaming)}</span>
-      </button>
-      {open && <div className="chat-thought-body">{text}</div>}
-    </div>
+function appendThoughtMessage(
+  prev: AgentMessage[],
+  sessionId: string,
+  text: string,
+): AgentMessage[] {
+  for (let i = prev.length - 1; i >= 0; i--) {
+    const m = prev[i]
+    const typ = m.meta?.type || m.role
+    if (
+      m.role === 'user' ||
+      typ === 'agent_message' ||
+      (m.role === 'assistant' && typ !== 'thought' && typ !== 'reasoning')
+    ) {
+      break
+    }
+    if (typ === 'thought' || m.role === 'thought') {
+      const next = [...prev]
+      next[i] = {
+        ...m,
+        content: m.content + text,
+        meta: { ...m.meta, type: 'thought', status: 'in_progress' },
+      }
+      return next
+    }
+  }
+  return [
+    ...prev,
+    {
+      id: `thought-${Date.now()}`,
+      sessionId,
+      role: 'assistant',
+      content: text,
+      meta: { type: 'thought', status: 'in_progress' },
+      createdAt: nowIso(),
+    },
+  ]
+}
+
+function shouldShowInDialogue(m: AgentMessage): boolean {
+  const typ = m.meta?.type || m.role
+  if (typ === 'permission' || m.role === 'permission') {
+    const outcome = m.meta?.outcome
+    if (outcome === 'requested' || outcome === 'auto') return false
+  }
+  return true
+}
+
+function messageContentToPlainText(payload: MessageContent): string {
+  const parts = payload.inputContents ?? []
+  return parts
+    .map((c) => (typeof c.text === 'string' ? c.text : ''))
+    .join('')
+    .trim()
+}
+
+function contentsHaveSendableText(
+  contents: Array<{ text?: unknown }> | undefined,
+): boolean {
+  if (!contents?.length) return false
+  return contents.some(
+    (c) => typeof c.text === 'string' && c.text.trim().length > 0,
   )
 }
 
@@ -334,8 +274,7 @@ export function ChatSessionPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const [session, setSession] = useState<AgentSession | null>(null)
-  const [lines, setLines] = useState<ChatLine[]>([])
-  const [input, setInput] = useState('')
+  const [messages, setMessages] = useState<AgentMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [statusHint, setStatusHint] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -343,11 +282,24 @@ export function ChatSessionPage() {
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserSeen, setBrowserSeen] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
-  const bottomRef = useRef<HTMLDivElement | null>(null)
+  const outboxRef = useRef<string[]>([])
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const initialScrollDone = useRef(false)
   const [histReady, setHistReady] = useState(false)
-  const [wsOpen, setWsOpen] = useState(false)
+  const [wsStatus, setWsStatus] = useState<WsUiStatus>('connecting')
+  const [wsDetail, setWsDetail] = useState<string | null>(null)
+  const wsOpen = wsStatus === 'open'
   const [autoMode, setAutoMode] = useState(readAutoMode)
-  const [now, setNow] = useState(() => Date.now())
+  const [composerFocused, setComposerFocused] = useState(false)
+  const [composerHasText, setComposerHasText] = useState(false)
+  const composerIdle = !composerHasText && !busy
+  const showComposerSend = busy || composerHasText
+
+  const chats: SemiChatMessage[] = useMemo(
+    () => agentMessagesToSemi(messages.filter(shouldShowInDialogue)),
+    [messages],
+  )
 
   useEffect(() => {
     const incoming =
@@ -368,7 +320,7 @@ export function ChatSessionPage() {
         ])
         if (cancelled) return
         setSession(sess)
-        setLines((hist.messages ?? []).map(messageToChatLine))
+        setMessages(hist.messages ?? [])
         setHistReady(true)
       } catch (e) {
         if (!cancelled) setError(e instanceof ApiError ? e.message : String(e))
@@ -380,220 +332,407 @@ export function ChatSessionPage() {
   }, [id])
 
   useEffect(() => {
+    outboxRef.current = []
+  }, [id])
+
+  useEffect(() => {
     if (!id) return
     let disposed = false
     let attempt = 0
     let retryTimer: number | null = null
+    let openTimer: number | null = null
+    let pollTimer: number | null = null
+    let announcedOpen = false
     let ws: WebSocket | null = null
+    // Reset before connect so Strict Mode remount cannot leave chrome on
+    // 「已连接」while the live socket is still connecting / null.
+    setWsStatus('connecting')
+    setWsDetail(null)
 
-    const bind = (socket: WebSocket) => {
-    socket.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(String(ev.data)) as {
-          type: string
-          event?: {
-            type?: string
-            text?: string
-            title?: string
-            status?: string
-            kind?: string
-            toolId?: string
-            input?: unknown
-            output?: unknown
-          }
-          message?: string
-          stopReason?: string
-          requestId?: string
-          title?: string
-          options?: { optionId: string; name: string; kind?: string }[]
-        }
-        if (msg.type === 'event' && msg.event) {
-          const e = msg.event
-          if (e.type === 'agent_message' && e.text) {
-            setStatusHint(null)
-            setLines((prev) => {
-              const last = prev[prev.length - 1]
-              if (
-                last?.kind === 'agent_message' &&
-                'streaming' in last &&
-                last.streaming
-              ) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, text: last.text + e.text },
-                ]
-              }
-              return [
-                ...prev,
-                {
-                  id: `stream-${Date.now()}`,
-                  kind: 'agent_message',
-                  text: e.text ?? '',
-                  streaming: true,
-                },
-              ]
-            })
-            return
-          }
-          if (e.type === 'agent_thought' && e.text) {
-            setStatusHint(e.text)
-            setLines((prev) => appendThought(prev, e.text ?? ''))
-            return
-          }
-          if (e.type === 'permission') {
-            if ((e.status || 'auto') === 'auto') return
-            setLines((prev) => [
-              ...prev,
-              {
-                id: `perm-${Date.now()}`,
-                kind: 'permission',
-                text: [e.title, e.text].filter(Boolean).join(' · ') || 'permission',
-                title: e.title,
-                optionId: e.text,
-                outcome: e.status || 'auto',
-              },
-            ])
-            return
-          }
-          if (e.type === 'tool_call' || e.type === 'tool_call_update') {
-            const toolId = (e.toolId ?? '').trim() || `anon-${Date.now()}`
-            const title = (e.title ?? '').trim()
-            const status = (e.status ?? '').trim()
-            if (isBrowserTool(title)) {
-              setBrowserSeen(true)
-              setShowBrowser(true)
-            }
-            if (
-              e.type === 'tool_call_update' &&
-              (status === 'completed' || status === 'failed')
-            ) {
-              setStatusHint('Working…')
-            } else {
-              setStatusHint(
-                title ? `Running ${title}…` : 'Running tool…',
-              )
-            }
-            setLines((prev) =>
-              upsertToolLine(prev, {
-                toolId,
-                title: title || undefined,
-                status: status || undefined,
-                kind: e.kind,
-                input: e.input,
-                output: e.output,
-              }),
-            )
-            return
-          }
-          setLines((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${prev.length}`,
-              kind: 'event',
-              text: e.text ?? e.type ?? '',
-            },
-          ])
-        } else if (msg.type === 'permission_request') {
-          const options = msg.options ?? []
-          const autoOpt = readAutoMode() ? pickOrdinaryAllow(options) : null
-          if (autoOpt && wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(
-              JSON.stringify({
-                type: 'permission',
-                requestId: msg.requestId ?? '',
-                optionId: autoOpt,
-              }),
-            )
-            return
-          }
-          setStatusHint('Waiting for permission…')
-          setPerm({
-            requestId: msg.requestId ?? '',
-            title: msg.title ?? 'Permission',
-            options,
-          })
-        } else if (msg.type === 'done') {
-          setBusy(false)
-          setStatusHint(null)
-          setLines((prev) =>
-            prev.map((l) =>
-              (l.kind === 'agent_message' || l.kind === 'thought') && l.streaming
-                ? { ...l, streaming: false }
-                : l,
-            ),
-          )
-        } else if (msg.type === 'error') {
-          setBusy(false)
-          setStatusHint(null)
-          setLines((prev) =>
-            prev.map((l) =>
-              (l.kind === 'agent_message' || l.kind === 'thought') && l.streaming
-                ? { ...l, streaming: false }
-                : l,
-            ),
-          )
-          setError(msg.message ?? 'error')
-        }
-      } catch {
-        /* ignore */
+    const clearOpenTimer = () => {
+      if (openTimer != null) {
+        window.clearTimeout(openTimer)
+        openTimer = null
       }
     }
-    socket.onerror = () => {
-      if (!disposed) setError('WebSocket error')
+
+    const clearPollTimer = () => {
+      if (pollTimer != null) {
+        window.clearInterval(pollTimer)
+        pollTimer = null
+      }
     }
-    socket.onclose = () => {
-      if (wsRef.current !== socket) return
-      wsRef.current = null
-      setWsOpen(false)
-      if (disposed) return
+
+    /** @returns true only on the connecting → open transition */
+    const markOpen = (socket: WebSocket) => {
+      if (!shouldApplySocketOpen(disposed, wsRef.current, socket)) return false
+      if (!socketLooksOpen(socket)) return false
+      clearOpenTimer()
+      clearPollTimer()
+      attempt = 0
+      setError(null)
+      setWsDetail(null)
+      setWsStatus('open')
+      if (announcedOpen) return false
+      announcedOpen = true
+      return true
+    }
+
+    const scheduleReconnect = (detail: string) => {
+      setWsStatus('error')
+      setWsDetail(detail)
       setBusy(false)
-      setStatusHint(null)
-      const delay = Math.min(1000 * 2 ** attempt, 15000)
+      const waiting = outboxWaitingHint(outboxRef.current.length)
+      setStatusHint(waiting)
+      const delay = wsReconnectDelayMs(attempt)
       attempt += 1
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer)
+      }
       retryTimer = window.setTimeout(connect, delay)
     }
+
+    const flushOutbox = (socket: WebSocket) => {
+      const { remaining, items } = drainOutbox(outboxRef.current)
+      outboxRef.current = remaining
+      for (const text of items) {
+        setBusy(true)
+        setStatusHint('Working…')
+        setError(null)
+        socket.send(JSON.stringify({ type: 'prompt', text }))
+      }
+    }
+
+    const bind = (socket: WebSocket) => {
+      socket.onmessage = (ev) => {
+        // Any server frame means the upgrade completed — sync UI even if
+        // onopen was missed (seen with Vite proxy + slow ACP Start).
+        if (markOpen(socket)) {
+          try {
+            socket.send(
+              JSON.stringify({ type: 'auto', enabled: readAutoMode() }),
+            )
+          } catch {
+            /* ignore */
+          }
+          flushOutbox(socket)
+        }
+        try {
+          const msg = JSON.parse(String(ev.data)) as {
+            type: string
+            event?: {
+              type?: string
+              text?: string
+              title?: string
+              status?: string
+              kind?: string
+              toolId?: string
+              input?: unknown
+              output?: unknown
+            }
+            message?: string
+            stopReason?: string
+            requestId?: string
+            title?: string
+            options?: { optionId: string; name: string; kind?: string }[]
+          }
+          if (msg.type === 'hello') {
+            return
+          }
+          if (msg.type === 'event' && msg.event) {
+            const e = msg.event
+            if (e.type === 'agent_message' && e.text) {
+              setStatusHint(null)
+              setMessages((prev) => {
+                const last = prev[prev.length - 1]
+                const lastTyp = last?.meta?.type
+                if (
+                  last &&
+                  last.role === 'assistant' &&
+                  (lastTyp === 'agent_message' || !lastTyp) &&
+                  isStreamingMessage(last) &&
+                  !last.meta?.toolId
+                ) {
+                  return [
+                    ...prev.slice(0, -1),
+                    { ...last, content: last.content + e.text },
+                  ]
+                }
+                return [
+                  ...prev,
+                  {
+                    id: `stream-${Date.now()}`,
+                    sessionId: id,
+                    role: 'assistant',
+                    content: e.text ?? '',
+                    meta: { type: 'agent_message', status: 'in_progress' },
+                    createdAt: nowIso(),
+                  },
+                ]
+              })
+              return
+            }
+            if (e.type === 'agent_thought' && e.text) {
+              setStatusHint(e.text)
+              setMessages((prev) => appendThoughtMessage(prev, id, e.text ?? ''))
+              return
+            }
+            if (e.type === 'permission') {
+              if ((e.status || 'auto') === 'auto') return
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `perm-${Date.now()}`,
+                  sessionId: id,
+                  role: 'permission',
+                  content:
+                    [e.title, e.text].filter(Boolean).join(' · ') ||
+                    'permission',
+                  meta: {
+                    type: 'permission',
+                    title: e.title,
+                    optionId: e.text,
+                    outcome: e.status || 'auto',
+                  },
+                  createdAt: nowIso(),
+                },
+              ])
+              return
+            }
+            if (e.type === 'tool_call' || e.type === 'tool_call_update') {
+              const toolId = (e.toolId ?? '').trim() || `anon-${Date.now()}`
+              const title = (e.title ?? '').trim()
+              const status = (e.status ?? '').trim()
+              if (isBrowserTool(title)) {
+                setBrowserSeen(true)
+              }
+              setStatusHint('工作中')
+              setMessages((prev) =>
+                upsertToolMessage(prev, id, {
+                  toolId,
+                  title: title || undefined,
+                  status: status || undefined,
+                  kind: e.kind,
+                  input: e.input,
+                  output: e.output,
+                }),
+              )
+              return
+            }
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `${Date.now()}-${prev.length}`,
+                sessionId: id,
+                role: 'system',
+                content: e.text ?? e.type ?? '',
+                meta: { type: 'event' },
+                createdAt: nowIso(),
+              },
+            ])
+          } else if (msg.type === 'permission_request') {
+            const options = msg.options ?? []
+            const autoOpt = readAutoMode() ? pickOrdinaryAllow(options) : null
+            if (autoOpt && wsRef.current?.readyState === WebSocket.OPEN) {
+              wsRef.current.send(
+                JSON.stringify({
+                  type: 'permission',
+                  requestId: msg.requestId ?? '',
+                  optionId: autoOpt,
+                }),
+              )
+              return
+            }
+            setStatusHint('等待你处理协助单…')
+            setPerm({
+              requestId: msg.requestId ?? '',
+              title: msg.title ?? 'Permission',
+              options,
+              ticketId: (msg as { ticketId?: string }).ticketId,
+            })
+          } else if (msg.type === 'done') {
+            setBusy(false)
+            setStatusHint(null)
+            setMessages((prev) => clearStreaming(prev))
+          } else if (msg.type === 'error') {
+            setBusy(false)
+            setStatusHint(null)
+            setMessages((prev) => clearStreaming(prev))
+            const msgText = msg.message ?? 'error'
+            setError(msgText)
+            setWsStatus('error')
+            setWsDetail(msgText)
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      socket.onerror = () => {
+        if (!disposed && wsRef.current === socket) {
+          setWsDetail('WebSocket 错误')
+        }
+      }
+      socket.onclose = (ev) => {
+        clearOpenTimer()
+        if (disposed) return
+        if (wsRef.current !== socket) return
+        wsRef.current = null
+        scheduleReconnect(wsCloseDetail(ev.code, ev.reason || ''))
+      }
     }
 
     const connect = () => {
       if (disposed) return
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer)
+        retryTimer = null
+      }
+      clearOpenTimer()
+      clearPollTimer()
+      announcedOpen = false
+      setWsStatus('connecting')
+      if (attempt === 0) setWsDetail(null)
+
+      const prev = ws
+      ws = null
+      if (wsRef.current === prev) {
+        wsRef.current = null
+      }
+      detachSocket(prev)
+
       const socket = new WebSocket(agents.sessionWsUrl(id))
       ws = socket
       wsRef.current = socket
-      socket.onopen = () => {
-        if (disposed) return
-        attempt = 0
-        setError(null)
-        setWsOpen(true)
-        socket.send(JSON.stringify({ type: 'auto', enabled: readAutoMode() }))
+
+      const onBecameOpen = () => {
+        if (!markOpen(socket)) return
+        try {
+          socket.send(
+            JSON.stringify({ type: 'auto', enabled: readAutoMode() }),
+          )
+        } catch {
+          /* ignore */
+        }
+        flushOutbox(socket)
       }
+
+      socket.onopen = onBecameOpen
       bind(socket)
+
+      if (socketLooksOpen(socket)) {
+        onBecameOpen()
+      }
+      pollTimer = window.setInterval(() => {
+        if (disposed || wsRef.current !== socket) {
+          clearPollTimer()
+          return
+        }
+        if (socketLooksOpen(socket)) {
+          onBecameOpen()
+        }
+      }, 100)
+
+      openTimer = window.setTimeout(() => {
+        openTimer = null
+        clearPollTimer()
+        if (disposed || wsRef.current !== socket) return
+        // Heal: socket is live but UI missed onopen.
+        if (socketLooksOpen(socket)) {
+          onBecameOpen()
+          return
+        }
+        detachSocket(socket)
+        if (wsRef.current === socket) {
+          wsRef.current = null
+        }
+        if (ws === socket) {
+          ws = null
+        }
+        scheduleReconnect(wsConnectTimeoutDetail())
+      }, WS_CONNECT_TIMEOUT_MS)
     }
+
+    const reconnectNowIfNeeded = () => {
+      if (disposed) return
+      if (document.visibilityState === 'hidden') return
+      const cur = wsRef.current ?? ws
+      if (
+        cur &&
+        (cur.readyState === WebSocket.OPEN ||
+          cur.readyState === WebSocket.CONNECTING)
+      ) {
+        return
+      }
+      attempt = 0
+      connect()
+    }
+
+    document.addEventListener('visibilitychange', reconnectNowIfNeeded)
 
     connect()
     return () => {
       disposed = true
-      if (retryTimer != null) window.clearTimeout(retryTimer)
-      setWsOpen(false)
-      wsRef.current = null
-      if (
-        ws &&
-        (ws.readyState === WebSocket.OPEN ||
-          ws.readyState === WebSocket.CONNECTING)
-      ) {
-        ws.close(1000, 'page dispose')
+      document.removeEventListener('visibilitychange', reconnectNowIfNeeded)
+      clearOpenTimer()
+      clearPollTimer()
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer)
+        retryTimer = null
       }
+      const s = ws
+      ws = null
+      if (wsRef.current === s) {
+        wsRef.current = null
+      }
+      detachSocket(s)
     }
   }, [id])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [lines, perm, statusHint, busy])
+    initialScrollDone.current = false
+  }, [id])
 
-  useEffect(() => {
-    if (!busy) return
-    const t = window.setInterval(() => setNow(Date.now()), 500)
-    return () => window.clearInterval(t)
-  }, [busy])
+  useLayoutEffect(() => {
+    if (!histReady) return
+    const scroller = scrollRef.current
+    const content = contentRef.current
+    if (!scroller || !content) return
+
+    const pinBottom = () => {
+      scroller.scrollTop = scroller.scrollHeight
+    }
+
+    // Live updates after the first pin: jump once per change.
+    if (initialScrollDone.current) {
+      pinBottom()
+      return
+    }
+
+    // First paint after history: keep pinning while Markdown/layout grows,
+    // otherwise refresh lands mid last-message.
+    pinBottom()
+    let settleTimer = 0
+    const ro = new ResizeObserver(() => {
+      pinBottom()
+      window.clearTimeout(settleTimer)
+      settleTimer = window.setTimeout(() => {
+        pinBottom()
+        initialScrollDone.current = true
+        ro.disconnect()
+      }, 120)
+    })
+    ro.observe(content)
+    const maxWait = window.setTimeout(() => {
+      pinBottom()
+      initialScrollDone.current = true
+      ro.disconnect()
+    }, 2000)
+    return () => {
+      window.clearTimeout(settleTimer)
+      window.clearTimeout(maxWait)
+      ro.disconnect()
+    }
+  }, [histReady, chats, perm, statusHint, busy])
 
   const toggleAuto = () => {
     const next = !autoMode
@@ -609,45 +748,59 @@ export function ChatSessionPage() {
     }
   }
 
+  const appendLocalUser = (text: string) => {
+    setMessages((prev) => [
+      ...clearStreaming(prev),
+      {
+        id: `${Date.now()}-u`,
+        sessionId: id,
+        role: 'user',
+        content: text,
+        createdAt: nowIso(),
+      },
+    ])
+  }
+
   const sendPrompt = (ws: WebSocket, text: string) => {
-    setInput('')
     setBusy(true)
     setStatusHint('Working…')
     setError(null)
-    setLines((prev) => [
-      ...prev.map((l) =>
-        (l.kind === 'agent_message' || l.kind === 'thought') && l.streaming
-          ? { ...l, streaming: false }
-          : l,
-      ),
-      { id: `${Date.now()}-u`, kind: 'user', text },
-    ])
+    appendLocalUser(text)
     ws.send(JSON.stringify({ type: 'prompt', text }))
   }
 
-  const send = () => {
-    const text = input.trim()
-    if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN)
+  const handleMessageSend = (payload: MessageContent) => {
+    const text = messageContentToPlainText(payload)
+    if (!text) return
+    setComposerHasText(false)
+    setComposerFocused(false)
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendPrompt(ws, text)
       return
-    sendPrompt(wsRef.current, text)
+    }
+    // WeChat-style: show the bubble immediately; deliver when WS is ready.
+    appendLocalUser(text)
+    outboxRef.current = enqueueOutbox(outboxRef.current, text)
+    setStatusHint(outboxWaitingHint(outboxRef.current.length))
+    setError(null)
   }
 
   useEffect(() => {
     const pending = readPendingPrompt(id).trim()
     const ws = wsRef.current
-    if (
-      !pending ||
-      sentPending.has(id) ||
-      !histReady ||
-      !wsOpen ||
-      !ws ||
-      ws.readyState !== WebSocket.OPEN
-    ) {
+    if (!pending || sentPending.has(id) || !histReady) {
       return
     }
     sentPending.add(id)
     clearPendingPrompt(id)
-    sendPrompt(ws, pending)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendPrompt(ws, pending)
+      return
+    }
+    appendLocalUser(pending)
+    outboxRef.current = enqueueOutbox(outboxRef.current, pending)
+    setStatusHint(outboxWaitingHint(outboxRef.current.length))
   }, [histReady, wsOpen, id])
 
   const answerPerm = (optionId: string) => {
@@ -659,223 +812,218 @@ export function ChatSessionPage() {
         optionId,
       }),
     )
-    setLines((prev) => [
+    if (perm.ticketId) {
+      const resolution =
+        optionId.includes('reject') || optionId === 'reject'
+          ? 'reject'
+          : 'allow_once'
+      void assistantsApi
+        .resolveTicket(perm.ticketId, { resolution, note: optionId })
+        .catch(() => undefined)
+    }
+    setMessages((prev) => [
       ...prev,
       {
         id: `perm-${Date.now()}`,
-        kind: 'permission',
-        text: `${perm.title} · ${optionId}`,
-        title: perm.title,
-        optionId,
-        outcome: 'selected',
+        sessionId: id,
+        role: 'permission',
+        content: `协助单已处理 · ${optionId}`,
+        meta: {
+          type: 'permission',
+          title: perm.title,
+          optionId,
+          outcome: 'selected',
+        },
+        createdAt: nowIso(),
       },
     ])
     setPerm(null)
-    setStatusHint('Working…')
+    setStatusHint('工作中')
   }
 
   const showWorking =
     busy &&
     !perm &&
     (statusHint != null ||
-      !lines.some(
-        (l) => l.kind === 'agent_message' && 'streaming' in l && l.streaming,
+      !messages.some(
+        (m) =>
+          isStreamingMessage(m) &&
+          (m.meta?.type === 'agent_message' ||
+            (m.role === 'assistant' &&
+              !m.meta?.type &&
+              !m.meta?.toolId)),
       ))
 
   return (
     <div className="chat-thread">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs">
-        {session?.sandboxId && (
-          <Link to={`/s/${session.sandboxId}`} className="link link-hover opacity-70">
-            Open workbench
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 16px',
+        }}
+      >
+        {session?.assistantId && (
+          <Link
+            to={`/a/${session.assistantId}`}
+            style={{ color: 'var(--semi-color-link)', fontSize: 12 }}
+          >
+            助手详情
           </Link>
         )}
         {session && (
-          <span className="opacity-40">
-            {session.providerId} · {session.status}
-          </span>
+          <Typography.Text type="tertiary" size="small">
+            {busy ? '工作中' : session.status}
+          </Typography.Text>
         )}
-        <span className={wsOpen ? 'opacity-40' : 'text-warning'}>
-          {wsOpen ? 'live' : 'reconnecting'}
-        </span>
-        <button
-          type="button"
-          className={`btn btn-xs ml-auto ${autoMode ? 'btn-primary' : 'btn-ghost'}`}
+        <Typography.Text
+          type={wsStatus === 'open' ? 'tertiary' : 'danger'}
+          size="small"
+          title={wsDetail ?? undefined}
+        >
+          {wsStatusLabel(wsStatus, wsDetail)}
+        </Typography.Text>
+        <Button
+          size="small"
+          theme={autoMode ? 'solid' : 'borderless'}
+          type={autoMode ? 'primary' : 'tertiary'}
+          style={{ marginLeft: 'auto' }}
           title={
             autoMode
-              ? 'Auto: ordinary permissions are approved'
-              : 'Ask before running tools'
+              ? '自动批准常见工具权限'
+              : '工具权限需你确认（协助单）'
           }
           onClick={toggleAuto}
         >
           Auto
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-xs"
+        </Button>
+        <Button
+          size="small"
+          theme="borderless"
+          type="tertiary"
           onClick={() => setShowBrowser((v) => !v)}
         >
-          {showBrowser ? 'Hide browser' : 'Show browser'}
-        </button>
+          {showBrowser ? '收起浏览器' : '打开画面'}
+        </Button>
       </div>
 
       {error && (
-        <p className="px-4 pb-2 text-sm text-error" role="alert">
-          {error}
-        </p>
+        <div role="alert" style={{ padding: '0 16px 8px' }}>
+          <Banner
+            fullMode={false}
+            type="danger"
+            description={error}
+            closeIcon={null}
+          />
+        </div>
       )}
 
       <div
         className={
-          showBrowser
-            ? 'grid min-h-0 min-w-0 flex-1 gap-0 [grid-template-rows:minmax(0,1fr)_auto] lg:grid-cols-[minmax(0,1fr)_minmax(280px,40%)] lg:[grid-template-rows:none]'
-            : 'flex min-h-0 min-w-0 flex-1 flex-col'
+          showBrowser ? 'chat-browser-split is-open' : 'chat-browser-split'
         }
       >
         <div className="chat-pane">
-          <div className="chat-pane-scroll space-y-4 px-4 pt-3 text-sm">
-            <div className="mx-auto w-full min-w-0 max-w-3xl space-y-4">
-              {lines.length === 0 && !showWorking && (
-                <p className="py-16 text-center text-sm opacity-40">
+          <div
+            ref={scrollRef}
+            className="chat-pane-scroll"
+            style={{ padding: '12px 16px', fontSize: 14 }}
+          >
+            <div
+              ref={contentRef}
+              style={{ maxWidth: 768, margin: '0 auto', minWidth: 0 }}
+            >
+              {chats.length === 0 && !showWorking && (
+                <Typography.Text
+                  type="tertiary"
+                  style={{ display: 'block', textAlign: 'center', padding: 64 }}
+                >
                   Waiting for the agent…
-                </p>
+                </Typography.Text>
               )}
-              {groupChatLines(lines).map((block) => {
-                if (block.kind === 'turn') {
-                  const streaming = block.thoughts.some((t) => t.streaming)
-                  const thoughtText = block.thoughts
-                    .map((t) => t.text)
-                    .filter(Boolean)
-                    .join('\n\n')
-                  return (
-                    <div
-                      key={block.id}
-                      className="chat-turn-meta min-w-0 max-w-full sm:mr-8"
-                    >
-                      {block.thoughts.length > 0 && (
-                        <ThoughtBlock
-                          text={thoughtText}
-                          streaming={streaming}
-                          seconds={thoughtSeconds(block.thoughts, now)}
-                        />
-                      )}
-                      {block.tools.length > 0 && (
-                        <ToolCallGroup calls={block.tools} alwaysStats />
-                      )}
-                    </div>
-                  )
-                }
-                const l = block.line
-                if (l.kind === 'thought') {
-                  return (
-                    <div key={l.id} className="min-w-0 max-w-full sm:mr-8">
-                      <ThoughtBlock
-                        text={l.text}
-                        streaming={l.streaming}
-                        seconds={thoughtSeconds([l], now)}
-                      />
-                    </div>
-                  )
-                }
-                if (l.kind === 'permission') {
-                  if (l.outcome === 'requested' || l.outcome === 'auto') {
-                    return null
-                  }
-                  return (
-                    <p key={l.id} className="chat-perm">
-                      {permLabel(l.outcome)} {l.title || l.text}
-                      {l.optionId ? ` · ${l.optionId}` : ''}
-                    </p>
-                  )
-                }
-                const isUser = l.kind === 'user'
-                const isQuiet = l.kind === 'system' || l.kind === 'event'
-                return (
-                  <div
-                    key={l.id}
-                    className={
-                      isUser
-                        ? 'ml-10 min-w-0 max-w-full rounded-2xl bg-primary/10 px-4 py-2.5'
-                        : 'min-w-0 max-w-full sm:mr-8'
-                    }
-                  >
-                    {isQuiet ? (
-                      <span className="opacity-50">{l.text}</span>
-                    ) : (
-                      <div className="inline">
-                        <MarkdownBody text={l.text} />
-                        {l.kind === 'agent_message' && l.streaming && (
-                          <span
-                            className="chat-caret ml-0.5 inline-block"
-                            aria-hidden
-                          />
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+              {chats.length > 0 && (
+                <AIChatDialogue
+                  align="leftRight"
+                  mode="bubble"
+                  chats={chats}
+                  roleConfig={ROLE_CONFIG}
+                  dialogueRenderConfig={DIALOGUE_RENDER}
+                />
+              )}
               {showWorking && (
                 <div
-                  className="flex min-w-0 items-center gap-2 text-sm opacity-60 sm:mr-8"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 14,
+                    opacity: 0.7,
+                  }}
                   aria-live="polite"
                 >
-                  <span className="loading loading-spinner loading-xs shrink-0" />
-                  <span className="min-w-0 truncate">{statusHint ?? 'Working…'}</span>
+                  <Spin size="small" />
+                  <Typography.Text ellipsis style={{ minWidth: 0 }}>
+                    {statusHint ?? '工作中'}
+                    {session?.assistantId && (
+                      <>
+                        {' · '}
+                        <Link
+                          to={`/a/${session.assistantId}`}
+                          style={{ color: 'var(--semi-color-link)' }}
+                        >
+                          查看此刻
+                        </Link>
+                      </>
+                    )}
+                  </Typography.Text>
                 </div>
               )}
-              <div ref={bottomRef} />
             </div>
           </div>
 
-          <ChatComposerDock>
-            {perm && (
-              <div className="chat-composer-dock-inner mb-3 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3">
-                <p className="mb-1 text-sm font-medium">
-                  Allow tool: {perm.title}
-                </p>
-                <p className="mb-2 text-xs opacity-60">
-                  Prefer session allow so sandboxed agents ask less often.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {perm.options.map((o) => (
-                    <button
-                      key={o.optionId}
-                      type="button"
-                      className={permButtonClass(o.optionId)}
-                      disabled={!wsOpen}
-                      onClick={() => answerPerm(o.optionId)}
-                    >
-                      {o.name || o.optionId}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div
+            className={[
+              'chat-composer-dock',
+              composerIdle ? 'is-idle' : '',
+              composerFocused ? 'is-focused' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             <div className="chat-composer-dock-inner">
-              <ChatComposer
-                value={input}
-                onChange={setInput}
-                onSend={send}
-                busy={busy}
-                disabled={!wsOpen}
-                lockInput={false}
-                hint={
-                  wsOpen
-                    ? 'Enter to send · Shift+Enter for newline'
-                    : 'Disconnected — reconnecting…'
-                }
-                placeholder={wsOpen ? 'Message the agent…' : 'Reconnecting…'}
-                onCancel={() =>
+              <AIChatInput
+                keepSkillAfterSend={false}
+                generating={busy}
+                canSend={wsCanSendProp(wsStatus) && composerHasText}
+                showUploadButton={false}
+                showUploadFile={false}
+                showReference={false}
+                round
+                placeholder={wsInputPlaceholder(wsStatus)}
+                renderConfigureArea={() => null}
+                renderActionArea={({ menuItem, className }) => {
+                  if (!showComposerSend) return null
+                  const sendBtn = menuItem[menuItem.length - 1]
+                  return <div className={className}>{sendBtn}</div>
+                }}
+                onFocus={() => setComposerFocused(true)}
+                onBlur={() => setComposerFocused(false)}
+                onContentChange={(contents) => {
+                  setComposerHasText(contentsHaveSendableText(contents))
+                }}
+                onMessageSend={handleMessageSend}
+                onStopGenerate={() =>
                   wsRef.current?.send(JSON.stringify({ type: 'cancel' }))
                 }
               />
             </div>
-          </ChatComposerDock>
+          </div>
         </div>
 
         {showBrowser && id && (
-          <div className="min-h-[240px] min-w-0 border-t border-base-300 lg:min-h-0 lg:border-t-0 lg:border-l">
+          <div className="chat-browser-side">
             <AgentBrowserPanel
               sessionId={id}
               active={showBrowser}
@@ -885,6 +1033,52 @@ export function ChatSessionPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        title="协助单"
+        visible={perm != null}
+        closable={false}
+        maskClosable={false}
+        onCancel={() => undefined}
+        footer={
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              justifyContent: 'flex-end',
+            }}
+          >
+            {perm?.options.map((o) => (
+              <Button
+                key={o.optionId}
+                type={
+                  o.optionId === 'allow_all' || o.optionId === 'allow'
+                    ? 'primary'
+                    : o.optionId.includes('reject')
+                      ? 'tertiary'
+                      : 'secondary'
+                }
+                disabled={!wsOpen}
+                onClick={() => answerPerm(o.optionId)}
+              >
+                {o.name || o.optionId}
+              </Button>
+            ))}
+            {showBrowser || browserSeen ? (
+              <Button type="tertiary" onClick={() => setShowBrowser(true)}>
+                打开协助画面
+              </Button>
+            ) : null}
+          </div>
+        }
+      >
+        <Typography.Paragraph>{perm?.title}</Typography.Paragraph>
+        <Typography.Text type="tertiary" size="small">
+          为什么找你：工具需要你的确认才能继续。
+          {perm?.ticketId ? ` · #${perm.ticketId.slice(0, 8)}` : ''}
+        </Typography.Text>
+      </Modal>
     </div>
   )
 }

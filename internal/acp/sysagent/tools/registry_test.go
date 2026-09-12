@@ -44,9 +44,7 @@ func TestRoundpenHTTP_List(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/v1/me/environments":
-			_, _ = w.Write([]byte(`{"environments":[]}`))
-		case "/v1/me/environments/agent/ensure":
-			_, _ = w.Write([]byte(`{"slot":"agent","sandboxId":"sb-1","status":"running"}`))
+			_, _ = w.Write([]byte(`{"environments":[{"slot":"agent","status":"absent","sandboxId":"sb-secret"}]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -55,14 +53,20 @@ func TestRoundpenHTTP_List(t *testing.T) {
 
 	reg := tools.NewRegistry()
 	tools.RegisterRoundpen(reg, &tools.RoundpenHTTP{BaseURL: srv.URL, HTTPClient: srv.Client()})
-	out, err := reg.Call(context.Background(), tools.Actor{APIKey: "k"}, "roundpen_list_environments", nil)
+	out, err := reg.Call(context.Background(), tools.Actor{APIKey: "k"}, "ListEnvironments", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, `"environments":[]`) || !strings.Contains(out, "roundpen_ensure_agent") {
+	if !strings.Contains(out, `"environments"`) {
 		t.Fatalf("got %q", out)
 	}
-	if _, err := reg.Call(context.Background(), tools.Actor{APIKey: "k"}, "roundpen_ensure_agent", nil); err != nil {
-		t.Fatal(err)
+	if strings.Contains(out, "sb-secret") || strings.Contains(out, "sandboxId") || strings.Contains(strings.ToLower(out), "sandbox") {
+		t.Fatalf("leaked sandbox fields: %q", out)
+	}
+	if strings.Contains(out, "roundpen_ensure_agent") {
+		t.Fatalf("old ensure wording: %q", out)
+	}
+	if _, err := reg.Call(context.Background(), tools.Actor{APIKey: "k"}, "roundpen_ensure_agent", nil); err == nil {
+		t.Fatal("ensure must be gone")
 	}
 }

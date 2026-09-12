@@ -59,15 +59,15 @@ func (c *RoundpenHTTP) do(ctx context.Context, actor Actor, method, path string,
 	return string(raw), nil
 }
 
-// RegisterRoundpen adds Roundpen management tools.
+// RegisterRoundpen adds Roundpen management tools (model-facing names, no ensure tools).
 func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 	if api == nil || r == nil {
 		return
 	}
 	r.Register(Tool{
-		Name: "roundpen_list_environments",
+		Name: "ListEnvironments",
 		Description: "List the current user's fixed environments (agent/browser slots). " +
-			"status=absent on the agent slot means it is not started yet — call roundpen_ensure_agent or sandbox_exec. " +
+			"status=absent on the agent slot means it is not started yet — call Bash or a file tool. " +
 			"Do not treat a running Browser as the only available environment.",
 		Parameters: objectSchema(map[string]any{}),
 		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
@@ -75,29 +75,11 @@ func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 			if err != nil {
 				return "", err
 			}
-			return annotateEnvList(raw), nil
+			return scrubEnvList(raw), nil
 		},
 	})
 	r.Register(Tool{
-		Name:        "roundpen_ensure_agent",
-		Description: "Start or resume the Cloud Agent sandbox (git, shell, builds). Call this when agent status is absent or stopped. Browser cannot run shell.",
-		Mutating:    true,
-		Parameters:  objectSchema(map[string]any{}),
-		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
-			return api.do(ctx, actor, http.MethodPost, "/v1/me/environments/agent/ensure", nil)
-		},
-	})
-	r.Register(Tool{
-		Name:        "roundpen_ensure_browser",
-		Description: "Ensure the user's Browser environment is running (Chrome / CDP). Not for git or shell.",
-		Mutating:    true,
-		Parameters:  objectSchema(map[string]any{}),
-		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
-			return api.do(ctx, actor, http.MethodPost, "/v1/me/environments/browser/ensure", nil)
-		},
-	})
-	r.Register(Tool{
-		Name:        "roundpen_list_templates",
+		Name:        "ListTemplates",
 		Description: "List available environment image templates (agent/browser slots).",
 		Parameters:  objectSchema(map[string]any{}),
 		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
@@ -105,7 +87,7 @@ func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 		},
 	})
 	r.Register(Tool{
-		Name:        "roundpen_list_agent_sessions",
+		Name:        "ListSessions",
 		Description: "List the current user's agent chat sessions.",
 		Parameters:  objectSchema(map[string]any{}),
 		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
@@ -113,7 +95,7 @@ func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 		},
 	})
 	r.Register(Tool{
-		Name:        "roundpen_get_settings",
+		Name:        "GetSettings",
 		Description: "Get admin app settings (admin only).",
 		Parameters:  objectSchema(map[string]any{}),
 		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
@@ -125,12 +107,23 @@ func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 	})
 }
 
-const envListNote = "agent status=absent means not started yet — call roundpen_ensure_agent or sandbox_exec. Browser cannot run git or shell."
+const envListNote = "agent status=absent means not started yet — call Bash or file tools (Read/Write/Edit). Browser cannot run git or shell."
 
-func annotateEnvList(raw string) string {
+func scrubEnvList(raw string) string {
 	var wrap map[string]any
 	if err := json.Unmarshal([]byte(raw), &wrap); err != nil || wrap == nil {
 		return raw
+	}
+	if envs, ok := wrap["environments"].([]any); ok {
+		for _, item := range envs {
+			obj, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			delete(obj, "sandboxId")
+			delete(obj, "sandbox_id")
+			delete(obj, "SandboxID")
+		}
 	}
 	wrap["note"] = envListNote
 	out, err := json.Marshal(wrap)

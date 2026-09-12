@@ -1,4 +1,13 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
+import {
+  Banner,
+  Button,
+  Checkbox,
+  Input,
+  Modal,
+  Select,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import { SUGGESTED_CATEGORIES, type Sandbox } from '../api'
 
 export type SandboxEditValues = {
@@ -26,8 +35,6 @@ export function SandboxEditDialog({
   onClose,
   onSave,
 }: Props) {
-  const titleId = useId()
-  const listId = useId()
   const [name, setName] = useState('')
   const [category, setCategory] = useState('')
   const [isDefault, setIsDefault] = useState(false)
@@ -39,10 +46,7 @@ export function SandboxEditDialog({
     setIsDefault(Boolean(sandbox.isDefault))
   }, [open, sandbox])
 
-  if (!open || !sandbox) return null
-
-  async function submit(e: FormEvent) {
-    e.preventDefault()
+  async function submit() {
     const trimmed = name.trim()
     if (!trimmed) return
     const cat = category.trim()
@@ -53,98 +57,115 @@ export function SandboxEditDialog({
     })
   }
 
+  const categorySelectOptions = categoryOptions.map((c) => ({
+    label: c,
+    value: c,
+  }))
+
   return (
-    <dialog className="modal modal-bottom sm:modal-middle modal-open" aria-labelledby={titleId}>
-      <div className="modal-box max-w-md">
-        <h3 id={titleId} className="font-display text-lg font-semibold">
-          Edit sandbox
-        </h3>
-        <p className="mt-1 font-mono text-xs opacity-50 truncate">
-          {sandbox.sandboxID}
-        </p>
+    <Modal
+      title="Edit sandbox"
+      visible={open && sandbox != null}
+      onCancel={() => {
+        if (!busy) onClose()
+      }}
+      footer={null}
+      maskClosable={!busy}
+      closeOnEsc={!busy}
+      width={448}
+    >
+      {sandbox && (
+        <>
+          <Typography.Text
+            type="tertiary"
+            size="small"
+            style={{
+              display: 'block',
+              marginBottom: 16,
+              fontFamily: 'var(--semi-font-family-regular), monospace',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {sandbox.sandboxID}
+          </Typography.Text>
 
-        <form onSubmit={(e) => void submit(e)} className="mt-5 flex flex-col gap-5">
-          <label className="form-control w-full gap-1.5">
-            <span className="text-xs font-medium opacity-60">Name</span>
-            <input
-              className="input input-bordered input-sm w-full"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={64}
-              required
-              autoFocus
-            />
-          </label>
-
-          <div className="flex flex-col gap-3">
-            <label className="form-control w-full gap-1.5">
-              <span className="text-xs font-medium opacity-60">Category</span>
-              <input
-                className="input input-bordered input-sm w-full"
-                list={listId}
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Browser"
-                maxLength={32}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void submit()
+            }}
+            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+          >
+            <div>
+              <Typography.Text size="small" type="tertiary" style={{ display: 'block', marginBottom: 4 }}>
+                Name
+              </Typography.Text>
+              <Input
+                value={name}
+                onChange={setName}
+                maxLength={64}
+                required
+                autoFocus
               />
-              <datalist id={listId}>
-                {categoryOptions.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </label>
-
-            <div className="rounded-lg border border-base-300/80 bg-base-200/40 px-3 py-2.5">
-              <label className="flex cursor-pointer items-start gap-2.5">
-                <input
-                  type="checkbox"
-                  className="checkbox checkbox-sm mt-0.5 shrink-0"
-                  checked={isDefault}
-                  disabled={!category.trim()}
-                  onChange={(e) => setIsDefault(e.target.checked)}
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm leading-snug">
-                    Default for this category
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed opacity-50">
-                    Agents resolve by category (e.g. Browser → this sandbox).
-                  </span>
-                </span>
-              </label>
             </div>
-          </div>
 
-          {error && (
-            <p className="text-sm text-error" role="alert">
-              {error}
-            </p>
-          )}
+            <div>
+              <Typography.Text size="small" type="tertiary" style={{ display: 'block', marginBottom: 4 }}>
+                Category
+              </Typography.Text>
+              <Select
+                filter
+                allowCreate
+                showClear
+                style={{ width: '100%' }}
+                value={category || undefined}
+                onChange={(v) => setCategory(typeof v === 'string' ? v : '')}
+                optionList={categorySelectOptions}
+                placeholder="e.g. Browser"
+              />
+            </div>
 
-          <div className="modal-action mt-1">
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              disabled={busy}
-              onClick={onClose}
+            <Checkbox
+              checked={isDefault}
+              disabled={!category.trim()}
+              onChange={(e) => setIsDefault(Boolean(e.target.checked))}
+              extra="Agents resolve by category (e.g. Browser → this sandbox)."
             >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn btn-primary btn-sm"
-              disabled={busy || !name.trim()}
+              Default for this category
+            </Checkbox>
+
+            {error && (
+              <div role="alert">
+                <Banner fullMode={false} type="danger" description={error} closeIcon={null} />
+              </div>
+            )}
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: 8,
+                marginTop: 8,
+              }}
             >
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </form>
-      </div>
-      <form method="dialog" className="modal-backdrop">
-        <button type="button" disabled={busy} onClick={onClose}>
-          close
-        </button>
-      </form>
-    </dialog>
+              <Button type="tertiary" onClick={onClose} disabled={busy}>
+                Cancel
+              </Button>
+              <Button
+                htmlType="submit"
+                theme="solid"
+                type="primary"
+                loading={busy}
+                disabled={!name.trim()}
+              >
+                Save
+              </Button>
+            </div>
+          </form>
+        </>
+      )}
+    </Modal>
   )
 }

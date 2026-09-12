@@ -1,4 +1,17 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import {
+  Banner,
+  Button,
+  Checkbox,
+  Input,
+  Modal,
+  Progress,
+  Select,
+  Tabs,
+  TabPane,
+  Tag,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import {
   templates,
   templateDisplayName,
@@ -20,16 +33,20 @@ type Props = {
 
 type BaseMode = 'image' | 'template'
 
-function statusBadge(status: string): string {
+function statusTagColor(
+  status: string,
+): 'green' | 'blue' | 'red' | 'orange' | 'grey' {
   switch (status) {
     case 'ready':
-      return 'badge badge-success badge-sm'
+      return 'green'
     case 'building':
-      return 'badge badge-info badge-sm'
+      return 'blue'
     case 'error':
-      return 'badge badge-error badge-sm'
+      return 'red'
+    case 'waiting':
+      return 'orange'
     default:
-      return 'badge badge-ghost badge-sm'
+      return 'grey'
   }
 }
 
@@ -77,7 +94,6 @@ export function TemplateBuildDialog({
   onClose,
   onDone,
 }: Props) {
-  const titleId = useId()
   const logRef = useRef<HTMLPreElement>(null)
   const onDoneRef = useRef(onDone)
   const notifiedDoneRef = useRef(false)
@@ -216,10 +232,8 @@ export function TemplateBuildDialog({
     logRef.current?.scrollTo(0, logRef.current.scrollHeight)
   }, [buildStatus?.logs, buildStatus?.logEntries])
 
-  if (!open || !template) return null
-
   const showErr = localError || error
-  const status = buildStatus?.status ?? template.buildStatus
+  const status = buildStatus?.status ?? template?.buildStatus ?? ''
   const showVersionOpts = status === 'ready'
   const logLines =
     buildStatus?.logEntries?.map((e) => e.message) ??
@@ -227,12 +241,12 @@ export function TemplateBuildDialog({
     []
   const title =
     watchBuild ||
-    canRetryBuild(template.buildStatus) ||
+    (template && canRetryBuild(template.buildStatus)) ||
     status === 'error' ||
     status === 'ready'
       ? 'Build'
       : 'Logs'
-  const displayBuildID = activeBuildID || template.buildID
+  const displayBuildID = activeBuildID || template?.buildID || ''
 
   function goRetry() {
     applySpecToForm(
@@ -313,229 +327,332 @@ export function TemplateBuildDialog({
   }
 
   return (
-    <dialog className="modal modal-bottom sm:modal-middle modal-open" aria-labelledby={titleId}>
-      <div className="modal-box flex max-h-[90dvh] max-w-2xl flex-col">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 id={titleId} className="font-display text-lg font-semibold">
-              {title} {templateDisplayName(template)}
-            </h3>
-            <p className="mt-1 font-mono text-xs opacity-50">
-              {displayBuildID.slice(0, 8)}…
-            </p>
-          </div>
-          <span className={statusBadge(status)}>{status || 'waiting'}</span>
+    <Modal
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {title} {template ? templateDisplayName(template) : ''}
+          </span>
+          <Tag color={statusTagColor(status || 'waiting')} size="small">
+            {status || 'waiting'}
+          </Tag>
         </div>
-
-        {phase === 'form' ? (
-          <form
-            onSubmit={(e) => void submit(e)}
-            className="mt-5 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+      }
+      visible={open && template != null}
+      onCancel={() => {
+        if (!busy && !starting) onClose()
+      }}
+      footer={null}
+      maskClosable={!busy && !starting}
+      closeOnEsc={!busy && !starting}
+      width={672}
+      bodyStyle={{ maxHeight: 'min(90dvh, 800px)', overflowY: 'auto' }}
+    >
+      {template && (
+        <>
+          <Typography.Text
+            type="tertiary"
+            size="small"
+            style={{
+              display: 'block',
+              marginBottom: 16,
+              fontFamily: 'var(--semi-font-family-code)',
+            }}
           >
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className={`btn btn-xs min-h-11 sm:min-h-6 ${baseMode === 'image' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setBaseMode('image')}
-              >
-                From image
-              </button>
-              <button
-                type="button"
-                className={`btn btn-xs min-h-11 sm:min-h-6 ${baseMode === 'template' ? 'btn-primary' : 'btn-ghost'}`}
-                onClick={() => setBaseMode('template')}
-              >
-                From template
-              </button>
-            </div>
+            {displayBuildID.slice(0, 8)}…
+          </Typography.Text>
 
-            {baseMode === 'image' ? (
-              <label className="form-control w-full gap-1.5">
-                <span className="text-xs font-medium opacity-60">Base image</span>
-                <input
-                  className="input input-bordered input-sm w-full font-mono"
-                  value={fromImage}
-                  onChange={(e) => setFromImage(e.target.value)}
-                  placeholder="alpine:3.20"
-                />
-              </label>
-            ) : (
-              <label className="form-control w-full gap-1.5">
-                <span className="text-xs font-medium opacity-60">Base template</span>
-                <select
-                  className="select select-bordered select-sm w-full"
-                  value={fromTemplate}
-                  onChange={(e) => setFromTemplate(e.target.value)}
-                >
-                  {baseOptions.map((tpl) => {
-                    const name = templateDisplayName(tpl)
-                    return (
-                      <option key={tpl.templateID} value={name}>
-                        {name}
-                      </option>
-                    )
-                  })}
-                </select>
-              </label>
-            )}
+          {status === 'building' && (
+            <Progress
+              percent={50}
+              showInfo={false}
+              style={{ marginBottom: 16 }}
+            />
+          )}
 
-            <label className="form-control w-full gap-1.5">
-              <span className="text-xs font-medium opacity-60">RUN command (optional)</span>
-              <input
-                className="input input-bordered input-sm w-full font-mono"
-                value={runCmd}
-                onChange={(e) => setRunCmd(e.target.value)}
-                placeholder="apk add --no-cache curl"
-              />
-            </label>
-
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="form-control w-full gap-1.5">
-                <span className="text-xs font-medium opacity-60">Start command</span>
-                <input
-                  className="input input-bordered input-sm w-full font-mono"
-                  value={startCmd}
-                  onChange={(e) => setStartCmd(e.target.value)}
-                  placeholder="optional long-running cmd"
-                />
-              </label>
-              <label className="form-control w-full gap-1.5">
-                <span className="text-xs font-medium opacity-60">Ready probe</span>
-                <input
-                  className="input input-bordered input-sm w-full font-mono"
-                  value={readyCmd}
-                  onChange={(e) => setReadyCmd(e.target.value)}
-                  placeholder="waitForPort(8080)"
-                />
-              </label>
-            </div>
-
-            {showVersionOpts && (
-              <div className="flex flex-col gap-3 rounded-lg border border-base-300 bg-base-200/40 p-3">
-                <label className="form-control w-full gap-1.5">
-                  <span className="text-xs font-medium opacity-60">
-                    Version tag (optional)
-                  </span>
-                  <input
-                    className="input input-bordered input-sm w-full font-mono"
-                    value={versionTag}
-                    onChange={(e) => setVersionTag(e.target.value)}
-                    placeholder="v2"
-                  />
-                  <span className="text-xs opacity-45">
-                    Same config rebuilds in place. Changing base image / RUN /
-                    start / ready creates a new build ID automatically. Resolve as{' '}
-                    <code className="font-mono">name:tag</code>.
-                  </span>
-                </label>
-                <label className="flex cursor-pointer items-center gap-2.5">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-sm"
-                    checked={assignDefault}
-                    onChange={(e) => setAssignDefault(e.target.checked)}
-                  />
-                  <span className="text-sm">
-                    Move default tag when a new build is created
-                  </span>
-                </label>
-              </div>
-            )}
-
-            <p className="text-xs opacity-45">
-              Image builds require a configured builder: docker backend, or kaniko
-              with <code className="font-mono">ROUNDPEN_TEMPLATE_BUILDER=kaniko</code>{' '}
-              and <code className="font-mono">ROUNDPEN_KANIKO_DESTINATION</code>. T2
-              snapshot verification currently needs docker.
-            </p>
-
-            {showErr && (
-              <p className="text-sm text-error" role="alert">
-                {showErr}
-              </p>
-            )}
-            {buildStatus?.reason?.message && !showErr && (
-              <p className="text-sm text-error" role="alert">
-                Previous build failed: {buildStatus.reason.message}
-              </p>
-            )}
-
-            <div className="modal-action mt-1">
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                disabled={busy || starting}
-                onClick={onClose}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="btn btn-primary btn-sm"
-                disabled={busy || starting}
-              >
-                {buildSubmitLabel()}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <div className="mt-5 flex min-h-0 flex-1 flex-col gap-3">
-            {buildStatus?.reason?.message && (
-              <p className="text-sm text-error">{buildStatus.reason.message}</p>
-            )}
-            <pre
-              ref={logRef}
-              className="min-h-[12rem] flex-1 overflow-auto rounded-lg border border-base-300 bg-base-200/50 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all"
+          {phase === 'form' ? (
+            <form
+              onSubmit={(e) => void submit(e)}
+              style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
             >
-              {logLines.length > 0 ? (
-                logLines.map((line, i) => (
-                  <div key={i}>
-                    <AnsiText text={line} />
-                  </div>
-                ))
-              ) : status === 'building' ? (
-                'Building…'
-              ) : status === 'ready' ? (
-                'Build ready.'
-              ) : status === 'error' ? (
-                'Build failed.'
-              ) : (
-                'No logs yet.'
-              )}
-            </pre>
-            {showErr && (
-              <p className="text-sm text-error" role="alert">
-                {showErr}
-              </p>
-            )}
-            <div className="modal-action mt-1">
-              <button
+              <Tabs
                 type="button"
-                className="btn btn-ghost btn-sm"
-                disabled={busy || starting}
-                onClick={onClose}
+                activeKey={baseMode}
+                onChange={(key) => setBaseMode(key as BaseMode)}
               >
-                Close
-              </button>
-              {(status === 'error' || status === 'ready') && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={busy || starting}
-                  onClick={goRetry}
-                >
-                  {status === 'ready' ? 'Rebuild' : 'Retry'}
-                </button>
+                <TabPane tab="From image" itemKey="image" />
+                <TabPane tab="From template" itemKey="template" />
+              </Tabs>
+
+              {baseMode === 'image' ? (
+                <div>
+                  <Typography.Text size="small" type="tertiary">
+                    Base image
+                  </Typography.Text>
+                  <Input
+                    value={fromImage}
+                    onChange={setFromImage}
+                    placeholder="alpine:3.20"
+                    style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                  />
+                </div>
+              ) : (
+                <div>
+                  <Typography.Text size="small" type="tertiary">
+                    Base template
+                  </Typography.Text>
+                  <Select
+                    value={fromTemplate}
+                    onChange={(v) => setFromTemplate(String(v))}
+                    optionList={baseOptions.map((tpl) => {
+                      const name = templateDisplayName(tpl)
+                      return { value: name, label: name }
+                    })}
+                    style={{ width: '100%' }}
+                  />
+                </div>
               )}
+
+              <div>
+                <Typography.Text size="small" type="tertiary">
+                  RUN command (optional)
+                </Typography.Text>
+                <Input
+                  value={runCmd}
+                  onChange={setRunCmd}
+                  placeholder="apk add --no-cache curl"
+                  style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                />
+              </div>
+
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <Typography.Text size="small" type="tertiary">
+                    Start command
+                  </Typography.Text>
+                  <Input
+                    value={startCmd}
+                    onChange={setStartCmd}
+                    placeholder="optional long-running cmd"
+                    style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                  />
+                </div>
+                <div>
+                  <Typography.Text size="small" type="tertiary">
+                    Ready probe
+                  </Typography.Text>
+                  <Input
+                    value={readyCmd}
+                    onChange={setReadyCmd}
+                    placeholder="waitForPort(8080)"
+                    style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                  />
+                </div>
+              </div>
+
+              {showVersionOpts && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 12,
+                    padding: 12,
+                    borderRadius: 8,
+                    border: '1px solid var(--semi-color-border)',
+                    background: 'var(--semi-color-fill-0)',
+                  }}
+                >
+                  <div>
+                    <Typography.Text size="small" type="tertiary">
+                      Version tag (optional)
+                    </Typography.Text>
+                    <Input
+                      value={versionTag}
+                      onChange={setVersionTag}
+                      placeholder="v2"
+                      style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                    />
+                    <Typography.Text
+                      type="tertiary"
+                      size="small"
+                      style={{ display: 'block', marginTop: 6 }}
+                    >
+                      Same config rebuilds in place. Changing base image / RUN /
+                      start / ready creates a new build ID automatically. Resolve as{' '}
+                      <Typography.Text
+                        size="small"
+                        style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                      >
+                        name:tag
+                      </Typography.Text>
+                      .
+                    </Typography.Text>
+                  </div>
+                  <Checkbox
+                    checked={assignDefault}
+                    onChange={(e) => setAssignDefault(!!e.target.checked)}
+                  >
+                    Move default tag when a new build is created
+                  </Checkbox>
+                </div>
+              )}
+
+              <Typography.Text type="tertiary" size="small">
+                Image builds require a configured builder: docker backend, or kaniko
+                with{' '}
+                <Typography.Text
+                  size="small"
+                  style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                >
+                  ROUNDPEN_TEMPLATE_BUILDER=kaniko
+                </Typography.Text>{' '}
+                and{' '}
+                <Typography.Text
+                  size="small"
+                  style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                >
+                  ROUNDPEN_KANIKO_DESTINATION
+                </Typography.Text>
+                . T2 snapshot verification currently needs docker.
+              </Typography.Text>
+
+              {showErr && (
+                <div role="alert">
+                  <Banner
+                    fullMode={false}
+                    type="danger"
+                    description={showErr}
+                    closeIcon={null}
+                  />
+                </div>
+              )}
+              {buildStatus?.reason?.message && !showErr && (
+                <div role="alert">
+                  <Banner
+                    fullMode={false}
+                    type="danger"
+                    description={`Previous build failed: ${buildStatus.reason.message}`}
+                    closeIcon={null}
+                  />
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: 8,
+                  marginTop: 4,
+                }}
+              >
+                <Button
+                  type="tertiary"
+                  disabled={busy || starting}
+                  onClick={onClose}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  htmlType="submit"
+                  theme="solid"
+                  type="primary"
+                  loading={starting}
+                  disabled={busy}
+                >
+                  {buildSubmitLabel()}
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {buildStatus?.reason?.message && (
+                <Banner
+                  fullMode={false}
+                  type="danger"
+                  description={buildStatus.reason.message}
+                  closeIcon={null}
+                />
+              )}
+              <pre
+                ref={logRef}
+                style={{
+                  minHeight: '12rem',
+                  maxHeight: '40vh',
+                  overflow: 'auto',
+                  borderRadius: 8,
+                  border: '1px solid var(--semi-color-border)',
+                  background: 'var(--semi-color-fill-0)',
+                  padding: 12,
+                  fontFamily: 'var(--semi-font-family-code)',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                  margin: 0,
+                }}
+              >
+                {logLines.length > 0 ? (
+                  logLines.map((line, i) => (
+                    <div key={i}>
+                      <AnsiText text={line} />
+                    </div>
+                  ))
+                ) : status === 'building' ? (
+                  'Building…'
+                ) : status === 'ready' ? (
+                  'Build ready.'
+                ) : status === 'error' ? (
+                  'Build failed.'
+                ) : (
+                  'No logs yet.'
+                )}
+              </pre>
+              {showErr && (
+                <div role="alert">
+                  <Banner
+                    fullMode={false}
+                    type="danger"
+                    description={showErr}
+                    closeIcon={null}
+                  />
+                </div>
+              )}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: 8,
+                  marginTop: 4,
+                }}
+              >
+                <Button
+                  type="tertiary"
+                  disabled={busy || starting}
+                  onClick={onClose}
+                >
+                  Close
+                </Button>
+                {(status === 'error' || status === 'ready') && (
+                  <Button
+                    theme="solid"
+                    type="primary"
+                    disabled={busy || starting}
+                    onClick={goRetry}
+                  >
+                    {status === 'ready' ? 'Rebuild' : 'Retry'}
+                  </Button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </div>
-      <form method="dialog" className="modal-backdrop">
-        <button type="button" disabled={busy || starting} onClick={onClose}>
-          close
-        </button>
-      </form>
-    </dialog>
+          )}
+        </>
+      )}
+    </Modal>
   )
 }

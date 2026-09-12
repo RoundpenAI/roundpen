@@ -271,6 +271,37 @@ CREATE TABLE IF NOT EXISTS agent_messages (
 );
 CREATE INDEX IF NOT EXISTS agent_messages_session_idx ON agent_messages (session_id, created_at);
 
+-- Assistants: user-facing agent profiles (constitution). Sandboxes remain implementation detail.
+CREATE TABLE IF NOT EXISTS assistants (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    bio             TEXT NOT NULL DEFAULT '',
+    identity_mode   TEXT NOT NULL DEFAULT 'proxy_user'
+        CHECK (identity_mode IN ('proxy_user', 'independent')),
+    capabilities    JSONB NOT NULL DEFAULT '{"shell":true,"browser":false,"mobile":false,"desktop":false}',
+    network_tier    TEXT NOT NULL DEFAULT 'dev_sites'
+        CHECK (network_tier IN ('none', 'dev_sites', 'all')),
+    network_allowlist JSONB NOT NULL DEFAULT '[]',
+    directory_grants  JSONB NOT NULL DEFAULT '[]',
+    status          TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'disabled')),
+    kind            TEXT NOT NULL DEFAULT 'user'
+        CHECK (kind IN ('user', 'system')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS assistants_user_idx ON assistants (user_id, updated_at DESC);
+ALTER TABLE assistants ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'user';
+CREATE UNIQUE INDEX IF NOT EXISTS assistants_user_system_active_idx
+    ON assistants (user_id)
+    WHERE kind = 'system' AND status = 'active';
+
+ALTER TABLE agent_sessions
+    ADD COLUMN IF NOT EXISTS assistant_id TEXT REFERENCES assistants (id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS agent_sessions_assistant_idx
+    ON agent_sessions (assistant_id, updated_at DESC);
+
 -- Fixed per-user environment slots (one machine per slot)
 CREATE TABLE IF NOT EXISTS user_environments (
     user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
@@ -320,4 +351,45 @@ CREATE TABLE IF NOT EXISTS user_runtime (
     agent_engine  TEXT NOT NULL DEFAULT '',
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Assist tickets: human-in-the-loop requests raised by assistants (not auto on soft deny).
+CREATE TABLE IF NOT EXISTS assist_tickets (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    assistant_id    TEXT NOT NULL REFERENCES assistants (id) ON DELETE CASCADE,
+    session_id      TEXT NOT NULL DEFAULT '',
+    kind            TEXT NOT NULL DEFAULT 'permission'
+        CHECK (kind IN ('permission', 'policy_apply', 'captcha', 'other')),
+    status          TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'resolved', 'rejected', 'cancelled')),
+    title           TEXT NOT NULL DEFAULT '',
+    reason          TEXT NOT NULL DEFAULT '',
+    context_summary TEXT NOT NULL DEFAULT '',
+    ask_human       TEXT NOT NULL DEFAULT '',
+    payload         JSONB NOT NULL DEFAULT '{}',
+    resolution      TEXT NOT NULL DEFAULT '',
+    resolution_note TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS assist_tickets_user_pending_idx
+    ON assist_tickets (user_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS assist_tickets_assistant_idx
+    ON assist_tickets (assistant_id, status, updated_at DESC);
+
+-- Soft-deny audit (no human ticket unless assistant applies).
+CREATE TABLE IF NOT EXISTS policy_denials (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    assistant_id    TEXT NOT NULL REFERENCES assistants (id) ON DELETE CASCADE,
+    session_id      TEXT NOT NULL DEFAULT '',
+    dimension       TEXT NOT NULL,
+    target          TEXT NOT NULL DEFAULT '',
+    reason          TEXT NOT NULL DEFAULT '',
+    appliable       BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS policy_denials_assistant_idx
+    ON policy_denials (assistant_id, created_at DESC);
 

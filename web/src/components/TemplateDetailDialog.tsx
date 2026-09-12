@@ -1,4 +1,18 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import {
+  Banner,
+  Button,
+  Checkbox,
+  InputNumber,
+  Modal,
+  Popconfirm,
+  Select,
+  Spin,
+  Tag,
+  TextArea,
+  Toast,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import {
   templateDisplayName,
   templates,
@@ -38,6 +52,23 @@ function buildActionLabel(status: string): string {
   }
 }
 
+function statusTagColor(
+  status: string,
+): 'green' | 'blue' | 'red' | 'orange' | 'grey' {
+  switch (status) {
+    case 'ready':
+      return 'green'
+    case 'building':
+      return 'blue'
+    case 'error':
+      return 'red'
+    case 'waiting':
+      return 'orange'
+    default:
+      return 'grey'
+  }
+}
+
 export function TemplateDetailDialog({
   open,
   templateId,
@@ -48,12 +79,10 @@ export function TemplateDetailDialog({
   onDeleted,
   onBuild,
 }: Props) {
-  const titleId = useId()
   const [detail, setDetail] = useState<TemplateDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [saveOk, setSaveOk] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
 
@@ -81,7 +110,6 @@ export function TemplateDetailDialog({
     setLoading(true)
     setLoadError(null)
     setSaveError(null)
-    setSaveOk(false)
     void templates
       .get(templateId)
       .then((d) => {
@@ -94,16 +122,17 @@ export function TemplateDetailDialog({
       .finally(() => setLoading(false))
   }, [open, templateId])
 
-  if (!open || !templateId) return null
-
   const builtin = detail?.builtin ?? false
-  const displayName = detail ? templateDisplayName(detail) : templateId.slice(0, 8)
+  const displayName = detail
+    ? templateDisplayName(detail)
+    : templateId
+      ? templateId.slice(0, 8)
+      : ''
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (!detail || saving) return
     setSaveError(null)
-    setSaveOk(false)
     setSaving(true)
     const patch: TemplatePatch = {
       description,
@@ -119,7 +148,7 @@ export function TemplateDetailDialog({
       const refreshed = await templates.get(detail.templateID)
       setDetail(refreshed)
       syncFormFromDetail(refreshed)
-      setSaveOk(true)
+      Toast.success('Settings saved.')
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'save failed')
     } finally {
@@ -129,7 +158,6 @@ export function TemplateDetailDialog({
 
   async function onDelete() {
     if (!detail || builtin) return
-    if (!confirm(`Delete template “${displayName}”? This cannot be undone.`)) return
     setDeleteBusy(true)
     try {
       await templates.remove(detail.templateID)
@@ -142,202 +170,337 @@ export function TemplateDetailDialog({
     }
   }
 
+  const profileOptions = [
+    { value: 'shell', label: 'shell — workspace + terminal' },
+    { value: 'dev', label: 'dev — shell + ports' },
+    { value: 'browser', label: 'browser — dev + Chrome / MCP tools' },
+  ]
+  if (profile && !['shell', 'dev', 'browser'].includes(profile)) {
+    profileOptions.push({ value: profile, label: profile })
+  }
+
   return (
-    <dialog className="modal modal-bottom sm:modal-middle modal-open" aria-labelledby={titleId}>
-      <div className="modal-box max-h-[90dvh] max-w-lg overflow-y-auto">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 id={titleId} className="font-display text-lg font-semibold truncate">
-              {displayName}
-            </h3>
-            <p className="mt-1 font-mono text-xs opacity-50 truncate">{templateId}</p>
-          </div>
-          {builtin && <span className="badge badge-ghost badge-sm shrink-0">Built-in</span>}
+    <Modal
+      title={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {displayName || 'Template'}
+          </span>
+          {builtin && (
+            <Tag size="small" color="grey">
+              Built-in
+            </Tag>
+          )}
         </div>
+      }
+      visible={open && templateId != null}
+      onCancel={() => {
+        if (!busy && !deleteBusy) onClose()
+      }}
+      footer={null}
+      maskClosable={!busy && !deleteBusy}
+      closeOnEsc={!busy && !deleteBusy}
+      width={512}
+      bodyStyle={{ maxHeight: 'min(90dvh, 720px)', overflowY: 'auto' }}
+    >
+      {templateId && (
+        <Typography.Text
+          type="tertiary"
+          size="small"
+          ellipsis={{ showTooltip: true }}
+          style={{
+            display: 'block',
+            marginBottom: 16,
+            fontFamily: 'var(--semi-font-family-code)',
+          }}
+        >
+          {templateId}
+        </Typography.Text>
+      )}
 
-        {loading ? (
-          <p className="mt-6 text-sm opacity-50">Loading…</p>
-        ) : loadError ? (
-          <p className="mt-6 text-sm text-error" role="alert">
-            {loadError}
-          </p>
-        ) : detail ? (
-          <>
-            <dl className="mt-4 space-y-3 text-xs opacity-70 sm:grid sm:grid-cols-[auto_1fr] sm:gap-x-4 sm:gap-y-2 sm:space-y-0">
-              <dt>Status</dt>
-              <dd>{detail.buildStatus || 'waiting'}</dd>
-              <dt>Namespace</dt>
-              <dd className="font-mono">{detail.namespace}</dd>
-              <dt>Profile</dt>
-              <dd className="font-mono">{detail.profile || 'dev'}</dd>
-              <dt>Slot</dt>
-              <dd className="font-mono">{detail.slot || 'agent'}</dd>
-              <dt>Usage</dt>
-              <dd>
-                {detail.spawnCount ?? 0} spawns · {detail.buildCount ?? 0} builds
-              </dd>
-              <dt>Updated</dt>
-              <dd>{formatWhen(detail.updatedAt)}</dd>
-            </dl>
+      {loading ? (
+        <div style={{ padding: '24px 0', textAlign: 'center' }}>
+          <Spin />
+        </div>
+      ) : loadError ? (
+        <div role="alert">
+          <Banner
+            fullMode={false}
+            type="danger"
+            description={loadError}
+            closeIcon={null}
+          />
+        </div>
+      ) : detail ? (
+        <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr',
+              gap: '8px 16px',
+              marginBottom: 16,
+              fontSize: 12,
+              color: 'var(--semi-color-text-2)',
+            }}
+          >
+            <span>Status</span>
+            <span>
+              <Tag
+                color={statusTagColor(detail.buildStatus || 'waiting')}
+                size="small"
+              >
+                {detail.buildStatus || 'waiting'}
+              </Tag>
+            </span>
+            <span>Namespace</span>
+            <Typography.Text
+              size="small"
+              style={{ fontFamily: 'var(--semi-font-family-code)' }}
+            >
+              {detail.namespace}
+            </Typography.Text>
+            <span>Profile</span>
+            <Typography.Text
+              size="small"
+              style={{ fontFamily: 'var(--semi-font-family-code)' }}
+            >
+              {detail.profile || 'dev'}
+            </Typography.Text>
+            <span>Slot</span>
+            <Typography.Text
+              size="small"
+              style={{ fontFamily: 'var(--semi-font-family-code)' }}
+            >
+              {detail.slot || 'agent'}
+            </Typography.Text>
+            <span>Usage</span>
+            <span>
+              {detail.spawnCount ?? 0} spawns · {detail.buildCount ?? 0} builds
+            </span>
+            <span>Updated</span>
+            <span>{formatWhen(detail.updatedAt)}</span>
+          </div>
 
-            {builtin && (
-              <p className="mt-3 text-xs opacity-50">
-                Seeded system template — editable and rebuildable; cannot be deleted.
-              </p>
-            )}
+          {builtin && (
+            <Typography.Text
+              type="tertiary"
+              size="small"
+              style={{ display: 'block', marginBottom: 12 }}
+            >
+              Seeded system template — editable and rebuildable; cannot be deleted.
+            </Typography.Text>
+          )}
 
-            {(detail.tags?.length ?? 0) > 0 && (
-              <div className="mt-4">
-                <p className="mb-2 text-xs font-medium opacity-60">Tags</p>
-                <ul className="max-h-24 space-y-1 overflow-y-auto text-xs opacity-70">
-                  {detail.tags.map((t) => (
-                    <li key={t.tag} className="font-mono truncate">
-                      {t.tag} → {t.buildID.slice(0, 8)}…
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {detail.builds.length > 0 && (
-              <div className="mt-4">
-                <p className="mb-2 text-xs font-medium opacity-60">Build history</p>
-                <ul className="max-h-32 space-y-1 overflow-y-auto text-xs opacity-70">
-                  {detail.builds.map((b) => (
-                    <li key={b.buildID} className="font-mono truncate">
-                      {b.buildID.slice(0, 8)}… · {b.status}
-                      {b.artifactRef ? ` · ${b.artifactRef}` : ''}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            <form onSubmit={(e) => void submit(e)} className="mt-5 flex flex-col gap-4">
-              <label className="form-control w-full gap-1.5">
-                <span className="text-xs font-medium opacity-60">Description</span>
-                <textarea
-                  className="textarea textarea-bordered textarea-sm w-full"
-                  rows={2}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
-              </label>
-
-              <label className="form-control w-full gap-1.5">
-                <span className="text-xs font-medium opacity-60">Profile</span>
-                <select
-                  className="select select-bordered select-sm w-full"
-                  value={profile}
-                  onChange={(e) => setProfile(e.target.value)}
-                >
-                  <option value="shell">shell — workspace + terminal</option>
-                  <option value="dev">dev — shell + ports</option>
-                  <option value="browser">browser — dev + Chrome / MCP tools</option>
-                  {profile && !['shell', 'dev', 'browser'].includes(profile) ? (
-                    <option value={profile}>{profile}</option>
-                  ) : null}
-                </select>
-              </label>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <label className="form-control gap-1.5">
-                  <span className="text-xs font-medium opacity-60">CPU</span>
-                  <input
-                    type="number"
-                    min={1}
-                    className="input input-bordered input-sm"
-                    value={cpuCount}
-                    onChange={(e) => setCpuCount(Number(e.target.value) || 1)}
-                  />
-                </label>
-                <label className="form-control gap-1.5">
-                  <span className="text-xs font-medium opacity-60">Memory</span>
-                  <input
-                    type="number"
-                    min={128}
-                    step={128}
-                    className="input input-bordered input-sm"
-                    value={memoryMB}
-                    onChange={(e) => setMemoryMB(Number(e.target.value) || 512)}
-                  />
-                </label>
-                <label className="form-control gap-1.5">
-                  <span className="text-xs font-medium opacity-60">Disk</span>
-                  <input
-                    type="number"
-                    min={512}
-                    step={512}
-                    className="input input-bordered input-sm"
-                    value={diskSizeMB}
-                    onChange={(e) => setDiskSizeMB(Number(e.target.value) || 5120)}
-                  />
-                </label>
-              </div>
-
-              <label className="flex cursor-pointer items-center gap-2.5">
-                <input
-                  type="checkbox"
-                  className="checkbox checkbox-sm"
-                  checked={isPublic}
-                  onChange={(e) => setIsPublic(e.target.checked)}
-                />
-                <span className="text-sm">Public template</span>
-              </label>
-
-              {(error || saveError) && (
-                <p className="text-sm text-error" role="alert">
-                  {error || saveError}
-                </p>
-              )}
-              {saveOk && !saveError && (
-                <p className="text-sm text-success">Settings saved.</p>
-              )}
-
-              <div className="modal-action mt-1 flex-wrap">
-                {!builtin && (
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm text-error mr-auto"
-                    disabled={busy || saving || deleteBusy}
-                    onClick={() => void onDelete()}
+          {(detail.tags?.length ?? 0) > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <Typography.Text
+                size="small"
+                type="tertiary"
+                style={{ display: 'block', marginBottom: 8 }}
+              >
+                Tags
+              </Typography.Text>
+              <div
+                style={{
+                  maxHeight: 96,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
+                {detail.tags.map((t) => (
+                  <Typography.Text
+                    key={t.tag}
+                    size="small"
+                    ellipsis={{ showTooltip: true }}
+                    style={{ fontFamily: 'var(--semi-font-family-code)' }}
                   >
-                    {deleteBusy ? 'Deleting…' : 'Delete'}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  disabled={busy || saving || deleteBusy}
-                  onClick={onClose}
-                >
-                  Close
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-sm"
-                  disabled={busy || saving || deleteBusy}
-                  onClick={() => onBuild(detail)}
-                >
-                  {buildActionLabel(detail.buildStatus || 'waiting')}
-                </button>
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-sm"
-                  disabled={busy || saving || deleteBusy}
-                >
-                  {saving ? 'Saving…' : 'Save'}
-                </button>
+                    {t.tag} → {t.buildID.slice(0, 8)}…
+                  </Typography.Text>
+                ))}
               </div>
-            </form>
-          </>
-        ) : null}
-      </div>
-      <form method="dialog" className="modal-backdrop">
-        <button type="button" disabled={busy || deleteBusy} onClick={onClose}>
-          close
-        </button>
-      </form>
-    </dialog>
+            </div>
+          )}
+
+          {detail.builds.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <Typography.Text
+                size="small"
+                type="tertiary"
+                style={{ display: 'block', marginBottom: 8 }}
+              >
+                Build history
+              </Typography.Text>
+              <div
+                style={{
+                  maxHeight: 128,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+              >
+                {detail.builds.map((b) => (
+                  <Typography.Text
+                    key={b.buildID}
+                    size="small"
+                    ellipsis={{ showTooltip: true }}
+                    style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                  >
+                    {b.buildID.slice(0, 8)}… · {b.status}
+                    {b.artifactRef ? ` · ${b.artifactRef}` : ''}
+                  </Typography.Text>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <form
+            onSubmit={(e) => void submit(e)}
+            style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+          >
+            <div>
+              <Typography.Text size="small" type="tertiary">
+                Description
+              </Typography.Text>
+              <TextArea
+                rows={2}
+                value={description}
+                onChange={setDescription}
+              />
+            </div>
+
+            <div>
+              <Typography.Text size="small" type="tertiary">
+                Profile
+              </Typography.Text>
+              <Select
+                value={profile}
+                onChange={(v) => setProfile(String(v))}
+                optionList={profileOptions}
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr 1fr',
+                gap: 12,
+              }}
+            >
+              <div>
+                <Typography.Text size="small" type="tertiary">
+                  CPU
+                </Typography.Text>
+                <InputNumber
+                  min={1}
+                  value={cpuCount}
+                  onChange={(v) => setCpuCount(typeof v === 'number' ? v : 1)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <Typography.Text size="small" type="tertiary">
+                  Memory
+                </Typography.Text>
+                <InputNumber
+                  min={128}
+                  step={128}
+                  value={memoryMB}
+                  onChange={(v) => setMemoryMB(typeof v === 'number' ? v : 512)}
+                  style={{ width: '100%' }}
+                />
+              </div>
+              <div>
+                <Typography.Text size="small" type="tertiary">
+                  Disk
+                </Typography.Text>
+                <InputNumber
+                  min={512}
+                  step={512}
+                  value={diskSizeMB}
+                  onChange={(v) =>
+                    setDiskSizeMB(typeof v === 'number' ? v : 5120)
+                  }
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+
+            <Checkbox
+              checked={isPublic}
+              onChange={(e) => setIsPublic(!!e.target.checked)}
+            >
+              Public template
+            </Checkbox>
+
+            {(error || saveError) && (
+              <div role="alert">
+                <Banner
+                  fullMode={false}
+                  type="danger"
+                  description={error || saveError}
+                  closeIcon={null}
+                />
+              </div>
+            )}
+
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                justifyContent: 'flex-end',
+                gap: 8,
+                marginTop: 4,
+              }}
+            >
+              {!builtin && (
+                <Popconfirm
+                  title={`Delete template “${displayName}”?`}
+                  content="This cannot be undone."
+                  onConfirm={() => void onDelete()}
+                  disabled={busy || saving || deleteBusy}
+                >
+                  <Button
+                    type="danger"
+                    theme="borderless"
+                    style={{ marginRight: 'auto' }}
+                    loading={deleteBusy}
+                    disabled={busy || saving}
+                  >
+                    Delete
+                  </Button>
+                </Popconfirm>
+              )}
+              <Button
+                type="tertiary"
+                disabled={busy || saving || deleteBusy}
+                onClick={onClose}
+              >
+                Close
+              </Button>
+              <Button
+                type="tertiary"
+                disabled={busy || saving || deleteBusy}
+                onClick={() => onBuild(detail)}
+              >
+                {buildActionLabel(detail.buildStatus || 'waiting')}
+              </Button>
+              <Button
+                htmlType="submit"
+                theme="solid"
+                type="primary"
+                loading={saving}
+                disabled={busy || deleteBusy}
+              >
+                Save
+              </Button>
+            </div>
+          </form>
+        </>
+      ) : null}
+    </Modal>
   )
 }

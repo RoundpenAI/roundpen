@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Spin } from '@douyinfe/semi-ui-19'
 import { formatGroupStats } from '../lib/toolStats'
 
 export type ToolCallData = {
@@ -18,7 +19,10 @@ function formatDetail(value: unknown): string {
   if (value == null) return ''
   if (typeof value === 'string') {
     const t = value.trim()
-    if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
+    if (
+      (t.startsWith('{') && t.endsWith('}')) ||
+      (t.startsWith('[') && t.endsWith(']'))
+    ) {
       try {
         return JSON.stringify(JSON.parse(t), null, 2)
       } catch {
@@ -69,13 +73,11 @@ function summaryLine(call: ToolCallData): string {
 function tally(calls: ToolCallData[]) {
   let running = 0
   let failed = 0
-  let done = 0
   for (const c of calls) {
     if (isRunning(c.status)) running += 1
     else if (c.status === 'failed') failed += 1
-    else done += 1
   }
-  return { running, failed, done }
+  return { running, failed }
 }
 
 export function ToolCallCard({ call }: CardProps) {
@@ -95,18 +97,20 @@ export function ToolCallCard({ call }: CardProps) {
         onClick={() => setOpen((v) => !v)}
       >
         {running ? (
-          <span className="loading loading-spinner loading-xs shrink-0 opacity-50" />
+          <Spin size="small" />
         ) : (
           <span
             className={`chat-tool-dot ${failed ? 'fail' : 'ok'}`}
             aria-hidden
           />
         )}
-        <span className="chat-tool-title text-left">{summaryLine(call)}</span>
+        <span className="chat-tool-title">{summaryLine(call)}</span>
       </button>
       {open && (
         <div className="chat-tool-detail">
-          {!hasDetail && <p className="opacity-50">No input/output details.</p>}
+          {!hasDetail && (
+            <p className="chat-tool-empty">No input/output details.</p>
+          )}
           {inputText && (
             <div>
               <div className="chat-tool-detail-label">Input</div>
@@ -151,20 +155,20 @@ export function ToolCallGroup({ calls, alwaysStats = false }: GroupProps) {
           ▸
         </span>
         {running > 0 ? (
-          <span className="loading loading-spinner loading-xs shrink-0 opacity-50" />
+          <Spin size="small" />
         ) : (
           <span
             className={`chat-tool-dot ${failed > 0 ? 'fail' : 'ok'}`}
             aria-hidden
           />
         )}
-        <span className="chat-tool-title text-left">
+        <span className="chat-tool-title">
           {stats.label}
           {stats.plus > 0 ? (
-            <span className="text-success/80"> +{stats.plus}</span>
+            <span className="chat-tool-plus"> +{stats.plus}</span>
           ) : null}
           {stats.minus > 0 ? (
-            <span className="text-error/80"> -{stats.minus}</span>
+            <span className="chat-tool-minus"> -{stats.minus}</span>
           ) : null}
         </span>
       </button>
@@ -175,6 +179,39 @@ export function ToolCallGroup({ calls, alwaysStats = false }: GroupProps) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function formatThoughtSecs(sec: number, streaming?: boolean): string {
+  if (streaming && sec < 0.5) return 'Thought'
+  const n = Math.max(1, Math.round(sec || 1))
+  return `Thought ${n}s`
+}
+
+type ThoughtProps = {
+  text: string
+  streaming?: boolean
+  seconds?: number
+}
+
+export function ThoughtBlock({ text, streaming, seconds }: ThoughtProps) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="chat-thought">
+      <button
+        type="button"
+        className="chat-thought-summary"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={`chat-tool-chevron ${open ? 'open' : ''}`} aria-hidden>
+          ▸
+        </span>
+        {streaming ? <Spin size="small" /> : null}
+        <span>{formatThoughtSecs(seconds ?? 0, streaming)}</span>
+      </button>
+      {open && <div className="chat-thought-body">{text}</div>}
     </div>
   )
 }

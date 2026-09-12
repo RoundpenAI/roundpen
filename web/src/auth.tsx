@@ -55,7 +55,16 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
   if (authState.status === 'loading') {
     return (
-      <div className="flex h-full items-center justify-center text-sm opacity-60">
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 14,
+          opacity: 0.6,
+        }}
+      >
         Loading…
       </div>
     )

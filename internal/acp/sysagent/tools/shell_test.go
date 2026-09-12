@@ -52,13 +52,13 @@ func (s *stubExec) WorkspaceHostPath(_ context.Context, _ string) (string, error
 	return s.ws, nil
 }
 
-func TestSandboxExecUsesAgentSlot(t *testing.T) {
+func TestBashUsesAgentSlot(t *testing.T) {
 	slots := &stubAgentSlots{id: "sb-agent"}
 	ex := &stubExec{ws: t.TempDir()}
 	reg := tools.NewRegistry()
 	tools.RegisterShell(reg, &tools.AgentBinder{Slots: slots, Exec: ex})
 
-	out, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "sandbox_exec", json.RawMessage(`{"command":"git --version"}`))
+	out, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Bash", json.RawMessage(`{"command":"git --version"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,18 +76,18 @@ func TestSandboxExecUsesAgentSlot(t *testing.T) {
 	}
 }
 
-func TestSandboxExecRequiresCommand(t *testing.T) {
+func TestBashRequiresCommand(t *testing.T) {
 	reg := tools.NewRegistry()
 	tools.RegisterShell(reg, &tools.AgentBinder{
 		Slots: &stubAgentSlots{id: "sb"},
 		Exec:  &stubExec{ws: t.TempDir()},
 	})
-	if _, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "sandbox_exec", json.RawMessage(`{}`)); err == nil {
+	if _, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Bash", json.RawMessage(`{}`)); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
-func TestSandboxExecNonZeroExit(t *testing.T) {
+func TestBashNonZeroExit(t *testing.T) {
 	reg := tools.NewRegistry()
 	tools.RegisterShell(reg, &tools.AgentBinder{
 		Slots: &stubAgentSlots{id: "sb"},
@@ -96,7 +96,7 @@ func TestSandboxExecNonZeroExit(t *testing.T) {
 			res: &sandbox.ExecResult{ExitCode: 128, Stderr: []byte("fatal: not a git repo\n")},
 		},
 	})
-	out, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "sandbox_exec", json.RawMessage(`{"command":"git status"}`))
+	out, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Bash", json.RawMessage(`{"command":"git status"}`))
 	if err == nil {
 		t.Fatal("expected exit error")
 	}
@@ -105,15 +105,21 @@ func TestSandboxExecNonZeroExit(t *testing.T) {
 	}
 }
 
-func TestEnsureAgentTool(t *testing.T) {
-	slots := &stubAgentSlots{id: "sb-agent"}
+func TestBashDescriptionHasNoSandbox(t *testing.T) {
 	reg := tools.NewRegistry()
-	tools.RegisterShell(reg, &tools.AgentBinder{Slots: slots, Exec: &stubExec{ws: t.TempDir()}})
-	out, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "roundpen_ensure_agent", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "sb-agent") || !strings.Contains(out, `"slot":"agent"`) {
-		t.Fatalf("out=%s", out)
+	tools.RegisterShell(reg, &tools.AgentBinder{
+		Slots: &stubAgentSlots{id: "sb"},
+		Exec:  &stubExec{ws: t.TempDir()},
+	})
+	for _, tool := range reg.List() {
+		if strings.Contains(strings.ToLower(tool.Name), "sandbox") {
+			t.Fatalf("name %q", tool.Name)
+		}
+		if strings.Contains(strings.ToLower(tool.Description), "sandbox") {
+			t.Fatalf("desc %q", tool.Description)
+		}
+		if tool.Name == "roundpen_ensure_agent" {
+			t.Fatal("ensure tool must not be registered")
+		}
 	}
 }

@@ -1,5 +1,18 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { Navigate, useParams } from 'react-router-dom'
+import {
+  Banner,
+  Button,
+  Collapse,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Spin,
+  Switch,
+  Toast,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import {
   adminSettings,
   templateDisplayName,
@@ -9,9 +22,10 @@ import {
   type Template,
 } from '../api'
 import { useAuth } from '../auth'
+import { useT, type MessageKey } from '../i18n'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
 import { RuntimePanel } from '../components/RuntimePanel'
-import { PageShell } from '../components/PageShell'
+import { resolveSettingsSection } from '../lib/appNav'
 
 const emptySettings: AppSettings = {
   allowPublicRegistration: false,
@@ -42,97 +56,106 @@ const emptySettings: AppSettings = {
   cdpPort: 9222,
 }
 
-const BUILDER_OPTIONS = [
-  { value: 'auto', label: 'Auto (detect from backend / Kaniko config)' },
-  { value: 'docker', label: 'Docker' },
-  { value: 'kaniko', label: 'Kaniko' },
-  { value: '', label: 'Disabled' },
-] as const
+const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
+  { value: '', labelKey: 'settings.builder.disabled' },
+  { value: 'kaniko', labelKey: 'settings.builder.kaniko' },
+  { value: 'docker', labelKey: 'settings.builder.docker' },
+  { value: 'ci', labelKey: 'settings.builder.ci' },
+  { value: 'auto', labelKey: 'settings.builder.auto' },
+]
 
-const CDP_OPTIONS = [
-  {
-    value: 'auto',
-    label: 'Auto (Docker engine → Docker Chrome; else host Chrome if present)',
-  },
-  { value: 'docker', label: 'Docker Chrome (sandbox Dial to guest CDP)' },
-  { value: 'host', label: 'Host Chrome / debugging port on this machine' },
-  { value: 'remote', label: 'Remote CDP (Browserless or self-hosted)' },
-  { value: 'cloud', label: 'Cloud browser (paste session CDP URL)' },
-] as const
+const CDP_OPTIONS: { value: string; labelKey: MessageKey }[] = [
+  { value: 'auto', labelKey: 'settings.cdp.auto' },
+  { value: 'docker', labelKey: 'settings.cdp.docker' },
+  { value: 'host', labelKey: 'settings.cdp.host' },
+  { value: 'remote', labelKey: 'settings.cdp.remote' },
+  { value: 'cloud', labelKey: 'settings.cdp.cloud' },
+]
 
-const SANDBOX_TTL_OPTIONS = [
-  { value: 600, label: '10 minutes' },
-  { value: 900, label: '15 minutes' },
-  { value: 1200, label: '20 minutes' },
-  { value: 1800, label: '30 minutes' },
-  { value: 3600, label: '1 hour' },
-  { value: 7200, label: '2 hours' },
-  { value: 14400, label: '4 hours' },
-] as const
+const SANDBOX_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
+  { value: 600, labelKey: 'settings.ttl.10m' },
+  { value: 900, labelKey: 'settings.ttl.15m' },
+  { value: 1200, labelKey: 'settings.ttl.20m' },
+  { value: 1800, labelKey: 'settings.ttl.30m' },
+  { value: 3600, labelKey: 'settings.ttl.1h' },
+  { value: 7200, labelKey: 'settings.ttl.2h' },
+  { value: 14400, labelKey: 'settings.ttl.4h' },
+]
 
-const PREVIEW_TTL_OPTIONS = [
-  { value: 300, label: '5 minutes' },
-  { value: 600, label: '10 minutes' },
-  { value: 900, label: '15 minutes' },
-  { value: 1800, label: '30 minutes' },
-  { value: 3600, label: '1 hour' },
-] as const
+const PREVIEW_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
+  { value: 300, labelKey: 'settings.ttl.5m' },
+  { value: 600, labelKey: 'settings.ttl.10m' },
+  { value: 900, labelKey: 'settings.ttl.15m' },
+  { value: 1800, labelKey: 'settings.ttl.30m' },
+  { value: 3600, labelKey: 'settings.ttl.1h' },
+]
 
-const LOG_BODY_OPTIONS = [
-  { value: 0, label: 'Off (default)' },
-  { value: -1, label: 'Legacy default (off)' },
-  { value: 4096, label: '4 KiB' },
-  { value: 16384, label: '16 KiB' },
-  { value: 65536, label: '64 KiB' },
-  { value: 262144, label: '256 KiB' },
-] as const
+const LOG_BODY_OPTIONS: { value: number; labelKey: MessageKey }[] = [
+  { value: 0, labelKey: 'settings.logBody.off' },
+  { value: -1, labelKey: 'settings.logBody.legacy' },
+  { value: 4096, labelKey: 'settings.logBody.4k' },
+  { value: 16384, labelKey: 'settings.logBody.16k' },
+  { value: 65536, labelKey: 'settings.logBody.64k' },
+  { value: 262144, labelKey: 'settings.logBody.256k' },
+]
 
-const controlClass =
-  'input input-bordered w-full min-w-0 min-h-11 text-base sm:input-sm sm:min-h-0 sm:text-sm'
-const selectClass =
-  'select select-bordered w-full min-w-0 min-h-11 text-base sm:select-sm sm:min-h-0 sm:text-sm'
-
-function optionsWithCurrentValue<T extends { value: string; label: string }>(
-  options: readonly T[],
-  current: string,
-): T[] {
-  if (options.some((o) => o.value === current)) return [...options]
-  return [...options, { value: current, label: `${current} (current)` } as T]
+const sectionGap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
 }
 
-function formatDurationSeconds(seconds: number): string {
+function optionsWithCurrentValue(
+  options: { value: string; label: string }[],
+  current: string,
+  currentSuffix: (value: string) => string,
+): { value: string; label: string }[] {
+  if (options.some((o) => o.value === current)) return options
+  return [...options, { value: current, label: currentSuffix(current) }]
+}
+
+function formatDurationSeconds(
+  seconds: number,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+): string {
   if (!Number.isFinite(seconds)) return String(seconds)
   if (seconds < 0) return String(seconds)
   if (seconds % 3600 === 0) {
     const h = seconds / 3600
-    return h === 1 ? '1 hour' : `${h} hours`
+    return h === 1 ? t('settings.duration.1h') : t('settings.duration.nh', { n: h })
   }
   if (seconds % 60 === 0) {
     const m = seconds / 60
-    return m === 1 ? '1 minute' : `${m} minutes`
+    return m === 1 ? t('settings.duration.1m') : t('settings.duration.nm', { n: m })
   }
-  return `${seconds}s`
+  return t('settings.duration.s', { n: seconds })
 }
 
 function ttlOptionsWithCurrent(
-  options: readonly { value: number; label: string }[],
+  options: { value: number; label: string }[],
   current: number,
+  currentSuffix: (value: string) => string,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
 ) {
-  if (options.some((o) => o.value === current)) return [...options]
+  if (options.some((o) => o.value === current)) return options
   return [
     ...options,
-    { value: current, label: `${formatDurationSeconds(current)} (current)` },
+    {
+      value: current,
+      label: currentSuffix(formatDurationSeconds(current, t)),
+    },
   ]
 }
 
 function numberOptionsWithCurrent(
-  options: readonly { value: number; label: string }[],
+  options: { value: number; label: string }[],
   current: number,
+  currentSuffix: (value: string) => string,
 ) {
-  if (options.some((o) => o.value === current)) return [...options]
+  if (options.some((o) => o.value === current)) return options
   return [
     ...options,
-    { value: current, label: `${current} (current)` },
+    { value: current, label: currentSuffix(String(current)) },
   ]
 }
 
@@ -151,15 +174,18 @@ function Field({
   children: ReactNode
 }) {
   return (
-    <div className="form-control w-full min-w-0 gap-1.5">
-      <span className="label-text block text-xs leading-snug opacity-60">
-        {label}
-      </span>
+    <Form.Slot label={label}>
       {children}
       {hint ? (
-        <p className="m-0 text-[0.7rem] leading-relaxed opacity-45">{hint}</p>
+        <Typography.Text
+          type="tertiary"
+          size="small"
+          style={{ display: 'block', marginTop: 4 }}
+        >
+          {hint}
+        </Typography.Text>
       ) : null}
-    </div>
+    </Form.Slot>
   )
 }
 
@@ -173,34 +199,37 @@ function Toggle({
   children: ReactNode
 }) {
   return (
-    <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
-      <input
-        type="checkbox"
-        className="checkbox checkbox-sm shrink-0"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span className="leading-snug">{children}</span>
-    </label>
-  )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="space-y-4">
-      <h2 className="text-sm font-medium">{title}</h2>
-      {children}
-    </section>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        minHeight: 44,
+      }}
+    >
+      <Switch checked={checked} onChange={onChange} />
+      <Typography.Text>{children}</Typography.Text>
+    </div>
   )
 }
 
 function SystemRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 sm:contents">
-      <dt className="text-[0.65rem] font-medium uppercase tracking-wide opacity-50 sm:text-xs sm:normal-case sm:tracking-normal sm:opacity-70">
+    <div style={{ minWidth: 0, display: 'contents' }}>
+      <Typography.Text type="tertiary" size="small" component="dt">
         {label}
-      </dt>
-      <dd className="mt-0.5 break-all font-mono text-xs sm:mt-0">{value}</dd>
+      </Typography.Text>
+      <Typography.Text
+        component="dd"
+        style={{
+          margin: 0,
+          fontFamily: 'var(--semi-font-family-code)',
+          fontSize: 12,
+          wordBreak: 'break-all',
+        }}
+      >
+        {value}
+      </Typography.Text>
     </div>
   )
 }
@@ -215,8 +244,15 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [templateList, setTemplateList] = useState<Template[]>([])
+  const { section: sectionParam } = useParams()
+  const t = useT()
+  const currentSuffix = useCallback(
+    (value: string) => t('settings.currentSuffix', { value }),
+    [t],
+  )
 
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
+  const section = resolveSettingsSection(sectionParam, isAdmin)
 
   const load = useCallback(async () => {
     if (!isAdmin) {
@@ -236,11 +272,11 @@ export function SettingsPage() {
       setTemplateList(tpls.filter((t) => t.buildStatus === 'ready'))
       setDirty(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load settings')
+      setError(e instanceof Error ? e.message : t('settings.loadFailed'))
     } finally {
       setLoading(false)
     }
-  }, [isAdmin])
+  }, [isAdmin, t])
 
   const defaultImageOptions = useMemo(() => {
     const fromTemplates = templateList.flatMap((tpl) => {
@@ -258,27 +294,49 @@ export function SettingsPage() {
       seen.add(o.value)
       return true
     })
-    return optionsWithCurrentValue(unique, form.defaultImage)
-  }, [templateList, form.defaultImage])
+    return optionsWithCurrentValue(unique, form.defaultImage, currentSuffix)
+  }, [templateList, form.defaultImage, currentSuffix])
 
   const builderOptions = useMemo(
-    () => optionsWithCurrentValue(BUILDER_OPTIONS, form.templateBuilder),
-    [form.templateBuilder],
+    () =>
+      optionsWithCurrentValue(
+        BUILDER_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+        form.templateBuilder,
+        currentSuffix,
+      ),
+    [form.templateBuilder, t, currentSuffix],
   )
 
   const sandboxTtlOptions = useMemo(
-    () => ttlOptionsWithCurrent(SANDBOX_TTL_OPTIONS, form.defaultTtlSeconds),
-    [form.defaultTtlSeconds],
+    () =>
+      ttlOptionsWithCurrent(
+        SANDBOX_TTL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+        form.defaultTtlSeconds,
+        currentSuffix,
+        t,
+      ),
+    [form.defaultTtlSeconds, t, currentSuffix],
   )
 
   const previewTtlOptions = useMemo(
-    () => ttlOptionsWithCurrent(PREVIEW_TTL_OPTIONS, form.previewTokenTtlSeconds),
-    [form.previewTokenTtlSeconds],
+    () =>
+      ttlOptionsWithCurrent(
+        PREVIEW_TTL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+        form.previewTokenTtlSeconds,
+        currentSuffix,
+        t,
+      ),
+    [form.previewTokenTtlSeconds, t, currentSuffix],
   )
 
   const logBodyOptions = useMemo(
-    () => numberOptionsWithCurrent(LOG_BODY_OPTIONS, form.llmgwLogBodyMaxBytes),
-    [form.llmgwLogBodyMaxBytes],
+    () =>
+      numberOptionsWithCurrent(
+        LOG_BODY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+        form.llmgwLogBodyMaxBytes,
+        currentSuffix,
+      ),
+    [form.llmgwLogBodyMaxBytes, t, currentSuffix],
   )
 
   useEffect(() => {
@@ -287,8 +345,15 @@ export function SettingsPage() {
 
   if (auth.status === 'loading') {
     return (
-      <div className="flex h-full items-center justify-center text-sm opacity-60">
-        Loading…
+      <div
+        style={{
+          display: 'flex',
+          height: '100%',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Spin tip={t('settings.loading')} />
       </div>
     )
   }
@@ -309,520 +374,608 @@ export function SettingsPage() {
       setData(res)
       setForm({ ...emptySettings, ...res.settings })
       setDirty(false)
+      Toast.success(t('settings.saveSuccess'))
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'save failed')
+      setSaveError(e instanceof Error ? e.message : t('settings.saveFailed'))
     } finally {
       setSaving(false)
     }
   }
 
   function onReload() {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return
+    if (dirty) {
+      Modal.confirm({
+        title: t('settings.discardTitle'),
+        onOk: () => {
+          void load()
+        },
+      })
+      return
+    }
     void load()
   }
 
   const sys = data?.system
 
+  if (sectionParam && sectionParam !== section) {
+    return <Navigate to={`/settings/${section}`} replace />
+  }
+
   return (
-    <PageShell
-      subtitle={isAdmin ? 'Account and system settings' : 'Account settings'}
-      current="settings"
-      className="rp-settings !pb-0"
-    >
+    <>
+      <div
+        style={{
+          padding: '16px 12px 96px',
+          maxWidth: 768,
+          margin: '0 auto',
+          width: '100%',
+          boxSizing: 'border-box',
+        }}
+      >
+        {error && (
+          <div role="alert" style={{ marginBottom: 16 }}>
+            <Banner
+              fullMode={false}
+              type="danger"
+              description={error}
+              closeIcon={null}
+            />
+          </div>
+        )}
 
-      {error && (
-        <div className="mb-4 text-sm text-error" role="alert">
-          {error}
-        </div>
-      )}
+        {section === 'runtime' && <RuntimePanel />}
+        {section === 'git' && <GitCredentialsPanel />}
 
-      <div className="flex flex-col gap-8 pb-28 sm:pb-24">
-        <RuntimePanel />
-        <GitCredentialsPanel />
-
-      {isAdmin && loading ? (
-        <p className="text-sm opacity-50">Loading system settings…</p>
-      ) : isAdmin ? (
-        <>
-          <Section title="General">
-            <Toggle
-              checked={form.allowPublicRegistration}
-              onChange={(v) => patch({ allowPublicRegistration: v })}
-            >
-              Allow public registration
-            </Toggle>
-            <Field label="Default template / image">
-              {defaultImageOptions.length > 0 ? (
-                <select
-                  className={selectClass}
-                  value={form.defaultImage}
-                  onChange={(e) => patch({ defaultImage: e.target.value })}
-                >
-                  {defaultImageOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className={controlClass}
-                  value={form.defaultImage}
-                  onChange={(e) => patch({ defaultImage: e.target.value })}
-                />
-              )}
-            </Field>
-            <Field label="Default sandbox TTL">
-              <select
-                className={selectClass}
-                value={form.defaultTtlSeconds}
-                onChange={(e) =>
-                  patch({ defaultTtlSeconds: Number(e.target.value) })
-                }
+        {section === 'general' && (
+          isAdmin && loading ? (
+            <Spin tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+            <div style={{ ...sectionGap, paddingTop: 16 }}>
+              <Toggle
+                checked={form.allowPublicRegistration}
+                onChange={(v) => patch({ allowPublicRegistration: v })}
               >
-                {sandboxTtlOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </Section>
-
-          <Section title="Preview">
-            <Field label="Public preview base URL">
-              <input
-                className={controlClass}
-                inputMode="url"
-                autoComplete="url"
-                placeholder="http://127.0.0.1:19001"
-                value={form.previewPublicUrl}
-                onChange={(e) => patch({ previewPublicUrl: e.target.value })}
-              />
-            </Field>
-            <Field label="Preview token TTL">
-              <select
-                className={selectClass}
-                value={form.previewTokenTtlSeconds}
-                onChange={(e) =>
-                  patch({ previewTokenTtlSeconds: Number(e.target.value) })
-                }
-              >
-                {previewTtlOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </Section>
-
-          <Section title="Template builds">
-            <Field label="Template build engine">
-              <select
-                className={selectClass}
-                value={form.templateBuilder}
-                onChange={(e) => patch({ templateBuilder: e.target.value })}
-              >
-                {builderOptions.map((o) => (
-                  <option key={o.value || '__disabled'} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Kaniko destination prefix">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="registry.example/roundpen"
-                value={form.kanikoDestination}
-                onChange={(e) => patch({ kanikoDestination: e.target.value })}
-              />
-            </Field>
-            <Field label="Kaniko executor binary">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="executor"
-                value={form.kanikoExecutor}
-                onChange={(e) => patch({ kanikoExecutor: e.target.value })}
-              />
-            </Field>
-            <Field label="Kaniko registry mirrors">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="docker.1ms.run mirror.example"
-                value={form.kanikoRegistryMirrors}
-                onChange={(e) =>
-                  patch({ kanikoRegistryMirrors: e.target.value })
-                }
-              />
-            </Field>
-            <Toggle
-              checked={form.kanikoInsecure}
-              onChange={(v) => patch({ kanikoInsecure: v })}
-            >
-              Kaniko insecure registry
-            </Toggle>
-            <Toggle
-              checked={form.kanikoSkipTlsVerify}
-              onChange={(v) => patch({ kanikoSkipTlsVerify: v })}
-            >
-              Kaniko skip TLS verify
-            </Toggle>
-            <Field label="Kaniko extra args">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="--snapshot-mode=redo"
-                value={form.kanikoExtraArgs}
-                onChange={(e) => patch({ kanikoExtraArgs: e.target.value })}
-              />
-            </Field>
-          </Section>
-
-          <Section title="Browser (CDP)">
-            <Field label="CDP provider">
-              <select
-                className={selectClass}
-                value={form.cdpProvider}
-                onChange={(e) => patch({ cdpProvider: e.target.value })}
-              >
-                {optionsWithCurrentValue(CDP_OPTIONS, form.cdpProvider).map(
-                  (o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ),
+                {t('settings.general.allowRegistration')}
+              </Toggle>
+              <Field label={t('settings.general.defaultImage')}>
+                {defaultImageOptions.length > 0 ? (
+                  <Select
+                    value={form.defaultImage}
+                    onChange={(v) => patch({ defaultImage: String(v) })}
+                    optionList={defaultImageOptions}
+                    style={{ width: '100%' }}
+                  />
+                ) : (
+                  <Input
+                    value={form.defaultImage}
+                    onChange={(v) => patch({ defaultImage: v })}
+                  />
                 )}
-              </select>
-            </Field>
-            {(form.cdpProvider === 'remote' ||
-              form.cdpProvider === 'cloud' ||
-              form.cdpProvider === 'host') && (
-              <Field
-                label={
-                  form.cdpProvider === 'host'
-                    ? 'Host CDP URL (optional; empty starts local Chrome)'
-                    : 'CDP endpoint URL'
-                }
-              >
-                <input
-                  className={controlClass}
-                  inputMode="url"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder={
-                    form.cdpProvider === 'host'
-                      ? 'http://127.0.0.1:9222'
-                      : 'wss://browser.example/devtools/browser/…'
+              </Field>
+              <Field label={t('settings.general.defaultTtl')}>
+                <Select
+                  value={form.defaultTtlSeconds}
+                  onChange={(v) =>
+                    patch({ defaultTtlSeconds: Number(v) })
                   }
-                  value={form.cdpEndpoint}
-                  onChange={(e) => patch({ cdpEndpoint: e.target.value })}
+                  optionList={sandboxTtlOptions.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                  }))}
+                  style={{ width: '100%' }}
                 />
               </Field>
-            )}
-            {(form.cdpProvider === 'remote' || form.cdpProvider === 'cloud') && (
-              <Field label="CDP token (optional)">
-                <input
-                  type="password"
-                  className={controlClass}
-                  autoComplete="new-password"
-                  placeholder="Leave masked to keep current"
-                  value={form.cdpToken}
-                  onChange={(e) => patch({ cdpToken: e.target.value })}
-                />
-              </Field>
-            )}
-            {(form.cdpProvider === 'auto' || form.cdpProvider === 'docker') && (
-              <Field label="Guest CDP port">
-                <input
-                  className={controlClass}
-                  inputMode="numeric"
-                  spellCheck={false}
-                  value={form.cdpPort || 9222}
-                  onChange={(e) =>
-                    patch({ cdpPort: Number(e.target.value) || 9222 })
-                  }
-                />
-              </Field>
-            )}
-            <p className="text-xs leading-relaxed opacity-50">
-              Browser tools attach to a DevTools websocket. NAS and compose
-              should use Docker Chrome or a remote/cloud CDP — do not install
-              Chrome on the NAS OS. Host Chrome is for laptop debugging only.
-            </p>
-          </Section>
-
-          <Section title="LLM gateway">
-            <p className="text-xs leading-relaxed opacity-55">
-              Roundpen relays model calls so Agents never hold your real OpenAI /
-              Anthropic keys. Configure upstream credentials below; Agents and
-              Chats only receive a virtual key that calls /llmgw on this control
-              plane.
-            </p>
-
-            <Toggle
-              checked={form.llmgwEnabled}
-              onChange={(v) => patch({ llmgwEnabled: v })}
-            >
-              Enable relay (required for Agent Chats &amp; memory embeddings)
-            </Toggle>
-
-            <div className="space-y-3 pt-1">
-              <h3 className="text-xs font-medium tracking-wide opacity-70">
-                1 · Upstream providers
-              </h3>
-              <p className="text-[0.7rem] leading-relaxed opacity-45">
-                Where Roundpen forwards requests. These API keys stay in the
-                control-plane database — they are never injected into sandboxes.
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  label="OpenAI-compatible base URL"
-                  hint="Official OpenAI, Azure OpenAI, or any OpenAI-compatible proxy."
-                >
-                  <input
-                    className={controlClass}
-                    inputMode="url"
-                    autoComplete="off"
-                    placeholder="https://api.openai.com"
-                    value={form.llmgwOpenaiBaseUrl}
-                    onChange={(e) =>
-                      patch({ llmgwOpenaiBaseUrl: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field
-                  label="OpenAI-compatible API key"
-                  hint="Leave masked to keep the stored secret."
-                >
-                  <input
-                    type="password"
-                    className={controlClass}
-                    autoComplete="new-password"
-                    placeholder="Leave masked to keep current"
-                    value={form.llmgwOpenaiApiKey}
-                    onChange={(e) =>
-                      patch({ llmgwOpenaiApiKey: e.target.value })
-                    }
-                  />
-                </Field>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  label="Anthropic base URL"
-                  hint="Optional. Leave empty if you only use OpenAI-compatible models."
-                >
-                  <input
-                    className={controlClass}
-                    inputMode="url"
-                    autoComplete="off"
-                    placeholder="https://api.anthropic.com"
-                    value={form.llmgwAnthropicBaseUrl}
-                    onChange={(e) =>
-                      patch({ llmgwAnthropicBaseUrl: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field
-                  label="Anthropic API key"
-                  hint="Leave masked to keep the stored secret."
-                >
-                  <input
-                    type="password"
-                    className={controlClass}
-                    autoComplete="new-password"
-                    placeholder="Leave masked to keep current"
-                    value={form.llmgwAnthropicApiKey}
-                    onChange={(e) =>
-                      patch({ llmgwAnthropicApiKey: e.target.value })
-                    }
-                  />
-                </Field>
-              </div>
             </div>
+            </Form>
+          ) : null
+        )}
 
-            <div className="space-y-4 border-t border-base-300 pt-4">
-              <h3 className="text-xs font-medium tracking-wide opacity-70">
-                2 · What Agents use
-              </h3>
-              <p className="text-[0.7rem] leading-relaxed opacity-45">
-                Sandboxes get OPENAI_BASE_URL / ANTHROPIC_BASE_URL pointing at
-                this Roundpen, plus a virtual key as OPENAI_API_KEY.
-              </p>
-              <Field
-                label="Control-plane public URL"
-                hint="URL Agents inside sandboxes can reach (e.g. http://host.docker.internal:9527 or your LAN IP). Not the upstream OpenAI URL."
-              >
-                <input
-                  className={controlClass}
+        {section === 'preview' && (
+          isAdmin && loading ? (
+            <Spin tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+            <div style={{ ...sectionGap, paddingTop: 16 }}>
+              <Field label={t('settings.preview.publicUrl')}>
+                <Input
                   inputMode="url"
                   autoComplete="url"
-                  placeholder="http://127.0.0.1:9527"
-                  value={form.llmgwPublicUrl}
-                  onChange={(e) => patch({ llmgwPublicUrl: e.target.value })}
+                  placeholder="http://127.0.0.1:19001"
+                  value={form.previewPublicUrl}
+                  onChange={(v) => patch({ previewPublicUrl: v })}
                 />
               </Field>
-              <Field
-                label="Default model"
-                hint="Used for both OpenAI and Anthropic relays when the request model is not in the upstream model map (and is not already an upstream target name). Leave empty to pass unknown models through."
-              >
-                <input
-                  className={controlClass}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="e.g. gpt-4o-mini or claude-sonnet-4"
-                  value={form.llmgwDefaultModel}
-                  onChange={(e) => patch({ llmgwDefaultModel: e.target.value })}
-                />
-              </Field>
-              <Field
-                label="Virtual keys"
-                hint="Client credentials for /llmgw. Format: vk-name:label or vk-name (comma-separated). Example: vk-dev:dev,vk-prod:prod. Agents pick a non-internal key automatically."
-              >
-                <input
-                  className={controlClass}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="vk-dev:dev"
-                  value={form.llmgwVirtualKeys}
-                  onChange={(e) => patch({ llmgwVirtualKeys: e.target.value })}
+              <Field label={t('settings.preview.tokenTtl')}>
+                <Select
+                  value={form.previewTokenTtlSeconds}
+                  onChange={(v) =>
+                    patch({ previewTokenTtlSeconds: Number(v) })
+                  }
+                  optionList={previewTtlOptions.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                  }))}
+                  style={{ width: '100%' }}
                 />
               </Field>
             </div>
+            </Form>
+          ) : null
+        )}
 
-            <details className="border-t border-base-300 pt-4">
-              <summary className="cursor-pointer text-xs font-medium opacity-70">
-                Advanced
-              </summary>
-              <div className="mt-3 space-y-4">
+        {section === 'builds' && (
+          isAdmin && loading ? (
+            <Spin tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+            <div style={{ ...sectionGap, paddingTop: 16 }}>
+              <Field label={t('settings.builds.engine')}>
+                <Select
+                  value={form.templateBuilder}
+                  onChange={(v) => patch({ templateBuilder: String(v) })}
+                  optionList={builderOptions.map((o) => ({
+                    value: o.value,
+                    label: o.label,
+                  }))}
+                  style={{ width: '100%' }}
+                />
+              </Field>
+              <Field label={t('settings.builds.kanikoDest')}>
+                <Input
+                  spellCheck={false}
+                  placeholder="registry.example/roundpen"
+                  value={form.kanikoDestination}
+                  onChange={(v) => patch({ kanikoDestination: v })}
+                />
+              </Field>
+              <Field label={t('settings.builds.kanikoExecutor')}>
+                <Input
+                  spellCheck={false}
+                  placeholder="executor"
+                  value={form.kanikoExecutor}
+                  onChange={(v) => patch({ kanikoExecutor: v })}
+                />
+              </Field>
+              <Field label={t('settings.builds.kanikoMirrors')}>
+                <Input
+                  spellCheck={false}
+                  placeholder="docker.1ms.run mirror.example"
+                  value={form.kanikoRegistryMirrors}
+                  onChange={(v) => patch({ kanikoRegistryMirrors: v })}
+                />
+              </Field>
+              <Toggle
+                checked={form.kanikoInsecure}
+                onChange={(v) => patch({ kanikoInsecure: v })}
+              >
+                {t('settings.builds.kanikoInsecure')}
+              </Toggle>
+              <Toggle
+                checked={form.kanikoSkipTlsVerify}
+                onChange={(v) => patch({ kanikoSkipTlsVerify: v })}
+              >
+                {t('settings.builds.kanikoSkipTls')}
+              </Toggle>
+              <Field label={t('settings.builds.kanikoExtra')}>
+                <Input
+                  spellCheck={false}
+                  placeholder="--snapshot-mode=redo"
+                  value={form.kanikoExtraArgs}
+                  onChange={(v) => patch({ kanikoExtraArgs: v })}
+                />
+              </Field>
+            </div>
+            </Form>
+          ) : null
+        )}
+
+        {section === 'browser' && (
+          isAdmin && loading ? (
+            <Spin tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+            <div style={{ ...sectionGap, paddingTop: 16 }}>
+              <Field label={t('settings.browser.cdpProvider')}>
+                <Select
+                  value={form.cdpProvider}
+                  onChange={(v) => patch({ cdpProvider: String(v) })}
+                  optionList={optionsWithCurrentValue(
+                    CDP_OPTIONS.map((o) => ({
+                      value: o.value,
+                      label: t(o.labelKey),
+                    })),
+                    form.cdpProvider,
+                    currentSuffix,
+                  )}
+                  style={{ width: '100%' }}
+                />
+              </Field>
+              {(form.cdpProvider === 'remote' ||
+                form.cdpProvider === 'cloud' ||
+                form.cdpProvider === 'host') && (
                 <Field
-                  label="Embedding model"
-                  hint="Upstream model aliased as roundpen-embed for long-term memory search."
+                  label={
+                    form.cdpProvider === 'host'
+                      ? t('settings.browser.hostCdpUrl')
+                          : t('settings.browser.cdpEndpoint')
+                  }
                 >
-                  <input
-                    className={controlClass}
+                  <Input
+                    inputMode="url"
+                    autoComplete="off"
                     spellCheck={false}
-                    placeholder="text-embedding-3-small"
-                    value={form.llmgwEmbeddingModel}
-                    onChange={(e) =>
-                      patch({ llmgwEmbeddingModel: e.target.value })
+                    placeholder={
+                      form.cdpProvider === 'host'
+                        ? 'http://127.0.0.1:9222'
+                        : 'wss://browser.example/devtools/browser/…'
+                    }
+                    value={form.cdpEndpoint}
+                    onChange={(v) => patch({ cdpEndpoint: v })}
+                  />
+                </Field>
+              )}
+              {(form.cdpProvider === 'remote' ||
+                form.cdpProvider === 'cloud') && (
+                <Field label={t('settings.browser.cdpToken')}>
+                  <Input
+                    mode="password"
+                    autoComplete="new-password"
+                    placeholder={t('settings.browser.keepMasked')}
+                    value={form.cdpToken}
+                    onChange={(v) => patch({ cdpToken: v })}
+                  />
+                </Field>
+              )}
+              {(form.cdpProvider === 'auto' ||
+                form.cdpProvider === 'docker') && (
+                <Field label={t('settings.browser.guestPort')}>
+                  <Input
+                    inputMode="numeric"
+                    spellCheck={false}
+                    value={String(form.cdpPort || 9222)}
+                    onChange={(v) =>
+                      patch({ cdpPort: Number(v) || 9222 })
                     }
                   />
                 </Field>
-                <Field
-                  label="Request body logging"
-                  hint="How much of each relayed request/response to store for audit. Off = metadata only."
-                >
-                  <select
-                    className={selectClass}
-                    value={form.llmgwLogBodyMaxBytes}
-                    onChange={(e) =>
-                      patch({ llmgwLogBodyMaxBytes: Number(e.target.value) })
-                    }
-                  >
-                    {logBodyOptions.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <p className="text-[0.7rem] leading-relaxed opacity-45">
-                  Secrets are stored in PostgreSQL and shown masked. Leave a
-                  masked field unchanged to keep the existing value. Saves apply
-                  immediately — no restart.
-                </p>
-              </div>
-            </details>
-          </Section>
+              )}
+              <Typography.Text type="tertiary" size="small">
+                {t('settings.browser.hint')}
+              </Typography.Text>
+            </div>
+            </Form>
+          ) : null
+        )}
 
-          {sys && (
-            <section className="rounded-lg border border-base-300 p-4 text-sm">
-              <h2 className="mb-3 font-medium">System (read-only)</h2>
-              <dl className="space-y-3 sm:grid sm:grid-cols-[7.5rem_1fr] sm:gap-x-4 sm:gap-y-2 sm:space-y-0">
-                <SystemRow label="Backend" value={sys.backend} />
-                <SystemRow label="HTTP addr" value={sys.httpAddr} />
-                <SystemRow label="Data root" value={sys.dataRoot} />
-                <SystemRow label="Docker host" value={sys.dockerHost} />
-                <SystemRow
-                  label="Active builder"
-                  value={sys.templateBuilderActive || 'disabled'}
-                />
-                <SystemRow
-                  label="LLM gateway"
-                  value={
-                    sys.llmgwActive
-                      ? 'active'
-                      : sys.llmgwMounted
-                        ? 'mounted (disabled)'
-                        : 'not mounted'
-                  }
-                />
-                <SystemRow
-                  label="CDP provider"
-                  value={sys.cdpProviderActive || 'auto'}
-                />
-                <SystemRow
-                  label="Host Chrome"
-                  value={sys.cdpHostChromeFound ? 'found' : 'not on PATH'}
-                />
-              </dl>
-              {sys.templateBuilderHint && (
-                <p className="mt-3 text-xs leading-relaxed opacity-55">
-                  {sys.templateBuilderHint}
-                </p>
+        {section === 'llmgw' && (
+          isAdmin && loading ? (
+            <Spin tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+            <div style={{ ...sectionGap, paddingTop: 16 }}>
+              <Typography.Text type="tertiary" size="small">
+                {t('settings.llmgw.intro')}
+              </Typography.Text>
+
+              <Toggle
+                checked={form.llmgwEnabled}
+                onChange={(v) => patch({ llmgwEnabled: v })}
+              >
+                {t('settings.llmgw.enable')}
+              </Toggle>
+
+              <div style={sectionGap}>
+                <Typography.Text strong size="small">
+                  {t('settings.llmgw.upstreamTitle')}
+                </Typography.Text>
+                <Typography.Text type="tertiary" size="small">
+                  {t('settings.llmgw.upstreamHint')}
+                </Typography.Text>
+                <div
+                  style={{
+                    display: 'grid',
+                    gap: 16,
+                    gridTemplateColumns:
+                      'repeat(auto-fit, minmax(220px, 1fr))',
+                  }}
+                >
+                  <Field
+                    label={t('settings.llmgw.openaiBase')}
+                    hint={t('settings.llmgw.openaiBaseHint')}
+                  >
+                    <Input
+                      inputMode="url"
+                      autoComplete="off"
+                      placeholder="https://api.openai.com"
+                      value={form.llmgwOpenaiBaseUrl}
+                      onChange={(v) => patch({ llmgwOpenaiBaseUrl: v })}
+                    />
+                  </Field>
+                  <Field
+                    label={t('settings.llmgw.openaiKey')}
+                    hint={t('settings.llmgw.keepSecret')}
+                  >
+                    <Input
+                      mode="password"
+                      autoComplete="new-password"
+                      placeholder={t('settings.browser.keepMasked')}
+                      value={form.llmgwOpenaiApiKey}
+                      onChange={(v) => patch({ llmgwOpenaiApiKey: v })}
+                    />
+                  </Field>
+                  <Field
+                    label={t('settings.llmgw.anthropicBase')}
+                    hint={t('settings.llmgw.anthropicBaseHint')}
+                  >
+                    <Input
+                      inputMode="url"
+                      autoComplete="off"
+                      placeholder="https://api.anthropic.com"
+                      value={form.llmgwAnthropicBaseUrl}
+                      onChange={(v) => patch({ llmgwAnthropicBaseUrl: v })}
+                    />
+                  </Field>
+                  <Field
+                    label={t('settings.llmgw.anthropicKey')}
+                    hint={t('settings.llmgw.keepSecret')}
+                  >
+                    <Input
+                      mode="password"
+                      autoComplete="new-password"
+                      placeholder={t('settings.browser.keepMasked')}
+                      value={form.llmgwAnthropicApiKey}
+                      onChange={(v) => patch({ llmgwAnthropicApiKey: v })}
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...sectionGap,
+                  borderTop: '1px solid var(--semi-color-border)',
+                  paddingTop: 16,
+                }}
+              >
+                <Typography.Text strong size="small">
+                  {t('settings.llmgw.agentsTitle')}
+                </Typography.Text>
+                <Typography.Text type="tertiary" size="small">
+                  {t('settings.llmgw.agentsHint')}
+                </Typography.Text>
+                <Field
+                  label={t('settings.llmgw.publicUrl')}
+                  hint={t('settings.llmgw.publicUrlHint')}
+                >
+                  <Input
+                    inputMode="url"
+                    autoComplete="url"
+                    placeholder="http://127.0.0.1:9527"
+                    value={form.llmgwPublicUrl}
+                    onChange={(v) => patch({ llmgwPublicUrl: v })}
+                  />
+                </Field>
+                <Field
+                  label={t('settings.llmgw.defaultModel')}
+                  hint={t('settings.llmgw.defaultModelHint')}
+                >
+                  <Input
+                    spellCheck={false}
+                    autoComplete="off"
+                    placeholder="e.g. gpt-4o-mini or claude-sonnet-4"
+                    value={form.llmgwDefaultModel}
+                    onChange={(v) => patch({ llmgwDefaultModel: v })}
+                  />
+                </Field>
+                <Field
+                  label={t('settings.llmgw.virtualKeys')}
+                  hint={t('settings.llmgw.virtualKeysHint')}
+                >
+                  <Input
+                    spellCheck={false}
+                    autoComplete="off"
+                    placeholder="vk-dev:dev"
+                    value={form.llmgwVirtualKeys}
+                    onChange={(v) => patch({ llmgwVirtualKeys: v })}
+                  />
+                </Field>
+              </div>
+
+              <Collapse>
+                <Collapse.Panel header={t('settings.llmgw.advanced')} itemKey="advanced">
+                  <div style={sectionGap}>
+                    <Field
+                      label={t('settings.llmgw.embedModel')}
+                      hint={t('settings.llmgw.embedModelHint')}
+                    >
+                      <Input
+                        spellCheck={false}
+                        placeholder="text-embedding-3-small"
+                        value={form.llmgwEmbeddingModel}
+                        onChange={(v) =>
+                          patch({ llmgwEmbeddingModel: v })
+                        }
+                      />
+                    </Field>
+                    <Field
+                      label={t('settings.llmgw.logBody')}
+                      hint={t('settings.llmgw.logBodyHint')}
+                    >
+                      <Select
+                        value={form.llmgwLogBodyMaxBytes}
+                        onChange={(v) =>
+                          patch({ llmgwLogBodyMaxBytes: Number(v) })
+                        }
+                        optionList={logBodyOptions.map((o) => ({
+                          value: o.value,
+                          label: o.label,
+                        }))}
+                        style={{ width: '100%' }}
+                      />
+                    </Field>
+                    <Typography.Text type="tertiary" size="small">
+                          {t('settings.llmgw.secretsNote')}
+                        </Typography.Text>
+                  </div>
+                </Collapse.Panel>
+              </Collapse>
+            </div>
+            </Form>
+          ) : null
+        )}
+
+        {section === 'system' && (
+          isAdmin && loading ? (
+            <Spin tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+            <div style={{ paddingTop: 16 }}>
+              {sys ? (
+                <div
+                  style={{
+                    border: '1px solid var(--semi-color-border)',
+                    borderRadius: 8,
+                    padding: 16,
+                  }}
+                >
+                  <Typography.Title heading={5} style={{ margin: '0 0 12px' }}>
+                    {t('settings.system.title')}
+                  </Typography.Title>
+                  <dl
+                    style={{
+                      margin: 0,
+                      display: 'grid',
+                      gridTemplateColumns: '7.5rem 1fr',
+                      columnGap: 16,
+                      rowGap: 8,
+                    }}
+                  >
+                    <SystemRow label={t('settings.system.backend')} value={sys.backend} />
+                    <SystemRow label={t('settings.system.httpAddr')} value={sys.httpAddr} />
+                    <SystemRow label={t('settings.system.dataRoot')} value={sys.dataRoot} />
+                    <SystemRow label={t('settings.system.dockerHost')} value={sys.dockerHost} />
+                    <SystemRow
+                      label={t('settings.system.activeBuilder')}
+                      value={sys.templateBuilderActive || t('settings.system.disabled')}
+                    />
+                    <SystemRow
+                      label={t('settings.system.llmgw')}
+                      value={
+                        sys.llmgwActive
+                          ? t('settings.system.llmgwActive')
+                          : sys.llmgwMounted
+                            ? t('settings.system.llmgwMounted')
+                            : t('settings.system.llmgwOff')
+                      }
+                    />
+                    <SystemRow
+                      label={t('settings.system.cdpProvider')}
+                      value={sys.cdpProviderActive || 'auto'}
+                    />
+                    <SystemRow
+                      label={t('settings.system.hostChrome')}
+                      value={sys.cdpHostChromeFound ? t('settings.system.hostChromeFound') : t('settings.system.hostChromeMissing')}
+                    />
+                  </dl>
+                  {sys.templateBuilderHint && (
+                    <Typography.Text
+                      type="tertiary"
+                      size="small"
+                      style={{ display: 'block', marginTop: 12 }}
+                    >
+                      {sys.templateBuilderHint}
+                    </Typography.Text>
+                  )}
+                  {sys.cdpHint && (
+                    <Typography.Text
+                      type="tertiary"
+                      size="small"
+                      style={{ display: 'block', marginTop: 12 }}
+                    >
+                      {sys.cdpHint}
+                    </Typography.Text>
+                  )}
+                  <Typography.Text
+                        type="tertiary"
+                        size="small"
+                        style={{ display: 'block', marginTop: 12 }}
+                      >
+                        {t('settings.system.footer')}
+                      </Typography.Text>
+                </div>
+              ) : (
+                <Typography.Text type="tertiary" size="small">
+                  {t('settings.system.unavailable')}
+                </Typography.Text>
               )}
-              {sys.cdpHint && (
-                <p className="mt-3 text-xs leading-relaxed opacity-55">
-                  {sys.cdpHint}
-                </p>
-              )}
-              <p className="mt-3 text-xs leading-relaxed opacity-45">
-                Database and listen address require environment variables and a
-                process restart. The default Agent engine (`ROUNDPEN_BACKEND`)
-                is only a fallback — users pick QEMU, Docker, or Kern in Agent
-                runtime above. Template builds and LLM gateway settings apply at
-                runtime.
-              </p>
-            </section>
-          )}
-        </>
-      ) : null}
+            </div>
+            </Form>
+          ) : null
+        )}
       </div>
 
       {isAdmin && !loading && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-base-300 bg-base-100/95 px-4 pt-3 backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center">
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 20,
+            borderTop: '1px solid var(--semi-color-border)',
+            background: 'var(--semi-color-bg-1)',
+            padding:
+              '12px 16px max(12px, env(safe-area-inset-bottom))',
+          }}
+        >
+          <div
+            style={{
+              margin: '0 auto',
+              maxWidth: 768,
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
             {saveError && (
-              <p className="text-sm text-error sm:mr-auto" role="alert">
-                {saveError}
-              </p>
+              <div role="alert" style={{ flex: 1, minWidth: 160 }}>
+                <Banner
+                  fullMode={false}
+                  type="danger"
+                  description={saveError}
+                  closeIcon={null}
+                />
+              </div>
             )}
-            <div className="flex gap-3 sm:ml-auto">
-              <button
-                type="button"
-                className="btn btn-primary min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
-                disabled={saving || !dirty}
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                marginLeft: 'auto',
+              }}
+            >
+              <Button
+                theme="solid"
+                type="primary"
+                loading={saving}
+                disabled={!dirty}
                 onClick={() => void onSave()}
               >
-                {saving ? 'Saving…' : 'Save settings'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
+                {t('settings.save')}
+              </Button>
+              <Button
+                type="tertiary"
                 disabled={loading || saving}
                 onClick={onReload}
               >
-                Reload
-              </button>
+                {t('settings.reload')}
+              </Button>
             </div>
           </div>
         </div>
       )}
-    </PageShell>
+    </>
   )
 }

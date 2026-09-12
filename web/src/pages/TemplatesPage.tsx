@@ -1,32 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Banner,
+  Button,
+  Spin,
+  Table,
+  Tag,
+  Typography,
+} from '@douyinfe/semi-ui-19'
+import type { ColumnProps } from '@douyinfe/semi-ui-19/lib/es/table'
+import {
   templates,
   templateDisplayName,
   type CreateTemplateResult,
   type Template,
 } from '../api'
-import { PageShell } from '../components/PageShell'
-import {
-  TemplateBuildDialog,
-} from '../components/TemplateBuildDialog'
+import { TemplateBuildDialog } from '../components/TemplateBuildDialog'
 import { TemplateDetailDialog } from '../components/TemplateDetailDialog'
 import {
   TemplateCreateDialog,
   type TemplateCreateValues,
 } from '../components/TemplateCreateDialog'
 
-function statusBadge(status: string): string {
+function statusTagColor(
+  status: string,
+): 'green' | 'blue' | 'red' | 'orange' | 'grey' {
   switch (status) {
     case 'ready':
-      return 'badge badge-success badge-sm'
+      return 'green'
     case 'building':
-      return 'badge badge-info badge-sm'
+      return 'blue'
     case 'error':
-      return 'badge badge-error badge-sm'
+      return 'red'
     case 'waiting':
-      return 'badge badge-warning badge-sm'
+      return 'orange'
     default:
-      return 'badge badge-ghost badge-sm'
+      return 'grey'
   }
 }
 
@@ -35,6 +43,13 @@ function formatWhen(iso?: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleString()
+}
+
+function buildActionLabel(tpl: Template): string {
+  if (tpl.buildStatus === 'building') return 'Logs'
+  if (tpl.buildStatus === 'ready') return 'Rebuild'
+  if (canBuild(tpl)) return 'Build'
+  return 'Logs'
 }
 
 export function TemplatesPage() {
@@ -101,162 +116,171 @@ export function TemplatesPage() {
     void load({ silent: true })
   }, [load])
 
-  return (
-    <PageShell
-      subtitle="Environment images"
-      current="templates"
-      maxWidthClass="max-w-4xl"
-    >
+  const columns: ColumnProps<Template>[] = useMemo(
+    () => [
+      {
+        title: 'Name',
+        dataIndex: 'templateID',
+        render: (_: unknown, tpl: Template) => (
+          <div>
+            <Typography.Text strong>{templateDisplayName(tpl)}</Typography.Text>
+            <Typography.Text
+              type="tertiary"
+              size="small"
+              style={{ display: 'block', fontFamily: 'var(--semi-font-family-code)' }}
+            >
+              {tpl.templateID.slice(0, 8)}…
+            </Typography.Text>
+          </div>
+        ),
+      },
+      {
+        title: 'Status',
+        dataIndex: 'buildStatus',
+        width: 110,
+        render: (_: unknown, tpl: Template) => {
+          const status = tpl.buildStatus || 'waiting'
+          return (
+            <Tag color={statusTagColor(status)} size="small">
+              {status}
+            </Tag>
+          )
+        },
+      },
+      {
+        title: 'Resources',
+        dataIndex: 'cpuCount',
+        width: 160,
+        render: (_: unknown, tpl: Template) => (
+          <Typography.Text size="small">
+            {tpl.cpuCount}c · {tpl.memoryMB}MiB · {tpl.diskSizeMB}MiB
+          </Typography.Text>
+        ),
+      },
+      {
+        title: 'Usage',
+        dataIndex: 'spawnCount',
+        width: 140,
+        render: (_: unknown, tpl: Template) => (
+          <Typography.Text type="tertiary" size="small">
+            {tpl.spawnCount ?? 0} spawns
+            {tpl.buildCount != null ? ` · ${tpl.buildCount} builds` : ''}
+          </Typography.Text>
+        ),
+      },
+      {
+        title: 'Updated',
+        dataIndex: 'updatedAt',
+        width: 160,
+        render: (_: unknown, tpl: Template) => (
+          <Typography.Text type="tertiary" size="small">
+            {formatWhen(tpl.updatedAt)}
+          </Typography.Text>
+        ),
+      },
+      {
+        title: '',
+        dataIndex: 'actions',
+        width: 160,
+        align: 'right',
+        render: (_: unknown, tpl: Template) => (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+            <Button
+              type="tertiary"
+              size="small"
+              onClick={() => setViewingId(tpl.templateID)}
+            >
+              View
+            </Button>
+            <Button
+              type="tertiary"
+              size="small"
+              onClick={() => setBuilding(tpl)}
+            >
+              {buildActionLabel(tpl)}
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [],
+  )
 
-      <div className="mb-6 flex gap-2 border-b border-base-300 pb-6">
-        <button
-          type="button"
-          className="btn btn-primary min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
+  return (
+    <div
+      className="chat-pane-scroll"
+      style={{
+        padding: 16,
+        height: '100%',
+        boxSizing: 'border-box',
+        overflow: 'auto',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginBottom: 24,
+          paddingBottom: 24,
+          borderBottom: '1px solid var(--semi-color-border)',
+        }}
+      >
+        <Button
+          theme="solid"
+          type="primary"
           onClick={() => {
             setCreateError(null)
             setCreateOpen(true)
           }}
         >
           New image
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
-          onClick={() => void load()}
-        >
+        </Button>
+        <Button type="tertiary" onClick={() => void load()}>
           Refresh
-        </button>
+        </Button>
       </div>
 
-      <p className="mb-4 text-sm opacity-55">
+      <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 16 }}>
         Customize Agent (OCI) and Browser (qcow2) slot images. Built-ins are seeded
         on startup.
-      </p>
+      </Typography.Text>
 
       {error && (
-        <div className="mb-4 text-sm text-error" role="alert">
-          {error}
+        <div role="alert" style={{ marginBottom: 16 }}>
+          <Banner fullMode={false} type="danger" description={error} closeIcon={null} />
         </div>
       )}
 
-      <p className="mb-4 text-xs leading-relaxed opacity-50">
+      <Typography.Text
+        type="tertiary"
+        size="small"
+        style={{ display: 'block', marginBottom: 16, lineHeight: 1.6 }}
+      >
         Rebuild reuses the build ID when the spec is unchanged; changing base image / RUN /
         start / ready allocates a new build. Optional tags resolve as{' '}
-        <code className="font-mono">name:tag</code>.
-      </p>
+        <Typography.Text
+          size="small"
+          style={{ fontFamily: 'var(--semi-font-family-code)' }}
+        >
+          name:tag
+        </Typography.Text>
+        .
+      </Typography.Text>
 
       {loading ? (
-        <p className="text-sm opacity-50">Loading…</p>
+        <div style={{ padding: '24px 0', textAlign: 'center' }}>
+          <Spin />
+        </div>
       ) : list.length === 0 ? (
-        <p className="text-sm opacity-50">No templates registered.</p>
+        <Typography.Text type="tertiary">No templates registered.</Typography.Text>
       ) : (
-        <>
-          <ul className="divide-y divide-base-300 md:hidden">
-            {list.map((tpl) => (
-              <li key={tpl.templateID} className="py-3">
-                <div className="min-w-0">
-                  <div className="font-medium">{templateDisplayName(tpl)}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs opacity-70">
-                    <span className={statusBadge(tpl.buildStatus || 'waiting')}>
-                      {tpl.buildStatus || 'waiting'}
-                    </span>
-                    <span>
-                      {tpl.cpuCount}c · {tpl.memoryMB}MiB
-                    </span>
-                    <span>{tpl.spawnCount ?? 0} spawns</span>
-                  </div>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-ghost min-h-11 flex-1"
-                    onClick={() => setViewingId(tpl.templateID)}
-                  >
-                    View
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-ghost min-h-11 flex-1"
-                    onClick={() => setBuilding(tpl)}
-                  >
-                    {tpl.buildStatus === 'building'
-                      ? 'Logs'
-                      : tpl.buildStatus === 'ready'
-                        ? 'Rebuild'
-                        : canBuild(tpl)
-                          ? 'Build'
-                          : 'Logs'}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="table table-sm">
-              <thead>
-                <tr className="text-xs opacity-55">
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Resources</th>
-                  <th>Usage</th>
-                  <th>Updated</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((tpl) => (
-                  <tr key={tpl.templateID}>
-                    <td>
-                      <div className="font-medium">{templateDisplayName(tpl)}</div>
-                      <div className="mt-0.5 font-mono text-xs opacity-45">
-                        {tpl.templateID.slice(0, 8)}…
-                      </div>
-                    </td>
-                    <td>
-                      <span className={statusBadge(tpl.buildStatus || 'waiting')}>
-                        {tpl.buildStatus || 'waiting'}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap text-xs">
-                      {tpl.cpuCount}c · {tpl.memoryMB}MiB · {tpl.diskSizeMB}MiB
-                    </td>
-                    <td className="whitespace-nowrap text-xs opacity-70">
-                      {tpl.spawnCount ?? 0} spawns
-                      {tpl.buildCount != null ? ` · ${tpl.buildCount} builds` : ''}
-                    </td>
-                    <td className="whitespace-nowrap text-xs opacity-70">
-                      {formatWhen(tpl.updatedAt)}
-                    </td>
-                    <td className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-xs"
-                          onClick={() => setViewingId(tpl.templateID)}
-                        >
-                          View
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-xs"
-                          onClick={() => setBuilding(tpl)}
-                        >
-                          {tpl.buildStatus === 'building'
-                            ? 'Logs'
-                            : tpl.buildStatus === 'ready'
-                              ? 'Rebuild'
-                              : canBuild(tpl)
-                                ? 'Build'
-                                : 'Logs'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <Table
+          columns={columns}
+          dataSource={list}
+          rowKey="templateID"
+          pagination={false}
+          size="small"
+        />
       )}
 
       <TemplateCreateDialog
@@ -296,7 +320,7 @@ export function TemplatesPage() {
         onClose={() => setBuilding(null)}
         onDone={handleBuildDone}
       />
-    </PageShell>
+    </div>
   )
 }
 

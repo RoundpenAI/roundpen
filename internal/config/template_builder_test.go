@@ -23,13 +23,28 @@ func TestResolveTemplateBuilder(t *testing.T) {
 			want: "kaniko",
 		},
 		{
+			name: "explicit ci",
+			cfg:  config.Config{TemplateBuilder: "ci"},
+			want: "ci",
+		},
+		{
+			name: "disabled",
+			cfg:  config.Config{TemplateBuilder: "disabled", KanikoDestination: "reg/t"},
+			want: "",
+		},
+		{
+			name: "empty ignores destination",
+			cfg:  config.Config{Backend: "qemu", KanikoDestination: "reg/t"},
+			want: "",
+		},
+		{
 			name: "auto docker backend",
-			cfg:  config.Config{Backend: "docker"},
+			cfg:  config.Config{TemplateBuilder: "auto", Backend: "docker"},
 			want: "docker",
 		},
 		{
 			name: "auto qemu with kaniko destination",
-			cfg:  config.Config{Backend: "qemu", KanikoDestination: "reg/t"},
+			cfg:  config.Config{TemplateBuilder: "auto", Backend: "qemu", KanikoDestination: "reg/t"},
 			want: "kaniko",
 		},
 		{

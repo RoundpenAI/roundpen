@@ -24,14 +24,18 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	"github.com/RoundpenAI/roundpen/internal/api/platform"
+	"github.com/RoundpenAI/roundpen/internal/assistant"
+	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
+	"github.com/RoundpenAI/roundpen/internal/hostsetup"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
+	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -230,6 +234,13 @@ func main() {
 	(&gitcred.Handler{Store: gitStore}).Mount(mux)
 	(&runtime.Handler{Probe: probe, Prefs: prefStore}).Mount(mux)
 
+	setupSvc := &hostsetup.Service{
+		Probe:  probe,
+		Runner: hostsetup.NewRunner(hostsetup.RunnerConfig{RepoRoot: hostsetup.FindRepoRoot()}),
+		Cfg:    cfg,
+	}
+	(&hostsetup.Handler{Svc: setupSvc, Cfg: cfg}).Mount(mux)
+
 	memStore := memory.NewPgStore(db)
 	memSvc := &memory.Service{Store: memStore, Logger: logger}
 	go memory.RunPurge(ctx, memStore, logger, time.Hour)
@@ -288,6 +299,19 @@ func main() {
 		// Concatenating it onto http://127.0.0.1 produced http://127.0.0.10.0.0.0:19001.
 		publicURL = sysagent.LoopbackBase(cfg.HTTPAddr)
 	}
+
+	setupSvc.PlanLLM = func(ctx context.Context, w hostsetup.WizardContext, f hostsetup.HostFacts) (hostsetup.Plan, error) {
+		if !cfg.LLMGW.Enabled || cfg.LLMGW.OpenAI == nil {
+			return hostsetup.Plan{}, fmt.Errorf("openai upstream not configured")
+		}
+		p := &hostsetup.LLMPlanner{
+			BaseURL: publicURL,
+			APIKey:  llmgw.InternalVirtualKey,
+			Model:   cfg.LLMGW.DefaultModel,
+		}
+		return p.Plan(ctx, w, f)
+	}
+
 	envSvc.SetGateway(publicURL, llmgw.InternalVirtualKey)
 	envSvc.Config.DefaultModel = gw.DefaultModel
 	agentStore := &agentsession.Store{DB: db.SQL}
@@ -309,7 +333,7 @@ func main() {
 			Category:   "Agent",
 		},
 	}
-	(&agentapi.Handler{
+	agentHandler := &agentapi.Handler{
 		Log:         logger,
 		Store:       agentStore,
 		ACP:         acpMgr,
@@ -319,7 +343,20 @@ func main() {
 		Hub:         browserHub,
 		Envs:        envSvc,
 		Tasks:       &browsetask.Store{DB: db.SQL},
+		Tickets:     nil, // set below after ticketStore
 		DestroySbx:  true,
+	}
+	ticketStore := &assistticket.Store{DB: db.SQL}
+	agentHandler.Tickets = ticketStore
+	agentHandler.Mount(mux)
+	assistantStore := &assistant.Store{DB: db.SQL}
+	denialStore := &policy.DenialStore{DB: db.SQL}
+	(&assistant.Handler{
+		Store:    assistantStore,
+		Sessions: agentStore,
+		Starter:  agentHandler,
+		Tickets:  ticketStore,
+		Denials:  denialStore,
 	}).Mount(mux)
 
 	// Console SPA last — catch-all for non-API GET paths (embedded via internal/ui).

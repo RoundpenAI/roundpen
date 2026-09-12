@@ -1,15 +1,30 @@
-import { useState, type ReactNode } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Button, Layout, Nav, Typography } from '@douyinfe/semi-ui-19'
 import { doLogout, useAuth } from '../auth'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
+import { ThemeToggle } from './ThemeToggle'
 
-export type AppSection = 'chats' | 'browser' | 'templates' | 'settings' | 'sandboxes'
+export type AppSection =
+  | 'assistants'
+  | 'browser'
+  | 'templates'
+  | 'settings'
+  | 'sandboxes'
 
-export const NAV: { id: AppSection; to: string; label: string; admin?: boolean }[] = [
-  { id: 'chats', to: '/chats', label: 'Chats' },
-  { id: 'browser', to: '/browser', label: 'Browser' },
-  { id: 'templates', to: '/registry', label: 'Images' },
-  { id: 'settings', to: '/settings', label: 'Settings' },
+/** Top nav for advanced pages outside AppShell (/browser, sandboxes).
+ *  Primary product nav (助手 / 设置 / 镜像) lives in AppShell. */
+export const NAV: {
+  id: AppSection
+  to: string
+  label: string
+  admin?: boolean
+  advanced?: boolean
+}[] = [
+  { id: 'assistants', to: '/a', label: '助手' },
+  { id: 'settings', to: '/settings', label: '设置' },
+  { id: 'browser', to: '/browser', label: '浏览器', advanced: true },
+  { id: 'templates', to: '/registry', label: '镜像', admin: true },
 ]
 
 type Props = {
@@ -18,6 +33,15 @@ type Props = {
   children: ReactNode
   maxWidthClass?: string
   className?: string
+  style?: CSSProperties
+}
+
+const MAX_WIDTH: Record<string, number | undefined> = {
+  'max-w-3xl': 768,
+  'max-w-4xl': 896,
+  'max-w-5xl': 1024,
+  'max-w-6xl': 1152,
+  'max-w-full': undefined,
 }
 
 export function PageShell({
@@ -26,76 +50,105 @@ export function PageShell({
   children,
   maxWidthClass = 'max-w-3xl',
   className = '',
+  style,
 }: Props) {
   const authState = useAuth()
   const navigate = useNavigate()
   const user = authState.status === 'ok' ? authState.user : null
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const maxWidth = MAX_WIDTH[maxWidthClass] ?? 768
+
+  const navItems = NAV.filter((item) => {
+    if (item.advanced) return false
+    if (item.admin && user?.role !== 'admin') return false
+    return true
+  })
 
   return (
-    <div
-      className={`mx-auto flex min-h-full ${maxWidthClass} flex-col px-4 pt-6 pb-[max(2rem,env(safe-area-inset-bottom))] sm:py-8 ${className}`}
+    <Layout
+      className={className}
+      style={{
+        minHeight: '100%',
+        maxWidth: maxWidth ?? '100%',
+        margin: '0 auto',
+        padding: '24px 16px max(2rem, env(safe-area-inset-bottom))',
+        background: 'var(--semi-color-bg-0)',
+        ...style,
+      }}
     >
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-display text-2xl font-semibold tracking-tight">
+      <Layout.Header
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '0 0 16px',
+          background: 'transparent',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <Typography.Title heading={3} style={{ margin: 0 }}>
             Roundpen
-          </p>
-          <p className="mt-1 text-sm opacity-55">{subtitle}</p>
+          </Typography.Title>
+          <Typography.Text type="tertiary">{subtitle}</Typography.Text>
         </div>
-        <div className="flex min-w-0 items-center gap-2 text-sm">
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexWrap: 'wrap',
+          }}
+        >
           {user && (
-            <span className="max-w-[40vw] truncate opacity-60 sm:max-w-[12rem]">
-              {user.username}
-            </span>
-          )}
-          {user && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm min-h-11 shrink-0 sm:min-h-0"
-              onClick={() => setChangePasswordOpen(true)}
+            <Typography.Text
+              type="tertiary"
+              ellipsis={{ showTooltip: true }}
+              style={{ maxWidth: 160 }}
             >
-              Change password
-            </button>
+              {user.username}
+            </Typography.Text>
           )}
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm min-h-11 shrink-0 sm:min-h-0"
+          <ThemeToggle />
+          {user && (
+            <Button type="tertiary" onClick={() => setChangePasswordOpen(true)}>
+              Change password
+            </Button>
+          )}
+          <Button
+            type="tertiary"
             onClick={() => void doLogout().then(() => navigate('/login'))}
           >
             Sign out
-          </button>
+          </Button>
         </div>
-      </header>
+      </Layout.Header>
 
-      <nav className="mb-6 flex flex-wrap gap-x-4 gap-y-2 border-b border-base-300 pb-4 text-sm">
-        {NAV.map((item) => {
-          if (item.admin && user?.role !== 'admin') return null
-          if (item.id === current) {
-            return (
-              <span key={item.id} className="font-medium">
-                {item.label}
-              </span>
-            )
-          }
-          return (
-            <Link
-              key={item.id}
-              to={item.to}
-              className="link link-hover min-h-11 inline-flex items-center opacity-55 sm:min-h-0"
-            >
-              {item.label}
-            </Link>
-          )
-        })}
-      </nav>
+      <Nav
+        mode="horizontal"
+        selectedKeys={[current]}
+        items={navItems.map((item) => ({
+          itemKey: item.id,
+          text: item.label,
+        }))}
+        onSelect={(data) => {
+          const item = navItems.find((n) => n.id === data.itemKey)
+          if (item) navigate(item.to)
+        }}
+        style={{
+          background: 'transparent',
+          borderBottom: '1px solid var(--semi-color-border)',
+          marginBottom: 24,
+        }}
+      />
 
-      {children}
+      <Layout.Content>{children}</Layout.Content>
 
       <ChangePasswordDialog
         open={changePasswordOpen}
         onClose={() => setChangePasswordOpen(false)}
       />
-    </div>
+    </Layout>
   )
 }

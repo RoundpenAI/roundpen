@@ -1,12 +1,12 @@
 # ACP Gateway & Agent Web UI
 
-会话优先的多 Agent 控制面：浏览器经 WebSocket 对话，控制面作为 ACP Client。**System Agent** 在控制面进程内运行（无沙箱）；coding / stdio Agent 仍在沙箱内拉起。
+助手优先的控制面：浏览器经 WebSocket 与助手对话，控制面作为 ACP Client。**System Agent** 在控制面进程内运行（无沙箱）；coding / stdio Agent 仍在沙箱内拉起。每个助手（`/v1/assistants`）绑定一条主会话（`agent_sessions.assistant_id`）。
 
-相关：[environment-services.md](./environment-services.md)、[project-layout.md](./project-layout.md)。
+相关：[environment-services.md](./environment-services.md)、[project-layout.md](./project-layout.md)、[assistant-first UI](../superpowers/specs/2026-09-12-assistant-first-ui-design.md)。
 
 ## 目标
 
-- 顶层 `/chats` 管理多 Agent / 多会话。
+- 顶层 `/a` 管理助手；对话挂在助手下。
 - 控制面 = ACP Client + 网关；禁止宿主机裸跑用户 coding Agent。
 - System Agent：以当前用户权限调用 Roundpen API + Browser；经 llmgw 做真实 LLM tool-calling。
 
@@ -14,18 +14,20 @@
 
 | 概念 | 含义 |
 |------|------|
-| Provider | Agent 入口：`sysadmin`（进程内）、`claude`（QEMU `claude-agent-acp`）、或 `stdio`（自定义 AttachExec） |
-| Agent Session | 用户对话会话；stdio 绑定 1 sandbox，sysadmin 可不绑沙箱 |
+| Assistant | 用户可见主体：简介、身份、能力、网络与目录授权 |
+| Provider | Agent 入口：`sysadmin`（进程内）、`claude`（QEMU `claude-agent-acp`）、或 `stdio`（自定义 AttachExec）；助手 ensure-session **当前默认 `sysadmin`**（暂不依赖沙箱） |
+| Agent Session | 助手下的对话会话；stdio 绑定 1 sandbox，sysadmin 可不绑沙箱 |
 | Provisioner | `internal/agentenv`：仅 NeedsSandbox 的 provider 创建沙箱并注入环境 |
 | AttachExec | 非 TTY 长驻 stdio 附着（coding ACP） |
 
 ## 架构
 
 ```
-Browser (/chats)
+Browser (/a)
     │  WS + REST
 Control plane
-    ├── agentsession (PG)
+    ├── assistants (PG)
+    ├── agentsession (PG, assistant_id)
     ├── agentenv.Provisioner → sandbox.Create(+env)   [stdio only]
     └── acp.Manager
             ├── sysadmin → sysagent (in-process pipes)
@@ -34,20 +36,24 @@ Control plane
             └── stdio → AttachExec in sandbox
 ```
 
-## System Agent 工具（第一批）
+## System Agent 工具
+
+Agent 可见工具对齐 Claude Code 命名；沙箱 / ensure 是实现细节（首次相关工具调用时隐式 ensure）。
 
 | Tool | 说明 |
 |------|------|
-| `roundpen_list_sandboxes` / `get` / `create` / `delete` | 沙箱 CRUD（写操作首次询问；可选本会话记住） |
-| `roundpen_list_templates` | 模板列表 |
-| `roundpen_list_agent_sessions` | 当前用户会话 |
-| `roundpen_get_settings` | 管理设置（admin） |
-| `roundpen_ensure_agent` / `sandbox_exec` | Cloud Agent 槽位：ensure + 在 `/workspace` 里跑 shell（git clone / 构建） |
-| `browser_navigate` / `snapshot` / `click` / `type` / `press` / `screenshot` / `set_viewport` / `evaluate` | 进程内 Browser Hub（对齐 MCP） |
+| `Read` / `Write` / `Edit` | 工作区文件读写与精确替换（根 `/workspace`） |
+| `Glob` / `Grep` | 按路径模式找文件 / 内容搜索（guest `rg`/`find`） |
+| `Bash` | 在 Agent workspace 跑 shell（替换旧 `sandbox_exec`） |
+| `ListEnvironments` | agent/browser 槽位状态（返回值剥离 `sandboxId`） |
+| `ListTemplates` | 模板列表 |
+| `ListSessions` | 当前用户会话 |
+| `GetSettings` | 管理设置（admin） |
+| `browser_navigate` / `snapshot` / `click` / `type` / `press` / `screenshot` / `set_viewport` / `evaluate` | Browser Hub（对齐 MCP；首次调用隐式 ensure） |
 
-`sandbox_exec` 绑定 **Agent 槽位**（QEMU 模板 `agent-claude`）。`list_environments` 里 agent `status=absent` 只表示还没启动，应调用 `roundpen_ensure_agent` / `sandbox_exec`。
+`ListEnvironments` 里 agent `status=absent` 只表示还没启动——直接调用 `Bash` 或文件工具即可。
 
-Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 PostgreSQL → `EnsureAgent` 经 SSH 写入 guest `/workspace/.roundpen/git`（不写宿主机目录）。**禁止**把宿主机 `~/.ssh` 拷进镜像或沙箱。见 [git-credentials.md](../git-credentials.md)。
+Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 PostgreSQL → `EnsureAgent` 经 SSH 写入 guest `/workspace/.roundpen/git`（不写宿主机目录）。**禁止**把宿主机 `~/.ssh` 拷进镜像或沙箱。见 [git-credentials.md](../git-credentials.md)。`Bash` 内的 `git` 会自动使用已注入凭据。
 
 LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-roundpen-internal`；model 回落 settings Default Model。
 

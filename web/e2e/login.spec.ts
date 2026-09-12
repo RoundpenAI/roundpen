@@ -14,10 +14,10 @@ test('login failure surfaces API error field', async ({ page }) => {
   await expect(page.getByRole('alert')).toHaveText('invalid user or password')
 })
 
-test('successful login reaches chats', async ({ page }) => {
+test('successful login reaches assistants', async ({ page }) => {
   skipIfNoLivePassword()
   await page.goto('/login')
   await page.getByLabel('Password').fill(ADMIN.password)
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('heading', { name: 'What are we working on?' })).toBeVisible()
+  await expect(page.getByText('新建助手').first()).toBeVisible({ timeout: 30_000 })
 })

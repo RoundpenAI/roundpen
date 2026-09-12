@@ -96,16 +96,26 @@ if ! need_cmd bwrap; then
 fi
 
 if [[ "$CHECK_ONLY" -eq 0 ]]; then
-	# Always run install: migrates ~/.local/bin/executor into a dedicated KanikoDir.
-	./scripts/install-kaniko.sh
+	# Optional: template image builds only. Failure must not block make dev.
+	if ! ./scripts/install-kaniko.sh; then
+		echo "note: Kaniko download/install failed; continuing without local template builds."
+		echo "      Configure Template builds in Settings (local Kaniko / Docker / remote CI) when needed."
+		echo "      Or retry: ./scripts/install-kaniko.sh"
+	fi
 fi
 
 if ! need_cmd executor; then
-	if [[ "$CHECK_ONLY" -eq 1 ]]; then
-		echo "note: Kaniko executor not on PATH; run ./scripts/install-kaniko.sh for template builds."
-	else
-		note_missing "Kaniko executor is not installed (needed for template builds on kern)" \
-			"Run: ./scripts/install-kaniko.sh"
+	echo "note: Kaniko executor not on PATH — local Kaniko builds unavailable until installed."
+	echo "      make dev does not require it; set Template build engine in Settings when ready."
+	# Avoid roundpend soft-warn spam when .env still says kaniko from older defaults.
+	if [[ "${ROUNDPEN_TEMPLATE_BUILDER:-}" == "kaniko" ]] || grep -qE '^ROUNDPEN_TEMPLATE_BUILDER=kaniko$' .env 2>/dev/null; then
+		echo "note: clearing ROUNDPEN_TEMPLATE_BUILDER=kaniko for this session (executor missing)."
+		export ROUNDPEN_TEMPLATE_BUILDER=""
+		if [[ -f .env ]]; then
+			grep -v '^ROUNDPEN_TEMPLATE_BUILDER=' .env > .env.devtmp
+			echo "ROUNDPEN_TEMPLATE_BUILDER=" >> .env.devtmp
+			mv .env.devtmp .env
+		fi
 	fi
 fi
 
@@ -144,7 +154,8 @@ ensure_env_key ROUNDPEN_DEFAULT_AGENT_TEMPLATE "agent-claude"
 ensure_env_key ROUNDPEN_DATA_ROOT "./data"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
-ensure_env_key ROUNDPEN_TEMPLATE_BUILDER "kaniko"
+ensure_env_key ROUNDPEN_TEMPLATE_BUILDER ""
+# Destination is still useful when the user later enables Kaniko in Settings.
 ensure_env_key ROUNDPEN_KANIKO_DESTINATION "$GITEA_KANIKO_DEST"
 ensure_env_key ROUNDPEN_KANIKO_INSECURE "false"
 ensure_env_key ROUNDPEN_KANIKO_SKIP_TLS_VERIFY "false"
@@ -333,12 +344,16 @@ ensure_test_db() {
 }
 
 ensure_kaniko_db_settings() {
+	# Only seed registry destination / TLS flags for when the user later enables
+	# Kaniko in Settings. Never force templateBuilder=kaniko — that blocked make
+	# dev when the executor binary was missing.
 	local dest="${ROUNDPEN_KANIKO_DESTINATION:-$GITEA_KANIKO_DEST}"
-	local builder="${ROUNDPEN_TEMPLATE_BUILDER:-kaniko}"
+	local builder="${ROUNDPEN_TEMPLATE_BUILDER:-}"
 	local insecure="${ROUNDPEN_KANIKO_INSECURE:-false}"
 	local skip_tls="${ROUNDPEN_KANIKO_SKIP_TLS_VERIFY:-false}"
-	echo "pg0: ensuring dev kaniko settings in app_settings..."
-	pg_exec "" -v ON_ERROR_STOP=1 -c "
+	echo "pg0: ensuring template-build registry defaults in app_settings..."
+	if [[ -n "$builder" ]]; then
+		pg_exec "" -v ON_ERROR_STOP=1 -c "
 UPDATE app_settings
 SET payload = payload
   || jsonb_build_object(
@@ -348,13 +363,27 @@ SET payload = payload
        'kanikoSkipTlsVerify', ${skip_tls}
      ),
     updated_at = now()
-WHERE id = 'global'
-  AND (
-    COALESCE(payload->>'kanikoDestination', '') = ''
-    OR payload->>'kanikoDestination' = '127.0.0.1:5000/roundpen'
-    OR COALESCE(payload->>'templateBuilder', '') IN ('', 'auto', 'docker')
-  );
+WHERE id = 'global';
 " >/dev/null 2>&1 || true
+	else
+		# Keep destination handy, but clear a stale kaniko engine left by older make dev.
+		pg_exec "" -v ON_ERROR_STOP=1 -c "
+UPDATE app_settings
+SET payload = payload
+  || jsonb_build_object(
+       'kanikoDestination', '${dest}',
+       'kanikoInsecure', ${insecure},
+       'kanikoSkipTlsVerify', ${skip_tls}
+     )
+  || CASE
+       WHEN COALESCE(payload->>'templateBuilder', '') = 'kaniko'
+         THEN jsonb_build_object('templateBuilder', '')
+       ELSE '{}'::jsonb
+     END,
+    updated_at = now()
+WHERE id = 'global';
+" >/dev/null 2>&1 || true
+	fi
 }
 
 case "$dsn_host" in

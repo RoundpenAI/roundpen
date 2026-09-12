@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import {
+  Banner,
+  Button,
+  Input,
+  TextArea,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import {
   ApiError,
   browserTasks,
@@ -9,6 +16,23 @@ import {
 } from '../api'
 import { PageShell } from '../components/PageShell'
 import { RuntimePanel } from '../components/RuntimePanel'
+
+const sectionGap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
+}
+
+const cardStyle: CSSProperties = {
+  border: '1px solid var(--semi-color-border)',
+  borderRadius: 8,
+  padding: 16,
+}
+
+const fieldLabel: CSSProperties = {
+  display: 'block',
+  marginBottom: 4,
+}
 
 export function BrowserPage() {
   const navigate = useNavigate()
@@ -98,7 +122,7 @@ export function BrowserPage() {
       } catch {
         /* ignore */
       }
-      navigate(`/chats/${created.sessionId}`, {
+      navigate(`/a`, {
         state: { pendingPrompt: created.prompt },
       })
     } catch (e) {
@@ -110,50 +134,87 @@ export function BrowserPage() {
   return (
     <PageShell subtitle="Browser environment" current="browser" maxWidthClass="max-w-3xl">
       {error && (
-        <div className="alert alert-error mb-4 text-sm">
-          <span>{error}</span>
+        <div role="alert" style={{ marginBottom: 16 }}>
+          <Banner
+            fullMode={false}
+            type="danger"
+            description={error}
+            closeIcon={null}
+          />
         </div>
       )}
 
-      <section className="space-y-4">
+      <section style={sectionGap}>
         <div>
-          <h1 className="font-display text-xl font-semibold">Browser</h1>
-          <p className="mt-1 text-sm opacity-55">
+          <Typography.Title heading={3} style={{ margin: 0 }}>
+            Browser
+          </Typography.Title>
+          <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginTop: 4 }}>
             One fixed desktop per user: XFCE + Chrome in QEMU. Agents control Chrome
             over CDP; you can take over the display via VNC.
-          </p>
+          </Typography.Text>
         </div>
 
-        <div className="rounded-lg border border-base-300 p-4">
+        <div style={cardStyle}>
           {loading ? (
-            <p className="text-sm opacity-55">Loading…</p>
+            <Typography.Text type="tertiary" size="small">
+              Loading…
+            </Typography.Text>
           ) : (
             <>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-                <dt className="opacity-55">Status</dt>
-                <dd className="font-medium">{browser?.status || 'absent'}</dd>
-                <dt className="opacity-55">Sandbox</dt>
-                <dd className="font-mono text-xs">{browser?.sandboxId || '—'}</dd>
-                <dt className="opacity-55">Template</dt>
-                <dd>{browser?.templateId || 'browser-desktop'}</dd>
+              <dl
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'auto 1fr',
+                  columnGap: 16,
+                  rowGap: 8,
+                  margin: 0,
+                }}
+              >
+                <Typography.Text type="tertiary" component="dt">
+                  Status
+                </Typography.Text>
+                <Typography.Text strong component="dd" style={{ margin: 0 }}>
+                  {browser?.status || 'absent'}
+                </Typography.Text>
+                <Typography.Text type="tertiary" component="dt">
+                  Sandbox
+                </Typography.Text>
+                <Typography.Text
+                  component="dd"
+                  style={{
+                    margin: 0,
+                    fontFamily: 'var(--semi-font-family-code)',
+                    fontSize: 12,
+                  }}
+                >
+                  {browser?.sandboxId || '—'}
+                </Typography.Text>
+                <Typography.Text type="tertiary" component="dt">
+                  Template
+                </Typography.Text>
+                <Typography.Text component="dd" style={{ margin: 0 }}>
+                  {browser?.templateId || 'browser-desktop'}
+                </Typography.Text>
               </dl>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="btn btn-primary btn-sm"
-                  disabled={busy}
+              <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <Button
+                  theme="solid"
+                  type="primary"
+                  size="small"
+                  loading={busy}
                   onClick={() => void ensure()}
                 >
-                  {busy ? 'Working…' : 'Start / resume'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
+                  Start / resume
+                </Button>
+                <Button
+                  type="tertiary"
+                  size="small"
                   disabled={busy}
                   onClick={() => void openDesktop()}
                 >
                   Open desktop
-                </button>
+                </Button>
               </div>
             </>
           )}
@@ -161,54 +222,62 @@ export function BrowserPage() {
 
         <RuntimePanel engineId="qemu" showPicker={false} />
 
-        <div className="rounded-lg border border-base-300 p-4">
-          <h2 className="font-display text-lg font-semibold">Explore & verify</h2>
-          <p className="mt-1 text-sm opacity-55">
+        <div style={cardStyle}>
+          <Typography.Title heading={4} style={{ margin: 0 }}>
+            Explore & verify
+          </Typography.Title>
+          <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginTop: 4 }}>
             Hand the agent a site. It first walks interactive controls (including
             hover-revealed actions), then probes whatever looks off. Results stay
             in a chat session.
-          </p>
+          </Typography.Text>
 
-          <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Task kind">
-            <button
-              type="button"
-              className={`btn btn-sm ${kind === 'explore' ? 'btn-primary' : 'btn-ghost'}`}
+          <div
+            style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}
+            role="group"
+            aria-label="Task kind"
+          >
+            <Button
+              size="small"
+              theme={kind === 'explore' ? 'solid' : 'borderless'}
+              type={kind === 'explore' ? 'primary' : 'tertiary'}
               disabled={busy}
               onClick={() => setKind('explore')}
             >
               Explore
-            </button>
-            <button
-              type="button"
-              className={`btn btn-sm ${kind === 'verify' ? 'btn-primary' : 'btn-ghost'}`}
+            </Button>
+            <Button
+              size="small"
+              theme={kind === 'verify' ? 'solid' : 'borderless'}
+              type={kind === 'verify' ? 'primary' : 'tertiary'}
               disabled={busy}
               onClick={() => setKind('verify')}
             >
               Verify
-            </button>
+            </Button>
           </div>
 
-          <label className="mt-4 block text-sm">
-            <span className="opacity-60">Start URL</span>
-            <input
-              className="input input-bordered mt-1 w-full text-sm"
+          <div style={{ marginTop: 16 }}>
+            <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+              Start URL
+            </Typography.Text>
+            <Input
               type="url"
               value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              onChange={setUrl}
               placeholder="https://…"
               disabled={busy}
             />
-          </label>
+          </div>
 
-          <label className="mt-3 block text-sm">
-            <span className="opacity-60">
+          <div style={{ marginTop: 12 }}>
+            <Typography.Text size="small" type="tertiary" style={fieldLabel}>
               {kind === 'verify' ? 'What should be true' : 'Notes (optional)'}
-            </span>
-            <textarea
-              className="textarea textarea-bordered mt-1 w-full text-sm"
+            </Typography.Text>
+            <TextArea
               rows={3}
               value={brief}
-              onChange={(e) => setBrief(e.target.value)}
+              onChange={setBrief}
               placeholder={
                 kind === 'verify'
                   ? 'e.g. hovering a chat and clicking × removes it from the list'
@@ -216,34 +285,69 @@ export function BrowserPage() {
               }
               disabled={busy}
             />
-          </label>
+          </div>
 
-          <button
-            type="button"
-            className="btn btn-primary btn-sm mt-4"
-            disabled={busy || !url.trim()}
+          <Button
+            theme="solid"
+            type="primary"
+            size="small"
+            style={{ marginTop: 16 }}
+            loading={busy}
+            disabled={!url.trim()}
             onClick={() => void startTask()}
           >
-            {busy ? 'Starting…' : kind === 'verify' ? 'Start verify' : 'Start explore'}
-          </button>
+            {kind === 'verify' ? 'Start verify' : 'Start explore'}
+          </Button>
 
           {tasks.length > 0 && (
-            <ul className="mt-5 space-y-2 text-sm" aria-label="Recent tasks">
-              {tasks.map((t) => (
+            <ul
+              style={{
+                marginTop: 20,
+                marginBottom: 0,
+                padding: 0,
+                listStyle: 'none',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+              aria-label="Recent tasks"
+            >
+              {tasks.map((t: BrowserTask) => (
                 <li
                   key={t.id}
-                  className="flex items-center gap-2 rounded-md border border-base-300 px-3 py-2"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    border: '1px solid var(--semi-color-border)',
+                    borderRadius: 6,
+                    padding: '8px 12px',
+                  }}
                 >
-                  <span className="shrink-0 capitalize opacity-60">{t.kind}</span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs">
+                  <Typography.Text type="tertiary" size="small" style={{ flexShrink: 0, textTransform: 'capitalize' }}>
+                    {t.kind}
+                  </Typography.Text>
+                  <Typography.Text
+                    ellipsis={{ showTooltip: true }}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontFamily: 'var(--semi-font-family-code)',
+                      fontSize: 12,
+                    }}
+                  >
                     {t.url}
-                  </span>
+                  </Typography.Text>
                   {t.sessionId ? (
-                    <Link to={`/chats/${t.sessionId}`} className="link link-hover shrink-0">
-                      Open chat
+                    <Link to={`/a`} style={{ flexShrink: 0 }}>
+                      <Typography.Text link size="small">
+                        Open chat
+                      </Typography.Text>
                     </Link>
                   ) : (
-                    <span className="shrink-0 opacity-40">{t.status}</span>
+                    <Typography.Text type="tertiary" size="small" style={{ flexShrink: 0 }}>
+                      {t.status}
+                    </Typography.Text>
                   )}
                 </li>
               ))}
@@ -251,12 +355,14 @@ export function BrowserPage() {
           )}
         </div>
 
-        <p className="text-xs opacity-45">
+        <Typography.Text type="tertiary" size="small">
           Build the guest disk with{' '}
-          <code className="font-mono">images/browser-qemu/build.sh</code> before
-          first start. Desktop uses QEMU VNC over a Unix socket proxied as
+          <code style={{ fontFamily: 'var(--semi-font-family-code)' }}>
+            images/browser-qemu/build.sh
+          </code>{' '}
+          before first start. Desktop uses QEMU VNC over a Unix socket proxied as
           WebSocket (no guest noVNC).
-        </p>
+        </Typography.Text>
       </section>
     </PageShell>
   )

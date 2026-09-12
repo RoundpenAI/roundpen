@@ -66,9 +66,9 @@ func TestCanonArgsStableKeyOrder(t *testing.T) {
 func TestLoopWatch_agentAbsentAfterListNudges(t *testing.T) {
 	var w loopWatch
 	list := []toolCallRec{{
-		name:   "roundpen_list_environments",
+		name:   "ListEnvironments",
 		args:   `{}`,
-		result: `{"environments":[{"slot":"agent","status":"absent"},{"slot":"browser","status":"running"}],"note":"call roundpen_ensure_agent"}`,
+		result: `{"environments":[{"slot":"agent","status":"absent"},{"slot":"browser","status":"running"}],"note":"call Bash or file tools"}`,
 	}}
 	nudge, stop := w.observe(list)
 	if !nudge || stop {
@@ -99,7 +99,7 @@ func TestLoopWatch_cdpInfraStopsOnSecondBrowserTool(t *testing.T) {
 		t.Fatalf("nudge=%q", w.nudgeText())
 	}
 	// Diagnosing with a non-browser tool must not reset the infra strike.
-	if nudge, stop = w.observe([]toolCallRec{{name: "roundpen_list_environments", args: `{}`, result: `{}`}}); nudge || stop {
+	if nudge, stop = w.observe([]toolCallRec{{name: "ListEnvironments", args: `{}`, result: `{}`}}); nudge || stop {
 		t.Fatalf("list envs: nudge=%v stop=%v", nudge, stop)
 	}
 	if nudge, stop = w.observe(fail2); nudge || !stop {

@@ -35,11 +35,10 @@ func WrapBrowserEnsure(err error) error {
 	}
 	return &InfraError{
 		Kind: "cdp_unavailable",
-		Msg: "browser CDP is down: guest Chrome DevTools on :9222 is not reachable. " +
-			"This is the Browser sandbox, not a page problem. " +
-			"Do not retry browser_* until the environment is up. " +
-			"Use roundpen_ensure_browser, wait for the VM, then try again. " +
-			"(" + shortInfra(msg) + ")",
+		Msg: "Browser Chrome DevTools is not reachable. " +
+			"This is an environment problem, not a page problem. " +
+			"Do not keep retrying page tools; wait briefly and try browser_* once more, " +
+			"or report that the Browser is not ready. (" + shortInfra(msg) + ")",
 	}
 }
 
@@ -74,7 +73,8 @@ func shortInfra(msg string) string {
 func InfraKind(result string) string {
 	s := strings.ToLower(result)
 	if strings.Contains(s, "cdp_unavailable") ||
-		(strings.Contains(s, "browser cdp is down")) ||
+		strings.Contains(s, "browser cdp is down") ||
+		strings.Contains(s, "devtools is not reachable") ||
 		(strings.Contains(s, "cdp") && (strings.Contains(s, "nothing listening") ||
 			strings.Contains(s, "cdp attach") ||
 			strings.Contains(s, "connection reset") ||

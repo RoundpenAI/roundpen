@@ -1,4 +1,14 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
+import {
+  Banner,
+  Button,
+  Checkbox,
+  Input,
+  InputNumber,
+  Modal,
+  Select,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 
 export type TemplateCreateValues = {
   name: string
@@ -31,7 +41,6 @@ export function TemplateCreateDialog({
   onClose,
   onCreate,
 }: Props) {
-  const titleId = useId()
   const [name, setName] = useState(defaults.name)
   const [cpuCount, setCpuCount] = useState(defaults.cpuCount)
   const [memoryMB, setMemoryMB] = useState(defaults.memoryMB)
@@ -47,8 +56,6 @@ export function TemplateCreateDialog({
     setSlot(defaults.slot)
   }, [open])
 
-  if (!open) return null
-
   async function submit(e: FormEvent) {
     e.preventDefault()
     const trimmed = name.trim()
@@ -63,103 +70,122 @@ export function TemplateCreateDialog({
   }
 
   return (
-    <dialog className="modal modal-bottom sm:modal-middle modal-open" aria-labelledby={titleId}>
-      <div className="modal-box max-w-md">
-        <h3 id={titleId} className="font-display text-lg font-semibold">
-          New image
-        </h3>
-        <p className="mt-1 text-sm opacity-55">
-          Creates an environment image template and pending build. Agent slots
-          build OCI images; Browser slots target qcow2 disks.
-        </p>
+    <Modal
+      title="New image"
+      visible={open}
+      onCancel={() => {
+        if (!busy) onClose()
+      }}
+      footer={null}
+      maskClosable={!busy}
+      closeOnEsc={!busy}
+      width={448}
+    >
+      <Typography.Text type="tertiary" style={{ display: 'block', marginBottom: 16 }}>
+        Creates an environment image template and pending build. Agent slots
+        build OCI images; Browser slots target qcow2 disks.
+      </Typography.Text>
 
-        <form onSubmit={(e) => void submit(e)} className="mt-5 flex flex-col gap-4">
-          <label className="form-control w-full gap-1.5">
-            <span className="text-xs font-medium opacity-60">Slot</span>
-            <select
-              className="select select-bordered select-sm w-full"
-              value={slot}
-              onChange={(e) => setSlot(e.target.value as TemplateCreateValues['slot'])}
-            >
-              <option value="agent">Agent (OCI)</option>
-              <option value="browser">Browser (qcow2)</option>
-            </select>
-          </label>
+      <form
+        onSubmit={(e) => void submit(e)}
+        style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+      >
+        <div>
+          <Typography.Text size="small" type="tertiary">
+            Slot
+          </Typography.Text>
+          <Select
+            value={slot}
+            onChange={(v) => setSlot(v as TemplateCreateValues['slot'])}
+            optionList={[
+              { value: 'agent', label: 'Agent (OCI)' },
+              { value: 'browser', label: 'Browser (qcow2)' },
+            ]}
+            style={{ width: '100%' }}
+          />
+        </div>
 
-          <label className="form-control w-full gap-1.5">
-            <span className="text-xs font-medium opacity-60">Name</span>
-            <input
-              className="input input-bordered input-sm w-full"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="my-agent-image"
-              pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*"
-              maxLength={64}
-              autoFocus
-              required
+        <div>
+          <Typography.Text size="small" type="tertiary">
+            Name
+          </Typography.Text>
+          <Input
+            value={name}
+            onChange={setName}
+            placeholder="my-agent-image"
+            maxLength={64}
+            autoFocus
+            required
+            pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*"
+          />
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 12,
+          }}
+        >
+          <div>
+            <Typography.Text size="small" type="tertiary">
+              CPU
+            </Typography.Text>
+            <InputNumber
+              min={1}
+              value={cpuCount}
+              onChange={(v) => setCpuCount(typeof v === 'number' ? v : 1)}
+              style={{ width: '100%' }}
             />
-          </label>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="form-control w-full gap-1.5">
-              <span className="text-xs font-medium opacity-60">CPU</span>
-              <input
-                type="number"
-                min={1}
-                className="input input-bordered input-sm w-full"
-                value={cpuCount}
-                onChange={(e) => setCpuCount(Number(e.target.value) || 1)}
-              />
-            </label>
-            <label className="form-control w-full gap-1.5">
-              <span className="text-xs font-medium opacity-60">Memory (MiB)</span>
-              <input
-                type="number"
-                min={128}
-                step={128}
-                className="input input-bordered input-sm w-full"
-                value={memoryMB}
-                onChange={(e) => setMemoryMB(Number(e.target.value) || 512)}
-              />
-            </label>
           </div>
-
-          <label className="flex cursor-pointer items-center gap-2.5">
-            <input
-              type="checkbox"
-              className="checkbox checkbox-sm"
-              checked={isPublic}
-              onChange={(e) => setIsPublic(e.target.checked)}
+          <div>
+            <Typography.Text size="small" type="tertiary">
+              Memory (MiB)
+            </Typography.Text>
+            <InputNumber
+              min={128}
+              step={128}
+              value={memoryMB}
+              onChange={(v) => setMemoryMB(typeof v === 'number' ? v : 512)}
+              style={{ width: '100%' }}
             />
-            <span className="text-sm">Public template</span>
-          </label>
-
-          {error && (
-            <p className="text-sm text-error" role="alert">
-              {error}
-            </p>
-          )}
-
-          <div className="modal-action mt-1">
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              disabled={busy}
-              onClick={onClose}
-            >
-              Cancel
-            </button>
-            <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>
-              {busy ? 'Creating…' : 'Create'}
-            </button>
           </div>
-        </form>
-      </div>
-      <form method="dialog" className="modal-backdrop">
-        <button type="button" disabled={busy} onClick={onClose}>
-          close
-        </button>
+        </div>
+
+        <Checkbox
+          checked={isPublic}
+          onChange={(e) => setIsPublic(!!e.target.checked)}
+        >
+          Public template
+        </Checkbox>
+
+        {error && (
+          <div role="alert">
+            <Banner
+              fullMode={false}
+              type="danger"
+              description={error}
+              closeIcon={null}
+            />
+          </div>
+        )}
+
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            marginTop: 4,
+          }}
+        >
+          <Button type="tertiary" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button htmlType="submit" theme="solid" type="primary" loading={busy}>
+            Create
+          </Button>
+        </div>
       </form>
-    </dialog>
+    </Modal>
   )
 }

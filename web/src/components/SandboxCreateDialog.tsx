@@ -1,4 +1,14 @@
-import { useEffect, useId, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
+import {
+  Banner,
+  Button,
+  Checkbox,
+  Input,
+  InputNumber,
+  Modal,
+  Select,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import { SUGGESTED_CATEGORIES, templates as templatesApi, type Template } from '../api'
 
 export type SandboxCreateValues = {
@@ -34,8 +44,6 @@ export function SandboxCreateDialog({
   onClose,
   onCreate,
 }: Props) {
-  const titleId = useId()
-  const listId = useId()
   const [name, setName] = useState(defaults.name)
   const [category, setCategory] = useState(defaults.category)
   const [isDefault, setIsDefault] = useState(defaults.isDefault)
@@ -65,10 +73,7 @@ export function SandboxCreateDialog({
       .finally(() => setTemplatesLoading(false))
   }, [open])
 
-  if (!open) return null
-
-  async function submit(e: FormEvent) {
-    e.preventDefault()
+  async function submit() {
     const cat = category.trim()
     await onCreate({
       name: name.trim(),
@@ -79,141 +84,146 @@ export function SandboxCreateDialog({
     })
   }
 
+  const categorySelectOptions = categoryOptions.map((c) => ({
+    label: c,
+    value: c,
+  }))
+
+  const templateSelectOptions = templateOptions.flatMap((tpl) =>
+    tpl.names.map((n) => {
+      const value = n.includes('/') ? n.split('/').pop() ?? n : n
+      return {
+        label: `${n} (${tpl.cpuCount}c / ${tpl.memoryMB}MiB)`,
+        value,
+        key: `${tpl.templateID}-${n}`,
+      }
+    }),
+  )
+
   return (
-    <dialog className="modal modal-bottom sm:modal-middle modal-open" aria-labelledby={titleId}>
-      <div className="modal-box max-w-md">
-        <h3 id={titleId} className="font-display text-lg font-semibold">
-          New sandbox
-        </h3>
-        <p className="mt-1 text-sm opacity-55">
-          Name and category help agents find this sandbox later.
-        </p>
+    <Modal
+      title="New sandbox"
+      visible={open}
+      onCancel={() => {
+        if (!busy) onClose()
+      }}
+      footer={null}
+      maskClosable={!busy}
+      closeOnEsc={!busy}
+      width={448}
+    >
+      <Typography.Text type="tertiary" style={{ display: 'block', marginBottom: 16 }}>
+        Name and category help agents find this sandbox later.
+      </Typography.Text>
 
-        <form onSubmit={(e) => void submit(e)} className="mt-5 flex flex-col gap-5">
-          <label className="form-control w-full gap-1.5">
-            <span className="text-xs font-medium opacity-60">Name</span>
-            <input
-              className="input input-bordered input-sm w-full"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="optional — auto if empty"
-              maxLength={64}
-              autoFocus
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          void submit()
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+      >
+        <div>
+          <Typography.Text size="small" type="tertiary" style={{ display: 'block', marginBottom: 4 }}>
+            Name
+          </Typography.Text>
+          <Input
+            value={name}
+            onChange={setName}
+            placeholder="optional — auto if empty"
+            maxLength={64}
+            autoFocus
+          />
+        </div>
+
+        <div>
+          <Typography.Text size="small" type="tertiary" style={{ display: 'block', marginBottom: 4 }}>
+            Category
+          </Typography.Text>
+          <Select
+            filter
+            allowCreate
+            showClear
+            style={{ width: '100%' }}
+            value={category || undefined}
+            onChange={(v) => setCategory(typeof v === 'string' ? v : '')}
+            optionList={categorySelectOptions}
+            placeholder="e.g. Browser"
+          />
+        </div>
+
+        <Checkbox
+          checked={isDefault}
+          disabled={!category.trim()}
+          onChange={(e) => setIsDefault(Boolean(e.target.checked))}
+          extra="Agents resolve by category (e.g. Browser → this sandbox)."
+        >
+          Default for this category
+        </Checkbox>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 12,
+          }}
+        >
+          <div>
+            <Typography.Text size="small" type="tertiary" style={{ display: 'block', marginBottom: 4 }}>
+              Template
+            </Typography.Text>
+            {templateOptions.length > 0 ? (
+              <Select
+                style={{ width: '100%' }}
+                value={templateID}
+                onChange={(v) => setTemplateID(String(v))}
+                disabled={templatesLoading}
+                optionList={templateSelectOptions}
+              />
+            ) : (
+              <Input
+                value={templateID}
+                onChange={setTemplateID}
+                placeholder="host"
+                disabled={templatesLoading}
+              />
+            )}
+          </div>
+          <div>
+            <Typography.Text size="small" type="tertiary" style={{ display: 'block', marginBottom: 4 }}>
+              TTL (sec)
+            </Typography.Text>
+            <InputNumber
+              style={{ width: '100%' }}
+              min={60}
+              value={timeoutSec}
+              onChange={(v) => setTimeoutSec(typeof v === 'number' ? v : 3600)}
             />
-          </label>
-
-          <div className="flex flex-col gap-3">
-            <label className="form-control w-full gap-1.5">
-              <span className="text-xs font-medium opacity-60">Category</span>
-              <input
-                className="input input-bordered input-sm w-full"
-                list={listId}
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Browser"
-                maxLength={32}
-              />
-              <datalist id={listId}>
-                {categoryOptions.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </label>
-
-            <div className="rounded-lg border border-base-300/80 bg-base-200/40 px-3 py-2.5">
-              <label className="flex cursor-pointer items-start gap-2.5">
-                <input
-                  type="checkbox"
-                  className="checkbox checkbox-sm mt-0.5 shrink-0"
-                  checked={isDefault}
-                  disabled={!category.trim()}
-                  onChange={(e) => setIsDefault(e.target.checked)}
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm leading-snug">
-                    Default for this category
-                  </span>
-                  <span className="mt-1 block text-xs leading-relaxed opacity-50">
-                    Agents resolve by category (e.g. Browser → this sandbox).
-                  </span>
-                </span>
-              </label>
-            </div>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="form-control w-full gap-1.5">
-              <span className="text-xs font-medium opacity-60">Template</span>
-              {templateOptions.length > 0 ? (
-                <select
-                  className="select select-bordered select-sm w-full"
-                  value={templateID}
-                  onChange={(e) => setTemplateID(e.target.value)}
-                  disabled={templatesLoading}
-                >
-                  {templateOptions.flatMap((tpl) =>
-                    tpl.names.map((name) => {
-                      const value = name.includes('/') ? name.split('/').pop() ?? name : name
-                      return (
-                        <option key={`${tpl.templateID}-${name}`} value={value}>
-                          {name} ({tpl.cpuCount}c / {tpl.memoryMB}MiB)
-                        </option>
-                      )
-                    }),
-                  )}
-                </select>
-              ) : (
-                <input
-                  className="input input-bordered input-sm w-full"
-                  value={templateID}
-                  onChange={(e) => setTemplateID(e.target.value)}
-                  placeholder="host"
-                  disabled={templatesLoading}
-                />
-              )}
-            </label>
-            <label className="form-control w-full gap-1.5">
-              <span className="text-xs font-medium opacity-60">TTL (sec)</span>
-              <input
-                type="number"
-                min={60}
-                className="input input-bordered input-sm w-full"
-                value={timeoutSec}
-                onChange={(e) => setTimeoutSec(Number(e.target.value) || 3600)}
-              />
-            </label>
+        {error && (
+          <div role="alert">
+            <Banner fullMode={false} type="danger" description={error} closeIcon={null} />
           </div>
+        )}
 
-          {error && (
-            <p className="text-sm text-error" role="alert">
-              {error}
-            </p>
-          )}
-
-          <div className="modal-action mt-1">
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              disabled={busy}
-              onClick={onClose}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn btn-primary btn-sm"
-              disabled={busy}
-            >
-              {busy ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
-      <form method="dialog" className="modal-backdrop">
-        <button type="button" disabled={busy} onClick={onClose}>
-          close
-        </button>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            marginTop: 8,
+          }}
+        >
+          <Button type="tertiary" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button htmlType="submit" theme="solid" type="primary" loading={busy}>
+            Create
+          </Button>
+        </div>
       </form>
-    </dialog>
+    </Modal>
   )
 }
