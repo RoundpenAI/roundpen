@@ -14,7 +14,7 @@ export function skipIfNoLivePassword() {
 export async function loginViaUi(page: Page) {
   await page.goto('/login')
   await page.getByLabel('Username or email').fill(ADMIN.user)
-  await page.getByLabel('Password').fill(ADMIN.password)
+  await page.getByLabel('Password', { exact: true }).fill(ADMIN.password)
   await page.getByRole('button', { name: 'Sign in' }).click()
 }
 

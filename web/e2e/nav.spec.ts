@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { loginViaApi, skipIfNoLivePassword } from './helpers'
 
 test('images registry lists templates', async ({ page }) => {
