@@ -26,7 +26,7 @@ func TestLLMReadyUnauthorized(t *testing.T) {
 func TestCreatePlanEmptyActions(t *testing.T) {
 	svc := &Service{
 		Facts: func() HostFacts {
-			return HostFacts{BinariesOK: true, AgentImageOK: true, BrowserImageOK: true}
+			return HostFacts{DockerReady: true, BinariesOK: true, BrowserImageOK: true}
 		},
 	}
 	mux := http.NewServeMux()

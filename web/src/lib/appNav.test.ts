@@ -21,10 +21,10 @@ describe('visiblePrimaryMenus', () => {
 })
 
 describe('visibleSettingsSections', () => {
-  it('non-admin only runtime + git', () => {
+  it('non-admin only git', () => {
     assert.deepEqual(
       visibleSettingsSections(false).map((s) => s.key),
-      ['runtime', 'git'],
+      ['git'],
     )
   })
 
@@ -37,9 +37,9 @@ describe('visibleSettingsSections', () => {
 })
 
 describe('resolveSettingsSection', () => {
-  it('defaults to runtime', () => {
-    assert.equal(resolveSettingsSection(undefined, false), 'runtime')
-    assert.equal(resolveSettingsSection('', true), 'runtime')
+  it('defaults to git', () => {
+    assert.equal(resolveSettingsSection(undefined, false), 'git')
+    assert.equal(resolveSettingsSection('', true), 'git')
   })
 
   it('accepts known visible section', () => {
@@ -48,8 +48,8 @@ describe('resolveSettingsSection', () => {
   })
 
   it('rejects unknown or unauthorized section', () => {
-    assert.equal(resolveSettingsSection('nope', true), 'runtime')
-    assert.equal(resolveSettingsSection('general', false), 'runtime')
+    assert.equal(resolveSettingsSection('nope', true), 'git')
+    assert.equal(resolveSettingsSection('general', false), 'git')
   })
 })
 

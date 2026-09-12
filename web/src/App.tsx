@@ -41,7 +41,7 @@ export default function App() {
             <Route path=":assistantId/s/:id" element={<ChatSessionPage />} />
           </Route>
           <Route path="/settings" element={<SettingsLayout />}>
-            <Route index element={<Navigate to="runtime" replace />} />
+            <Route index element={<Navigate to="git" replace />} />
             <Route path=":section" element={<SettingsPage />} />
           </Route>
           <Route path="/workspace" element={<WorkspacePage />} />

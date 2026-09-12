@@ -24,7 +24,6 @@ export const en = {
   'workspace.deleteConfirm': 'Delete {name}?',
 
   'settings.title': 'Settings',
-  'settings.section.runtime': 'Agent runtime',
   'settings.section.git': 'Git personal tokens',
   'settings.section.general': 'General',
   'settings.section.preview': 'Preview',
@@ -156,26 +155,8 @@ export const en = {
   'settings.system.hostChromeMissing': 'not on PATH',
   'settings.system.unavailable': 'System info unavailable.',
   'settings.system.footer':
-    'Database and listen address require environment variables and a process restart. The default Agent engine (`ROUNDPEN_BACKEND`) is only a fallback — users pick QEMU, Docker, or Kern in Agent runtime above. Template builds and LLM gateway settings apply at runtime.',
+    'Database and listen address require environment variables and a process restart. Agent always runs on Docker; Browser/Desktop/Mobile run on QEMU. The Agent image is pulled from the registry (or loaded offline) on first start. Template builds and LLM gateway settings apply at runtime.',
   'settings.system.disabled': 'disabled',
-
-  'runtime.title': 'Agent runtime',
-  'runtime.titleQemu': 'Browser / QEMU',
-  'runtime.desc':
-    'Pick how Cloud Agent runs on this machine. Browser desktops always use QEMU. If the host is missing binaries or images, follow the setup steps — no process restart is required after they are installed.',
-  'runtime.descQemu':
-    'This slot needs a QEMU VM image on the host. If anything is missing, install it here then retry.',
-  'runtime.loading': 'Loading runtimes…',
-  'runtime.loadFailed': 'failed to load runtime',
-  'runtime.saveFailed': 'save failed',
-  'runtime.startFailed': 'start failed',
-  'runtime.start': 'Start / resume Agent',
-  'runtime.retry': 'Retry after setup',
-  'runtime.recheck': 'Recheck host',
-  'runtime.ready': 'Ready',
-  'runtime.needsSetup': 'Needs setup',
-  'runtime.selected': 'Selected',
-  'runtime.useThis': 'Use this',
 
   'git.title': 'Git personal tokens',
   'git.desc':

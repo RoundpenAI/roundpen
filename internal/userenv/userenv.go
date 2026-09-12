@@ -102,8 +102,7 @@ var errSlotFailed = errors.New("sandbox is failed")
 // Config controls Ensure* defaults.
 type Config struct {
 	BrowserTemplate string // default "browser-desktop"
-	AgentTemplate   string // default from engine (agent-claude / code-agent / host)
-	DefaultEngine   string // qemu | docker | kern — used when the user has not chosen
+	AgentTemplate   string // default "code-agent"
 	PublicURL       string // control-plane / llmgw base, e.g. http://127.0.0.1:9527
 	VirtualKey      string // llmgw virtual key (not an upstream key)
 	DefaultModel    func() string
@@ -149,7 +148,6 @@ type Service struct {
 	Sandboxes sandbox.Manager
 	Git       *gitcred.Store
 	Probe     *runtime.Probe
-	Prefs     *runtime.PrefStore
 	Config    Config
 }
 
@@ -159,28 +157,6 @@ func (s *Service) browserTemplate() string {
 		return "browser-desktop"
 	}
 	return t
-}
-
-func (s *Service) agentEngine(ctx context.Context, userID string) string {
-	fallback := runtime.NormalizeEngine(s.Config.DefaultEngine)
-	if fallback == "" {
-		fallback = runtime.EngineQEMU
-	}
-	if s.Prefs == nil {
-		return fallback
-	}
-	got, err := s.Prefs.ResolveAgentEngine(ctx, userID, fallback)
-	if err != nil || got == "" {
-		return fallback
-	}
-	return got
-}
-
-func (s *Service) agentTemplateFor(engine string) string {
-	if t := strings.TrimSpace(s.Config.AgentTemplate); t != "" && runtime.NormalizeEngine(engine) == runtime.EngineQEMU {
-		return t
-	}
-	return runtime.TemplateForEngine(engine)
 }
 
 // EnsureBrowser starts or resumes the user's Browser QEMU environment.

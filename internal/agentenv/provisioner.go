@@ -44,7 +44,7 @@ func (p *Provisioner) Provision(ctx context.Context, sessionID, agentID, userNam
 	}
 	tpl := p.Config.TemplateID
 	if tpl == "" {
-		tpl = "agent-claude"
+		tpl = "code-agent"
 	}
 	cat := p.Config.Category
 	if cat == "" {

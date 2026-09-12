@@ -26,11 +26,11 @@ func Default() []Provider {
 		{
 			ID:          "claude",
 			Name:        "Claude Code",
-			Description: "Claude Code ACP in the agent-claude QEMU VM (LLM via llmgw).",
+			Description: "Claude Code ACP in the Docker code-agent container (LLM via llmgw).",
 			Enabled:     true,
 			Mode:        "stdio",
 			Command:     "claude-agent-acp",
-			TemplateID:  "agent-claude",
+			TemplateID:  "code-agent",
 		},
 		{
 			ID:          "stdio",
@@ -40,7 +40,7 @@ func Default() []Provider {
 			Mode:        "stdio",
 			Command:     "sh",
 			Args:        []string{"-c", "echo 'configure ROUNDPEN_ACP_CMD'; exit 1"},
-			TemplateID:  "agent-claude",
+			TemplateID:  "code-agent",
 		},
 	}
 }

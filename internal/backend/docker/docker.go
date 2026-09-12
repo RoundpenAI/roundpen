@@ -153,6 +153,21 @@ func (b *Backend) ensureImage(ctx context.Context, ref string) error {
 	return nil
 }
 
+// HasImage reports whether ref is present in the local image store.
+func (b *Backend) HasImage(ctx context.Context, ref string) (bool, error) {
+	if strings.TrimSpace(ref) == "" {
+		return false, fmt.Errorf("image ref is empty")
+	}
+	_, _, err := b.cli.ImageInspectWithRaw(ctx, ref)
+	if err == nil {
+		return true, nil
+	}
+	if client.IsErrNotFound(err) {
+		return false, nil
+	}
+	return false, err
+}
+
 func (b *Backend) Start(ctx context.Context, sandboxID string) error {
 	return b.cli.ContainerStart(ctx, containerName(sandboxID), container.StartOptions{})
 }

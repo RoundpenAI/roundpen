@@ -17,7 +17,6 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
 ]
 
 export type SettingsSectionKey =
-  | 'runtime'
   | 'git'
   | 'general'
   | 'preview'
@@ -33,7 +32,6 @@ export type SettingsSection = {
 }
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
-  { key: 'runtime', labelKey: 'settings.section.runtime' },
   { key: 'git', labelKey: 'settings.section.git' },
   { key: 'general', labelKey: 'settings.section.general', admin: true },
   { key: 'preview', labelKey: 'settings.section.preview', admin: true },
@@ -60,7 +58,7 @@ export function resolveSettingsSection(
   const key = (raw ?? '').trim() as SettingsSectionKey
   const allowed = visibleSettingsSections(isAdmin)
   if (allowed.some((s) => s.key === key)) return key
-  return 'runtime'
+  return 'git'
 }
 
 export function readPrimaryCollapsed(): boolean {

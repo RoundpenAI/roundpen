@@ -169,7 +169,6 @@ func main() {
 		DataRoot:      dataRoot,
 		DockerHost:    cfg.DockerHost,
 		DockerRuntime: cfg.DockerRuntime,
-		DefaultAgent:  cfg.Backend,
 		DisableQEMU:   !cfg.QEMUEnabled,
 	})
 	eng.Warm()
@@ -187,6 +186,11 @@ func main() {
 		probe.DockerErr = err.Error()
 		logger.Warn("docker not ready", slog.Any("err", err))
 	}
+	probe.HasImage = func(ctx context.Context, ref string) bool {
+		ok, err := eng.HasImage(ctx, ref)
+		return err == nil && ok
+	}
+	probe.DockerCheck = eng.HasDocker
 	sbSvc = sandbox.NewService(store, eng, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
 	mgr = sbSvc
 	logger.Info("using multi backend", slog.String("default_agent_engine", cfg.Backend))
@@ -208,17 +212,14 @@ func main() {
 
 	envStore := &userenv.Store{DB: db.SQL}
 	gitStore := &gitcred.Store{DB: db.SQL}
-	prefStore := &runtime.PrefStore{DB: db.SQL}
 	envSvc := &userenv.Service{
 		Store:     envStore,
 		Sandboxes: mgr,
 		Git:       gitStore,
 		Probe:     probe,
-		Prefs:     prefStore,
 		Config: userenv.Config{
 			BrowserTemplate: cfg.DefaultBrowserTemplate,
 			AgentTemplate:   cfg.DefaultAgentTemplate,
-			DefaultEngine:   cfg.Backend,
 		},
 	}
 	publicBase := cfg.PreviewPublicURL
@@ -227,7 +228,6 @@ func main() {
 	}
 	(&envapi.Handler{
 		Envs:      envSvc,
-		Prefs:     prefStore,
 		Tokens:    previewHandler.Tokens,
 		PublicURL: publicBase,
 		VNC:       eng,
@@ -237,7 +237,7 @@ func main() {
 		Files: sbSvc,
 	}).Mount(mux)
 	(&gitcred.Handler{Store: gitStore}).Mount(mux)
-	(&runtime.Handler{Probe: probe, Prefs: prefStore}).Mount(mux)
+	(&runtime.Handler{Probe: probe}).Mount(mux)
 
 	setupSvc := &hostsetup.Service{
 		Probe:  probe,

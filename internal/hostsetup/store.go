@@ -73,18 +73,19 @@ func (s *Service) facts() HostFacts {
 
 func defaultFacts(p *runtime.Probe) HostFacts {
 	f := HostFacts{}
+	if p != nil {
+		f.DockerReady = p.DockerReady
+		if p.DockerCheck != nil {
+			f.DockerReady = p.DockerCheck()
+		}
+	}
 	f.BinariesOK = qemu.BinariesAvailable() == nil
-	agentImg := "images/agent-qemu/out/agent.qcow2"
 	browserImg := "images/browser-qemu/out/browser.qcow2"
 	if p != nil && p.Cfg != nil {
-		if v := strings.TrimSpace(p.Cfg.AgentImage); v != "" {
-			agentImg = v
-		}
 		if v := strings.TrimSpace(p.Cfg.BrowserImage); v != "" {
 			browserImg = v
 		}
 	}
-	f.AgentImageOK = qemu.ValidateImage(agentImg) == nil
 	f.BrowserImageOK = qemu.ValidateImage(browserImg) == nil
 	return f
 }
@@ -212,10 +213,10 @@ func (s *Service) Recheck(user, id, actionID string) (*PlanRecord, error) {
 		}
 		ok := false
 		switch a.ActionID {
+		case ActionInstallDocker:
+			ok = f.DockerReady
 		case ActionInstallQEMU:
 			ok = f.BinariesOK
-		case ActionBuildAgentImage:
-			ok = f.AgentImageOK
 		case ActionBuildBrowserImage:
 			ok = f.BrowserImageOK
 		}

@@ -15,7 +15,6 @@ import {
   type EnvironmentView,
 } from '../api'
 import { PageShell } from '../components/PageShell'
-import { RuntimePanel } from '../components/RuntimePanel'
 
 const sectionGap: CSSProperties = {
   display: 'flex',
@@ -219,8 +218,6 @@ export function BrowserPage() {
             </>
           )}
         </div>
-
-        <RuntimePanel engineId="qemu" showPicker={false} />
 
         <div style={cardStyle}>
           <Typography.Title heading={4} style={{ margin: 0 }}>
