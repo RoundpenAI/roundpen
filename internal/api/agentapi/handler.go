@@ -20,10 +20,12 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
@@ -44,6 +46,7 @@ type Handler struct {
 	Hub         *browser.Hub
 	Envs        *userenv.Service
 	Tasks       *browsetask.Store
+	Tickets     *assistticket.Store
 	DestroySbx  bool // delete sandbox on session delete
 }
 
@@ -82,8 +85,9 @@ func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 type createReq struct {
-	Title      string `json:"title"`
-	ProviderID string `json:"providerId"`
+	Title       string `json:"title"`
+	ProviderID  string `json:"providerId"`
+	AssistantID string `json:"assistantId"`
 }
 
 func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
@@ -101,22 +105,56 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		req.Title = "New chat"
 	}
 
-	provMeta, ok := providers.ByID(h.ACP.Providers(), req.ProviderID)
-	if !ok || !provMeta.Enabled {
-		writeErr(w, http.StatusBadRequest, "unknown provider")
+	sess, err := h.startSession(r.Context(), user, req.Title, req.ProviderID, req.AssistantID)
+	if err != nil {
+		writeSessionStartErr(w, err)
 		return
 	}
+	writeJSON(w, http.StatusCreated, sess)
+}
 
-	// Create DB row first so session id is stable for injection.
-	sess, err := h.Store.Create(r.Context(), user.Username, req.Title, req.ProviderID, "")
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+type sessionStartError struct {
+	Code int
+	Msg  string
+}
+
+func (e *sessionStartError) Error() string { return e.Msg }
+
+func writeSessionStartErr(w http.ResponseWriter, err error) {
+	var se *sessionStartError
+	if errors.As(err, &se) {
+		writeErr(w, se.Code, se.Msg)
 		return
+	}
+	writeErr(w, http.StatusInternalServerError, err.Error())
+}
+
+// DefaultAssistantProvider is the ACP provider used for new assistant chats.
+// sysadmin runs in-process (no sandbox). Swap back to "claude" when QEMU coding agents are the default again.
+const DefaultAssistantProvider = "sysadmin"
+
+// StartForAssistant creates or is used by assistants ensure-session.
+func (h *Handler) StartForAssistant(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error) {
+	if title == "" {
+		title = "Chat"
+	}
+	return h.startSession(ctx, user, title, DefaultAssistantProvider, assistantID)
+}
+
+func (h *Handler) startSession(ctx context.Context, user *storage.User, title, providerID, assistantID string) (*agentsession.Session, error) {
+	provMeta, ok := providers.ByID(h.ACP.Providers(), providerID)
+	if !ok || !provMeta.Enabled {
+		return nil, &sessionStartError{Code: http.StatusBadRequest, Msg: "unknown provider"}
+	}
+
+	sess, err := h.Store.Create(ctx, user.Username, title, providerID, "", assistantID)
+	if err != nil {
+		return nil, err
 	}
 
 	sandboxID := ""
 	if providers.NeedsSandbox(provMeta) {
-		vkey := h.pickVirtualKey(r.Context())
+		vkey := h.pickVirtualKey(ctx)
 		prov := *h.Provisioner
 		prov.Config.APIKey = user.APIKey
 		prov.Config.VirtualKey = vkey
@@ -126,13 +164,12 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		if h.LLMGW != nil {
 			prov.Config.DefaultModel = h.LLMGW.DefaultModel()
 		}
-		res, err := prov.Provision(r.Context(), sess.ID, req.ProviderID, user.Username)
+		res, err := prov.Provision(ctx, sess.ID, providerID, user.Username)
 		if err != nil {
-			_ = h.Store.Delete(r.Context(), sess.ID)
-			writeErr(w, http.StatusBadGateway, "provision sandbox: "+err.Error())
-			return
+			_ = h.Store.Delete(ctx, sess.ID)
+			return nil, &sessionStartError{Code: http.StatusBadGateway, Msg: "provision sandbox: " + err.Error()}
 		}
-		_ = h.Store.UpdateSandbox(r.Context(), sess.ID, res.Sandbox.ID)
+		_ = h.Store.UpdateSandbox(ctx, sess.ID, res.Sandbox.ID)
 		sess.SandboxID = res.Sandbox.ID
 		sandboxID = res.Sandbox.ID
 	}
@@ -142,13 +179,12 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		Role:     string(user.Role),
 		APIKey:   user.APIKey,
 	}
-	if _, err := h.ACP.Start(r.Context(), sess.ID, sandboxID, req.ProviderID, manager.StartOpts{
+	if _, err := h.ACP.Start(ctx, sess.ID, sandboxID, providerID, manager.StartOpts{
 		Actor: actor,
 	}); err != nil {
-		writeErr(w, http.StatusBadGateway, "start agent: "+err.Error())
-		return
+		return nil, &sessionStartError{Code: http.StatusBadGateway, Msg: "start agent: " + err.Error()}
 	}
-	writeJSON(w, http.StatusCreated, sess)
+	return sess, nil
 }
 
 func (h *Handler) pickVirtualKey(ctx context.Context) string {
@@ -265,6 +301,7 @@ type wsOut struct {
 	RequestID  string `json:"requestId,omitempty"`
 	Title      string `json:"title,omitempty"`
 	Options    any    `json:"options,omitempty"`
+	TicketID   string `json:"ticketId,omitempty"`
 }
 
 func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
@@ -285,12 +322,8 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt, ok := h.ACP.Get(id)
-	if !ok {
-		actor := manager.Actor{
-			Username: user.Username,
-			Role:     string(user.Role),
-			APIKey:   user.APIKey,
-		}
+	needsStart := !ok
+	if needsStart {
 		provMeta, found := providers.ByID(h.ACP.Providers(), sess.ProviderID)
 		if !found {
 			writeErr(w, http.StatusConflict, "unknown provider")
@@ -300,14 +333,10 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "agent runtime not running")
 			return
 		}
-		var startErr error
-		rt, startErr = h.ACP.Start(r.Context(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{Actor: actor, AutoApprove: true})
-		if startErr != nil {
-			writeErr(w, http.StatusBadGateway, "restart agent: "+startErr.Error())
-			return
-		}
 	}
 
+	// Upgrade before Start so the browser leaves CONNECTING quickly.
+	// A slow/hanging ACP Start used to block the handshake entirely.
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -320,6 +349,36 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 		defer writeMu.Unlock()
 		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		_ = conn.WriteJSON(v)
+	}
+
+	// Push a frame immediately so reverse proxies flush the 101 upgrade
+	// before ACP Start (which can take seconds) runs on this goroutine.
+	write(wsOut{Type: "hello", Message: "ok"})
+
+	if needsStart {
+		actor := manager.Actor{
+			Username: user.Username,
+			Role:     string(user.Role),
+			APIKey:   user.APIKey,
+		}
+		// Detach from the HTTP request context: the browser already has an
+		// open socket; canceling Start when the request ctx flaps (proxy /
+		// Strict Mode reconnect) leaves the UI stuck on 「连接中」.
+		var startErr error
+		rt, startErr = h.ACP.Start(context.Background(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{Actor: actor, AutoApprove: true})
+		if startErr != nil {
+			// Concurrent WS may have started the runtime between Get and Start.
+			if existing, ok := h.ACP.Get(id); ok {
+				rt = existing
+			} else {
+				write(wsOut{Type: "error", Message: "restart agent: " + startErr.Error()})
+				return
+			}
+		}
+	}
+	if rt == nil {
+		write(wsOut{Type: "error", Message: "agent runtime not available"})
+		return
 	}
 
 	const (
@@ -487,7 +546,27 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 			Options:   req.Options,
 			ToolID:    reqID,
 		})
-		write(wsOut{Type: "permission_request", RequestID: reqID, Title: title, Options: req.Options})
+		ticketID := ""
+		if h.Tickets != nil && sess.AssistantID != "" {
+			t, err := h.Tickets.Create(r.Context(), sess.UserID, assistticket.CreateInput{
+				AssistantID:    sess.AssistantID,
+				SessionID:      sess.ID,
+				Kind:           assistticket.KindPermission,
+				Title:          "需要确认：" + title,
+				Reason:         "工具权限请求",
+				ContextSummary: title,
+				AskHuman:       "请选择允许一次、本会话记住，或拒绝",
+				Payload: map[string]any{
+					"requestId": reqID,
+					"options":   req.Options,
+					"toolTitle": title,
+				},
+			})
+			if err == nil {
+				ticketID = t.ID
+			}
+		}
+		write(wsOut{Type: "permission_request", RequestID: reqID, Title: title, Options: req.Options, TicketID: ticketID})
 		select {
 		case opt := <-ch:
 			persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{

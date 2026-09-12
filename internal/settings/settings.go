@@ -106,6 +106,7 @@ func (s AppSettings) SanitizeForResponse() AppSettings {
 	out := s
 	out.LlmgwOpenaiAPIKey = MaskSecret(s.LlmgwOpenaiAPIKey)
 	out.LlmgwAnthropicAPIKey = MaskSecret(s.LlmgwAnthropicAPIKey)
+	out.LlmgwVirtualKeys = MaskVirtualKeysSetting(s.LlmgwVirtualKeys)
 	out.CDPToken = MaskSecret(s.CDPToken)
 	return out
 }
@@ -114,6 +115,7 @@ func (s AppSettings) SanitizeForResponse() AppSettings {
 func (s *AppSettings) MergeSecrets(previous AppSettings) {
 	s.LlmgwOpenaiAPIKey = ResolveSecret(s.LlmgwOpenaiAPIKey, previous.LlmgwOpenaiAPIKey)
 	s.LlmgwAnthropicAPIKey = ResolveSecret(s.LlmgwAnthropicAPIKey, previous.LlmgwAnthropicAPIKey)
+	s.LlmgwVirtualKeys = ResolveVirtualKeysSetting(s.LlmgwVirtualKeys, previous.LlmgwVirtualKeys)
 	s.CDPToken = ResolveSecret(s.CDPToken, previous.CDPToken)
 }
 
@@ -175,9 +177,9 @@ func (s AppSettings) Validate() error {
 		return fmt.Errorf("previewTokenTtlSeconds must be positive")
 	}
 	switch strings.ToLower(strings.TrimSpace(s.TemplateBuilder)) {
-	case "", "auto", "docker", "kaniko":
+	case "", "auto", "docker", "kaniko", "ci", "disabled":
 	default:
-		return fmt.Errorf("templateBuilder must be auto, docker, kaniko, or empty")
+		return fmt.Errorf("templateBuilder must be auto, docker, kaniko, ci, disabled, or empty")
 	}
 	if s.LlmgwLogBodyMaxBytes < -1 {
 		return fmt.Errorf("llmgwLogBodyMaxBytes must be >= -1")

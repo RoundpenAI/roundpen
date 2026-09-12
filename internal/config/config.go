@@ -18,19 +18,20 @@ type Config struct {
 	BootstrapAdmin          bool
 	DatabaseURL             string
 	DataRoot                string
-	Backend                 string // qemu | docker | kern | k8s
+	Backend                 string // docker | k8s (qemu accepted as legacy alias; kern removed)
 	DockerHost              string
 	DockerRuntime           string // e.g. runc, runsc; empty = daemon default
 	DefaultImage            string
 	DefaultBrowserTemplate  string // browser slot template name (default browser-desktop)
-	DefaultAgentTemplate    string // agent slot template name (default agent-claude)
-	AgentImage              string // default agent qcow2
+	DefaultAgentTemplate    string // agent slot template name (default code-agent)
+	AgentImage              string // default agent OCI image ref
 	BrowserImage            string // default browser qcow2
 	DefaultTTL              time.Duration
 	LogLevel                slog.Level
 	LLMGW                   LLMGWConfig
 	PreviewPublicURL        string        // absolute base URL for preview links
 	PreviewTokenTTL         time.Duration // default 15m
+	TrustedProxies          string        // comma-separated CIDRs that may send X-Forwarded-*
 	TemplateBuilder         string        // docker | kaniko | auto
 	KanikoExecutor          string
 	KanikoDestination       string
@@ -51,18 +52,19 @@ func Load() (*Config, error) {
 		BootstrapAdmin:          getenvBool("ROUNDPEN_BOOTSTRAP_ADMIN", true),
 		DatabaseURL:             os.Getenv("DATABASE_URL"),
 		DataRoot:                getenv("ROUNDPEN_DATA_ROOT", "./data"),
-		Backend:                 getenv("ROUNDPEN_BACKEND", "qemu"),
+		Backend:                 getenv("ROUNDPEN_BACKEND", "docker"),
 		DockerHost:              getenv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		DockerRuntime:           os.Getenv("ROUNDPEN_DOCKER_RUNTIME"),
-		DefaultImage:            getenv("ROUNDPEN_DEFAULT_IMAGE", "host"),
+		DefaultImage:            getenv("ROUNDPEN_DEFAULT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
 		DefaultBrowserTemplate:  getenv("ROUNDPEN_DEFAULT_BROWSER_TEMPLATE", "browser-desktop"),
-		DefaultAgentTemplate:    getenv("ROUNDPEN_DEFAULT_AGENT_TEMPLATE", "agent-claude"),
-		AgentImage:              getenv("ROUNDPEN_AGENT_IMAGE", "images/agent-qemu/out/agent.qcow2"),
+		DefaultAgentTemplate:    getenv("ROUNDPEN_DEFAULT_AGENT_TEMPLATE", "code-agent"),
+		AgentImage:              getenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
 		BrowserImage:            getenv("ROUNDPEN_BROWSER_IMAGE", "images/browser-qemu/out/browser.qcow2"),
 		DefaultTTL:              30 * time.Minute,
 		LogLevel:                slog.LevelInfo,
 		PreviewPublicURL:        os.Getenv("ROUNDPEN_PREVIEW_PUBLIC_URL"),
 		PreviewTokenTTL:         15 * time.Minute,
+		TrustedProxies:          strings.TrimSpace(os.Getenv("ROUNDPEN_TRUSTED_PROXIES")),
 		TemplateBuilder:         strings.ToLower(strings.TrimSpace(os.Getenv("ROUNDPEN_TEMPLATE_BUILDER"))),
 		KanikoExecutor:          getenv("ROUNDPEN_KANIKO_EXECUTOR", "executor"),
 		KanikoDestination:       strings.TrimSpace(os.Getenv("ROUNDPEN_KANIKO_DESTINATION")),
@@ -96,16 +98,24 @@ func Load() (*Config, error) {
 		cfg.LogLevel = level
 	}
 	switch strings.ToLower(cfg.Backend) {
-	case "qemu", "docker", "kern", "k8s":
+	case "docker", "qemu", "k8s":
+		// qemu here means multi-backend default preference historically; Agent is always Docker.
+	case "kern":
+		return nil, fmt.Errorf("ROUNDPEN_BACKEND=kern is removed; use docker (Agent) + QEMU (Browser)")
 	default:
 		return nil, fmt.Errorf("unsupported ROUNDPEN_BACKEND %q", cfg.Backend)
 	}
 	if strings.EqualFold(cfg.Backend, "qemu") {
-		if cfg.DefaultAgentTemplate == "" || cfg.DefaultAgentTemplate == "code-agent" {
-			cfg.DefaultAgentTemplate = "agent-claude"
-		}
-		if cfg.DefaultImage == "" || cfg.DefaultImage == "host" || cfg.DefaultImage == "alpine:3.20" {
-			cfg.DefaultImage = getenv("ROUNDPEN_AGENT_IMAGE", "images/agent-qemu/out/agent.qcow2")
+		// Legacy: ROUNDPEN_BACKEND=qemu selected Agent-on-QEMU. Agent is Docker-only now.
+		cfg.Backend = "docker"
+	}
+	if cfg.DefaultAgentTemplate == "" || cfg.DefaultAgentTemplate == "agent-claude" || cfg.DefaultAgentTemplate == "host" {
+		cfg.DefaultAgentTemplate = "code-agent"
+	}
+	if cfg.DefaultImage == "" || cfg.DefaultImage == "host" || strings.HasSuffix(cfg.DefaultImage, ".qcow2") {
+		cfg.DefaultImage = cfg.AgentImage
+		if cfg.DefaultImage == "" {
+			cfg.DefaultImage = "ghcr.io/roundpenai/code-agent:0.1.0"
 		}
 	}
 	if cfg.DatabaseURL == "" {

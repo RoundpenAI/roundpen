@@ -1,6 +1,7 @@
 package settings_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/RoundpenAI/roundpen/internal/settings"
@@ -28,10 +29,14 @@ func TestAppSettingsSanitizeForResponse(t *testing.T) {
 		PreviewTokenTtlSeconds: 900,
 		LlmgwOpenaiAPIKey:      "sk-openai",
 		LlmgwAnthropicAPIKey:   "sk-ant",
+		LlmgwVirtualKeys:       "vk-devsecret:dev",
 	}
 	out := s.SanitizeForResponse()
 	if out.LlmgwOpenaiAPIKey != settings.SecretMask || out.LlmgwAnthropicAPIKey != settings.SecretMask {
 		t.Fatalf("sanitized: %+v", out)
+	}
+	if out.LlmgwVirtualKeys == "vk-devsecret:dev" || !strings.Contains(out.LlmgwVirtualKeys, "****") && !strings.Contains(out.LlmgwVirtualKeys, "...") {
+		t.Fatalf("virtual keys not masked: %q", out.LlmgwVirtualKeys)
 	}
 }
 

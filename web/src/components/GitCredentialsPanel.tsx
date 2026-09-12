@@ -1,19 +1,35 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import {
+  Banner,
+  Button,
+  Input,
+  Select,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import { gitCredentials, type GitCredential } from '../api'
+import { useT } from '../i18n'
+import type { MessageKey } from '../i18n'
 
-const controlClass =
-  'input input-bordered w-full min-w-0 min-h-11 text-base sm:input-sm sm:min-h-0 sm:text-sm'
-const selectClass =
-  'select select-bordered w-full min-w-0 min-h-11 text-base sm:select-sm sm:min-h-0 sm:text-sm'
-
-const PROVIDERS = [
-  { value: 'gitea', label: 'Gitea' },
-  { value: 'github', label: 'GitHub' },
-  { value: 'gitlab', label: 'GitLab' },
-  { value: 'generic', label: 'Other git host' },
+const PROVIDER_KEYS = [
+  { value: 'gitea', labelKey: 'git.provider.gitea' as MessageKey },
+  { value: 'github', labelKey: 'git.provider.github' as MessageKey },
+  { value: 'gitlab', labelKey: 'git.provider.gitlab' as MessageKey },
+  { value: 'generic', labelKey: 'git.provider.generic' as MessageKey },
 ] as const
 
+const sectionGap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
+}
+
+const fieldLabel: CSSProperties = {
+  display: 'block',
+  marginBottom: 4,
+}
+
 export function GitCredentialsPanel() {
+  const t = useT()
   const [list, setList] = useState<GitCredential[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -22,15 +38,24 @@ export function GitCredentialsPanel() {
   const [username, setUsername] = useState('')
   const [token, setToken] = useState('')
 
+  const providerOptions = useMemo(
+    () =>
+      PROVIDER_KEYS.map((p) => ({
+        value: p.value,
+        label: t(p.labelKey),
+      })),
+    [t],
+  )
+
   const load = useCallback(async () => {
     setError(null)
     try {
       const res = await gitCredentials.list()
       setList(res.credentials ?? [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load git credentials')
+      setError(e instanceof Error ? e.message : t('git.loadFailed'))
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     void load()
@@ -49,7 +74,7 @@ export function GitCredentialsPanel() {
       setToken('')
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'save failed')
+      setError(e instanceof Error ? e.message : t('git.saveFailed'))
     } finally {
       setSaving(false)
     }
@@ -61,107 +86,137 @@ export function GitCredentialsPanel() {
       await gitCredentials.remove(id)
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'delete failed')
+      setError(e instanceof Error ? e.message : t('git.deleteFailed'))
     }
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-sm font-medium">Git personal tokens</h2>
-      <p className="m-0 text-[0.8rem] leading-relaxed opacity-55">
-        One personal token per git host. Roundpen stores it for your account and
-        injects it into the Cloud Agent workspace for <code className="font-mono text-[0.75rem]">git</code>,
-        and later <code className="font-mono text-[0.75rem]">tea</code> /{' '}
-        <code className="font-mono text-[0.75rem]">gh</code> /{' '}
-        <code className="font-mono text-[0.75rem]">glab</code> (issues, PRs).
-        Tokens never go into the image, and we do not copy SSH keys from this machine.
-      </p>
+    <section style={sectionGap}>
+      <Typography.Title heading={5} style={{ margin: 0 }}>
+        {t('git.title')}
+      </Typography.Title>
+      <Typography.Text type="tertiary" size="small">
+        {t('git.desc')}
+      </Typography.Text>
       {error ? (
-        <p className="m-0 text-sm text-error" role="alert">
-          {error}
-        </p>
+        <div role="alert">
+          <Banner
+            fullMode={false}
+            type="danger"
+            description={error}
+            closeIcon={null}
+          />
+        </div>
       ) : null}
       {list.length > 0 ? (
-        <ul className="space-y-2 text-sm">
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {list.map((c) => (
             <li
               key={c.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-300 px-3 py-2"
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                border: '1px solid var(--semi-color-border)',
+                borderRadius: 8,
+                padding: '8px 12px',
+              }}
             >
-              <div className="min-w-0">
-                <div className="font-mono text-xs">{c.host}</div>
-                <div className="text-[0.7rem] opacity-50">
+              <div style={{ minWidth: 0 }}>
+                <Typography.Text
+                  style={{
+                    fontFamily: 'var(--semi-font-family-code)',
+                    fontSize: 12,
+                  }}
+                >
+                  {c.host}
+                </Typography.Text>
+                <Typography.Text
+                  type="tertiary"
+                  size="small"
+                  style={{ display: 'block' }}
+                >
                   {c.provider}
                   {c.username ? ` · ${c.username}` : ''}
-                  {c.hasToken ? ' · personal token saved' : ''}
-                </div>
+                  {c.hasToken ? ` · ${t('git.tokenSaved')}` : ''}
+                </Typography.Text>
               </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => void onDelete(c.id)}
-              >
-                Remove
-              </button>
+              <Button type="tertiary" size="small" onClick={() => void onDelete(c.id)}>
+                {t('git.remove')}
+              </Button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="m-0 text-sm opacity-45">No personal tokens yet. Add a host below.</p>
+        <Typography.Text type="tertiary" size="small">
+          {t('git.empty')}
+        </Typography.Text>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="form-control w-full gap-1.5">
-          <span className="label-text text-xs opacity-60">Provider</span>
-          <select
-            className={selectClass}
+      <div
+        style={{
+          display: 'grid',
+          gap: 12,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        }}
+      >
+        <div>
+          <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+            {t('git.provider')}
+          </Typography.Text>
+          <Select
             value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-          >
-            {PROVIDERS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="form-control w-full gap-1.5">
-          <span className="label-text text-xs opacity-60">Host</span>
-          <input
-            className={controlClass}
+            onChange={(v) => setProvider(String(v))}
+            optionList={providerOptions}
+            style={{ width: '100%' }}
+          />
+        </div>
+        <div>
+          <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+            {t('git.host')}
+          </Typography.Text>
+          <Input
             value={host}
-            onChange={(e) => setHost(e.target.value)}
+            onChange={setHost}
             placeholder="git.eaxi.com"
           />
-        </label>
-        <label className="form-control w-full gap-1.5">
-          <span className="label-text text-xs opacity-60">Username (optional)</span>
-          <input
-            className={controlClass}
+        </div>
+        <div>
+          <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+            {t('git.username')}
+          </Typography.Text>
+          <Input
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={setUsername}
             placeholder="git"
           />
-        </label>
-        <label className="form-control w-full gap-1.5">
-          <span className="label-text text-xs opacity-60">Personal token</span>
-          <input
-            className={controlClass}
-            type="password"
+        </div>
+        <div>
+          <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+            {t('git.token')}
+          </Typography.Text>
+          <Input
+            mode="password"
             autoComplete="new-password"
             value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="PAT with repo + issues/PR scope"
+            onChange={setToken}
+            placeholder={t('git.tokenPlaceholder')}
           />
-        </label>
+        </div>
       </div>
-      <button
-        type="button"
-        className="btn btn-primary btn-sm"
-        disabled={saving || !host.trim() || !token.trim()}
-        onClick={() => void onSave()}
-      >
-        {saving ? 'Saving…' : 'Save personal token'}
-      </button>
+      <div>
+        <Button
+          theme="solid"
+          type="primary"
+          size="small"
+          loading={saving}
+          disabled={!host.trim() || !token.trim()}
+          onClick={() => void onSave()}
+        >
+          {t('git.save')}
+        </Button>
+      </div>
     </section>
   )
 }

@@ -83,6 +83,7 @@ func NormalizeCDP(c *CDPConfig) error {
 // a Chrome/Chromium binary exists on the API process (laptop only).
 // Auto prefers dialing the Browser environment (docker/qemu Dial) over host Chrome.
 func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
+	_ = hostChromeFound
 	if cfg == nil {
 		return CDPProviderDocker
 	}
@@ -93,13 +94,7 @@ func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
 	if p != CDPProviderAuto {
 		return p
 	}
-	// Prefer guest CDP via Dial (works for docker sandboxes and qemu browser VMs).
-	if strings.EqualFold(cfg.Backend, "docker") || strings.EqualFold(cfg.Backend, "qemu") || cfg.QEMUEnabled {
-		return CDPProviderDocker
-	}
-	if hostChromeFound {
-		return CDPProviderHost
-	}
+	// Auto always dials guest CDP (Docker sandbox or QEMU Browser). Host Chrome is opt-in only.
 	return CDPProviderDocker
 }
 

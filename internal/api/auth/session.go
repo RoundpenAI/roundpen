@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"net/http"
 	"time"
+
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 const (
@@ -31,10 +33,7 @@ func HashSessionToken(plaintext string) string {
 }
 
 func sessionCookieSecure(r *http.Request) bool {
-	if r.TLS != nil {
-		return true
-	}
-	return r.Header.Get("X-Forwarded-Proto") == "https"
+	return httpx.DefaultTrust.Scheme(r) == "https"
 }
 
 func setSessionCookie(w http.ResponseWriter, r *http.Request, plaintext string, maxAge int) {

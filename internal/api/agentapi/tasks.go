@@ -80,7 +80,7 @@ func (h *Handler) createBrowserTask(w http.ResponseWriter, r *http.Request) {
 	title := browsetask.TitleFor(kind, startURL)
 	prompt := browsetask.PromptFor(kind, startURL, brief)
 
-	sess, err := h.Store.Create(r.Context(), user.Username, title, "sysadmin", "")
+	sess, err := h.Store.Create(r.Context(), user.Username, title, "sysadmin", "", "")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

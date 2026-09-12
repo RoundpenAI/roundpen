@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
@@ -11,17 +10,11 @@ import (
 // Handler serves /v1/runtime for any signed-in user.
 type Handler struct {
 	Probe *Probe
-	Prefs *PrefStore
-}
-
-type putReq struct {
-	AgentEngine string `json:"agentEngine"`
 }
 
 // Mount registers runtime routes.
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/runtime", h.get)
-	mux.HandleFunc("PUT /v1/runtime", h.put)
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -30,47 +23,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	snap := Snapshot{DefaultAgentEngine: EngineQEMU}
+	snap := Snapshot{AgentImage: "roundpen-code-agent:local"}
 	if h.Probe != nil {
 		snap = h.Probe.Snapshot()
 	}
-	engine := snap.DefaultAgentEngine
-	if h.Prefs != nil {
-		if got, err := h.Prefs.ResolveAgentEngine(r.Context(), user.Username, snap.DefaultAgentEngine); err == nil {
-			engine = got
-		}
-	}
-	snap.AgentEngine = engine
 	writeJSON(w, http.StatusOK, snap)
-}
-
-func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
-	user := auth.GetUser(r.Context())
-	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	raw, err := io.ReadAll(r.Body)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	var req putReq
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &req); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid request body")
-			return
-		}
-	}
-	if h.Prefs == nil {
-		writeErr(w, http.StatusServiceUnavailable, "runtime preferences not configured")
-		return
-	}
-	if err := h.Prefs.SetAgentEngine(r.Context(), user.Username, req.AgentEngine); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h.get(w, r)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -99,6 +100,7 @@ func TestServiceAddSearchWithEmbedder(t *testing.T) {
 	vec := make([]float32, memory.EmbeddingDims)
 	vec[0] = 1
 	svc := &memory.Service{Store: store, Embed: stubEmbedder{vec: vec}}
+	ctx = authz.WithActor(ctx, authz.Actor{Username: "alice"})
 
 	agentID := "agent-svc-" + time.Now().Format("150405.000")
 	e, err := svc.Add(ctx, memory.AddInput{
@@ -129,7 +131,7 @@ func TestContentFromMessagesViaAdd(t *testing.T) {
 	db := testDB(t)
 	store := memory.NewPgStore(db)
 	svc := &memory.Service{Store: store}
-	ctx := context.Background()
+	ctx := authz.WithActor(context.Background(), authz.Actor{Username: "alice"})
 	agentID := "agent-msg-" + time.Now().Format("150405.000")
 
 	e, err := svc.Add(ctx, memory.AddInput{

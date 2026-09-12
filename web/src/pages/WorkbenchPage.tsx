@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import {
+  Banner,
+  Button,
+  Card,
+  InputNumber,
+  Layout,
+  Tabs,
+  TabPane,
+  Tag,
+  Typography,
+} from '@douyinfe/semi-ui-19'
+import { IconRefresh } from '@douyinfe/semi-icons'
 import { files, preview, sandboxes, SUGGESTED_CATEGORIES, type Sandbox } from '../api'
 import { FileTree } from '../components/FileTree'
 import {
@@ -18,6 +30,8 @@ const MOBILE_PANES: { id: MobilePane; label: string }[] = [
   { id: 'ports', label: 'Ports' },
   { id: 'term', label: 'Term' },
 ]
+
+const { Header, Content } = Layout
 
 export function WorkbenchPage() {
   const { id = '' } = useParams()
@@ -127,82 +141,114 @@ export function WorkbenchPage() {
     if (pane === 'preview') setTab('preview')
   }
 
+  const centerVisible =
+    mobilePane === 'editor' || mobilePane === 'preview'
+
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-base-300 bg-base-200 px-3 py-2">
-        <Link to="/" className="font-display text-lg font-semibold tracking-tight link link-hover">
-          Roundpen
+    <Layout
+      style={{
+        height: '100%',
+        minHeight: 0,
+        background: 'var(--semi-color-bg-0)',
+      }}
+    >
+      <Header
+        style={{
+          display: 'flex',
+          flexShrink: 0,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 12px',
+          background: 'var(--semi-color-bg-1)',
+          borderBottom: '1px solid var(--semi-color-border)',
+          height: 'auto',
+        }}
+      >
+        <Link to="/" style={{ textDecoration: 'none' }}>
+          <Typography.Title heading={5} style={{ margin: 0 }}>
+            Roundpen
+          </Typography.Title>
         </Link>
-        <span className="min-w-0 max-w-[40vw] truncate text-sm font-medium sm:max-w-none">
+        <Typography.Text
+          strong
+          ellipsis={{ showTooltip: true }}
+          style={{ maxWidth: '40vw', minWidth: 0 }}
+        >
           {sb?.name || id.slice(0, 8)}
-        </span>
-        {sb?.category ? (
-          <button
-            type="button"
-            className="badge badge-ghost badge-sm max-w-[30vw] truncate"
-            onClick={() => {
-              setEditError(null)
-              setEditOpen(true)
-            }}
-          >
-            {sb.category}
-            {sb.isDefault ? ' · default' : ''}
-          </button>
-        ) : (
-          <button
-            type="button"
-            className="badge badge-ghost badge-sm opacity-50"
-            onClick={() => {
-              setEditError(null)
-              setEditOpen(true)
-            }}
-          >
-            no category
-          </button>
-        )}
-        <span className="hidden truncate font-mono text-xs opacity-45 sm:inline">
+        </Typography.Text>
+        <Tag
+          size="small"
+          color="grey"
+          style={{ cursor: 'pointer', maxWidth: '30vw' }}
+          onClick={() => {
+            setEditError(null)
+            setEditOpen(true)
+          }}
+        >
+          {sb?.category
+            ? `${sb.category}${sb.isDefault ? ' · default' : ''}`
+            : 'no category'}
+        </Tag>
+        <Typography.Text
+          type="tertiary"
+          size="small"
+          className="wb-hide-mobile"
+          style={{ fontFamily: 'var(--semi-font-family-code)' }}
+        >
           {id.slice(0, 8)}…
-        </span>
+        </Typography.Text>
         {sb && (
-          <span
-            className={`badge badge-sm ${
-              running ? 'badge-success' : 'badge-warning'
-            }`}
-          >
+          <Tag size="small" color={running ? 'green' : 'orange'}>
             {sb.state}
-          </span>
+          </Tag>
         )}
-        <div className="ml-auto flex flex-wrap items-center gap-1 sm:gap-2">
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs min-h-8"
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          <Button
+            theme="borderless"
+            type="tertiary"
+            size="small"
             onClick={() => {
               setEditError(null)
               setEditOpen(true)
             }}
           >
             Edit
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs min-h-8"
+          </Button>
+          <Button
+            theme="borderless"
+            type="tertiary"
+            size="small"
+            icon={<IconRefresh />}
             onClick={() => void loadMeta()}
           >
             Refresh
-          </button>
+          </Button>
           {running && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-xs min-h-8"
+            <Button
+              theme="borderless"
+              type="tertiary"
+              size="small"
               onClick={() =>
-                void sandboxes.stop(id).then(loadMeta).catch((e: Error) => setError(e.message))
+                void sandboxes
+                  .stop(id)
+                  .then(loadMeta)
+                  .catch((e: Error) => setError(e.message))
               }
             >
               Stop
-            </button>
+            </Button>
           )}
         </div>
-      </header>
+      </Header>
 
       <SandboxEditDialog
         open={editOpen && sb != null}
@@ -217,43 +263,46 @@ export function WorkbenchPage() {
       />
 
       {error && (
-        <div className="shrink-0 bg-error/15 px-3 py-1.5 text-xs text-error">
-          {error}
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs ml-2"
-            onClick={() => setError(null)}
-          >
-            dismiss
-          </button>
-        </div>
+        <Banner
+          fullMode={false}
+          type="danger"
+          description={error}
+          onClose={() => setError(null)}
+          style={{ flexShrink: 0, margin: 0, borderRadius: 0 }}
+        />
       )}
 
-      <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-rows-[minmax(0,1fr)_minmax(180px,38%)]">
-        <div className="flex shrink-0 overflow-x-auto border-b border-base-300 md:hidden">
-          {MOBILE_PANES.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`btn btn-ghost btn-sm min-h-11 shrink-0 rounded-none ${
-                mobilePane === p.id ? 'btn-active' : ''
-              }`}
-              onClick={() => selectMobile(p.id)}
-            >
-              {p.label}
-            </button>
-          ))}
+      <Content className="wb-root" style={{ padding: 0 }}>
+        <div className="wb-mobile-tabs">
+          <Tabs
+            type="line"
+            activeKey={mobilePane}
+            onChange={(key) => selectMobile(key as MobilePane)}
+          >
+            {MOBILE_PANES.map((p) => (
+              <TabPane tab={p.label} itemKey={p.id} key={p.id} />
+            ))}
+          </Tabs>
         </div>
 
         <div
-          className={`grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)_200px] ${
-            mobilePane === 'term' ? 'max-md:hidden' : ''
-          }`}
+          className={
+            mobilePane === 'term' ? 'wb-grid wb-hide-mobile' : 'wb-grid'
+          }
         >
           <aside
-            className={`rp-pane min-h-0 overflow-hidden border-r-0 ${
-              mobilePane === 'files' ? 'max-md:min-h-0 max-md:flex-1' : 'max-md:hidden'
-            }`}
+            className={
+              mobilePane === 'files'
+                ? 'rp-pane'
+                : 'rp-pane wb-hide-mobile'
+            }
+            style={{
+              overflow: 'hidden',
+              borderRight: 'none',
+              ...(mobilePane === 'files'
+                ? { minHeight: 0, flex: 1 }
+                : {}),
+            }}
           >
             <FileTree
               sandboxId={id}
@@ -267,54 +316,100 @@ export function WorkbenchPage() {
           </aside>
 
           <section
-            className={`rp-pane flex min-h-0 flex-col border-l-0 border-r-0 ${
-              mobilePane === 'editor' || mobilePane === 'preview'
-                ? 'max-md:min-h-0 max-md:flex-1'
-                : 'max-md:hidden'
-            }`}
+            className={
+              centerVisible ? 'rp-pane' : 'rp-pane wb-hide-mobile'
+            }
+            style={{
+              borderLeft: 'none',
+              borderRight: 'none',
+              ...(centerVisible ? { minHeight: 0, flex: 1 } : {}),
+            }}
           >
-            <div className="rp-pane-header flex items-center gap-2 px-3 py-1.5">
-              <button
-                type="button"
-                className={`btn btn-ghost btn-xs hidden md:inline-flex ${tab === 'editor' ? 'btn-active' : ''}`}
-                onClick={() => setTab('editor')}
-              >
-                Editor
-              </button>
-              <button
-                type="button"
-                className={`btn btn-ghost btn-xs hidden md:inline-flex ${tab === 'preview' ? 'btn-active' : ''}`}
-                onClick={() => setTab('preview')}
-              >
-                Preview
-              </button>
+            <div
+              className="rp-pane-header"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 12px',
+              }}
+            >
+              <div className="wb-hide-mobile">
+                <Tabs
+                  type="line"
+                  size="small"
+                  activeKey={tab}
+                  onChange={(key) => setTab(key as CenterTab)}
+                >
+                  <TabPane tab="Editor" itemKey="editor" />
+                  <TabPane tab="Preview" itemKey="preview" />
+                </Tabs>
+              </div>
               {tab === 'editor' && filePath && (
                 <>
-                  <span className="truncate font-mono text-[11px] normal-case tracking-normal opacity-60 md:ml-2">
+                  <Typography.Text
+                    ellipsis={{ showTooltip: true }}
+                    type="tertiary"
+                    size="small"
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      marginLeft: 8,
+                      fontFamily: 'var(--semi-font-family-code)',
+                      fontSize: 11,
+                      textTransform: 'none',
+                      letterSpacing: 'normal',
+                    }}
+                  >
                     {filePath}
                     {fileDirty ? ' ·' : ''}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-xs ml-auto min-h-8"
+                  </Typography.Text>
+                  <Button
+                    theme="solid"
+                    type="primary"
+                    size="small"
+                    loading={saving}
                     disabled={!fileDirty || saving}
                     onClick={() => void saveFile()}
+                    style={{ marginLeft: 'auto' }}
                   >
-                    {saving ? 'Saving…' : 'Save'}
-                  </button>
+                    Save
+                  </Button>
                 </>
               )}
               {tab === 'preview' && (
-                <span className="font-mono text-[11px] normal-case tracking-normal opacity-60 md:hidden">
+                <Typography.Text
+                  type="tertiary"
+                  size="small"
+                  className="wb-show-mobile-only"
+                  style={{
+                    fontFamily: 'var(--semi-font-family-code)',
+                    fontSize: 11,
+                    textTransform: 'none',
+                    letterSpacing: 'normal',
+                  }}
+                >
                   Preview :{port}
-                </span>
+                </Typography.Text>
               )}
             </div>
-            <div className="min-h-0 flex-1">
+            <div style={{ minHeight: 0, flex: 1 }}>
               {tab === 'editor' ? (
                 filePath ? (
                   <textarea
-                    className="h-full w-full resize-none border-0 bg-transparent p-3 font-mono text-base leading-relaxed outline-none md:text-[13px]"
+                    style={{
+                      height: '100%',
+                      width: '100%',
+                      resize: 'none',
+                      border: 0,
+                      background: 'transparent',
+                      padding: 12,
+                      fontFamily: 'var(--semi-font-family-code)',
+                      fontSize: 13,
+                      lineHeight: 1.625,
+                      outline: 'none',
+                      color: 'var(--semi-color-text-0)',
+                    }}
                     value={fileContent}
                     onChange={(e) => {
                       setFileContent(e.target.value)
@@ -323,102 +418,191 @@ export function WorkbenchPage() {
                     spellCheck={false}
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center px-4 text-center text-sm opacity-40">
-                    Select a file
+                  <div
+                    style={{
+                      display: 'flex',
+                      height: '100%',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '0 16px',
+                      textAlign: 'center',
+                    }}
+                  >
+                    <Typography.Text type="tertiary" size="small">
+                      Select a file
+                    </Typography.Text>
                   </div>
                 )
               ) : previewUrl ? (
                 <iframe
                   title="preview"
                   src={previewUrl}
-                  className="h-full w-full border-0 bg-base-100"
+                  style={{
+                    height: '100%',
+                    width: '100%',
+                    border: 0,
+                    background: 'var(--semi-color-bg-0)',
+                  }}
                 />
               ) : (
-                <div className="flex h-full items-center justify-center px-4 text-center text-sm opacity-40">
-                  Open a preview port from Ports
+                <div
+                  style={{
+                    display: 'flex',
+                    height: '100%',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '0 16px',
+                    textAlign: 'center',
+                  }}
+                >
+                  <Typography.Text type="tertiary" size="small">
+                    Open a preview port from Ports
+                  </Typography.Text>
                 </div>
               )}
             </div>
           </section>
 
           <aside
-            className={`rp-pane flex min-h-0 flex-col border-l-0 ${
-              mobilePane === 'ports' ? 'max-md:min-h-0 max-md:flex-1' : 'max-md:hidden'
-            }`}
+            className={
+              mobilePane === 'ports'
+                ? 'rp-pane'
+                : 'rp-pane wb-hide-mobile'
+            }
+            style={{
+              borderLeft: 'none',
+              ...(mobilePane === 'ports'
+                ? { minHeight: 0, flex: 1 }
+                : {}),
+            }}
           >
-            <div className="rp-pane-header px-3 py-2">Ports</div>
+            <div
+              className="rp-pane-header"
+              style={{ padding: '8px 12px' }}
+            >
+              Ports
+            </div>
             <form
-              className="flex flex-col gap-2 p-3"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                padding: 12,
+              }}
               onSubmit={(e) => void openPreview(e)}
             >
-              <label className="form-control">
-                <span className="label-text mb-1 text-xs opacity-60">Port</span>
-                <input
-                  type="number"
+              <div>
+                <Typography.Text
+                  size="small"
+                  type="tertiary"
+                  style={{ display: 'block', marginBottom: 4 }}
+                >
+                  Port
+                </Typography.Text>
+                <InputNumber
                   min={1}
                   max={65535}
-                  inputMode="numeric"
-                  className="input input-bordered w-full sm:input-sm"
                   value={port}
-                  onChange={(e) => setPort(Number(e.target.value) || 3000)}
+                  onChange={(v) => setPort(typeof v === 'number' ? v : 3000)}
+                  style={{ width: '100%' }}
                 />
-              </label>
-              <button type="submit" className="btn btn-primary min-h-11 sm:btn-sm sm:min-h-0" disabled={!running}>
+              </div>
+              <Button
+                theme="solid"
+                type="primary"
+                htmlType="submit"
+                disabled={!running}
+                block
+              >
                 Open preview
-              </button>
+              </Button>
               {mcpPath && (
-                <div className="space-y-1.5 rounded-md bg-base-200 px-2 py-2 text-xs">
-                  <p className="font-medium opacity-70">Agent browser MCP</p>
-                  <code className="block break-all opacity-80">{mcpPath}</code>
-                  <div className="flex flex-wrap gap-1">
+                <Card
+                  bodyStyle={{ padding: 8 }}
+                  style={{ background: 'var(--semi-color-fill-0)' }}
+                >
+                  <Typography.Text
+                    strong
+                    size="small"
+                    type="tertiary"
+                    style={{ display: 'block', marginBottom: 4 }}
+                  >
+                    Agent browser MCP
+                  </Typography.Text>
+                  <Typography.Text
+                    size="small"
+                    style={{
+                      display: 'block',
+                      wordBreak: 'break-all',
+                      fontFamily: 'var(--semi-font-family-code)',
+                      marginBottom: 8,
+                    }}
+                  >
+                    {mcpPath}
+                  </Typography.Text>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                     {[
                       { port: 8000, label: 'MCP 8000' },
                       { port: 6080, label: 'noVNC 6080' },
                     ].map((p) => (
-                      <button
+                      <Button
                         key={p.port}
-                        type="button"
-                        className="btn btn-ghost btn-xs"
+                        theme="borderless"
+                        type="tertiary"
+                        size="small"
                         onClick={() => setPort(p.port)}
                       >
                         {p.label}
-                      </button>
+                      </Button>
                     ))}
                   </div>
-                </div>
+                </Card>
               )}
               {previewErr && (
-                <p className="text-xs text-error">{previewErr}</p>
+                <Typography.Text type="danger" size="small">
+                  {previewErr}
+                </Typography.Text>
               )}
               {previewUrl && (
-                <a
-                  href={previewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="link link-primary break-all text-xs"
+                <Typography.Text
+                  link={{ href: previewUrl, target: '_blank', rel: 'noreferrer' }}
+                  size="small"
+                  style={{ wordBreak: 'break-all' }}
                 >
                   Open in tab
-                </a>
+                </Typography.Text>
               )}
               {!running && (
-                <p className="text-xs opacity-50">
+                <Typography.Text type="tertiary" size="small">
                   Preview needs a running sandbox.
-                </p>
+                </Typography.Text>
               )}
             </form>
           </aside>
         </div>
 
         <div
-          className={`rp-pane flex min-h-0 flex-col border-t-0 ${
-            mobilePane === 'term' ? 'max-md:min-h-0 max-md:flex-1' : 'max-md:hidden'
-          }`}
+          className={
+            mobilePane === 'term' ? 'rp-pane' : 'rp-pane wb-hide-mobile'
+          }
+          style={{
+            borderTop: 'none',
+            ...(mobilePane === 'term'
+              ? { minHeight: 0, flex: 1 }
+              : {}),
+          }}
         >
-          <div className="min-h-0 flex-1 bg-[#161310]">
+          <div
+            style={{
+              minHeight: 0,
+              flex: 1,
+              background: '#161310',
+            }}
+          >
             <TerminalPane sandboxId={id} disabled={!running} />
           </div>
         </div>
-      </div>
-    </div>
+      </Content>
+    </Layout>
   )
 }

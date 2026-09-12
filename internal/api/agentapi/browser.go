@@ -41,7 +41,24 @@ func (h *Handler) loadOwnedSession(w http.ResponseWriter, r *http.Request) (*age
 	return sess, true
 }
 
+// hubKey resolves the browser Hub id without starting the Browser VM.
+// Status polls must stay cheap; use ensureHubKey when CDP work is needed.
 func (h *Handler) hubKey(r *http.Request, sess *agentsession.Session) string {
+	if h.Envs != nil && sess != nil {
+		userID := sess.UserID
+		if user := auth.GetUser(r.Context()); user != nil {
+			userID = user.Username
+		}
+		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {
+			return id
+		}
+	}
+	return browser.AgentBrowserID(sess.ID)
+}
+
+// ensureHubKey starts/resumes the user's Browser environment when present,
+// then returns the Hub id used for CDP.
+func (h *Handler) ensureHubKey(r *http.Request, sess *agentsession.Session) string {
 	if h.Envs != nil && sess != nil {
 		userID := sess.UserID
 		if user := auth.GetUser(r.Context()); user != nil {
@@ -66,10 +83,11 @@ func (h *Handler) browserStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "browser hub not configured")
 		return
 	}
-	st := h.Hub.StatusEx(h.hubKey(r, sess))
+	key := h.hubKey(r, sess)
+	st := h.Hub.StatusEx(key)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"sessionId": sess.ID,
-		"hubId":     h.hubKey(r, sess),
+		"hubId":     key,
 		"attached":  st.Attached,
 		"url":       st.URL,
 		"width":     st.Width,
@@ -87,7 +105,7 @@ func (h *Handler) browserScreenshot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "browser hub not configured")
 		return
 	}
-	bs, err := h.Hub.Ensure(r.Context(), h.hubKey(r, sess))
+	bs, err := h.Hub.Ensure(r.Context(), h.ensureHubKey(r, sess))
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
@@ -121,7 +139,7 @@ func (h *Handler) browserTakeover(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	key := h.hubKey(r, sess)
+	key := h.ensureHubKey(r, sess)
 	if req.Enabled {
 		bs, err := h.Hub.Ensure(r.Context(), key)
 		if err != nil {
@@ -167,7 +185,7 @@ func (h *Handler) browserInput(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "browser hub not configured")
 		return
 	}
-	key := h.hubKey(r, sess)
+	key := h.ensureHubKey(r, sess)
 	if !h.Hub.Takeover(key) {
 		writeErr(w, http.StatusConflict, "takeover not enabled")
 		return

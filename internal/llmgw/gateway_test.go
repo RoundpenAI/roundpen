@@ -11,8 +11,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 )
+
+func withAdminMux(mux http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(auth.WithUser(r.Context(), &storage.User{
+			Username: "admin",
+			Role:     storage.RoleAdmin,
+		}))
+		mux.ServeHTTP(w, r)
+	})
+}
 
 func TestGatewaySeedFromConfig(t *testing.T) {
 	gw := llmgw.New(testDB(t), llmgw.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
@@ -48,11 +61,27 @@ func TestEnsureInternalWithoutOpenAI(t *testing.T) {
 	}
 }
 
-func TestHTTPAdminEndpoints(t *testing.T) {
+func TestHTTPAdminEndpointsForbiddenWithoutAdmin(t *testing.T) {
 	gw := seedGateway(t)
 	mux := http.NewServeMux()
 	gw.Mount(mux)
 	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	resp, err := http.Get(srv.URL + "/v1/llmgw/logs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%s", resp.Status)
+	}
+}
+
+func TestHTTPAdminEndpoints(t *testing.T) {
+	gw := seedGateway(t)
+	mux := http.NewServeMux()
+	gw.Mount(mux)
+	srv := httptest.NewServer(withAdminMux(mux))
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Get(srv.URL + "/v1/llmgw/virtual-keys")
@@ -331,7 +360,7 @@ func TestHTTPSetupUsesForwardedHeaders(t *testing.T) {
 	gw := seedGateway(t)
 	mux := http.NewServeMux()
 	gw.Mount(mux)
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(withAdminMux(mux))
 	t.Cleanup(srv.Close)
 
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/llmgw/setup", nil)
@@ -360,7 +389,7 @@ func TestHTTPSetupUsesForwardedHeaders(t *testing.T) {
 	}
 	mux2 := http.NewServeMux()
 	gw2.Mount(mux2)
-	srv2 := httptest.NewServer(mux2)
+	srv2 := httptest.NewServer(withAdminMux(mux2))
 	t.Cleanup(srv2.Close)
 	req2, _ := http.NewRequest(http.MethodGet, srv2.URL+"/v1/llmgw/setup", nil)
 	req2.Header.Set("X-Forwarded-Proto", "https")
@@ -376,8 +405,36 @@ func TestHTTPSetupUsesForwardedHeaders(t *testing.T) {
 	if err := json.NewDecoder(resp2.Body).Decode(&setup2); err != nil {
 		t.Fatal(err)
 	}
-	if setup2.BaseURL != "https://edge.example.com" {
-		t.Fatalf("forwarded base_url=%q", setup2.BaseURL)
+	if setup2.BaseURL == "https://edge.example.com" {
+		t.Fatal("untrusted X-Forwarded-Host must not rewrite setup URL")
+	}
+	if !strings.HasPrefix(setup2.BaseURL, "http://127.0.0.1:") {
+		t.Fatalf("expected request host base_url, got %q", setup2.BaseURL)
+	}
+
+	prev := httpx.DefaultTrust
+	t.Cleanup(func() { httpx.SetDefaultTrust(prev) })
+	trust, err := httpx.ParseTrust("127.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpx.SetDefaultTrust(trust)
+	req3, _ := http.NewRequest(http.MethodGet, srv2.URL+"/v1/llmgw/setup", nil)
+	req3.Header.Set("X-Forwarded-Proto", "https")
+	req3.Header.Set("X-Forwarded-Host", "edge.example.com")
+	resp3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp3.Body.Close()
+	var setup3 struct {
+		BaseURL string `json:"base_url"`
+	}
+	if err := json.NewDecoder(resp3.Body).Decode(&setup3); err != nil {
+		t.Fatal(err)
+	}
+	if setup3.BaseURL != "https://edge.example.com" {
+		t.Fatalf("trusted forwarded base_url=%q", setup3.BaseURL)
 	}
 }
 
@@ -385,7 +442,7 @@ func TestHTTPLogDetailNotFound(t *testing.T) {
 	gw := seedGateway(t)
 	mux := http.NewServeMux()
 	gw.Mount(mux)
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(withAdminMux(mux))
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Get(srv.URL + "/v1/llmgw/logs/999999999")

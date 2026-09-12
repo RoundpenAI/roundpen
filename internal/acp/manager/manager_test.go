@@ -137,7 +137,7 @@ func TestProviders_NeedsSandbox(t *testing.T) {
 		t.Fatalf("stdio should need sandbox: %+v", stdio)
 	}
 	claude, ok := providers.ByID(providers.Default(), "claude")
-	if !ok || !providers.NeedsSandbox(claude) || claude.TemplateID != "agent-claude" || claude.Command != "claude-agent-acp" {
+	if !ok || !providers.NeedsSandbox(claude) || claude.TemplateID != "code-agent" || claude.Command != "claude-agent-acp" {
 		t.Fatalf("claude provider: %+v", claude)
 	}
 }

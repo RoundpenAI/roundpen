@@ -2,9 +2,11 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
+import { Banner, Button, Spin, Typography } from '@douyinfe/semi-ui-19'
 import { agents, type AgentBrowserStatus, ApiError } from '../api'
 
 type Props = {
@@ -38,6 +40,26 @@ function mapPointerToViewport(
   if (px < 0 || py < 0 || px > dispW || py > dispH) return null
   // CDP Input uses CSS pixels (= layout viewport), not device pixels.
   return { x: (px / dispW) * layoutW, y: (py / dispH) * layoutH }
+}
+
+const panelStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  height: '100%',
+  minHeight: 320,
+  overflow: 'hidden',
+  borderRadius: 'var(--semi-border-radius-medium)',
+  border: '1px solid var(--semi-color-border)',
+  background: 'var(--semi-color-bg-1)',
+  outline: 'none',
+}
+
+const barStyle: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  borderBottom: '1px solid var(--semi-color-border)',
+  padding: '8px 12px',
 }
 
 /** Live System Agent browser preview with optional human takeover. */
@@ -249,78 +271,122 @@ export function AgentBrowserPanel({
   return (
     <div
       ref={panelRef}
-      className="agent-browser-panel flex h-full min-h-[320px] flex-col overflow-hidden rounded-box border border-base-300 bg-base-100 outline-none"
+      className="agent-browser-panel"
+      style={panelStyle}
       tabIndex={takeover ? 0 : -1}
       onKeyDown={onKeyDown}
     >
-      <div className="flex items-center gap-2 border-b border-base-300 px-3 py-2">
-        <span className="text-xs font-medium tracking-wide uppercase opacity-70">
+      <div style={barStyle}>
+        <Typography.Text
+          size="small"
+          type="tertiary"
+          style={{
+            fontSize: 11,
+            fontWeight: 500,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            flexShrink: 0,
+          }}
+        >
           Browser
-        </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[0.7rem] opacity-60">
+        </Typography.Text>
+        <Typography.Text
+          ellipsis={{ showTooltip: true }}
+          type="tertiary"
+          size="small"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontFamily: 'var(--semi-font-family-code)',
+            fontSize: 11,
+          }}
+        >
           {status?.url || (attached ? '(blank)' : 'not attached')}
-        </span>
+        </Typography.Text>
         {onClose && (
-          <button type="button" className="btn btn-ghost btn-xs" onClick={onClose}>
+          <Button theme="borderless" type="tertiary" size="small" onClick={onClose}>
             Hide
-          </button>
+          </Button>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-b border-base-300 bg-base-200/40 px-3 py-2">
+      <div
+        style={{
+          ...barStyle,
+          flexWrap: 'wrap',
+          background: 'var(--semi-color-fill-0)',
+        }}
+      >
         {takeover ? (
           <>
-            <button
-              type="button"
-              className="btn btn-warning btn-sm"
-              disabled={takeoverBusy}
+            <Button
+              theme="solid"
+              type="warning"
+              size="small"
+              loading={takeoverBusy}
               onClick={() => void setTakeover(false)}
             >
-              {takeoverBusy ? (
-                <span className="loading loading-spinner loading-xs" />
-              ) : null}
               Resume agent
-            </button>
-            <span className="text-xs text-warning">
+            </Button>
+            <Typography.Text type="warning" size="small">
               Click / scroll / type on the preview.
-            </span>
+            </Typography.Text>
           </>
         ) : (
           <>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={takeoverBusy}
+            <Button
+              theme="solid"
+              type="primary"
+              size="small"
+              loading={takeoverBusy}
               onClick={() => void setTakeover(true)}
             >
-              {takeoverBusy ? (
-                <span className="loading loading-spinner loading-xs" />
-              ) : null}
               {attached ? 'Takeover' : 'Open & Takeover'}
-            </button>
-            <span className="text-xs opacity-55">
+            </Button>
+            <Typography.Text type="tertiary" size="small">
               {attached
                 ? 'Pause the agent and solve captchas yourself.'
                 : 'Start the System Agent browser, then interact.'}
-            </span>
+            </Typography.Text>
           </>
         )}
       </div>
 
       {error && (
-        <p className="px-3 py-2 text-xs text-error" role="alert">
-          {error}
-        </p>
+        <Banner
+          fullMode={false}
+          type="danger"
+          description={error}
+          closeIcon={null}
+          style={{ margin: 0, borderRadius: 0 }}
+        />
       )}
 
-      <div className="relative flex min-h-[220px] flex-1 items-center justify-center overflow-hidden bg-[oklch(12%_0.01_55)]">
+      <div
+        style={{
+          position: 'relative',
+          display: 'flex',
+          flex: 1,
+          minHeight: 220,
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          background: 'oklch(12% 0.01 55)',
+        }}
+      >
         {frameUrl ? (
           <>
             <img
               ref={imgRef}
               src={frameUrl}
               alt="Agent browser"
-              className={`max-h-full max-w-full select-none object-contain ${takeover ? 'cursor-crosshair' : ''}`}
+              style={{
+                maxHeight: '100%',
+                maxWidth: '100%',
+                userSelect: 'none',
+                objectFit: 'contain',
+                cursor: takeover ? 'crosshair' : undefined,
+              }}
               draggable={false}
               onClick={(e) => {
                 if (!takeover) {
@@ -332,33 +398,49 @@ export function AgentBrowserPanel({
               onMouseMove={sendMove}
             />
             {!takeover && (
-              <button
-                type="button"
-                className="absolute inset-x-0 bottom-3 mx-auto w-fit rounded-md bg-base-100/90 px-3 py-1.5 text-xs shadow"
+              <Button
+                theme="solid"
+                type="tertiary"
+                size="small"
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  bottom: 12,
+                  transform: 'translateX(-50%)',
+                }}
                 onClick={() => void setTakeover(true)}
               >
                 Click preview or Takeover to interact
-              </button>
+              </Button>
             )}
           </>
         ) : (
-          <div className="flex flex-col items-center gap-3 px-4 text-center">
-            <p className="text-sm opacity-50">
-              {takeoverBusy
-                ? 'Starting browser…'
-                : 'No live frame yet. Open the browser to start.'}
-            </p>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={takeoverBusy}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 12,
+              padding: 16,
+              textAlign: 'center',
+            }}
+          >
+            {takeoverBusy ? (
+              <Spin tip="Starting browser…" />
+            ) : (
+              <Typography.Text type="tertiary" size="small">
+                No live frame yet. Open the browser to start.
+              </Typography.Text>
+            )}
+            <Button
+              theme="solid"
+              type="primary"
+              size="small"
+              loading={takeoverBusy}
               onClick={() => void setTakeover(true)}
             >
-              {takeoverBusy ? (
-                <span className="loading loading-spinner loading-xs" />
-              ) : null}
               Open &amp; Takeover
-            </button>
+            </Button>
           </div>
         )}
       </div>

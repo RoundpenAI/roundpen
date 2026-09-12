@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -73,7 +74,7 @@ func (h *Handler) withSandbox(next handlerFunc) http.HandlerFunc {
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			writeErr(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 		if sb.Status != sandbox.StatusRunning {
@@ -136,13 +137,17 @@ func (h *Handler) navigate(w http.ResponseWriter, r *http.Request, bc browserCtx
 		writeErr(w, http.StatusBadRequest, "url is required")
 		return
 	}
+	if !allowedNavigateURL(req.URL) {
+		writeErr(w, http.StatusBadRequest, "unsupported url scheme")
+		return
+	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.Navigate(r.Context(), req.URL); err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeErr(w, http.StatusBadGateway, "upstream error")
 		return
 	}
 	_ = h.Sandboxes.Touch(r.Context(), bc.id)
@@ -157,12 +162,12 @@ func (h *Handler) navigate(w http.ResponseWriter, r *http.Request, bc browserCtx
 func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	snap, err := sess.Engine.Snapshot(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeErr(w, http.StatusBadGateway, "upstream error")
 		return
 	}
 	writeJSON(w, http.StatusOK, snap)
@@ -180,7 +185,7 @@ func (h *Handler) click(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.Click(r.Context(), req.Ref); err != nil {
@@ -210,7 +215,7 @@ func (h *Handler) typ(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.Type(r.Context(), req.Ref, req.Text, req.Submit); err != nil {
@@ -238,7 +243,7 @@ func (h *Handler) press(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.Press(r.Context(), req.Key); err != nil {
@@ -251,12 +256,12 @@ func (h *Handler) press(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 func (h *Handler) screenshot(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	png, err := sess.Engine.Screenshot(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeErr(w, http.StatusBadGateway, "upstream error")
 		return
 	}
 	if r.URL.Query().Get("format") == "json" {
@@ -285,7 +290,7 @@ func (h *Handler) viewport(w http.ResponseWriter, r *http.Request, bc browserCtx
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.SetViewport(r.Context(), req.Width, req.Height); err != nil {
@@ -308,12 +313,12 @@ func (h *Handler) evaluate(w http.ResponseWriter, r *http.Request, bc browserCtx
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	raw, err := sess.Engine.Evaluate(r.Context(), req.Expression)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		writeErr(w, http.StatusBadGateway, "upstream error")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"result": json.RawMessage(raw)})
@@ -335,6 +340,19 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func allowedNavigateURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "about":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeErr(w http.ResponseWriter, code int, msg string) {

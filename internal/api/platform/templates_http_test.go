@@ -13,9 +13,17 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
 )
+
+func withAdmin(req *http.Request) *http.Request {
+	return req.WithContext(auth.WithUser(req.Context(), &storage.User{
+		Username: "admin",
+		Role:     storage.RoleAdmin,
+	}))
+}
 
 func testTemplateService(t *testing.T) (*template.Service, func()) {
 	t.Helper()
@@ -33,8 +41,8 @@ func testTemplateService(t *testing.T) (*template.Service, func()) {
 		t.Fatalf("migrate: %v", err)
 	}
 	store := template.NewStore(db.SQL)
-	svc := template.NewService(store, "host")
-	if err := svc.Seed(ctx, "kern"); err != nil {
+	svc := template.NewService(store, "ghcr.io/roundpenai/code-agent:0.1.0")
+	if err := svc.Seed(ctx, "docker"); err != nil {
 		_ = db.Close()
 		t.Fatalf("seed: %v", err)
 	}
@@ -76,7 +84,7 @@ func TestHandler_createTemplateV3(t *testing.T) {
 		"cpuCount": 2,
 		"memoryMB": 2048,
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/templates", bytes.NewReader(body))
+	req := withAdmin(httptest.NewRequest(http.MethodPost, "/v1/templates", bytes.NewReader(body)))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusAccepted {
@@ -123,7 +131,7 @@ func TestHandler_startTemplateBuildV2_requiresBuilder(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{"fromImage": "alpine:3.20"})
 	path := "/v1/templates/" + created.TemplateID + "/builds/" + created.BuildID
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	req := withAdmin(httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body)))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -155,14 +163,14 @@ func TestHandler_templateCRUD(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]any{"description": "hello", "cpuCount": 2})
-	req = httptest.NewRequest(http.MethodPatch, "/v1/templates/"+created.TemplateID, bytes.NewReader(body))
+	req = withAdmin(httptest.NewRequest(http.MethodPatch, "/v1/templates/"+created.TemplateID, bytes.NewReader(body)))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PATCH status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	req = httptest.NewRequest(http.MethodDelete, "/v1/templates/"+created.TemplateID, nil)
+	req = withAdmin(httptest.NewRequest(http.MethodDelete, "/v1/templates/"+created.TemplateID, nil))
 	rec = httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
@@ -178,21 +186,21 @@ func TestHandler_deleteBuiltinForbidden(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hostID string
+	var baseID string
 	for _, rec := range list {
-		if rec.Name == "host" {
-			hostID = rec.TemplateID
+		if rec.Name == "base" {
+			baseID = rec.TemplateID
 			break
 		}
 	}
-	if hostID == "" {
-		t.Fatal("host template missing")
+	if baseID == "" {
+		t.Fatal("base template missing")
 	}
 
 	mux := http.NewServeMux()
 	(&Handler{Templates: tplSvc}).Mount(mux)
 
-	req := httptest.NewRequest(http.MethodDelete, "/v1/templates/"+hostID, nil)
+	req := withAdmin(httptest.NewRequest(http.MethodDelete, "/v1/templates/"+baseID, nil))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {

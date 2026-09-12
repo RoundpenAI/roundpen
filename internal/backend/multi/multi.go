@@ -1,8 +1,7 @@
-// Package multi routes Create/lifecycle calls to qemu, docker, or kern.
+// Package multi routes Create/lifecycle calls to qemu or docker.
 //
-// Browser/mobile slots and .qcow2 images always use QEMU. Agent sandboxes follow
-// CreateOpts.Engine (or DefaultAgent). OCI images never go to QEMU — they fall
-// back to Docker, then Kern.
+// Browser/mobile slots and .qcow2 images always use QEMU. Agent sandboxes
+// always use Docker. There is no per-user engine picker anymore.
 package multi
 
 import (
@@ -16,8 +15,8 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
-	"github.com/RoundpenAI/roundpen/internal/backend/kern"
 	"github.com/RoundpenAI/roundpen/internal/backend/qemu"
+	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
 // Options configure lazy engine attachment.
@@ -25,41 +24,32 @@ type Options struct {
 	DataRoot      string
 	DockerHost    string
 	DockerRuntime string
-	DefaultAgent  string // qemu | docker | kern
 	DisableQEMU   bool
 }
 
-// Backend picks an engine per sandbox based on slot, image, and Engine hint.
+// Backend picks an engine per sandbox based on slot and image.
 type Backend struct {
 	DataRoot      string
 	DockerHost    string
 	DockerRuntime string
-	DefaultAgent  string
 	disableQEMU   bool
 
 	mu     sync.Mutex
 	qemu   *qemu.Backend
 	docker *dockerbackend.Backend
-	kern   *kern.Backend
-	routes map[string]string // sandboxID -> qemu|docker|kern
+	routes map[string]string // sandboxID -> qemu|docker
 	qerr   error
 	derr   error
 }
 
-// New wraps qemu/docker/kern. Engines that are missing on the host are attached
+// New wraps qemu/docker. Engines that are missing on the host are attached
 // later when binaries or the daemon appear (no process restart required).
 func New(opts Options) *Backend {
-	def := strings.ToLower(strings.TrimSpace(opts.DefaultAgent))
-	if def == "" {
-		def = "qemu"
-	}
 	return &Backend{
 		DataRoot:      opts.DataRoot,
 		DockerHost:    opts.DockerHost,
 		DockerRuntime: opts.DockerRuntime,
-		DefaultAgent:  def,
 		disableQEMU:   opts.DisableQEMU,
-		kern:          kern.New(),
 		routes:        make(map[string]string),
 	}
 }
@@ -125,56 +115,29 @@ func (b *Backend) Close() error {
 	return err
 }
 
-func (b *Backend) kernEngine() backend.Backend {
-	return b.kern
-}
-
 func (b *Backend) pickCreate(opts backend.CreateOpts) (backend.Backend, error) {
 	slot := strings.ToLower(strings.TrimSpace(opts.Slot))
 	if slot == "" {
 		slot = strings.ToLower(strings.TrimSpace(opts.Env["ROUNDPEN_SLOT"]))
 	}
-	switch routeKind(slot, opts.Image, opts.Engine, b.DefaultAgent) {
+	switch routeKind(slot, opts.Image) {
 	case "qemu":
 		eng, err := b.qemuEngine()
 		if err != nil {
 			return nil, fmt.Errorf("qemu: %w", err)
 		}
 		return eng, nil
-	case "docker":
+	default:
 		return b.dockerEngine()
-	case "kern":
-		return b.kernEngine(), nil
-	default: // docker-or-kern: OCI/host when the user asked for QEMU
-		if eng, err := b.dockerEngine(); err == nil {
-			return eng, nil
-		}
-		return b.kernEngine(), nil
 	}
 }
 
-func routeKind(slot, image, engine, defaultAgent string) string {
+func routeKind(slot, image string) string {
 	slot = strings.ToLower(strings.TrimSpace(slot))
 	if slot == "browser" || slot == "mobile" || isQcow2(image) {
 		return "qemu"
 	}
-	want := strings.ToLower(strings.TrimSpace(engine))
-	if want == "" {
-		want = strings.ToLower(strings.TrimSpace(defaultAgent))
-	}
-	switch want {
-	case "docker":
-		return "docker"
-	case "kern":
-		return "kern"
-	case "qemu":
-		if isQcow2(image) {
-			return "qemu"
-		}
-		return "docker-or-kern"
-	default:
-		return "docker-or-kern"
-	}
+	return "docker"
 }
 
 func isQcow2(image string) bool {
@@ -203,8 +166,6 @@ func (b *Backend) engine(id string) backend.Backend {
 		if eng, err := b.dockerEngine(); err == nil {
 			return eng
 		}
-	case "kern":
-		return b.kernEngine()
 	}
 	if b.qemu != nil {
 		if _, err := b.qemu.VNCSock(id); err == nil {
@@ -218,7 +179,41 @@ func (b *Backend) engine(id string) backend.Backend {
 			return qb
 		}
 	}
-	return b.kernEngine()
+	if be, err := b.dockerEngine(); err == nil {
+		return be
+	}
+	return unavailableBackend{err: fmt.Errorf("no engine available for sandbox %s (Docker down and no QEMU instance)", id)}
+}
+
+// unavailableBackend fails every operation with a descriptive error instead of
+// panicking when neither Docker nor QEMU can be attached.
+type unavailableBackend struct{ err error }
+
+func (u unavailableBackend) Name() string { return "unavailable" }
+
+func (u unavailableBackend) Create(context.Context, backend.CreateOpts) (string, error) {
+	return "", u.err
+}
+func (u unavailableBackend) Start(context.Context, string) error  { return u.err }
+func (u unavailableBackend) Stop(context.Context, string) error   { return u.err }
+func (u unavailableBackend) Remove(context.Context, string) error { return u.err }
+func (u unavailableBackend) Exec(context.Context, string, backend.ExecOpts) (*backend.ExecResult, error) {
+	return nil, u.err
+}
+func (u unavailableBackend) Logs(context.Context, string) (io.ReadCloser, error) {
+	return nil, u.err
+}
+func (u unavailableBackend) Dial(context.Context, string, int) (net.Conn, error) {
+	return nil, u.err
+}
+func (u unavailableBackend) AttachPTY(context.Context, string, string, backend.PTYOpts, io.Reader, io.Writer) error {
+	return u.err
+}
+func (u unavailableBackend) ResizePTY(context.Context, string, string, uint16, uint16) error {
+	return u.err
+}
+func (u unavailableBackend) AttachExec(context.Context, string, backend.AttachExecOpts, io.Reader, io.Writer, io.Writer) error {
+	return u.err
 }
 
 func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, error) {
@@ -275,6 +270,42 @@ func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend
 	return b.engine(sandboxID).AttachExec(ctx, sandboxID, opts, stdin, stdout, stderr)
 }
 
+// CopyToWorkspace forwards to Docker when the sandbox is on the docker engine.
+func (b *Backend) CopyToWorkspace(ctx context.Context, sandboxID, destRel string, r io.Reader) error {
+	eng := b.engine(sandboxID)
+	c, ok := eng.(interface {
+		CopyToWorkspace(context.Context, string, string, io.Reader) error
+	})
+	if !ok {
+		return fmt.Errorf("guest workspace IO requires Docker")
+	}
+	return c.CopyToWorkspace(ctx, sandboxID, destRel, r)
+}
+
+// CopyFromWorkspace forwards to Docker when the sandbox is on the docker engine.
+func (b *Backend) CopyFromWorkspace(ctx context.Context, sandboxID, srcRel string) (io.ReadCloser, error) {
+	eng := b.engine(sandboxID)
+	c, ok := eng.(interface {
+		CopyFromWorkspace(context.Context, string, string) (io.ReadCloser, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("guest workspace IO requires Docker")
+	}
+	return c.CopyFromWorkspace(ctx, sandboxID, srcRel)
+}
+
+// ListWorkspaceDir forwards to Docker when the sandbox is on the docker engine.
+func (b *Backend) ListWorkspaceDir(ctx context.Context, sandboxID, rel string) ([]workspace.DirEntry, error) {
+	eng := b.engine(sandboxID)
+	c, ok := eng.(interface {
+		ListWorkspaceDir(context.Context, string, string) ([]workspace.DirEntry, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("guest workspace IO requires Docker")
+	}
+	return c.ListWorkspaceDir(ctx, sandboxID, rel)
+}
+
 // VNCSock delegates to qemu when the sandbox is a VM.
 func (b *Backend) VNCSock(sandboxID string) (string, error) {
 	eng, err := b.qemuEngine()
@@ -302,4 +333,13 @@ func (b *Backend) QEMUErr() error {
 func (b *Backend) HasDocker() bool {
 	_, err := b.dockerEngine()
 	return err == nil
+}
+
+// HasImage reports whether an OCI image ref is already present locally.
+func (b *Backend) HasImage(ctx context.Context, ref string) (bool, error) {
+	be, err := b.dockerEngine()
+	if err != nil {
+		return false, err
+	}
+	return be.HasImage(ctx, ref)
 }

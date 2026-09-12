@@ -1,12 +1,18 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os/exec"
+	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +27,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
 // Backend talks to a local or remote Docker Engine.
@@ -148,6 +155,21 @@ func (b *Backend) ensureImage(ctx context.Context, ref string) error {
 	defer rc.Close()
 	_, _ = io.Copy(io.Discard, rc)
 	return nil
+}
+
+// HasImage reports whether ref is present in the local image store.
+func (b *Backend) HasImage(ctx context.Context, ref string) (bool, error) {
+	if strings.TrimSpace(ref) == "" {
+		return false, fmt.Errorf("image ref is empty")
+	}
+	_, _, err := b.cli.ImageInspectWithRaw(ctx, ref)
+	if err == nil {
+		return true, nil
+	}
+	if client.IsErrNotFound(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 func (b *Backend) Start(ctx context.Context, sandboxID string) error {
@@ -493,3 +515,138 @@ func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend
 }
 
 var _ backend.Backend = (*Backend)(nil)
+
+// CopyToWorkspace writes a single file into /workspace/<destRel> using Docker copy API.
+func (b *Backend) CopyToWorkspace(ctx context.Context, sandboxID, destRel string, r io.Reader) error {
+	destRel = strings.TrimPrefix(strings.TrimSpace(destRel), "/")
+	if destRel == "" || destRel == "." {
+		return fmt.Errorf("path is required")
+	}
+	data, err := io.ReadAll(io.LimitReader(r, 64<<20+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > 64<<20 {
+		return fmt.Errorf("file too large")
+	}
+	base := path.Base(destRel)
+	dir := path.Dir(destRel)
+	if dir == "." {
+		dir = ""
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name: base,
+		Mode: 0o644,
+		Size: int64(len(data)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	if _, err := tw.Write(data); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	guestDir := "/workspace"
+	if dir != "" {
+		guestDir = path.Join("/workspace", dir)
+		// Ensure parent directory exists inside the container.
+		if _, err := b.Exec(ctx, sandboxID, backend.ExecOpts{
+			Cmd:     []string{"mkdir", "-p", "--", guestDir},
+			WorkDir: "/workspace",
+		}); err != nil {
+			return fmt.Errorf("mkdir: %w", err)
+		}
+	}
+	return b.cli.CopyToContainer(ctx, containerName(sandboxID), guestDir, &buf, types.CopyToContainerOptions{})
+}
+
+// CopyFromWorkspace reads a single file from /workspace/<srcRel>.
+func (b *Backend) CopyFromWorkspace(ctx context.Context, sandboxID, srcRel string) (io.ReadCloser, error) {
+	srcRel = strings.TrimPrefix(strings.TrimSpace(srcRel), "/")
+	if srcRel == "" || srcRel == "." {
+		return nil, fmt.Errorf("path is required")
+	}
+	guest := path.Join("/workspace", srcRel)
+	rc, _, err := b.cli.CopyFromContainer(ctx, containerName(sandboxID), guest)
+	if err != nil {
+		return nil, err
+	}
+	tr := tar.NewReader(rc)
+	hdr, err := tr.Next()
+	if err != nil {
+		rc.Close()
+		return nil, err
+	}
+	if hdr.FileInfo().IsDir() {
+		rc.Close()
+		return nil, fmt.Errorf("is a directory")
+	}
+	return &tarFileReader{r: tr, closer: rc}, nil
+}
+
+type tarFileReader struct {
+	r      *tar.Reader
+	closer io.Closer
+}
+
+// ListWorkspaceDir lists the immediate children of /workspace/<rel> via the
+// Docker archive API, so the guest image needs no extra tooling.
+// rel "" or "." lists the workspace root.
+func (b *Backend) ListWorkspaceDir(ctx context.Context, sandboxID, rel string) ([]workspace.DirEntry, error) {
+	rel = strings.TrimPrefix(strings.TrimSpace(rel), "/")
+	guest := "/workspace"
+	if rel != "" && rel != "." {
+		guest = path.Join("/workspace", rel)
+	}
+	rc, _, err := b.cli.CopyFromContainer(ctx, containerName(sandboxID), guest)
+	if err != nil {
+		return nil, guestPathErr(guest, err)
+	}
+	defer rc.Close()
+	return dirEntriesFromTar(path.Base(guest), rc)
+}
+
+// dirEntriesFromTar reads the daemon's archive stream (names rebased to the
+// listed directory's basename, root entry included) for immediate children.
+func dirEntriesFromTar(base string, r io.Reader) ([]workspace.DirEntry, error) {
+	tr := tar.NewReader(r)
+	out := []workspace.DirEntry{}
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		name := path.Clean(hdr.Name)
+		if name == base || path.Dir(name) != base {
+			continue
+		}
+		out = append(out, workspace.DirEntry{
+			Name:    path.Base(name),
+			IsDir:   hdr.FileInfo().IsDir(),
+			Size:    hdr.Size,
+			ModTime: hdr.ModTime,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// guestPathErr preserves 404 semantics for a missing path: the daemon reports
+// it as a plain error string, which the API layer matches via os.IsNotExist.
+func guestPathErr(guest string, err error) error {
+	msg := err.Error()
+	if strings.Contains(msg, "Could not find the file") || strings.Contains(msg, "no such file or directory") {
+		return &fs.PathError{Op: "list", Path: guest, Err: fs.ErrNotExist}
+	}
+	return err
+}
+
+func (t *tarFileReader) Read(p []byte) (int, error) { return t.r.Read(p) }
+func (t *tarFileReader) Close() error               { return t.closer.Close() }

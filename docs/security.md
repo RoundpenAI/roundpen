@@ -3,7 +3,8 @@
 本文从**使用者视角**说明当前 AI Agent 的主要安全风险，阐述 Roundpen 的安全设计立场、架构原则与能力边界，并列出规划中的能力。
 
 对外宣传稿（更易读、少技术细节）：[agent-security.md](agent-security.md)。  
-相关文档：[architecture/project-layout.md](architecture/project-layout.md)、[architecture/environment-services.md](architecture/environment-services.md)、[auth.md](auth.md)。
+相关文档：[architecture/project-layout.md](architecture/project-layout.md)、[architecture/environment-services.md](architecture/environment-services.md)、[auth.md](auth.md)。  
+实现走查（安全缺口与设计债，2026-09-08）：[reviews/2026-09-08-security-and-design.md](reviews/2026-09-08-security-and-design.md)。
 
 ## 背景：使用者真正担心什么
 
@@ -42,9 +43,9 @@ Environment Services   ← 终端、工作区、端口预览（及后续 Browser
       │
 Sandbox Manager        ← 生命周期、执行、超时
       │
-Backend                ← Docker / Kern /（规划：Kubernetes）
+Backend                ← Agent: Docker；Browser/Desktop/Mobile: QEMU（规划：Kubernetes）
       │
-OCI Runtime            ← runc / gVisor / Kata 等（按部署选择）
+OCI Runtime            ← runc / gVisor / Kata 等（Agent 容器按部署选择）
 ```
 
 | 层级 | 职责 |
@@ -52,27 +53,27 @@ OCI Runtime            ← runc / gVisor / Kata 等（按部署选择）
 | 控制面 | 鉴权、策略、审计、记忆、LLM 与工具网关 |
 | Environment Services | Agent 操作面：文件、终端、预览等 |
 | Sandbox 抽象 | 统一生命周期与 exec，不绑定具体引擎 |
-| Backend | 可插拔执行后端（Docker、Kern 等） |
-| OCI Runtime | 由后端选用；Kern 作为轻量路径可绕过完整容器栈 |
+| Backend | 槽位固定后端：**Agent → Docker**；**Browser / Desktop / Mobile → QEMU**（规划：Kubernetes） |
+| OCI Runtime | Agent 容器由后端选用 runc / gVisor / Kata 等 |
 
 控制面与执行面职责分离：安全策略集中在控制面执行，更换后端引擎时不必重写规则。
 
 ## 设计原则
 
-### 1. 沙箱抽象，引擎可插拔
+### 1. 槽位后端钉死
 
-用户不应被锁定在单一运行时上。Roundpen 通过统一的 Sandbox 接口抽象后端差异：
+用户不应被要求选择运行时。Roundpen 按槽位固定后端，减少错误配置面：
 
-- **Kern**：免守护的轻量隔离，适合本机开发、笔记本与低配 NAS；基于最小挂载的进程隔离，工作区与 home 目录显式绑定，宿主机根文件系统对 Agent 不可见。
-- **Docker**：适合生产与小团队；容器默认丢弃特权（`CapDrop: ALL`）、禁止提权（`no-new-privileges`），可按需选用 `runc`、`crun`、`gVisor`、`Kata` 等 OCI 运行时。
-- **Kubernetes**（规划中）：面向集群扩展，预留 Backend 接口，不以 Operator 形态过度复杂化。
+- **Agent → Docker**：容器默认丢弃特权（`CapDrop: ALL`）、禁止提权（`no-new-privileges`），可按需选用 `runc`、`crun`、`gVisor`、`Kata` 等 OCI 运行时。镜像从官方注册表 pull 或离线 load。
+- **Browser / Desktop / Mobile → QEMU**：qemu 虚拟机提供画面与 CDP；与 Agent 容器隔离。
+- **Kubernetes**（规划中）：面向集群扩展，预留 Backend 接口。
 
-同一套 API，不同安全档位——由部署者按场景选择。
+同一套 API、按槽位固定后端——不再提供 QEMU/Kern/Docker 三选一。
 
 ### 2. 工作区有边界，文件访问可管
 
 - 工作区挂载为沙箱内 `/workspace`，与宿主机目录一一对应。
-- 所有相对路径经规范化校验，**禁止 `..` 逃逸**出工作区根目录。
+- 所有相对路径经规范化校验，**禁止 `..` 逃逸**出工作区根目录；指向工作区外的 symlink 不可读、不可写、不可 `RemoveAll` 跟随。
 - 文件读写优先经控制面 `WorkspaceFS` API，而非依赖容器内 shell；沙箱停止后，经认证用户仍可管理工作区，同时减少容器内攻击面。
 
 详见 [architecture/environment-services.md](architecture/environment-services.md) 中 Workspace 一节。
@@ -91,14 +92,14 @@ OCI Runtime            ← runc / gVisor / Kata 等（按部署选择）
 
 - 管理 API、终端 WebSocket：需 Cookie 会话或 `rp-...` API Key（见 [auth.md](auth.md)）。
 - 端口预览：须由已认证用户通过 `preview-link` 签发**短时令牌**；预览流量校验令牌与会话，令牌有过期时间。
-- 登录接口按 IP 限流，减缓暴力尝试。
+- 登录接口按 IP 限流，减缓暴力尝试。`X-Forwarded-*` 仅在 `ROUNDPEN_TRUSTED_PROXIES`（CIDR 列表）命中时生效。
 
 预览与终端**不**提供默认无鉴权访问——这是自托管安全模型的底线。
 
 ### 5. 记忆分层，数据路径清晰
 
 - 短期记忆（JSONB + TTL）与长期向量记忆（`pgvector`）均存 PostgreSQL；文件落本地盘或用户配置的远端目录（`WorkspaceFS`）。
-- 记忆按 `agent_id`、`user_id` 等维度索引；长期记忆的 embedding 经内部 LLM 网关别名完成，Agent 不直接接触 embedding 上游密钥。
+- 记忆按 `agent_id`、`user_id` 等维度索引；非 admin 的读写被强制绑定登录身份，不能靠客户端自报 `user_id` 跨用户。长期记忆的 embedding 经内部 LLM 网关别名完成，Agent 不直接接触 embedding 上游密钥。
 - 数据路径透明，便于备份、迁移与合规审查。
 
 ### 6. 开放协议，降低接入成本
@@ -109,9 +110,9 @@ Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 A
 
 | 能力 | 说明 |
 |------|------|
-| 沙箱隔离与生命周期 | 创建、执行、停止、超时；Docker 与 Kern 双后端 |
-| 工作区与文件 API | 路径边界校验；沙箱停止后仍可经认证 API 管理文件 |
-| 终端与端口预览 | 认证终端 WebSocket；预览须短时令牌 |
+| 沙箱隔离与生命周期 | 创建、执行、停止、超时；按属主隔离；Agent 用 Docker、Browser 用 QEMU |
+| 工作区与文件 API | 路径与 symlink 边界校验；Agent 工作区经容器读写（与 Agent 同身份） |
+| 终端与端口预览 | 认证终端 WebSocket（同源 Origin）；预览须短时令牌 |
 | 用户体系 | 密码登录 + 每用户 API Key；登录限流 |
 | LLM 网关 | Virtual Key 代理、多上游、请求流水 |
 | 记忆服务 | 短期 JSONB + 长期向量；mem0 风格 Agent API |
@@ -125,9 +126,9 @@ Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 A
 
 | 能力 | 目标 | 状态 |
 |------|------|------|
-| 策略引擎（`policy`） | Token 预算、工具白名单、敏感操作拦截 | 架构预留 |
-| 工具网关（`toolgw`） | 统一注册与调用、凭证隔离、与策略联动 | 架构预留 |
-| 审计与可观测（`audit`） | 执行轨迹、异常检测、强制终止 | 架构预留 |
+| 策略引擎（`policy`） | Token 预算、工具白名单、敏感操作拦截 | 空包，未接入控制面 |
+| 工具网关（`toolgw`） | 统一注册与调用、凭证隔离、与策略联动 | 空包，未接入控制面 |
+| 审计与可观测（`audit`） | 执行轨迹、异常检测、强制终止 | 最小 slog 记录（创建 / 删除 / exec / settings）；非围栏 |
 | 出站网络策略 | 细粒度控制沙箱可访问的域名与地址 | 路线图 |
 | 加固运行时 | gVisor、Kata 等的生产级配置与文档 | 部分可配置，文档与默认方案完善中 |
 | Kubernetes 后端（`backend/k8s`） | 集群环境下的沙箱调度 | 架构预留 |
@@ -143,7 +144,7 @@ Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 A
 | 约束 | 原因 |
 |------|------|
 | 不在沙箱内默认运行重型守护进程 | 控制面保持薄，镜像与攻击面更小 |
-| 不以容器 `exec` 作为唯一文件访问路径 | Host-side 工作区是默认模型 |
+| 不默认做 idmapped / PUID 写路径 | Agent 工作区读写统一经容器（同身份），避免宿主 UID 与 guest UID 不一致 |
 | 不提供默认无鉴权的预览或终端 | 自托管威胁模型不允许 |
 | 不做云厂商锁定方案 | 自托管与开放协议是产品核心 |
 
@@ -161,7 +162,7 @@ Roundpen 的安全立场可概括为：
 
 - **用沙箱隔离执行** — Agent 在可控环境中运行，而非直接在宿主机上操作。
 - **用网关隔离凭证** — 真实密钥留在控制面，对外仅暴露可管理的虚拟凭证。
-- **用策略与审计拉住缰绳** — 硬约束能力在架构上已就位，持续落地中。
+- **用属主与最小审计收紧默认** — 沙箱 / 记忆按登录身份隔离；`policy` / `toolgw` 仍未交付，不能当成围栏。
 - **用开放协议守住自由** — 数据留在用户环境，框架集成不必从零开始。
 
 安全是持续演进的能力，而非一次性开关。本文将随实现进展更新「已交付」与「规划能力」各节。

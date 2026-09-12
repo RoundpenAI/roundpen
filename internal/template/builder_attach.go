@@ -3,7 +3,6 @@ package template
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/template/builder"
@@ -31,7 +30,11 @@ func AttachBuilder(cfg *config.Config, svc *Service, logger *slog.Logger) (func(
 			ExtraArgs:         cfg.KanikoExtraArgs,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("kaniko template builder: %w", err)
+			logger.Warn("kaniko template builder unavailable; continuing without local builds",
+				slog.Any("err", err),
+				slog.String("hint", "install executor (./scripts/install-kaniko.sh) or set Template build engine to Disabled / remote CI in Settings"),
+			)
+			return func() {}, nil
 		}
 		svc.SetBuilder("kaniko", bld)
 		logger.Info("template builder enabled",
@@ -39,9 +42,14 @@ func AttachBuilder(cfg *config.Config, svc *Service, logger *slog.Logger) (func(
 			slog.String("destination", cfg.KanikoDestination),
 		)
 		return func() { _ = bld.Close() }, nil
+	case "ci":
+		logger.Info("template builder set to remote CI",
+			slog.String("hint", "local StartBuild is disabled; push recipes to CI to produce images"),
+		)
+		return func() {}, nil
 	default:
 		logger.Info("template builder disabled",
-			slog.String("hint", "set ROUNDPEN_TEMPLATE_BUILDER=docker|kaniko or ROUNDPEN_KANIKO_DESTINATION for kern builds"),
+			slog.String("hint", "set ROUNDPEN_TEMPLATE_BUILDER=docker|kaniko|ci in Settings when needed"),
 		)
 		return func() {}, nil
 	}
@@ -54,10 +62,9 @@ func BuilderUnavailableHint(cfg *config.Config) string {
 		return "template builds use kaniko; ensure executor + bubblewrap (bwrap) are installed and registry credentials are configured"
 	case "docker":
 		return "template builds use docker; ensure DOCKER_HOST is reachable"
+	case "ci":
+		return "template builds are delegated to remote CI; local builds are disabled"
 	default:
-		if strings.EqualFold(cfg.Backend, "kern") {
-			return "template builds require docker backend or kaniko (set ROUNDPEN_TEMPLATE_BUILDER=kaniko and ROUNDPEN_KANIKO_DESTINATION)"
-		}
-		return "template builds require docker backend or kaniko builder configuration"
+		return "template builds disabled — choose Docker, local Kaniko, or remote CI in Settings"
 	}
 }

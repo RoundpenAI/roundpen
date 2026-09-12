@@ -1,4 +1,4 @@
-// Package backend defines pluggable sandbox engines (Docker, Kern, K8s, …).
+// Package backend defines pluggable sandbox engines (Docker, QEMU, K8s, …).
 package backend
 
 import (
@@ -11,7 +11,7 @@ import (
 // CreateOpts configures engine-level sandbox creation.
 type CreateOpts struct {
 	SandboxID   string
-	Name        string // optional display name (kern jail hostname)
+	Name        string // optional display name (sandbox hostname)
 	Image       string
 	MountDir    string // host path mounted at /workspace
 	Env         map[string]string
@@ -19,7 +19,7 @@ type CreateOpts struct {
 	CPULimit    float64
 	UseImageCmd bool   // keep image ENTRYPOINT/CMD (template snapshots)
 	Slot        string // agent | browser | mobile — selects engine when using a multi backend
-	Engine      string // qemu | docker | kern — user/slot preference for agent
+	Engine      string // qemu | docker — slot preference (Agent is Docker-only)
 }
 
 // ExecOpts configures a command run inside the engine sandbox.

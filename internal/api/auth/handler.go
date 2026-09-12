@@ -21,8 +21,8 @@ func NewUserHandler(users storage.UserStore) *UserHandler {
 }
 
 func maskAPIKey(key string) string {
-	if len(key) <= 8 {
-		return "****"
+	if !strings.HasPrefix(key, APIKeyPrefix) || len(key) <= 8 {
+		return "rp-****"
 	}
 	return key[:7] + "..." + key[len(key)-4:]
 }

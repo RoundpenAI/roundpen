@@ -23,9 +23,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
-    ports:
-      # Optional: expose for host-side tools / pg0-less local API.
-      - "${POSTGRES_PORT:-5432}:5432"
+    # Do not publish Postgres on the host by default. For host-side tools:
+    #   ports:
+    #     - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
 
   roundpend:
     build:
@@ -40,8 +40,9 @@ services:
     environment:
       ROUNDPEN_HTTP_ADDR: ":9527"
       DATABASE_URL: "postgres://roundpen:${POSTGRES_PASSWORD:-roundpen}@postgres:5432/roundpen?sslmode=disable"
-      ROUNDPEN_BACKEND: "${ROUNDPEN_BACKEND:-kern}"
-      ROUNDPEN_DEFAULT_IMAGE: "${ROUNDPEN_DEFAULT_IMAGE:-host}"
+      ROUNDPEN_BACKEND: "${ROUNDPEN_BACKEND:-docker}"
+      ROUNDPEN_AGENT_IMAGE: "${ROUNDPEN_AGENT_IMAGE:-ghcr.io/roundpenai/code-agent:0.1.0}"
+      ROUNDPEN_DEFAULT_IMAGE: "${ROUNDPEN_DEFAULT_IMAGE:-ghcr.io/roundpenai/code-agent:0.1.0}"
       ROUNDPEN_DATA_ROOT: /data
       ROUNDPEN_BOOTSTRAP_ADMIN: "true"
       ROUNDPEN_PREVIEW_PUBLIC_URL: "${ROUNDPEN_PREVIEW_PUBLIC_URL:-http://127.0.0.1:9527}"
@@ -49,14 +50,10 @@ services:
       # ROUNDPEN_API_KEY: "${ROUNDPEN_API_KEY:-}"
     volumes:
       - roundpen-data:/data
-    # For Docker-backed sandboxes on the host engine, uncomment:
-    #   ROUNDPEN_BACKEND=docker
-    #   ROUNDPEN_DEFAULT_IMAGE=alpine:3.20
-    # and:
-    #   volumes:
-    #     - roundpen-data:/data
-    #     - /var/run/docker.sock:/var/run/docker.sock
-    #   user: root   # needed to talk to the socket
+      # Agent is Docker-only: the control plane must reach a Docker daemon.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Needed to talk to the Docker socket when the daemon runs as root.
+    user: root
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:9527/health || exit 1"]
       interval: 15s

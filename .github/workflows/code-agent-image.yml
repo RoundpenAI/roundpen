@@ -1,0 +1,67 @@
+name: code-agent image
+
+# Build and push the official Agent OCI image.
+#
+#   ghcr.io/<owner>/code-agent:<semver>   pinned release (ROUNDPEN_AGENT_IMAGE default)
+#   ghcr.io/<owner>/code-agent:latest     floating dev tag
+#
+# Tag policy: production pins a semver tag; `latest` tracks main/tags for development.
+# Override the default in deployments with ROUNDPEN_AGENT_IMAGE (private mirror / offline).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to push (default: short SHA)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tags
+        id: tags
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          owner_lc="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/${owner_lc}/code-agent"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${INPUT_TAG}" ]]; then
+            tag="${INPUT_TAG}"
+          else
+            tag="sha-${GITHUB_SHA::7}"
+          fi
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        run: |
+          docker build \
+            -t "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.tag }}" \
+            -t "${{ steps.tags.outputs.image }}:latest" \
+            images/code-agent
+
+      - name: Push
+        run: |
+          docker push "${{ steps.tags.outputs.image }}:${{ steps.tags.outputs.tag }}"
+          docker push "${{ steps.tags.outputs.image }}:latest"

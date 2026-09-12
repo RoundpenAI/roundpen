@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
 func TestSanitizeUser(t *testing.T) {
@@ -159,18 +160,18 @@ func TestListDiscoversUnmappedBrowser(t *testing.T) {
 	}
 }
 
-func TestEnsureAgentRecreatesDockerImage(t *testing.T) {
+func TestEnsureAgentRecreatesNonDockerImage(t *testing.T) {
 	ctx := context.Background()
 	boxes := &fakeSandboxes{byID: map[string]*sandbox.Sandbox{
-		"kata": {
-			ID:     "kata",
+		"old-qemu": {
+			ID:     "old-qemu",
 			Name:   "agent-alice",
 			Status: sandbox.StatusRunning,
-			Image:  "roundpen-code-agent:local",
+			Image:  "images/agent-qemu/out/agent.qcow2",
 		},
 	}}
 	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}
-	if err := svc.Store.Upsert(ctx, "alice", SlotAgent, "kata", "code-agent"); err != nil {
+	if err := svc.Store.Upsert(ctx, "alice", SlotAgent, "old-qemu", "agent-claude"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -178,13 +179,16 @@ func TestEnsureAgentRecreatesDockerImage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sb.ID == "kata" {
-		t.Fatal("should replace docker/kata agent sandbox")
+	if sb.ID == "old-qemu" {
+		t.Fatal("should replace qemu agent sandbox with Docker")
+	}
+	if sb.ID != workspace.AgentSandboxID("alice") {
+		t.Fatalf("stable id: got %q", sb.ID)
 	}
 	if boxes.creates != 1 {
 		t.Fatalf("creates=%d", boxes.creates)
 	}
-	if _, err := boxes.Get(ctx, "kata"); !errors.Is(err, sandbox.ErrNotFound) {
-		t.Fatalf("docker sandbox should be deleted: %v", err)
+	if _, err := boxes.Get(ctx, "old-qemu"); !errors.Is(err, sandbox.ErrNotFound) {
+		t.Fatalf("qemu sandbox should be deleted: %v", err)
 	}
 }

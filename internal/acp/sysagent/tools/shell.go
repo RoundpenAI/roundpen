@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,21 +18,28 @@ const (
 	maxExecOutput      = 32 << 10
 )
 
-// AgentSlot starts the user's Cloud Agent environment (docker/kern/qemu).
+// AgentSlot starts the user's Cloud Agent environment.
 type AgentSlot interface {
 	EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error)
 }
 
-// SandboxExec runs a command inside a running sandbox.
+// SandboxExec runs a command inside the agent workspace environment.
 type SandboxExec interface {
 	Exec(ctx context.Context, id string, req sandbox.ExecRequest) (*sandbox.ExecResult, error)
 	WorkspaceHostPath(ctx context.Context, id string) (string, error)
 }
 
-// AgentBinder runs shell commands in the user's Agent slot.
+// WorkspaceFiles reads and writes files in the agent workspace.
+type WorkspaceFiles interface {
+	ReadFile(ctx context.Context, id, relPath string) (io.ReadCloser, error)
+	WriteFile(ctx context.Context, id, relPath string, r io.Reader) error
+}
+
+// AgentBinder runs shell and file tools in the user's Agent workspace.
 type AgentBinder struct {
 	Slots AgentSlot
 	Exec  SandboxExec
+	Files WorkspaceFiles
 }
 
 func (b *AgentBinder) ensure(ctx context.Context, actor Actor) (*sandbox.Sandbox, error) {
@@ -43,23 +51,43 @@ func (b *AgentBinder) ensure(ctx context.Context, actor Actor) (*sandbox.Sandbox
 	}
 	sb, err := b.Slots.EnsureAgent(ctx, actor.Username)
 	if err != nil {
-		return nil, fmt.Errorf("ensure agent environment: %w", err)
+		return nil, fmt.Errorf("agent workspace is not available: %w", err)
 	}
 	if sb == nil || sb.ID == "" {
-		return nil, fmt.Errorf("agent environment has no sandbox")
+		return nil, fmt.Errorf("agent workspace is not available")
 	}
 	return sb, nil
 }
 
+func (b *AgentBinder) ensureID(ctx context.Context, actor Actor) (string, error) {
+	sb, err := b.ensure(ctx, actor)
+	if err != nil {
+		return "", err
+	}
+	return sb.ID, nil
+}
+
 func (b *AgentBinder) exec(ctx context.Context, sbID string, cmd []string, workDir string, timeout time.Duration) (string, error) {
+	res, err := b.execResult(ctx, sbID, cmd, workDir, timeout)
+	if err != nil {
+		return "", err
+	}
+	out := formatExecResult(res)
+	if res.ExitCode != 0 {
+		return out, fmt.Errorf("exit %d", res.ExitCode)
+	}
+	return out, nil
+}
+
+func (b *AgentBinder) execResult(ctx context.Context, sbID string, cmd []string, workDir string, timeout time.Duration) (*sandbox.ExecResult, error) {
 	if b == nil || b.Exec == nil {
-		return "", fmt.Errorf("sandbox exec not configured")
+		return nil, fmt.Errorf("workspace exec not configured")
 	}
 	if timeout <= 0 {
 		timeout = defaultExecTimeout
 	}
 	if workDir == "" {
-		workDir = "/workspace"
+		workDir = WorkspaceRoot
 	}
 	env := map[string]string{
 		"GIT_TERMINAL_PROMPT": "0",
@@ -69,20 +97,12 @@ func (b *AgentBinder) exec(ctx context.Context, sbID string, cmd []string, workD
 			env[k] = v
 		}
 	}
-	res, err := b.Exec.Exec(ctx, sbID, sandbox.ExecRequest{
+	return b.Exec.Exec(ctx, sbID, sandbox.ExecRequest{
 		Cmd:     cmd,
 		WorkDir: workDir,
 		Env:     env,
 		Timeout: timeout,
 	})
-	if err != nil {
-		return "", err
-	}
-	out := formatExecResult(res)
-	if res.ExitCode != 0 {
-		return out, fmt.Errorf("exit %d", res.ExitCode)
-	}
-	return out, nil
 }
 
 func formatExecResult(res *sandbox.ExecResult) string {
@@ -111,33 +131,20 @@ func truncateRunes(s string, max int) string {
 	return s[:max] + "…"
 }
 
-// RegisterShell adds Agent-slot ensure + exec tools.
+// RegisterShell adds the Bash tool (implicit agent-workspace ensure).
 func RegisterShell(r *Registry, binder *AgentBinder) {
 	if r == nil || binder == nil {
 		return
 	}
 	r.Register(Tool{
-		Name:        "roundpen_ensure_agent",
-		Description: "Ensure the user's Cloud Agent sandbox is running. This is the environment for git, compilers, and shell — not the Browser VM.",
-		Mutating:    true,
-		Parameters:  objectSchema(map[string]any{}),
-		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
-			sb, err := binder.ensure(ctx, actor)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf(`{"ok":true,"slot":"agent","sandboxId":%q,"status":%q,"name":%q}`, sb.ID, sb.Status, sb.Name), nil
-		},
-	})
-	r.Register(Tool{
-		Name: "sandbox_exec",
-		Description: "Run a shell command inside the user's Cloud Agent sandbox (cwd /workspace). " +
-			"Use this for git clone, builds, tests, and any other shell work. " +
-			"The Browser environment cannot run shell commands.",
+		Name: "Bash",
+		Description: "Run a shell command in the Agent workspace (default cwd /workspace). " +
+			"Use for git, builds, tests, and other command-line work. " +
+			"The Browser cannot run shell commands.",
 		Mutating: true,
 		Parameters: objectSchema(map[string]any{
 			"command": map[string]any{"type": "string", "description": "Shell command (passed to /bin/sh -c)"},
-			"workdir": map[string]any{"type": "string", "description": "Working directory inside the sandbox (default /workspace)"},
+			"workdir": map[string]any{"type": "string", "description": "Working directory (default /workspace)"},
 			"timeout": map[string]any{"type": "integer", "description": "Timeout in seconds (default 180)"},
 		}, "command"),
 		Call: func(ctx context.Context, actor Actor, args json.RawMessage) (string, error) {
@@ -149,7 +156,7 @@ func RegisterShell(r *Registry, binder *AgentBinder) {
 			if err := json.Unmarshal(args, &in); err != nil || strings.TrimSpace(in.Command) == "" {
 				return "", fmt.Errorf("command is required")
 			}
-			sb, err := binder.ensure(ctx, actor)
+			id, err := binder.ensureID(ctx, actor)
 			if err != nil {
 				return "", err
 			}
@@ -157,7 +164,7 @@ func RegisterShell(r *Registry, binder *AgentBinder) {
 			if in.Timeout > 0 {
 				timeout = time.Duration(in.Timeout) * time.Second
 			}
-			out, err := binder.exec(ctx, sb.ID, []string{"/bin/sh", "-c", in.Command}, strings.TrimSpace(in.WorkDir), timeout)
+			out, err := binder.exec(ctx, id, []string{"/bin/sh", "-c", in.Command}, strings.TrimSpace(in.WorkDir), timeout)
 			if err != nil {
 				if out != "" {
 					return out, err

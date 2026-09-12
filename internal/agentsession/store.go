@@ -15,14 +15,15 @@ import (
 
 // Session is a user-facing agent chat session.
 type Session struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"userId"`
-	Title      string    `json:"title"`
-	ProviderID string    `json:"providerId"`
-	SandboxID  string    `json:"sandboxId"`
-	Status     string    `json:"status"` // active | stopped
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID          string    `json:"id"`
+	UserID      string    `json:"userId"`
+	Title       string    `json:"title"`
+	ProviderID  string    `json:"providerId"`
+	SandboxID   string    `json:"sandboxId"`
+	AssistantID string    `json:"assistantId,omitempty"`
+	Status      string    `json:"status"` // active | stopped
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 // Message is a persisted chat turn summary.
@@ -96,23 +97,24 @@ type Store struct {
 	DB *sql.DB
 }
 
-// Create inserts a new session.
-func (s *Store) Create(ctx context.Context, userID, title, providerID, sandboxID string) (*Session, error) {
+// Create inserts a new session. assistantID may be empty for legacy callers.
+func (s *Store) Create(ctx context.Context, userID, title, providerID, sandboxID, assistantID string) (*Session, error) {
 	now := time.Now().UTC()
 	sess := &Session{
-		ID:         uuid.NewString(),
-		UserID:     userID,
-		Title:      title,
-		ProviderID: providerID,
-		SandboxID:  sandboxID,
-		Status:     "active",
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:          uuid.NewString(),
+		UserID:      userID,
+		Title:       title,
+		ProviderID:  providerID,
+		SandboxID:   sandboxID,
+		AssistantID: assistantID,
+		Status:      "active",
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	_, err := s.DB.ExecContext(ctx, `
-		INSERT INTO agent_sessions (id, user_id, title, provider_id, sandbox_id, status, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		sess.ID, sess.UserID, sess.Title, sess.ProviderID, sess.SandboxID, sess.Status, sess.CreatedAt, sess.UpdatedAt,
+		INSERT INTO agent_sessions (id, user_id, title, provider_id, sandbox_id, assistant_id, status, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9)`,
+		sess.ID, sess.UserID, sess.Title, sess.ProviderID, sess.SandboxID, sess.AssistantID, sess.Status, sess.CreatedAt, sess.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -126,19 +128,33 @@ func (s *Store) UpdateSandbox(ctx context.Context, id, sandboxID string) error {
 	return err
 }
 
+func scanSession(row interface{ Scan(dest ...any) error }) (*Session, error) {
+	var sess Session
+	var assistantID sql.NullString
+	if err := row.Scan(&sess.ID, &sess.UserID, &sess.Title, &sess.ProviderID, &sess.SandboxID, &assistantID, &sess.Status, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+		return nil, err
+	}
+	if assistantID.Valid {
+		sess.AssistantID = assistantID.String
+	}
+	return &sess, nil
+}
+
+const sessionCols = `id, user_id, title, provider_id, sandbox_id, assistant_id, status, created_at, updated_at`
+
 // Get returns a session by id.
 func (s *Store) Get(ctx context.Context, id string) (*Session, error) {
 	row := s.DB.QueryRowContext(ctx, `
-		SELECT id, user_id, title, provider_id, sandbox_id, status, created_at, updated_at
+		SELECT `+sessionCols+`
 		FROM agent_sessions WHERE id=$1`, id)
-	var sess Session
-	if err := row.Scan(&sess.ID, &sess.UserID, &sess.Title, &sess.ProviderID, &sess.SandboxID, &sess.Status, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+	sess, err := scanSession(row)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
-	return &sess, nil
+	return sess, nil
 }
 
 // ListByUser returns sessions for a user (newest first).
@@ -147,7 +163,7 @@ func (s *Store) ListByUser(ctx context.Context, userID string, limit int) ([]*Se
 		limit = 50
 	}
 	rows, err := s.DB.QueryContext(ctx, `
-		SELECT id, user_id, title, provider_id, sandbox_id, status, created_at, updated_at
+		SELECT `+sessionCols+`
 		FROM agent_sessions
 		WHERE user_id=$1 AND status <> 'stopped'
 		ORDER BY updated_at DESC LIMIT $2`, userID, limit)
@@ -157,11 +173,36 @@ func (s *Store) ListByUser(ctx context.Context, userID string, limit int) ([]*Se
 	defer rows.Close()
 	var out []*Session
 	for rows.Next() {
-		var sess Session
-		if err := rows.Scan(&sess.ID, &sess.UserID, &sess.Title, &sess.ProviderID, &sess.SandboxID, &sess.Status, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+		sess, err := scanSession(rows)
+		if err != nil {
 			return nil, err
 		}
-		out = append(out, &sess)
+		out = append(out, sess)
+	}
+	return out, rows.Err()
+}
+
+// ListByAssistant returns active sessions for an assistant (newest first).
+func (s *Store) ListByAssistant(ctx context.Context, userID, assistantID string, limit int) ([]*Session, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT `+sessionCols+`
+		FROM agent_sessions
+		WHERE user_id=$1 AND assistant_id=$2 AND status <> 'stopped'
+		ORDER BY updated_at DESC LIMIT $3`, userID, assistantID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Session
+	for rows.Next() {
+		sess, err := scanSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sess)
 	}
 	return out, rows.Err()
 }

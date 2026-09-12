@@ -19,10 +19,10 @@ func TestAdminSettingsHTTP(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)
 	cfg := &config.Config{
-		DefaultImage:    "host",
+		DefaultImage:    "ghcr.io/roundpenai/code-agent:0.1.0",
 		DefaultTTL:      30 * time.Minute,
 		PreviewTokenTTL: 15 * time.Minute,
-		Backend:         "kern",
+		Backend:         "docker",
 		DataRoot:        "./data",
 		HTTPAddr:        ":9527",
 	}

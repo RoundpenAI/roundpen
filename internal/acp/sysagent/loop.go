@@ -20,9 +20,9 @@ const (
 const (
 	loopNudgeText        = "You are repeating the same tool calls without new information. Change approach, try a different control or URL, or write your final report now."
 	loopStopText         = "Stopped: the same actions kept repeating without progress. Say what you still need, or try a different starting point."
-	infraNudgeText       = "Browser sandbox CDP failed — guest Chrome on :9222 is not ready. Do not keep clicking page tools. Call roundpen_ensure_browser, wait for the VM, then retry browser_* once. If DevTools is still down, report that the Browser environment Chrome is not listening."
-	infraStopText        = "Stopped: guest Chrome DevTools on :9222 is not reachable. Retrying page tools will not help. Start/resume the Browser environment and wait until CDP is up."
-	agentAbsentNudgeText = "Cloud Agent is not started (status=absent). That is not a missing capability. Call roundpen_ensure_agent or sandbox_exec now. Do not stop after listing, and do not use the Browser slot for git or shell."
+	infraNudgeText       = "Browser Chrome is not ready. Do not keep clicking page tools. Wait, then retry browser_* once. If it still fails, report that the Browser environment is not available."
+	infraStopText        = "Stopped: Browser DevTools is not reachable. Retrying page tools will not help."
+	agentAbsentNudgeText = "Agent workspace is not started (status=absent). That is not a missing capability. Call Bash or a file tool now. Do not stop after listing, and do not use the Browser for git or shell."
 )
 
 type toolCallRec struct {
@@ -89,7 +89,7 @@ func (w *loopWatch) stopText() string {
 }
 
 func agentAbsentOnly(calls []toolCallRec) bool {
-	if len(calls) != 1 || calls[0].name != "roundpen_list_environments" {
+	if len(calls) != 1 || calls[0].name != "ListEnvironments" {
 		return false
 	}
 	s := strings.ToLower(calls[0].result)

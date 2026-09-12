@@ -11,7 +11,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
-// BrowserSlot starts the user's Browser environment (QEMU/guest Chrome).
+// BrowserSlot starts the user's Browser environment (Chrome / CDP).
 type BrowserSlot interface {
 	EnsureBrowser(ctx context.Context, userID string) (*sandbox.Sandbox, error)
 }
@@ -30,7 +30,7 @@ func (b *BrowserBinder) resolveID(ctx context.Context, userID string) (string, e
 			return "", fmt.Errorf("ensure browser environment: %w", err)
 		}
 		if sb == nil || sb.ID == "" {
-			return "", fmt.Errorf("browser environment has no sandbox")
+			return "", fmt.Errorf("browser is not available")
 		}
 		return sb.ID, nil
 	}

@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Button, Spin, Tree, Typography } from '@douyinfe/semi-ui-19'
+import type { TreeNodeData } from '@douyinfe/semi-ui-19/lib/es/tree'
+import { IconFile, IconFolder, IconRefresh } from '@douyinfe/semi-icons'
 import { files, type DirEntry } from '../api'
 
 type Props = {
@@ -18,6 +21,11 @@ function parentPath(path: string): string {
   const parts = path.split('/').filter(Boolean)
   parts.pop()
   return parts.length ? parts.join('/') : '.'
+}
+
+type EntryMeta = {
+  kind: 'parent' | 'dir' | 'file'
+  path: string
 }
 
 export function FileTree({ sandboxId, path, onPathChange, onOpenFile }: Props) {
@@ -47,60 +55,129 @@ export function FileTree({ sandboxId, path, onPathChange, onOpenFile }: Props) {
     void load()
   }, [load])
 
+  const treeData = useMemo((): TreeNodeData[] => {
+    const nodes: TreeNodeData[] = []
+    if (path !== '.') {
+      nodes.push({
+        key: '__parent__',
+        label: '..',
+        icon: <IconFolder style={{ color: 'var(--semi-color-text-2)' }} />,
+        isLeaf: true,
+        meta: { kind: 'parent', path: parentPath(path) } satisfies EntryMeta,
+      })
+    }
+    for (const e of entries) {
+      const next = joinPath(path, e.name)
+      nodes.push({
+        key: next,
+        label: e.name,
+        icon: e.is_dir ? (
+          <IconFolder style={{ color: 'var(--semi-color-text-2)' }} />
+        ) : (
+          <IconFile style={{ color: 'var(--semi-color-text-2)' }} />
+        ),
+        isLeaf: true,
+        meta: {
+          kind: e.is_dir ? 'dir' : 'file',
+          path: next,
+        } satisfies EntryMeta,
+      })
+    }
+    return nodes
+  }, [entries, path])
+
+  const displayPath = `/workspace${path === '.' ? '' : `/${path}`}`
+
   return (
-    <div className="flex h-full flex-col text-sm">
-      <div className="rp-pane-header flex items-center justify-between px-3 py-2">
-        <span>Files</span>
-        <button
-          type="button"
-          className="btn btn-ghost btn-xs"
-          onClick={() => void load()}
-          title="Refresh"
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        fontSize: 13,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '8px 12px',
+          borderBottom: '1px solid var(--semi-color-border)',
+        }}
+      >
+        <Typography.Text
+          size="small"
+          type="tertiary"
+          style={{
+            fontSize: 11,
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+          }}
         >
-          ↻
-        </button>
+          Files
+        </Typography.Text>
+        <Button
+          theme="borderless"
+          type="tertiary"
+          size="small"
+          icon={<IconRefresh />}
+          onClick={() => void load()}
+          aria-label="Refresh"
+          title="Refresh"
+        />
       </div>
-      <div className="border-b border-base-300 px-3 py-1.5 font-mono text-xs opacity-70">
-        /workspace{path === '.' ? '' : `/${path}`}
+      <div
+        style={{
+          padding: '6px 12px',
+          borderBottom: '1px solid var(--semi-color-border)',
+          fontFamily: 'var(--semi-font-family-code)',
+          fontSize: 12,
+          color: 'var(--semi-color-text-2)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+        title={displayPath}
+      >
+        {displayPath}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto py-1">
-        {path !== '.' && (
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-base-300/40 sm:py-1"
-            onClick={() => onPathChange(parentPath(path))}
-          >
-            <span className="opacity-50">‥</span>
-            <span>..</span>
-          </button>
-        )}
+      <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '4px 0' }}>
         {loading && (
-          <div className="px-3 py-2 text-xs opacity-50">Loading…</div>
+          <div style={{ display: 'flex', justifyContent: 'center', padding: 16 }}>
+            <Spin size="small" />
+          </div>
         )}
         {error && (
-          <div className="px-3 py-2 text-xs text-error">{error}</div>
+          <Typography.Text
+            type="danger"
+            size="small"
+            style={{ display: 'block', padding: '8px 12px' }}
+          >
+            {error}
+          </Typography.Text>
         )}
-        {!loading &&
-          !error &&
-          entries.map((e) => (
-            <button
-              key={e.name}
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-left font-mono text-[13px] hover:bg-base-300/40 sm:py-1"
-              onClick={() => {
-                const next = joinPath(path, e.name)
-                if (e.is_dir) onPathChange(next)
-                else onOpenFile(next)
-              }}
-            >
-              <span className="w-4 shrink-0 opacity-50">
-                {e.is_dir ? '▸' : '·'}
-              </span>
-              <span className="truncate">{e.name}</span>
-            </button>
-          ))}
-        {!loading && !error && entries.length === 0 && (
-          <div className="px-3 py-2 text-xs opacity-40">Empty</div>
+        {!loading && !error && (
+          <Tree
+            treeData={treeData}
+            directory
+            defaultExpandAll
+            onSelect={(_key, _selected, node) => {
+              const meta = (node as TreeNodeData & { meta?: EntryMeta }).meta
+              if (!meta) return
+              if (meta.kind === 'parent' || meta.kind === 'dir') {
+                onPathChange(meta.path)
+              } else {
+                onOpenFile(meta.path)
+              }
+            }}
+            emptyContent={
+              <Typography.Text type="tertiary" size="small">
+                Empty
+              </Typography.Text>
+            }
+            style={{ background: 'transparent' }}
+          />
         )}
       </div>
     </div>

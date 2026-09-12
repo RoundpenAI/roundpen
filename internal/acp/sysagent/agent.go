@@ -269,9 +269,9 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 		if nudge {
 			thought := "Same actions repeating — changing approach."
 			if watch.lastKind == "agent" {
-				thought = "Agent slot is absent — starting the Cloud Agent sandbox, not giving up after list."
+				thought = "Agent workspace is absent — use Bash or a file tool; do not stop after listing."
 			} else if watch.infra > 0 {
-				thought = "Guest Chrome CDP is down — ensuring the Browser sandbox, not retrying page tools."
+				thought = "Browser Chrome is not ready — wait and retry browser_* once, do not keep clicking."
 			}
 			_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{
 				SessionId: acp.SessionId(sid),

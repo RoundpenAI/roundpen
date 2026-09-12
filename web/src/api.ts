@@ -108,6 +108,14 @@ export const auth = {
       body: JSON.stringify({ user, password }),
     }),
   logout: () => api<void>('/v1/auth/logout', { method: 'POST' }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    api<void>('/v1/auth/password', {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    }),
 }
 
 export type Template = {
@@ -361,6 +369,31 @@ export const files = {
     }),
 }
 
+export const meWorkspace = {
+  list: (path = '.') =>
+    api<FileList>(
+      `/v1/me/workspace/files?path=${encodeURIComponent(path)}`,
+    ),
+  downloadUrl: (path: string) =>
+    `/v1/me/workspace/files/content?path=${encodeURIComponent(path)}`,
+  upload: async (path: string, body: Blob) => {
+    const res = await fetch(
+      `/v1/me/workspace/files?path=${encodeURIComponent(path)}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body,
+      },
+    )
+    if (!res.ok) throw await parseError(res)
+  },
+  remove: (path: string) =>
+    api<void>(`/v1/me/workspace/files?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    }),
+}
+
 export type PreviewLink = {
   url: string
   port: number
@@ -427,41 +460,68 @@ export const environments = {
       '/v1/me/environments/browser/ensure',
       { method: 'POST' },
     ),
-  ensureAgent: (engine?: string) =>
+  ensureAgent: () =>
     api<{ slot: string; sandboxId: string; status: string; name: string }>(
       '/v1/me/environments/agent/ensure',
-      {
-        method: 'POST',
-        body: engine ? JSON.stringify({ engine }) : JSON.stringify({}),
-      },
+      { method: 'POST', body: '{}' },
     ),
   browserDesktop: () =>
     api<DesktopLink>('/v1/me/environments/browser/desktop'),
 }
 
-export type EngineStatus = {
+export type SetupPrivilege = 'auto' | 'manual'
+
+export type SetupActionRun = {
+  actionId: string
+  title: string
+  reason: string
+  status: string
+  privilege?: SetupPrivilege
+  command: string
+  error?: string
+  log?: string
+}
+
+export type SetupPlan = {
   id: string
-  label: string
   summary: string
-  ready: boolean
-  agentReady: boolean
-  browserReady?: boolean
-  missing?: string[]
-  setup?: SetupStep[]
+  context: {
+    name: string
+    bio: string
+    identityMode: string
+    preset: string
+  }
+  actions: SetupActionRun[] | null
+  createdAt: string
 }
 
-export type RuntimeSnapshot = {
-  defaultAgentEngine: string
-  agentEngine: string
-  engines: EngineStatus[]
-}
-
-export const runtime = {
-  get: () => api<RuntimeSnapshot>('/v1/runtime'),
-  setAgentEngine: (agentEngine: string) =>
-    api<RuntimeSnapshot>('/v1/runtime', {
-      method: 'PUT',
-      body: JSON.stringify({ agentEngine }),
+export const setupApi = {
+  llmReady: () =>
+    api<{ ready: boolean; reason?: string }>('/v1/setup/llm-ready'),
+  createPlan: (body: {
+    name: string
+    bio: string
+    identityMode: string
+    preset: string
+  }) =>
+    api<SetupPlan>('/v1/setup/plans', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getPlan: (id: string) => api<SetupPlan>(`/v1/setup/plans/${id}`),
+  confirm: (planId: string, actionId: string) =>
+    api<SetupPlan>(
+      `/v1/setup/plans/${planId}/actions/${actionId}/confirm`,
+      { method: 'POST' },
+    ),
+  recheck: (planId: string, actionId: string) =>
+    api<SetupPlan>(
+      `/v1/setup/plans/${planId}/actions/${actionId}/recheck`,
+      { method: 'POST' },
+    ),
+  retry: (planId: string, actionId: string) =>
+    api<SetupPlan>(`/v1/setup/plans/${planId}/actions/${actionId}/retry`, {
+      method: 'POST',
     }),
 }
 
@@ -565,9 +625,166 @@ export type AgentSession = {
   title: string
   providerId: string
   sandboxId: string
+  assistantId?: string
   status: string
   createdAt: string
   updatedAt: string
+}
+
+export type AssistantCapabilities = {
+  shell: boolean
+  browser: boolean
+  mobile: boolean
+  desktop: boolean
+}
+
+export type AssistantDirectoryGrant = {
+  path: string
+  mode: 'read' | 'readwrite'
+  createdAt?: string
+}
+
+export type Assistant = {
+  id: string
+  userId: string
+  name: string
+  bio: string
+  identityMode: 'proxy_user' | 'independent'
+  capabilities: AssistantCapabilities
+  networkTier: 'none' | 'dev_sites' | 'all'
+  networkAllowlist: string[]
+  directoryGrants: AssistantDirectoryGrant[]
+  status: 'active' | 'disabled'
+  kind?: 'user' | 'system'
+  primarySessionId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export const assistantsApi = {
+  list: () => api<{ assistants: Assistant[] }>('/v1/assistants'),
+  create: (body: {
+    name: string
+    bio?: string
+    identityMode: 'proxy_user' | 'independent'
+    preset?: string
+    capabilities?: AssistantCapabilities
+  }) =>
+    api<Assistant>('/v1/assistants', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  get: (id: string) => api<Assistant>(`/v1/assistants/${id}`),
+  update: (
+    id: string,
+    body: Partial<{
+      name: string
+      bio: string
+      identityMode: 'proxy_user' | 'independent'
+      confirmIdentityChange: boolean
+      capabilities: AssistantCapabilities
+      networkTier: 'none' | 'dev_sites' | 'all'
+      networkAllowlist: string[]
+      directoryGrants: AssistantDirectoryGrant[]
+      status: 'active' | 'disabled'
+    }>,
+  ) =>
+    api<Assistant>(`/v1/assistants/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  ensureSession: (id: string) =>
+    api<{ sessionId: string }>(`/v1/assistants/${id}/ensure-session`, {
+      method: 'POST',
+      body: '{}',
+    }),
+  activity: (id: string) =>
+    api<{ activity: ActivityItem[]; busy: boolean }>(
+      `/v1/assistants/${id}/activity`,
+    ),
+  policyCheck: (
+    id: string,
+    body: {
+      dimension: 'network' | 'directory' | 'capability'
+      target: string
+      mode?: string
+      sessionId?: string
+      record?: boolean
+    },
+  ) =>
+    api<PolicyDecision>(`/v1/assistants/${id}/policy/check`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  listTickets: (id: string, pendingOnly = false) =>
+    api<{ tickets: AssistTicket[] }>(
+      `/v1/assistants/${id}/assist-tickets${pendingOnly ? '?pending=1' : ''}`,
+    ),
+  createTicket: (
+    id: string,
+    body: {
+      sessionId?: string
+      kind?: string
+      title: string
+      reason?: string
+      contextSummary?: string
+      askHuman?: string
+      payload?: unknown
+    },
+  ) =>
+    api<AssistTicket>(`/v1/assistants/${id}/assist-tickets`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  resolveTicket: (
+    ticketId: string,
+    body: { resolution: 'allow_once' | 'permanent' | 'reject'; note?: string },
+  ) =>
+    api<AssistTicket>(`/v1/assist-tickets/${ticketId}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  pendingTickets: () =>
+    api<{ count: number; tickets: AssistTicket[] }>(
+      '/v1/me/assist-tickets/pending',
+    ),
+}
+
+export type ActivityItem = {
+  id: string
+  at: string
+  kind: string
+  title: string
+  detail?: string
+  status?: string
+  source: string
+}
+
+export type PolicyDecision = {
+  allowed: boolean
+  dimension: string
+  target: string
+  reason: string
+  appliable: boolean
+}
+
+export type AssistTicket = {
+  id: string
+  userId: string
+  assistantId: string
+  sessionId: string
+  kind: string
+  status: string
+  title: string
+  reason: string
+  contextSummary: string
+  askHuman: string
+  payload?: unknown
+  resolution?: string
+  resolutionNote?: string
+  createdAt: string
+  updatedAt: string
+  resolvedAt?: string
 }
 
 export type AgentMessageMeta = {
