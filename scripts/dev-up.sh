@@ -96,17 +96,17 @@ if ! need_cmd bwrap; then
 fi
 
 if [[ "$CHECK_ONLY" -eq 0 ]]; then
-	# Always run install: migrates ~/.local/bin/executor into a dedicated KanikoDir.
-	./scripts/install-kaniko.sh
+	# Optional: template image builds only. Failure must not block make dev.
+	if ! ./scripts/install-kaniko.sh; then
+		echo "note: Kaniko download/install failed; continuing without local template builds."
+		echo "      Configure Template builds in Settings (local Kaniko / Docker / remote CI) when needed."
+		echo "      Or retry: ./scripts/install-kaniko.sh"
+	fi
 fi
 
 if ! need_cmd executor; then
-	if [[ "$CHECK_ONLY" -eq 1 ]]; then
-		echo "note: Kaniko executor not on PATH; run ./scripts/install-kaniko.sh for template builds."
-	else
-		note_missing "Kaniko executor is not installed (needed for template builds on kern)" \
-			"Run: ./scripts/install-kaniko.sh"
-	fi
+	echo "note: Kaniko executor not on PATH — local Kaniko builds unavailable until installed."
+	echo "      make dev does not require it; set Template build engine in Settings when ready."
 fi
 
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
@@ -144,7 +144,8 @@ ensure_env_key ROUNDPEN_DEFAULT_AGENT_TEMPLATE "agent-claude"
 ensure_env_key ROUNDPEN_DATA_ROOT "./data"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
-ensure_env_key ROUNDPEN_TEMPLATE_BUILDER "kaniko"
+ensure_env_key ROUNDPEN_TEMPLATE_BUILDER ""
+# Destination is still useful when the user later enables Kaniko in Settings.
 ensure_env_key ROUNDPEN_KANIKO_DESTINATION "$GITEA_KANIKO_DEST"
 ensure_env_key ROUNDPEN_KANIKO_INSECURE "false"
 ensure_env_key ROUNDPEN_KANIKO_SKIP_TLS_VERIFY "false"

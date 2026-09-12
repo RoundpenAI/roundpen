@@ -43,10 +43,11 @@ const emptySettings: AppSettings = {
 }
 
 const BUILDER_OPTIONS = [
+  { value: '', label: 'Disabled (no local builds)' },
+  { value: 'kaniko', label: 'Local Kaniko' },
+  { value: 'docker', label: 'Local Docker' },
+  { value: 'ci', label: 'Remote CI (build elsewhere)' },
   { value: 'auto', label: 'Auto (detect from backend / Kaniko config)' },
-  { value: 'docker', label: 'Docker' },
-  { value: 'kaniko', label: 'Kaniko' },
-  { value: '', label: 'Disabled' },
 ] as const
 
 const CDP_OPTIONS = [

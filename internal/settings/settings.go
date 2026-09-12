@@ -177,9 +177,9 @@ func (s AppSettings) Validate() error {
 		return fmt.Errorf("previewTokenTtlSeconds must be positive")
 	}
 	switch strings.ToLower(strings.TrimSpace(s.TemplateBuilder)) {
-	case "", "auto", "docker", "kaniko":
+	case "", "auto", "docker", "kaniko", "ci", "disabled":
 	default:
-		return fmt.Errorf("templateBuilder must be auto, docker, kaniko, or empty")
+		return fmt.Errorf("templateBuilder must be auto, docker, kaniko, ci, disabled, or empty")
 	}
 	if s.LlmgwLogBodyMaxBytes < -1 {
 		return fmt.Errorf("llmgwLogBodyMaxBytes must be >= -1")
