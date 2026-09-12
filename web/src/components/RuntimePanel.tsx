@@ -36,7 +36,7 @@ export function EngineSetupList({ steps }: { steps: SetupStep[] }) {
 }
 
 export function RuntimePanel({ engineId, showPicker = true }: Props) {
-  const [snap, setSnap] = useState<RuntimeSnapshot | nil>(null)
+  const [snap, setSnap] = useState<RuntimeSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [starting, setStarting] = useState(false)
