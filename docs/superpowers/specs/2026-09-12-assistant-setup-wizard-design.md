@@ -128,7 +128,7 @@
 
 | Action ID | 人话标题（默认） | 敏感 | 实现意图 |
 |-----------|------------------|------|----------|
-| `install_qemu` | 安装本机虚拟机组件 | 是（apt/sudo） | 等价于探测里的 install 命令（如 `sudo apt install qemu-system-x86 qemu-utils`）；执行策略见 §5.3 |
+| `install_qemu` | 安装本机虚拟机组件 | 是（须确认；能否代跑见 §5.3） | 等价于探测里的 install 命令（如 `apt install -y qemu-system-x86 qemu-utils`）；root/免密 sudo 则确认后代跑，否则复制命令自助 |
 | `build_agent_image` | 准备助手系统盘 | 否 | `make agent-image` / `images/agent-qemu/build.sh` |
 | `build_browser_image` | 准备浏览器画面环境 | 否 | `make browser-image` / `images/browser-qemu/build.sh` |
 
@@ -140,13 +140,21 @@
 - 能力含浏览器：额外 browser image。  
 - Probe 已就绪的对应项不得进入待执行队列。
 
-### 5.3 敏感执行策略
+### 5.3 敏感执行策略（sudo 探测）
 
-- **确认**：UI「允许并继续」→ API 确认该 `actionRunId`。  
-- **提权**：`install_qemu` 需要 sudo。本期推荐：  
-  - 优先：调用预置脚本 / `pkexec` / 文档化的 passwordless sudoers 片段（部署说明）；  
-  - 若无法非交互提权：状态失败，展开区给出可复制命令，用户本机执行后点「我已装好，重新检测」。  
-- **禁止**：把用户密码交给模型或写入日志。
+- **确认**：凡敏感动作仍须用户点「允许并继续」；不会在未确认时静默 `apt`。  
+- **禁止**：Web/API 收集 sudo 密码；密码不进模型、不进日志。  
+- **探测**（进入准备工位或执行 `install_qemu` 前，服务端对**运行 roundpend 的同一用户**检测）：  
+  1. 已是 root（`euid == 0`）→ `privilege: auto`  
+  2. 否则若存在 `sudo` 且 `sudo -n true` 成功（免密）→ `privilege: auto`  
+  3. 否则 → `privilege: manual`（无法非交互提权）  
+  探测结果写入该动作的元数据，UI 据此切换交互，不把内部判定词暴露成吓人错误。  
+- **`privilege: auto`**：用户确认后平台直接执行白名单安装命令（root 下无 sudo 前缀；免密则 `sudo -n …`）。成功后自动 Probe。  
+- **`privilege: manual`**：不尝试弹密码或 `sudo -S`。UI 展示：  
+  - 人话说明「需要在本机终端安装虚拟机组件」；  
+  - 可一键复制的完整命令（与 Probe SetupStep 一致，如 `sudo apt install -y qemu-system-x86 qemu-utils`）；  
+  - 主按钮「我已装好，重新检测」→ 再 Probe；通过则该项 `succeeded`，失败则保留说明可重试。  
+- **可选文档**（非向导强制）：运维可自配窄权限 NOPASSWD，使本机变为 `auto`；向导不自动改 sudoers。
 
 ### 5.4 并发与幂等
 
@@ -212,11 +220,12 @@
 4. 用户可见动作列表；展开可见命令或构建日志。  
 5. 全部必需动作成功后，创建助手不再因缺 `agent.qcow2` 失败。  
 6. LLM 规划失败时，确定性回退仍能根据 Probe 生成等价计划。  
-7. 文案主界面不出现 Sandbox / qcow2（展开细节允许技术命令）。
+7. 文案主界面不出现 Sandbox / qcow2（展开细节允许技术命令）。  
+8. root 或 `sudo -n` 可用时：确认后自动安装 qemu 包；否则只给复制命令 +「我已装好，重新检测」，且从不向用户要 sudo 密码。
 
 ## 10. 开放实现细节（留给实现计划）
 
 - 日志推送用轮询还是 WS。  
-- `install_qemu` 在无 sudo 环境下的精确 UX 文案。  
 - WizardDraft 是否必须服务端持久化。  
-- 规划调用走 LLMGW 的哪条内部 API / 虚拟 key。
+- 规划调用走 LLMGW 的哪条内部 API / 虚拟 key。  
+- `sudo -n` 探测是否缓存 TTL（避免每次列表刷新都打 sudo）。
