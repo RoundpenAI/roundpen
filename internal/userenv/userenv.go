@@ -194,14 +194,19 @@ func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*sandbox.Sa
 }
 
 // EnsureAgent starts or resumes the user's Cloud Agent environment.
+// Agent is always Docker + code-agent (or Config.AgentTemplate override).
 func (s *Service) EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error) {
-	engine := s.agentEngine(ctx, userID)
+	engine := runtime.EngineDocker
 	if s.Probe != nil {
 		if err := s.Probe.RequireAgent(engine); err != nil {
 			return nil, err
 		}
 	}
-	sb, err := s.ensure(ctx, userID, SlotAgent, s.agentTemplateFor(engine), "Agent", engine)
+	templateID := "code-agent"
+	if t := strings.TrimSpace(s.Config.AgentTemplate); t != "" {
+		templateID = t
+	}
+	sb, err := s.ensure(ctx, userID, SlotAgent, templateID, "Agent", engine)
 	if err != nil {
 		return nil, err
 	}
@@ -401,6 +406,7 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 		TTL:        24 * time.Hour,
 	}
 	if slot == SlotAgent {
+		create.ID = workspace.AgentSandboxID(userID)
 		create.WorkspaceID = workspace.UserWorkspaceID(userID)
 	}
 	return s.Sandboxes.Create(ctx, create)

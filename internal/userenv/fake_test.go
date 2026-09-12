@@ -113,12 +113,27 @@ func (f *fakeSandboxes) Create(_ context.Context, req sandbox.CreateRequest) (*s
 		}
 	}
 	f.creates++
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = fmt.Sprintf("sb-%d", f.creates)
+	} else if _, ok := f.byID[id]; ok {
+		return nil, fmt.Errorf("%w: sandbox id already exists", sandbox.ErrConflict)
+	}
 	sb := &sandbox.Sandbox{
-		ID:       fmt.Sprintf("sb-%d", f.creates),
+		ID:       id,
 		Name:     name,
 		Category: req.Category,
 		Status:   sandbox.StatusRunning,
 		Metadata: req.Metadata,
+		Image:    req.Image,
+	}
+	if sb.Image == "" && req.Metadata != nil {
+		switch req.Metadata["engine"] {
+		case "docker":
+			sb.Image = "roundpen-code-agent:local"
+		case "qemu":
+			sb.Image = "images/browser-qemu/out/browser.qcow2"
+		}
 	}
 	f.put(sb)
 	return f.clone(sb), nil

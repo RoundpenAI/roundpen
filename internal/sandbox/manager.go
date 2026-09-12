@@ -144,7 +144,10 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		ttl = s.defaultTTL
 	}
 
-	id := uuid.NewString()
+	id := strings.TrimSpace(req.ID)
+	if id == "" {
+		id = uuid.NewString()
+	}
 	wsID := req.WorkspaceID
 	ephemeral := wsID == ""
 	if ephemeral {
