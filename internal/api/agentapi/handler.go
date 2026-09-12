@@ -129,12 +129,16 @@ func writeSessionStartErr(w http.ResponseWriter, err error) {
 	writeErr(w, http.StatusInternalServerError, err.Error())
 }
 
-// StartForAssistant creates or is used by assistants ensure-session (claude runtime).
+// DefaultAssistantProvider is the ACP provider used for new assistant chats.
+// sysadmin runs in-process (no sandbox). Swap back to "claude" when QEMU coding agents are the default again.
+const DefaultAssistantProvider = "sysadmin"
+
+// StartForAssistant creates or is used by assistants ensure-session.
 func (h *Handler) StartForAssistant(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error) {
 	if title == "" {
 		title = "Chat"
 	}
-	return h.startSession(ctx, user, title, "claude", assistantID)
+	return h.startSession(ctx, user, title, DefaultAssistantProvider, assistantID)
 }
 
 func (h *Handler) startSession(ctx context.Context, user *storage.User, title, providerID, assistantID string) (*agentsession.Session, error) {
@@ -318,12 +322,8 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rt, ok := h.ACP.Get(id)
-	if !ok {
-		actor := manager.Actor{
-			Username: user.Username,
-			Role:     string(user.Role),
-			APIKey:   user.APIKey,
-		}
+	needsStart := !ok
+	if needsStart {
 		provMeta, found := providers.ByID(h.ACP.Providers(), sess.ProviderID)
 		if !found {
 			writeErr(w, http.StatusConflict, "unknown provider")
@@ -333,14 +333,10 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusConflict, "agent runtime not running")
 			return
 		}
-		var startErr error
-		rt, startErr = h.ACP.Start(r.Context(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{Actor: actor, AutoApprove: true})
-		if startErr != nil {
-			writeErr(w, http.StatusBadGateway, "restart agent: "+startErr.Error())
-			return
-		}
 	}
 
+	// Upgrade before Start so the browser leaves CONNECTING quickly.
+	// A slow/hanging ACP Start used to block the handshake entirely.
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -353,6 +349,36 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 		defer writeMu.Unlock()
 		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		_ = conn.WriteJSON(v)
+	}
+
+	// Push a frame immediately so reverse proxies flush the 101 upgrade
+	// before ACP Start (which can take seconds) runs on this goroutine.
+	write(wsOut{Type: "hello", Message: "ok"})
+
+	if needsStart {
+		actor := manager.Actor{
+			Username: user.Username,
+			Role:     string(user.Role),
+			APIKey:   user.APIKey,
+		}
+		// Detach from the HTTP request context: the browser already has an
+		// open socket; canceling Start when the request ctx flaps (proxy /
+		// Strict Mode reconnect) leaves the UI stuck on 「连接中」.
+		var startErr error
+		rt, startErr = h.ACP.Start(context.Background(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{Actor: actor, AutoApprove: true})
+		if startErr != nil {
+			// Concurrent WS may have started the runtime between Get and Start.
+			if existing, ok := h.ACP.Get(id); ok {
+				rt = existing
+			} else {
+				write(wsOut{Type: "error", Message: "restart agent: " + startErr.Error()})
+				return
+			}
+		}
+	}
+	if rt == nil {
+		write(wsOut{Type: "error", Message: "agent runtime not available"})
+		return
 	}
 
 	const (
