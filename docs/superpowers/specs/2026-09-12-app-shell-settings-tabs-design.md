@@ -45,7 +45,7 @@
 ### 3.3 路由
 
 - `/a…`：助手模块（二级 = 列表；内容 = 现有 create / detail / chat / session）。
-- `/settings` 与 `/settings/:section`（或等价 query）：设置模块；`:section` 记住当前段落，刷新可还原。
+- `/settings` 与 `/settings/:section`：设置模块；`:section` 记住当前段落，刷新可还原（不使用 query）。
 - `/registry`：镜像模块；仅一级 + 内容。
 
 设置与镜像不再包在 `PageShell` 内。`PageShell` 若无其它引用可删除，或暂留并标明废弃。
