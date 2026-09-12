@@ -444,13 +444,17 @@ export function ChatSessionPage() {
         }
       }
       socket.onerror = () => {
-        if (!disposed) setError('WebSocket error')
+        // onclose follows; avoid racing setState with a remounted effect.
+        if (!disposed && wsRef.current === socket) {
+          setError('WebSocket error')
+        }
       }
       socket.onclose = () => {
+        // Intentional dispose clears handlers before close — skip retries.
+        if (disposed) return
         if (wsRef.current !== socket) return
         wsRef.current = null
         setWsOpen(false)
-        if (disposed) return
         setBusy(false)
         setStatusHint(null)
         const delay = Math.min(1000 * 2 ** attempt, 15000)
@@ -465,7 +469,7 @@ export function ChatSessionPage() {
       ws = socket
       wsRef.current = socket
       socket.onopen = () => {
-        if (disposed) return
+        if (disposed || wsRef.current !== socket) return
         attempt = 0
         setError(null)
         setWsOpen(true)
@@ -477,15 +481,28 @@ export function ChatSessionPage() {
     connect()
     return () => {
       disposed = true
-      if (retryTimer != null) window.clearTimeout(retryTimer)
-      setWsOpen(false)
-      wsRef.current = null
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer)
+        retryTimer = null
+      }
+      // Do not setWsOpen(false) here: under React Strict Mode the cleanup
+      // setState can land after the remounted effect's onopen and leave the
+      // UI stuck on "Reconnecting" while the socket is actually open.
+      const s = ws
+      ws = null
+      if (wsRef.current === s) {
+        wsRef.current = null
+      }
       if (
-        ws &&
-        (ws.readyState === WebSocket.OPEN ||
-          ws.readyState === WebSocket.CONNECTING)
+        s &&
+        (s.readyState === WebSocket.OPEN ||
+          s.readyState === WebSocket.CONNECTING)
       ) {
-        ws.close(1000, 'page dispose')
+        s.onopen = null
+        s.onmessage = null
+        s.onerror = null
+        s.onclose = null
+        s.close(1000, 'page dispose')
       }
     }
   }, [id])
