@@ -344,12 +344,16 @@ ensure_test_db() {
 }
 
 ensure_kaniko_db_settings() {
+	# Only seed registry destination / TLS flags for when the user later enables
+	# Kaniko in Settings. Never force templateBuilder=kaniko — that blocked make
+	# dev when the executor binary was missing.
 	local dest="${ROUNDPEN_KANIKO_DESTINATION:-$GITEA_KANIKO_DEST}"
-	local builder="${ROUNDPEN_TEMPLATE_BUILDER:-kaniko}"
+	local builder="${ROUNDPEN_TEMPLATE_BUILDER:-}"
 	local insecure="${ROUNDPEN_KANIKO_INSECURE:-false}"
 	local skip_tls="${ROUNDPEN_KANIKO_SKIP_TLS_VERIFY:-false}"
-	echo "pg0: ensuring dev kaniko settings in app_settings..."
-	pg_exec "" -v ON_ERROR_STOP=1 -c "
+	echo "pg0: ensuring template-build registry defaults in app_settings..."
+	if [[ -n "$builder" ]]; then
+		pg_exec "" -v ON_ERROR_STOP=1 -c "
 UPDATE app_settings
 SET payload = payload
   || jsonb_build_object(
@@ -359,13 +363,27 @@ SET payload = payload
        'kanikoSkipTlsVerify', ${skip_tls}
      ),
     updated_at = now()
-WHERE id = 'global'
-  AND (
-    COALESCE(payload->>'kanikoDestination', '') = ''
-    OR payload->>'kanikoDestination' = '127.0.0.1:5000/roundpen'
-    OR COALESCE(payload->>'templateBuilder', '') IN ('', 'auto', 'docker')
-  );
+WHERE id = 'global';
 " >/dev/null 2>&1 || true
+	else
+		# Keep destination handy, but clear a stale kaniko engine left by older make dev.
+		pg_exec "" -v ON_ERROR_STOP=1 -c "
+UPDATE app_settings
+SET payload = payload
+  || jsonb_build_object(
+       'kanikoDestination', '${dest}',
+       'kanikoInsecure', ${insecure},
+       'kanikoSkipTlsVerify', ${skip_tls}
+     )
+  || CASE
+       WHEN COALESCE(payload->>'templateBuilder', '') = 'kaniko'
+         THEN jsonb_build_object('templateBuilder', '')
+       ELSE '{}'::jsonb
+     END,
+    updated_at = now()
+WHERE id = 'global';
+" >/dev/null 2>&1 || true
+	fi
 }
 
 case "$dsn_host" in
