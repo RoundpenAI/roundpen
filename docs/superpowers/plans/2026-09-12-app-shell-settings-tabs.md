@@ -515,7 +515,7 @@ export function SettingsLayout() {
 }
 ```
 
-On mobile, secondary may squeeze; acceptable for v1 (full responsive polish optional). If width &lt; 768, stack or put section list in a compact select — prefer keeping sider and relying on horizontal scroll only if needed; do not block on perfect mobile secondary.
+On mobile, secondary may squeeze; acceptable for v1 (full responsive polish optional). If width < 768, stack or put section list in a compact select — prefer keeping sider and relying on horizontal scroll only if needed; do not block on perfect mobile secondary.
 
 - [ ] **Step 2: Refactor `SettingsPage` content switching**
 
