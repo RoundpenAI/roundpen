@@ -1,5 +1,20 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
+import {
+  Banner,
+  Button,
+  Collapse,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Spin,
+  Switch,
+  TabPane,
+  Tabs,
+  Toast,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import {
   adminSettings,
   templateDisplayName,
@@ -88,10 +103,11 @@ const LOG_BODY_OPTIONS = [
   { value: 262144, label: '256 KiB' },
 ] as const
 
-const controlClass =
-  'input input-bordered w-full min-w-0 min-h-11 text-base sm:input-sm sm:min-h-0 sm:text-sm'
-const selectClass =
-  'select select-bordered w-full min-w-0 min-h-11 text-base sm:select-sm sm:min-h-0 sm:text-sm'
+const sectionGap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
+}
 
 function optionsWithCurrentValue<T extends { value: string; label: string }>(
   options: readonly T[],
@@ -152,15 +168,18 @@ function Field({
   children: ReactNode
 }) {
   return (
-    <div className="form-control w-full min-w-0 gap-1.5">
-      <span className="label-text block text-xs leading-snug opacity-60">
-        {label}
-      </span>
+    <Form.Slot label={label}>
       {children}
       {hint ? (
-        <p className="m-0 text-[0.7rem] leading-relaxed opacity-45">{hint}</p>
+        <Typography.Text
+          type="tertiary"
+          size="small"
+          style={{ display: 'block', marginTop: 4 }}
+        >
+          {hint}
+        </Typography.Text>
       ) : null}
-    </div>
+    </Form.Slot>
   )
 }
 
@@ -174,34 +193,37 @@ function Toggle({
   children: ReactNode
 }) {
   return (
-    <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
-      <input
-        type="checkbox"
-        className="checkbox checkbox-sm shrink-0"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span className="leading-snug">{children}</span>
-    </label>
-  )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="space-y-4">
-      <h2 className="text-sm font-medium">{title}</h2>
-      {children}
-    </section>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        minHeight: 44,
+      }}
+    >
+      <Switch checked={checked} onChange={onChange} />
+      <Typography.Text>{children}</Typography.Text>
+    </div>
   )
 }
 
 function SystemRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-0 sm:contents">
-      <dt className="text-[0.65rem] font-medium uppercase tracking-wide opacity-50 sm:text-xs sm:normal-case sm:tracking-normal sm:opacity-70">
+    <div style={{ minWidth: 0, display: 'contents' }}>
+      <Typography.Text type="tertiary" size="small" component="dt">
         {label}
-      </dt>
-      <dd className="mt-0.5 break-all font-mono text-xs sm:mt-0">{value}</dd>
+      </Typography.Text>
+      <Typography.Text
+        component="dd"
+        style={{
+          margin: 0,
+          fontFamily: 'var(--semi-font-family-code)',
+          fontSize: 12,
+          wordBreak: 'break-all',
+        }}
+      >
+        {value}
+      </Typography.Text>
     </div>
   )
 }
@@ -216,6 +238,7 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [templateList, setTemplateList] = useState<Template[]>([])
+  const [activeTab, setActiveTab] = useState('general')
 
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
 
@@ -288,8 +311,15 @@ export function SettingsPage() {
 
   if (auth.status === 'loading') {
     return (
-      <div className="flex h-full items-center justify-center text-sm opacity-60">
-        Loading…
+      <div
+        style={{
+          display: 'flex',
+          height: '100%',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Spin tip="Loading…" />
       </div>
     )
   }
@@ -310,6 +340,7 @@ export function SettingsPage() {
       setData(res)
       setForm({ ...emptySettings, ...res.settings })
       setDirty(false)
+      Toast.success('Settings saved.')
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'save failed')
     } finally {
@@ -318,7 +349,15 @@ export function SettingsPage() {
   }
 
   function onReload() {
-    if (dirty && !window.confirm('Discard unsaved changes?')) return
+    if (dirty) {
+      Modal.confirm({
+        title: 'Discard unsaved changes?',
+        onOk: () => {
+          void load()
+        },
+      })
+      return
+    }
     void load()
   }
 
@@ -328,498 +367,554 @@ export function SettingsPage() {
     <PageShell
       subtitle={isAdmin ? 'Account and system settings' : 'Account settings'}
       current="settings"
-      className="rp-settings !pb-0"
+      style={{ paddingBottom: isAdmin && !loading ? 96 : undefined }}
     >
-
       {error && (
-        <div className="mb-4 text-sm text-error" role="alert">
-          {error}
+        <div role="alert" style={{ marginBottom: 16 }}>
+          <Banner
+            fullMode={false}
+            type="danger"
+            description={error}
+            closeIcon={null}
+          />
         </div>
       )}
 
-      <div className="flex flex-col gap-8 pb-28 sm:pb-24">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
         <RuntimePanel />
         <GitCredentialsPanel />
 
-      {isAdmin && loading ? (
-        <p className="text-sm opacity-50">Loading system settings…</p>
-      ) : isAdmin ? (
-        <>
-          <Section title="General">
-            <Toggle
-              checked={form.allowPublicRegistration}
-              onChange={(v) => patch({ allowPublicRegistration: v })}
+        {isAdmin && loading ? (
+          <Spin tip="Loading system settings…" />
+        ) : isAdmin ? (
+          <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+            <Tabs
+              type="line"
+              activeKey={activeTab}
+              onChange={setActiveTab}
             >
-              Allow public registration
-            </Toggle>
-            <Field label="Default template / image">
-              {defaultImageOptions.length > 0 ? (
-                <select
-                  className={selectClass}
-                  value={form.defaultImage}
-                  onChange={(e) => patch({ defaultImage: e.target.value })}
-                >
-                  {defaultImageOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className={controlClass}
-                  value={form.defaultImage}
-                  onChange={(e) => patch({ defaultImage: e.target.value })}
-                />
-              )}
-            </Field>
-            <Field label="Default sandbox TTL">
-              <select
-                className={selectClass}
-                value={form.defaultTtlSeconds}
-                onChange={(e) =>
-                  patch({ defaultTtlSeconds: Number(e.target.value) })
-                }
-              >
-                {sandboxTtlOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </Section>
-
-          <Section title="Preview">
-            <Field label="Public preview base URL">
-              <input
-                className={controlClass}
-                inputMode="url"
-                autoComplete="url"
-                placeholder="http://127.0.0.1:19001"
-                value={form.previewPublicUrl}
-                onChange={(e) => patch({ previewPublicUrl: e.target.value })}
-              />
-            </Field>
-            <Field label="Preview token TTL">
-              <select
-                className={selectClass}
-                value={form.previewTokenTtlSeconds}
-                onChange={(e) =>
-                  patch({ previewTokenTtlSeconds: Number(e.target.value) })
-                }
-              >
-                {previewTtlOptions.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </Section>
-
-          <Section title="Template builds">
-            <Field label="Template build engine">
-              <select
-                className={selectClass}
-                value={form.templateBuilder}
-                onChange={(e) => patch({ templateBuilder: e.target.value })}
-              >
-                {builderOptions.map((o) => (
-                  <option key={o.value || '__disabled'} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Kaniko destination prefix">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="registry.example/roundpen"
-                value={form.kanikoDestination}
-                onChange={(e) => patch({ kanikoDestination: e.target.value })}
-              />
-            </Field>
-            <Field label="Kaniko executor binary">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="executor"
-                value={form.kanikoExecutor}
-                onChange={(e) => patch({ kanikoExecutor: e.target.value })}
-              />
-            </Field>
-            <Field label="Kaniko registry mirrors">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="docker.1ms.run mirror.example"
-                value={form.kanikoRegistryMirrors}
-                onChange={(e) =>
-                  patch({ kanikoRegistryMirrors: e.target.value })
-                }
-              />
-            </Field>
-            <Toggle
-              checked={form.kanikoInsecure}
-              onChange={(v) => patch({ kanikoInsecure: v })}
-            >
-              Kaniko insecure registry
-            </Toggle>
-            <Toggle
-              checked={form.kanikoSkipTlsVerify}
-              onChange={(v) => patch({ kanikoSkipTlsVerify: v })}
-            >
-              Kaniko skip TLS verify
-            </Toggle>
-            <Field label="Kaniko extra args">
-              <input
-                className={controlClass}
-                spellCheck={false}
-                placeholder="--snapshot-mode=redo"
-                value={form.kanikoExtraArgs}
-                onChange={(e) => patch({ kanikoExtraArgs: e.target.value })}
-              />
-            </Field>
-          </Section>
-
-          <Section title="Browser (CDP)">
-            <Field label="CDP provider">
-              <select
-                className={selectClass}
-                value={form.cdpProvider}
-                onChange={(e) => patch({ cdpProvider: e.target.value })}
-              >
-                {optionsWithCurrentValue(CDP_OPTIONS, form.cdpProvider).map(
-                  (o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ),
-                )}
-              </select>
-            </Field>
-            {(form.cdpProvider === 'remote' ||
-              form.cdpProvider === 'cloud' ||
-              form.cdpProvider === 'host') && (
-              <Field
-                label={
-                  form.cdpProvider === 'host'
-                    ? 'Host CDP URL (optional; empty starts local Chrome)'
-                    : 'CDP endpoint URL'
-                }
-              >
-                <input
-                  className={controlClass}
-                  inputMode="url"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder={
-                    form.cdpProvider === 'host'
-                      ? 'http://127.0.0.1:9222'
-                      : 'wss://browser.example/devtools/browser/…'
-                  }
-                  value={form.cdpEndpoint}
-                  onChange={(e) => patch({ cdpEndpoint: e.target.value })}
-                />
-              </Field>
-            )}
-            {(form.cdpProvider === 'remote' || form.cdpProvider === 'cloud') && (
-              <Field label="CDP token (optional)">
-                <input
-                  type="password"
-                  className={controlClass}
-                  autoComplete="new-password"
-                  placeholder="Leave masked to keep current"
-                  value={form.cdpToken}
-                  onChange={(e) => patch({ cdpToken: e.target.value })}
-                />
-              </Field>
-            )}
-            {(form.cdpProvider === 'auto' || form.cdpProvider === 'docker') && (
-              <Field label="Guest CDP port">
-                <input
-                  className={controlClass}
-                  inputMode="numeric"
-                  spellCheck={false}
-                  value={form.cdpPort || 9222}
-                  onChange={(e) =>
-                    patch({ cdpPort: Number(e.target.value) || 9222 })
-                  }
-                />
-              </Field>
-            )}
-            <p className="text-xs leading-relaxed opacity-50">
-              Browser tools attach to a DevTools websocket. NAS and compose
-              should use Docker Chrome or a remote/cloud CDP — do not install
-              Chrome on the NAS OS. Host Chrome is for laptop debugging only.
-            </p>
-          </Section>
-
-          <Section title="LLM gateway">
-            <p className="text-xs leading-relaxed opacity-55">
-              Roundpen relays model calls so Agents never hold your real OpenAI /
-              Anthropic keys. Configure upstream credentials below; Agents and
-              Chats only receive a virtual key that calls /llmgw on this control
-              plane.
-            </p>
-
-            <Toggle
-              checked={form.llmgwEnabled}
-              onChange={(v) => patch({ llmgwEnabled: v })}
-            >
-              Enable relay (required for Agent Chats &amp; memory embeddings)
-            </Toggle>
-
-            <div className="space-y-3 pt-1">
-              <h3 className="text-xs font-medium tracking-wide opacity-70">
-                1 · Upstream providers
-              </h3>
-              <p className="text-[0.7rem] leading-relaxed opacity-45">
-                Where Roundpen forwards requests. These API keys stay in the
-                control-plane database — they are never injected into sandboxes.
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  label="OpenAI-compatible base URL"
-                  hint="Official OpenAI, Azure OpenAI, or any OpenAI-compatible proxy."
-                >
-                  <input
-                    className={controlClass}
-                    inputMode="url"
-                    autoComplete="off"
-                    placeholder="https://api.openai.com"
-                    value={form.llmgwOpenaiBaseUrl}
-                    onChange={(e) =>
-                      patch({ llmgwOpenaiBaseUrl: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field
-                  label="OpenAI-compatible API key"
-                  hint="Leave masked to keep the stored secret."
-                >
-                  <input
-                    type="password"
-                    className={controlClass}
-                    autoComplete="new-password"
-                    placeholder="Leave masked to keep current"
-                    value={form.llmgwOpenaiApiKey}
-                    onChange={(e) =>
-                      patch({ llmgwOpenaiApiKey: e.target.value })
-                    }
-                  />
-                </Field>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  label="Anthropic base URL"
-                  hint="Optional. Leave empty if you only use OpenAI-compatible models."
-                >
-                  <input
-                    className={controlClass}
-                    inputMode="url"
-                    autoComplete="off"
-                    placeholder="https://api.anthropic.com"
-                    value={form.llmgwAnthropicBaseUrl}
-                    onChange={(e) =>
-                      patch({ llmgwAnthropicBaseUrl: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field
-                  label="Anthropic API key"
-                  hint="Leave masked to keep the stored secret."
-                >
-                  <input
-                    type="password"
-                    className={controlClass}
-                    autoComplete="new-password"
-                    placeholder="Leave masked to keep current"
-                    value={form.llmgwAnthropicApiKey}
-                    onChange={(e) =>
-                      patch({ llmgwAnthropicApiKey: e.target.value })
-                    }
-                  />
-                </Field>
-              </div>
-            </div>
-
-            <div className="space-y-4 border-t border-base-300 pt-4">
-              <h3 className="text-xs font-medium tracking-wide opacity-70">
-                2 · What Agents use
-              </h3>
-              <p className="text-[0.7rem] leading-relaxed opacity-45">
-                Sandboxes get OPENAI_BASE_URL / ANTHROPIC_BASE_URL pointing at
-                this Roundpen, plus a virtual key as OPENAI_API_KEY.
-              </p>
-              <Field
-                label="Control-plane public URL"
-                hint="URL Agents inside sandboxes can reach (e.g. http://host.docker.internal:9527 or your LAN IP). Not the upstream OpenAI URL."
-              >
-                <input
-                  className={controlClass}
-                  inputMode="url"
-                  autoComplete="url"
-                  placeholder="http://127.0.0.1:9527"
-                  value={form.llmgwPublicUrl}
-                  onChange={(e) => patch({ llmgwPublicUrl: e.target.value })}
-                />
-              </Field>
-              <Field
-                label="Default model"
-                hint="Used for both OpenAI and Anthropic relays when the request model is not in the upstream model map (and is not already an upstream target name). Leave empty to pass unknown models through."
-              >
-                <input
-                  className={controlClass}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="e.g. gpt-4o-mini or claude-sonnet-4"
-                  value={form.llmgwDefaultModel}
-                  onChange={(e) => patch({ llmgwDefaultModel: e.target.value })}
-                />
-              </Field>
-              <Field
-                label="Virtual keys"
-                hint="Client credentials for /llmgw. Format: vk-name:label or vk-name (comma-separated). Example: vk-dev:dev,vk-prod:prod. Agents pick a non-internal key automatically."
-              >
-                <input
-                  className={controlClass}
-                  spellCheck={false}
-                  autoComplete="off"
-                  placeholder="vk-dev:dev"
-                  value={form.llmgwVirtualKeys}
-                  onChange={(e) => patch({ llmgwVirtualKeys: e.target.value })}
-                />
-              </Field>
-            </div>
-
-            <details className="border-t border-base-300 pt-4">
-              <summary className="cursor-pointer text-xs font-medium opacity-70">
-                Advanced
-              </summary>
-              <div className="mt-3 space-y-4">
-                <Field
-                  label="Embedding model"
-                  hint="Upstream model aliased as roundpen-embed for long-term memory search."
-                >
-                  <input
-                    className={controlClass}
-                    spellCheck={false}
-                    placeholder="text-embedding-3-small"
-                    value={form.llmgwEmbeddingModel}
-                    onChange={(e) =>
-                      patch({ llmgwEmbeddingModel: e.target.value })
-                    }
-                  />
-                </Field>
-                <Field
-                  label="Request body logging"
-                  hint="How much of each relayed request/response to store for audit. Off = metadata only."
-                >
-                  <select
-                    className={selectClass}
-                    value={form.llmgwLogBodyMaxBytes}
-                    onChange={(e) =>
-                      patch({ llmgwLogBodyMaxBytes: Number(e.target.value) })
-                    }
+              <TabPane tab="General" itemKey="general">
+                <div style={{ ...sectionGap, paddingTop: 16 }}>
+                  <Toggle
+                    checked={form.allowPublicRegistration}
+                    onChange={(v) => patch({ allowPublicRegistration: v })}
                   >
-                    {logBodyOptions.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <p className="text-[0.7rem] leading-relaxed opacity-45">
-                  Secrets are stored in PostgreSQL and shown masked. Leave a
-                  masked field unchanged to keep the existing value. Saves apply
-                  immediately — no restart.
-                </p>
-              </div>
-            </details>
-          </Section>
+                    Allow public registration
+                  </Toggle>
+                  <Field label="Default template / image">
+                    {defaultImageOptions.length > 0 ? (
+                      <Select
+                        value={form.defaultImage}
+                        onChange={(v) => patch({ defaultImage: String(v) })}
+                        optionList={defaultImageOptions}
+                        style={{ width: '100%' }}
+                      />
+                    ) : (
+                      <Input
+                        value={form.defaultImage}
+                        onChange={(v) => patch({ defaultImage: v })}
+                      />
+                    )}
+                  </Field>
+                  <Field label="Default sandbox TTL">
+                    <Select
+                      value={form.defaultTtlSeconds}
+                      onChange={(v) =>
+                        patch({ defaultTtlSeconds: Number(v) })
+                      }
+                      optionList={sandboxTtlOptions.map((o) => ({
+                        value: o.value,
+                        label: o.label,
+                      }))}
+                      style={{ width: '100%' }}
+                    />
+                  </Field>
+                </div>
+              </TabPane>
 
-          {sys && (
-            <section className="rounded-lg border border-base-300 p-4 text-sm">
-              <h2 className="mb-3 font-medium">System (read-only)</h2>
-              <dl className="space-y-3 sm:grid sm:grid-cols-[7.5rem_1fr] sm:gap-x-4 sm:gap-y-2 sm:space-y-0">
-                <SystemRow label="Backend" value={sys.backend} />
-                <SystemRow label="HTTP addr" value={sys.httpAddr} />
-                <SystemRow label="Data root" value={sys.dataRoot} />
-                <SystemRow label="Docker host" value={sys.dockerHost} />
-                <SystemRow
-                  label="Active builder"
-                  value={sys.templateBuilderActive || 'disabled'}
-                />
-                <SystemRow
-                  label="LLM gateway"
-                  value={
-                    sys.llmgwActive
-                      ? 'active'
-                      : sys.llmgwMounted
-                        ? 'mounted (disabled)'
-                        : 'not mounted'
-                  }
-                />
-                <SystemRow
-                  label="CDP provider"
-                  value={sys.cdpProviderActive || 'auto'}
-                />
-                <SystemRow
-                  label="Host Chrome"
-                  value={sys.cdpHostChromeFound ? 'found' : 'not on PATH'}
-                />
-              </dl>
-              {sys.templateBuilderHint && (
-                <p className="mt-3 text-xs leading-relaxed opacity-55">
-                  {sys.templateBuilderHint}
-                </p>
-              )}
-              {sys.cdpHint && (
-                <p className="mt-3 text-xs leading-relaxed opacity-55">
-                  {sys.cdpHint}
-                </p>
-              )}
-              <p className="mt-3 text-xs leading-relaxed opacity-45">
-                Database and listen address require environment variables and a
-                process restart. The default Agent engine (`ROUNDPEN_BACKEND`)
-                is only a fallback — users pick QEMU, Docker, or Kern in Agent
-                runtime above. Template builds and LLM gateway settings apply at
-                runtime.
-              </p>
-            </section>
-          )}
-        </>
-      ) : null}
+              <TabPane tab="Preview" itemKey="preview">
+                <div style={{ ...sectionGap, paddingTop: 16 }}>
+                  <Field label="Public preview base URL">
+                    <Input
+                      inputMode="url"
+                      autoComplete="url"
+                      placeholder="http://127.0.0.1:19001"
+                      value={form.previewPublicUrl}
+                      onChange={(v) => patch({ previewPublicUrl: v })}
+                    />
+                  </Field>
+                  <Field label="Preview token TTL">
+                    <Select
+                      value={form.previewTokenTtlSeconds}
+                      onChange={(v) =>
+                        patch({ previewTokenTtlSeconds: Number(v) })
+                      }
+                      optionList={previewTtlOptions.map((o) => ({
+                        value: o.value,
+                        label: o.label,
+                      }))}
+                      style={{ width: '100%' }}
+                    />
+                  </Field>
+                </div>
+              </TabPane>
+
+              <TabPane tab="Builds" itemKey="builds">
+                <div style={{ ...sectionGap, paddingTop: 16 }}>
+                  <Field label="Template build engine">
+                    <Select
+                      value={form.templateBuilder}
+                      onChange={(v) => patch({ templateBuilder: String(v) })}
+                      optionList={builderOptions.map((o) => ({
+                        value: o.value,
+                        label: o.label,
+                      }))}
+                      style={{ width: '100%' }}
+                    />
+                  </Field>
+                  <Field label="Kaniko destination prefix">
+                    <Input
+                      spellCheck={false}
+                      placeholder="registry.example/roundpen"
+                      value={form.kanikoDestination}
+                      onChange={(v) => patch({ kanikoDestination: v })}
+                    />
+                  </Field>
+                  <Field label="Kaniko executor binary">
+                    <Input
+                      spellCheck={false}
+                      placeholder="executor"
+                      value={form.kanikoExecutor}
+                      onChange={(v) => patch({ kanikoExecutor: v })}
+                    />
+                  </Field>
+                  <Field label="Kaniko registry mirrors">
+                    <Input
+                      spellCheck={false}
+                      placeholder="docker.1ms.run mirror.example"
+                      value={form.kanikoRegistryMirrors}
+                      onChange={(v) => patch({ kanikoRegistryMirrors: v })}
+                    />
+                  </Field>
+                  <Toggle
+                    checked={form.kanikoInsecure}
+                    onChange={(v) => patch({ kanikoInsecure: v })}
+                  >
+                    Kaniko insecure registry
+                  </Toggle>
+                  <Toggle
+                    checked={form.kanikoSkipTlsVerify}
+                    onChange={(v) => patch({ kanikoSkipTlsVerify: v })}
+                  >
+                    Kaniko skip TLS verify
+                  </Toggle>
+                  <Field label="Kaniko extra args">
+                    <Input
+                      spellCheck={false}
+                      placeholder="--snapshot-mode=redo"
+                      value={form.kanikoExtraArgs}
+                      onChange={(v) => patch({ kanikoExtraArgs: v })}
+                    />
+                  </Field>
+                </div>
+              </TabPane>
+
+              <TabPane tab="Browser" itemKey="browser">
+                <div style={{ ...sectionGap, paddingTop: 16 }}>
+                  <Field label="CDP provider">
+                    <Select
+                      value={form.cdpProvider}
+                      onChange={(v) => patch({ cdpProvider: String(v) })}
+                      optionList={optionsWithCurrentValue(
+                        CDP_OPTIONS,
+                        form.cdpProvider,
+                      )}
+                      style={{ width: '100%' }}
+                    />
+                  </Field>
+                  {(form.cdpProvider === 'remote' ||
+                    form.cdpProvider === 'cloud' ||
+                    form.cdpProvider === 'host') && (
+                    <Field
+                      label={
+                        form.cdpProvider === 'host'
+                          ? 'Host CDP URL (optional; empty starts local Chrome)'
+                          : 'CDP endpoint URL'
+                      }
+                    >
+                      <Input
+                        inputMode="url"
+                        autoComplete="off"
+                        spellCheck={false}
+                        placeholder={
+                          form.cdpProvider === 'host'
+                            ? 'http://127.0.0.1:9222'
+                            : 'wss://browser.example/devtools/browser/…'
+                        }
+                        value={form.cdpEndpoint}
+                        onChange={(v) => patch({ cdpEndpoint: v })}
+                      />
+                    </Field>
+                  )}
+                  {(form.cdpProvider === 'remote' ||
+                    form.cdpProvider === 'cloud') && (
+                    <Field label="CDP token (optional)">
+                      <Input
+                        mode="password"
+                        autoComplete="new-password"
+                        placeholder="Leave masked to keep current"
+                        value={form.cdpToken}
+                        onChange={(v) => patch({ cdpToken: v })}
+                      />
+                    </Field>
+                  )}
+                  {(form.cdpProvider === 'auto' ||
+                    form.cdpProvider === 'docker') && (
+                    <Field label="Guest CDP port">
+                      <Input
+                        inputMode="numeric"
+                        spellCheck={false}
+                        value={String(form.cdpPort || 9222)}
+                        onChange={(v) =>
+                          patch({ cdpPort: Number(v) || 9222 })
+                        }
+                      />
+                    </Field>
+                  )}
+                  <Typography.Text type="tertiary" size="small">
+                    Browser tools attach to a DevTools websocket. NAS and compose
+                    should use Docker Chrome or a remote/cloud CDP — do not install
+                    Chrome on the NAS OS. Host Chrome is for laptop debugging only.
+                  </Typography.Text>
+                </div>
+              </TabPane>
+
+              <TabPane tab="LLM gateway" itemKey="llmgw">
+                <div style={{ ...sectionGap, paddingTop: 16 }}>
+                  <Typography.Text type="tertiary" size="small">
+                    Roundpen relays model calls so Agents never hold your real OpenAI /
+                    Anthropic keys. Configure upstream credentials below; Agents and
+                    Chats only receive a virtual key that calls /llmgw on this control
+                    plane.
+                  </Typography.Text>
+
+                  <Toggle
+                    checked={form.llmgwEnabled}
+                    onChange={(v) => patch({ llmgwEnabled: v })}
+                  >
+                    Enable relay (required for Agent Chats & memory embeddings)
+                  </Toggle>
+
+                  <div style={sectionGap}>
+                    <Typography.Text strong size="small">
+                      1 · Upstream providers
+                    </Typography.Text>
+                    <Typography.Text type="tertiary" size="small">
+                      Where Roundpen forwards requests. These API keys stay in the
+                      control-plane database — they are never injected into sandboxes.
+                    </Typography.Text>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gap: 16,
+                        gridTemplateColumns:
+                          'repeat(auto-fit, minmax(220px, 1fr))',
+                      }}
+                    >
+                      <Field
+                        label="OpenAI-compatible base URL"
+                        hint="Official OpenAI, Azure OpenAI, or any OpenAI-compatible proxy."
+                      >
+                        <Input
+                          inputMode="url"
+                          autoComplete="off"
+                          placeholder="https://api.openai.com"
+                          value={form.llmgwOpenaiBaseUrl}
+                          onChange={(v) => patch({ llmgwOpenaiBaseUrl: v })}
+                        />
+                      </Field>
+                      <Field
+                        label="OpenAI-compatible API key"
+                        hint="Leave masked to keep the stored secret."
+                      >
+                        <Input
+                          mode="password"
+                          autoComplete="new-password"
+                          placeholder="Leave masked to keep current"
+                          value={form.llmgwOpenaiApiKey}
+                          onChange={(v) => patch({ llmgwOpenaiApiKey: v })}
+                        />
+                      </Field>
+                      <Field
+                        label="Anthropic base URL"
+                        hint="Optional. Leave empty if you only use OpenAI-compatible models."
+                      >
+                        <Input
+                          inputMode="url"
+                          autoComplete="off"
+                          placeholder="https://api.anthropic.com"
+                          value={form.llmgwAnthropicBaseUrl}
+                          onChange={(v) => patch({ llmgwAnthropicBaseUrl: v })}
+                        />
+                      </Field>
+                      <Field
+                        label="Anthropic API key"
+                        hint="Leave masked to keep the stored secret."
+                      >
+                        <Input
+                          mode="password"
+                          autoComplete="new-password"
+                          placeholder="Leave masked to keep current"
+                          value={form.llmgwAnthropicApiKey}
+                          onChange={(v) => patch({ llmgwAnthropicApiKey: v })}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      ...sectionGap,
+                      borderTop: '1px solid var(--semi-color-border)',
+                      paddingTop: 16,
+                    }}
+                  >
+                    <Typography.Text strong size="small">
+                      2 · What Agents use
+                    </Typography.Text>
+                    <Typography.Text type="tertiary" size="small">
+                      Sandboxes get OPENAI_BASE_URL / ANTHROPIC_BASE_URL pointing at
+                      this Roundpen, plus a virtual key as OPENAI_API_KEY.
+                    </Typography.Text>
+                    <Field
+                      label="Control-plane public URL"
+                      hint="URL Agents inside sandboxes can reach (e.g. http://host.docker.internal:9527 or your LAN IP). Not the upstream OpenAI URL."
+                    >
+                      <Input
+                        inputMode="url"
+                        autoComplete="url"
+                        placeholder="http://127.0.0.1:9527"
+                        value={form.llmgwPublicUrl}
+                        onChange={(v) => patch({ llmgwPublicUrl: v })}
+                      />
+                    </Field>
+                    <Field
+                      label="Default model"
+                      hint="Used for both OpenAI and Anthropic relays when the request model is not in the upstream model map (and is not already an upstream target name). Leave empty to pass unknown models through."
+                    >
+                      <Input
+                        spellCheck={false}
+                        autoComplete="off"
+                        placeholder="e.g. gpt-4o-mini or claude-sonnet-4"
+                        value={form.llmgwDefaultModel}
+                        onChange={(v) => patch({ llmgwDefaultModel: v })}
+                      />
+                    </Field>
+                    <Field
+                      label="Virtual keys"
+                      hint="Client credentials for /llmgw. Format: vk-name:label or vk-name (comma-separated). Example: vk-dev:dev,vk-prod:prod. Agents pick a non-internal key automatically."
+                    >
+                      <Input
+                        spellCheck={false}
+                        autoComplete="off"
+                        placeholder="vk-dev:dev"
+                        value={form.llmgwVirtualKeys}
+                        onChange={(v) => patch({ llmgwVirtualKeys: v })}
+                      />
+                    </Field>
+                  </div>
+
+                  <Collapse>
+                    <Collapse.Panel header="Advanced" itemKey="advanced">
+                      <div style={sectionGap}>
+                        <Field
+                          label="Embedding model"
+                          hint="Upstream model aliased as roundpen-embed for long-term memory search."
+                        >
+                          <Input
+                            spellCheck={false}
+                            placeholder="text-embedding-3-small"
+                            value={form.llmgwEmbeddingModel}
+                            onChange={(v) =>
+                              patch({ llmgwEmbeddingModel: v })
+                            }
+                          />
+                        </Field>
+                        <Field
+                          label="Request body logging"
+                          hint="How much of each relayed request/response to store for audit. Off = metadata only."
+                        >
+                          <Select
+                            value={form.llmgwLogBodyMaxBytes}
+                            onChange={(v) =>
+                              patch({ llmgwLogBodyMaxBytes: Number(v) })
+                            }
+                            optionList={logBodyOptions.map((o) => ({
+                              value: o.value,
+                              label: o.label,
+                            }))}
+                            style={{ width: '100%' }}
+                          />
+                        </Field>
+                        <Typography.Text type="tertiary" size="small">
+                          Secrets are stored in PostgreSQL and shown masked. Leave a
+                          masked field unchanged to keep the existing value. Saves apply
+                          immediately — no restart.
+                        </Typography.Text>
+                      </div>
+                    </Collapse.Panel>
+                  </Collapse>
+                </div>
+              </TabPane>
+
+              <TabPane tab="System" itemKey="system">
+                <div style={{ paddingTop: 16 }}>
+                  {sys ? (
+                    <div
+                      style={{
+                        border: '1px solid var(--semi-color-border)',
+                        borderRadius: 8,
+                        padding: 16,
+                      }}
+                    >
+                      <Typography.Title heading={5} style={{ margin: '0 0 12px' }}>
+                        System (read-only)
+                      </Typography.Title>
+                      <dl
+                        style={{
+                          margin: 0,
+                          display: 'grid',
+                          gridTemplateColumns: '7.5rem 1fr',
+                          columnGap: 16,
+                          rowGap: 8,
+                        }}
+                      >
+                        <SystemRow label="Backend" value={sys.backend} />
+                        <SystemRow label="HTTP addr" value={sys.httpAddr} />
+                        <SystemRow label="Data root" value={sys.dataRoot} />
+                        <SystemRow label="Docker host" value={sys.dockerHost} />
+                        <SystemRow
+                          label="Active builder"
+                          value={sys.templateBuilderActive || 'disabled'}
+                        />
+                        <SystemRow
+                          label="LLM gateway"
+                          value={
+                            sys.llmgwActive
+                              ? 'active'
+                              : sys.llmgwMounted
+                                ? 'mounted (disabled)'
+                                : 'not mounted'
+                          }
+                        />
+                        <SystemRow
+                          label="CDP provider"
+                          value={sys.cdpProviderActive || 'auto'}
+                        />
+                        <SystemRow
+                          label="Host Chrome"
+                          value={sys.cdpHostChromeFound ? 'found' : 'not on PATH'}
+                        />
+                      </dl>
+                      {sys.templateBuilderHint && (
+                        <Typography.Text
+                          type="tertiary"
+                          size="small"
+                          style={{ display: 'block', marginTop: 12 }}
+                        >
+                          {sys.templateBuilderHint}
+                        </Typography.Text>
+                      )}
+                      {sys.cdpHint && (
+                        <Typography.Text
+                          type="tertiary"
+                          size="small"
+                          style={{ display: 'block', marginTop: 12 }}
+                        >
+                          {sys.cdpHint}
+                        </Typography.Text>
+                      )}
+                      <Typography.Text
+                        type="tertiary"
+                        size="small"
+                        style={{ display: 'block', marginTop: 12 }}
+                      >
+                        Database and listen address require environment variables and a
+                        process restart. The default Agent engine (`ROUNDPEN_BACKEND`)
+                        is only a fallback — users pick QEMU, Docker, or Kern in Agent
+                        runtime above. Template builds and LLM gateway settings apply at
+                        runtime.
+                      </Typography.Text>
+                    </div>
+                  ) : (
+                    <Typography.Text type="tertiary" size="small">
+                      System info unavailable.
+                    </Typography.Text>
+                  )}
+                </div>
+              </TabPane>
+            </Tabs>
+          </Form>
+        ) : null}
       </div>
 
       {isAdmin && !loading && (
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-base-300 bg-base-100/95 px-4 pt-3 backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center">
+        <div
+          style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 20,
+            borderTop: '1px solid var(--semi-color-border)',
+            background: 'var(--semi-color-bg-1)',
+            padding:
+              '12px 16px max(12px, env(safe-area-inset-bottom))',
+          }}
+        >
+          <div
+            style={{
+              margin: '0 auto',
+              maxWidth: 768,
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
             {saveError && (
-              <p className="text-sm text-error sm:mr-auto" role="alert">
-                {saveError}
-              </p>
+              <div role="alert" style={{ flex: 1, minWidth: 160 }}>
+                <Banner
+                  fullMode={false}
+                  type="danger"
+                  description={saveError}
+                  closeIcon={null}
+                />
+              </div>
             )}
-            <div className="flex gap-3 sm:ml-auto">
-              <button
-                type="button"
-                className="btn btn-primary min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
-                disabled={saving || !dirty}
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                marginLeft: 'auto',
+              }}
+            >
+              <Button
+                theme="solid"
+                type="primary"
+                loading={saving}
+                disabled={!dirty}
                 onClick={() => void onSave()}
               >
-                {saving ? 'Saving…' : 'Save settings'}
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost min-h-11 flex-1 sm:btn-sm sm:min-h-0 sm:flex-none"
+                Save settings
+              </Button>
+              <Button
+                type="tertiary"
                 disabled={loading || saving}
                 onClick={onReload}
               >
                 Reload
-              </button>
+              </Button>
             </div>
           </div>
         </div>

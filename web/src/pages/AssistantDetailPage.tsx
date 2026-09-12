@@ -1,5 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import {
+  Banner,
+  Button,
+  Input,
+  List,
+  Radio,
+  RadioGroup,
+  Select,
+  Spin,
+  Switch,
+  Tag,
+  TextArea,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import {
   assistantsApi,
   ApiError,
@@ -10,6 +24,17 @@ import {
   type AssistantDirectoryGrant,
 } from '../api'
 import { useAssistantLayout } from '../components/AssistantLayout'
+
+const fieldLabel: CSSProperties = {
+  display: 'block',
+  marginBottom: 4,
+}
+
+const sectionGap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+}
 
 export function AssistantDetailPage() {
   const { assistantId = '' } = useParams()
@@ -74,15 +99,22 @@ export function AssistantDetailPage() {
 
   if (!a && !error) {
     return (
-      <div className="chat-pane flex items-center justify-center opacity-50">
-        加载中…
+      <div
+        className="chat-pane"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Spin tip="加载中…" />
       </div>
     )
   }
   if (!a) {
     return (
-      <div className="chat-pane p-6 text-error" role="alert">
-        {error}
+      <div className="chat-pane" style={{ padding: 24 }} role="alert">
+        <Banner fullMode={false} type="danger" description={error} closeIcon={null} />
       </div>
     )
   }
@@ -123,316 +155,430 @@ export function AssistantDetailPage() {
     void patch({ identityMode: mode, confirmIdentityChange: true })
   }
 
+  const sortedActivity = [...activity]
+    .sort((x, y) => Date.parse(y.at) - Date.parse(x.at))
+    .slice(0, 40)
+
   return (
     <div className="chat-pane">
-      <div className="chat-pane-scroll mx-auto max-w-2xl space-y-6 px-3 py-4 sm:space-y-8 sm:px-4 sm:py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="font-display truncate text-xl font-semibold sm:text-2xl">
-            {a.name}
-          </h1>
-          <p className="text-sm opacity-50">
-            状态：{a.status === 'active' ? '可用' : '已停用'}
-            {a.primarySessionId ? ' · 有对话' : ''}
-          </p>
-        </div>
-        <Link
-          className="btn btn-primary btn-sm min-h-11 shrink-0 sm:min-h-0"
-          to={`/a/${a.id}/chat`}
+      <div
+        className="chat-pane-scroll"
+        style={{
+          maxWidth: 672,
+          margin: '0 auto',
+          padding: '16px 12px',
+          width: '100%',
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 32,
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
         >
-          打开对话
-        </Link>
-      </div>
+          <div style={{ minWidth: 0 }}>
+            <Typography.Title
+              heading={3}
+              ellipsis={{ showTooltip: true }}
+              style={{ margin: 0 }}
+            >
+              {a.name}
+            </Typography.Title>
+            <Typography.Text type="tertiary" size="small">
+              状态：{a.status === 'active' ? '可用' : '已停用'}
+              {a.primarySessionId ? ' · 有对话' : ''}
+            </Typography.Text>
+          </div>
+          <Link to={`/a/${a.id}/chat`} style={{ flexShrink: 0 }}>
+            <Button theme="solid" type="primary" size="small">
+              打开对话
+            </Button>
+          </Link>
+        </div>
 
-      {error && (
-        <p className="text-sm text-error" role="alert">
-          {error}
-        </p>
-      )}
-
-      <section className="space-y-3">
-        <h2 className="font-medium">基本信息</h2>
-        <label className="form-control">
-          <span className="label-text mb-1">名称</span>
-          <input
-            className="input input-bordered"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onBlur={() => {
-              if (name.trim() && name.trim() !== a.name) {
-                void patch({ name: name.trim() })
-              }
-            }}
-          />
-        </label>
-        <label className="form-control">
-          <span className="label-text mb-1">简介</span>
-          <textarea
-            className="textarea textarea-bordered min-h-24"
-            value={bio}
-            onChange={(e) => setBio(e.target.value)}
-            onBlur={() => {
-              if (bio !== a.bio) void patch({ bio })
-            }}
-          />
-          <span className="mt-1 text-xs opacity-50">
-            简介用于派活时匹配最合适的助手。
-          </span>
-        </label>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="font-medium">此刻</h2>
-        <p className="text-sm opacity-55">
-          {busyNow ? '正在工作中…' : '当前空闲'}
-          {a.primarySessionId ? ' · 有主对话' : ''}
-        </p>
-        {tickets.length > 0 && (
-          <div className="space-y-2 rounded-lg border border-warning/40 bg-warning/10 p-3">
-            <p className="text-sm font-medium">待处理协助单</p>
-            {tickets.map((t) => (
-              <div key={t.id} className="text-sm">
-                <p>{t.title}</p>
-                <p className="text-xs opacity-60">{t.askHuman || t.reason}</p>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {t.kind === 'policy_apply' ? (
-                    <>
-                      <button
-                        type="button"
-                        className="btn btn-xs"
-                        onClick={() =>
-                          void assistantsApi
-                            .resolveTicket(t.id, { resolution: 'allow_once' })
-                            .then(() => load())
-                        }
-                      >
-                        允许一次
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-xs btn-primary"
-                        onClick={() =>
-                          void assistantsApi
-                            .resolveTicket(t.id, { resolution: 'permanent' })
-                            .then(() => {
-                              void refresh()
-                              return load()
-                            })
-                        }
-                      >
-                        写入档案并继续
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-xs btn-ghost"
-                        onClick={() =>
-                          void assistantsApi
-                            .resolveTicket(t.id, { resolution: 'reject' })
-                            .then(() => load())
-                        }
-                      >
-                        拒绝
-                      </button>
-                    </>
-                  ) : null}
-                  <Link className="btn btn-xs btn-ghost" to={`/a/${a.id}/chat`}>
-                    在对话中处理
-                  </Link>
-                </div>
-              </div>
-            ))}
+        {error && (
+          <div role="alert">
+            <Banner
+              fullMode={false}
+              type="danger"
+              description={error}
+              closeIcon={null}
+            />
           </div>
         )}
-        <ul className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-base-300 p-3 text-xs">
-          {activity.length === 0 && (
-            <li className="opacity-45">暂无活动记录</li>
-          )}
-          {[...activity]
-            .sort((x, y) => Date.parse(y.at) - Date.parse(x.at))
-            .slice(0, 40)
-            .map((it) => (
-              <li key={`${it.source}-${it.id}`} className="opacity-80">
-                <span className="opacity-40">
-                  {new Date(it.at).toLocaleString()}
-                </span>{' '}
-                <span className="opacity-50">[{it.kind}]</span> {it.title}
-                {it.detail ? (
-                  <span className="opacity-45"> — {it.detail}</span>
-                ) : null}
-              </li>
-            ))}
-        </ul>
-      </section>
 
-      <section className="space-y-3">
-        <h2 className="font-medium">可见范围</h2>
-        <p className="text-sm opacity-55">
-          默认有一个仅它可见的工作区。需要访问本机目录时在此授权。
-        </p>
-        <ul className="space-y-2">
-          {(a.directoryGrants ?? []).map((g) => (
-            <li
-              key={g.path}
-              className="flex items-center justify-between gap-2 rounded border border-base-300 px-3 py-2 text-sm"
-            >
-              <span className="min-w-0 truncate">
-                {g.path}{' '}
-                <span className="opacity-45">
-                  ({g.mode === 'readwrite' ? '读写' : '只读'})
-                </span>
-              </span>
-              <button
-                type="button"
-                className="btn btn-ghost btn-xs"
-                onClick={() => removeGrant(g.path)}
-              >
-                移除
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <input
-            className="input input-bordered input-sm w-full min-w-0 flex-1"
-            placeholder="/path/to/folder"
-            value={newPath}
-            onChange={(e) => setNewPath(e.target.value)}
-          />
-          <div className="flex gap-2">
-            <select
-              className="select select-bordered select-sm min-h-11 flex-1 sm:min-h-0 sm:flex-none"
-              value={newMode}
-              onChange={(e) =>
-                setNewMode(e.target.value as 'read' | 'readwrite')
-              }
-            >
-              <option value="read">只读</option>
-              <option value="readwrite">读写</option>
-            </select>
-            <button
-              type="button"
-              className="btn btn-sm min-h-11 sm:min-h-0"
-              onClick={addGrant}
-            >
-              添加授权
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="font-medium">能力清单</h2>
-        {(
-          [
-            ['shell', '终端', true],
-            ['browser', '浏览器', true],
-            ['mobile', '手机', false],
-            ['desktop', '桌面', false],
-          ] as const
-        ).map(([key, label, ready]) => (
-          <label
-            key={key}
-            className="flex items-center justify-between gap-3 rounded border border-base-300 px-3 py-2"
-          >
-            <span>
-              {label}
-              {!ready && (
-                <span className="ml-2 text-xs opacity-45">即将推出</span>
-              )}
-            </span>
-            <input
-              type="checkbox"
-              className="toggle"
-              checked={Boolean(caps[key])}
-              disabled={!ready || saving}
-              onChange={(e) => setCap(key, e.target.checked)}
-            />
-          </label>
-        ))}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="font-medium">网络</h2>
-        {(
-          [
-            ['none', '禁止上网'],
-            ['dev_sites', '常用开发站'],
-            ['all', '允许全部'],
-          ] as const
-        ).map(([tier, label]) => (
-          <label key={tier} className="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              name="networkTier"
-              checked={a.networkTier === tier}
-              disabled={saving}
-              onChange={() => {
-                if (tier === 'all' && !window.confirm('允许全部出站风险最高，确定？')) {
-                  return
+        <section style={sectionGap}>
+          <Typography.Title heading={5} style={{ margin: 0 }}>
+            基本信息
+          </Typography.Title>
+          <div>
+            <Typography.Text type="tertiary" size="small" style={fieldLabel}>
+              名称
+            </Typography.Text>
+            <Input
+              value={name}
+              onChange={setName}
+              onBlur={() => {
+                if (name.trim() && name.trim() !== a.name) {
+                  void patch({ name: name.trim() })
                 }
-                void patch({ networkTier: tier })
               }}
             />
-            {label}
-          </label>
-        ))}
-        <label className="form-control">
-          <span className="label-text mb-1">高级白名单（每行一个域名）</span>
-          <textarea
-            className="textarea textarea-bordered min-h-20 font-mono text-xs"
-            value={allowText}
-            onChange={(e) => setAllowText(e.target.value)}
-            onBlur={() => {
-              const list = allowText
-                .split(/[\n,]+/)
-                .map((s) => s.trim())
-                .filter(Boolean)
-              const prev = a.networkAllowlist ?? []
-              if (JSON.stringify(list) !== JSON.stringify(prev)) {
-                void patch({ networkAllowlist: list })
+          </div>
+          <div>
+            <Typography.Text type="tertiary" size="small" style={fieldLabel}>
+              简介
+            </Typography.Text>
+            <TextArea
+              value={bio}
+              onChange={setBio}
+              rows={4}
+              onBlur={() => {
+                if (bio !== a.bio) void patch({ bio })
+              }}
+            />
+            <Typography.Text
+              type="tertiary"
+              size="small"
+              style={{ display: 'block', marginTop: 4 }}
+            >
+              简介用于派活时匹配最合适的助手。
+            </Typography.Text>
+          </div>
+        </section>
+
+        <section style={sectionGap}>
+          <Typography.Title heading={5} style={{ margin: 0 }}>
+            此刻
+          </Typography.Title>
+          <Typography.Text type="tertiary" size="small">
+            {busyNow ? '正在工作中…' : '当前空闲'}
+            {a.primarySessionId ? ' · 有主对话' : ''}
+          </Typography.Text>
+          {tickets.length > 0 && (
+            <Banner
+              fullMode={false}
+              type="warning"
+              closeIcon={null}
+              description={
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <Typography.Text strong>待处理协助单</Typography.Text>
+                  {tickets.map((t) => (
+                    <div key={t.id}>
+                      <Typography.Text>{t.title}</Typography.Text>
+                      <Typography.Text
+                        type="tertiary"
+                        size="small"
+                        style={{ display: 'block' }}
+                      >
+                        {t.askHuman || t.reason}
+                      </Typography.Text>
+                      <div
+                        style={{
+                          marginTop: 8,
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 8,
+                        }}
+                      >
+                        {t.kind === 'policy_apply' ? (
+                          <>
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                void assistantsApi
+                                  .resolveTicket(t.id, { resolution: 'allow_once' })
+                                  .then(() => load())
+                              }
+                            >
+                              允许一次
+                            </Button>
+                            <Button
+                              size="small"
+                              theme="solid"
+                              type="primary"
+                              onClick={() =>
+                                void assistantsApi
+                                  .resolveTicket(t.id, { resolution: 'permanent' })
+                                  .then(() => {
+                                    void refresh()
+                                    return load()
+                                  })
+                              }
+                            >
+                              写入档案并继续
+                            </Button>
+                            <Button
+                              size="small"
+                              type="tertiary"
+                              onClick={() =>
+                                void assistantsApi
+                                  .resolveTicket(t.id, { resolution: 'reject' })
+                                  .then(() => load())
+                              }
+                            >
+                              拒绝
+                            </Button>
+                          </>
+                        ) : null}
+                        <Link to={`/a/${a.id}/chat`}>
+                          <Button size="small" type="tertiary">
+                            在对话中处理
+                          </Button>
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               }
+            />
+          )}
+          <div
+            style={{
+              maxHeight: 256,
+              overflowY: 'auto',
+              border: '1px solid var(--semi-color-border)',
+              borderRadius: 8,
+              padding: 12,
+              background: 'var(--semi-color-bg-1)',
             }}
+          >
+            {sortedActivity.length === 0 ? (
+              <Typography.Text type="tertiary" size="small">
+                暂无活动记录
+              </Typography.Text>
+            ) : (
+              <List
+                size="small"
+                dataSource={sortedActivity}
+                renderItem={(it) => (
+                  <List.Item
+                    style={{ padding: '4px 0' }}
+                    main={
+                      <Typography.Text size="small">
+                        <Typography.Text type="tertiary" size="small">
+                          {new Date(it.at).toLocaleString()}
+                        </Typography.Text>{' '}
+                        <Tag size="small" color="grey">
+                          {it.kind}
+                        </Tag>{' '}
+                        {it.title}
+                        {it.detail ? (
+                          <Typography.Text type="tertiary" size="small">
+                            {' '}
+                            — {it.detail}
+                          </Typography.Text>
+                        ) : null}
+                      </Typography.Text>
+                    }
+                  />
+                )}
+              />
+            )}
+          </div>
+        </section>
+
+        <section style={sectionGap}>
+          <Typography.Title heading={5} style={{ margin: 0 }}>
+            可见范围
+          </Typography.Title>
+          <Typography.Text type="tertiary" size="small">
+            默认有一个仅它可见的工作区。需要访问本机目录时在此授权。
+          </Typography.Text>
+          <List
+            size="small"
+            dataSource={a.directoryGrants ?? []}
+            emptyContent={null}
+            renderItem={(g) => (
+              <List.Item
+                style={{
+                  border: '1px solid var(--semi-color-border)',
+                  borderRadius: 8,
+                  marginBottom: 8,
+                  padding: '8px 12px',
+                }}
+                main={
+                  <Typography.Text ellipsis={{ showTooltip: true }}>
+                    {g.path}{' '}
+                    <Typography.Text type="tertiary" size="small">
+                      ({g.mode === 'readwrite' ? '读写' : '只读'})
+                    </Typography.Text>
+                  </Typography.Text>
+                }
+                extra={
+                  <Button
+                    size="small"
+                    type="tertiary"
+                    onClick={() => removeGrant(g.path)}
+                  >
+                    移除
+                  </Button>
+                }
+              />
+            )}
           />
-        </label>
-      </section>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              alignItems: 'center',
+            }}
+          >
+            <Input
+              style={{ flex: '1 1 180px', minWidth: 0 }}
+              placeholder="/path/to/folder"
+              value={newPath}
+              onChange={setNewPath}
+            />
+            <Select
+              value={newMode}
+              onChange={(v) => setNewMode(v as 'read' | 'readwrite')}
+              style={{ width: 100 }}
+            >
+              <Select.Option value="read">只读</Select.Option>
+              <Select.Option value="readwrite">读写</Select.Option>
+            </Select>
+            <Button onClick={addGrant}>添加授权</Button>
+          </div>
+        </section>
 
-      <section className="space-y-3">
-        <h2 className="font-medium">身份绑定</h2>
-        <p className="text-sm opacity-60">
-          当前：{a.identityMode === 'proxy_user' ? '代理我' : '独立身份'}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className={`btn btn-sm ${a.identityMode === 'proxy_user' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => changeIdentity('proxy_user')}
+        <section style={sectionGap}>
+          <Typography.Title heading={5} style={{ margin: 0 }}>
+            能力清单
+          </Typography.Title>
+          {(
+            [
+              ['shell', '终端', true],
+              ['browser', '浏览器', true],
+              ['mobile', '手机', false],
+              ['desktop', '桌面', false],
+            ] as const
+          ).map(([key, label, ready]) => (
+            <div
+              key={key}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                border: '1px solid var(--semi-color-border)',
+                borderRadius: 8,
+                padding: '8px 12px',
+              }}
+            >
+              <span>
+                {label}
+                {!ready && (
+                  <Tag size="small" color="grey" style={{ marginLeft: 8 }}>
+                    即将推出
+                  </Tag>
+                )}
+              </span>
+              <Switch
+                checked={Boolean(caps[key])}
+                disabled={!ready || saving}
+                onChange={(checked) => setCap(key, checked)}
+              />
+            </div>
+          ))}
+        </section>
+
+        <section style={sectionGap}>
+          <Typography.Title heading={5} style={{ margin: 0 }}>
+            网络
+          </Typography.Title>
+          <RadioGroup
+            direction="vertical"
+            value={a.networkTier}
+            disabled={saving}
+            onChange={(e) => {
+              const tier = e.target.value as 'none' | 'dev_sites' | 'all'
+              if (tier === 'all' && !window.confirm('允许全部出站风险最高，确定？')) {
+                return
+              }
+              void patch({ networkTier: tier })
+            }}
           >
-            代理我
-          </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${a.identityMode === 'independent' ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => changeIdentity('independent')}
-          >
-            独立身份
-          </button>
-        </div>
-        {a.identityMode === 'proxy_user' ? (
-          <p className="text-sm opacity-55">
-            使用你的账号。可在{' '}
-            <Link className="link" to="/settings">
-              设置
-            </Link>{' '}
-            中管理 Git 等连接。
-          </p>
-        ) : (
-          <p className="text-sm opacity-55">
-            助手专用账号将在后续版本连接。
-          </p>
+            <Radio value="none">禁止上网</Radio>
+            <Radio value="dev_sites">常用开发站</Radio>
+            <Radio value="all">允许全部</Radio>
+          </RadioGroup>
+          <div>
+            <Typography.Text type="tertiary" size="small" style={fieldLabel}>
+              高级白名单（每行一个域名）
+            </Typography.Text>
+            <TextArea
+              value={allowText}
+              onChange={setAllowText}
+              rows={3}
+              style={{ fontFamily: 'var(--semi-font-family-regular), monospace', fontSize: 12 }}
+              onBlur={() => {
+                const list = allowText
+                  .split(/[\n,]+/)
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                const prev = a.networkAllowlist ?? []
+                if (JSON.stringify(list) !== JSON.stringify(prev)) {
+                  void patch({ networkAllowlist: list })
+                }
+              }}
+            />
+          </div>
+        </section>
+
+        <section style={sectionGap}>
+          <Typography.Title heading={5} style={{ margin: 0 }}>
+            身份绑定
+          </Typography.Title>
+          <Typography.Text type="secondary" size="small">
+            当前：{a.identityMode === 'proxy_user' ? '代理我' : '独立身份'}
+          </Typography.Text>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <Button
+              size="small"
+              theme={a.identityMode === 'proxy_user' ? 'solid' : 'light'}
+              type={a.identityMode === 'proxy_user' ? 'primary' : 'tertiary'}
+              onClick={() => changeIdentity('proxy_user')}
+            >
+              代理我
+            </Button>
+            <Button
+              size="small"
+              theme={a.identityMode === 'independent' ? 'solid' : 'light'}
+              type={a.identityMode === 'independent' ? 'primary' : 'tertiary'}
+              onClick={() => changeIdentity('independent')}
+            >
+              独立身份
+            </Button>
+          </div>
+          {a.identityMode === 'proxy_user' ? (
+            <Typography.Text type="tertiary" size="small">
+              使用你的账号。可在{' '}
+              <Link to="/settings" style={{ color: 'var(--semi-color-link)' }}>
+                设置
+              </Link>{' '}
+              中管理 Git 等连接。
+            </Typography.Text>
+          ) : (
+            <Typography.Text type="tertiary" size="small">
+              助手专用账号将在后续版本连接。
+            </Typography.Text>
+          )}
+        </section>
+
+        {saving && (
+          <Typography.Text type="tertiary" size="small">
+            保存中…
+          </Typography.Text>
         )}
-      </section>
-
-      {saving && <p className="text-xs opacity-45">保存中…</p>}
       </div>
     </div>
   )

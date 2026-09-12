@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import {
+  Banner,
+  Button,
+  Tag,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import {
   ApiError,
   environments,
@@ -14,21 +20,39 @@ type Props = {
   showPicker?: boolean
 }
 
+const sectionGap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
+}
+
+const preStyle: CSSProperties = {
+  marginTop: 4,
+  overflowX: 'auto',
+  borderRadius: 6,
+  background: 'var(--semi-color-fill-0)',
+  padding: '6px 8px',
+  fontFamily: 'var(--semi-font-family-code)',
+  fontSize: '0.75rem',
+}
+
 export function EngineSetupList({ steps }: { steps: SetupStep[] }) {
   if (!steps.length) return null
   return (
-    <ol className="m-0 list-decimal space-y-3 pl-5 text-sm">
+    <ol style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
       {steps.map((step) => (
         <li key={step.title}>
-          <div className="font-medium">{step.title}</div>
+          <Typography.Text strong>{step.title}</Typography.Text>
           {step.detail ? (
-            <p className="mt-0.5 text-[0.8rem] leading-relaxed opacity-60">{step.detail}</p>
+            <Typography.Text
+              type="tertiary"
+              size="small"
+              style={{ display: 'block', marginTop: 2 }}
+            >
+              {step.detail}
+            </Typography.Text>
           ) : null}
-          {step.command ? (
-            <pre className="mt-1 overflow-x-auto rounded-md bg-base-200 px-2 py-1.5 font-mono text-[0.75rem]">
-              {step.command}
-            </pre>
-          ) : null}
+          {step.command ? <pre style={preStyle}>{step.command}</pre> : null}
         </li>
       ))}
     </ol>
@@ -98,24 +122,31 @@ export function RuntimePanel({ engineId, showPicker = true }: Props) {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-sm font-medium">
+    <section style={sectionGap}>
+      <Typography.Title heading={5} style={{ margin: 0 }}>
         {engineId === 'qemu' ? 'Browser / QEMU' : 'Agent runtime'}
-      </h2>
-      <p className="m-0 text-[0.8rem] leading-relaxed opacity-55">
+      </Typography.Title>
+      <Typography.Text type="tertiary" size="small">
         {engineId
           ? 'This slot needs a QEMU VM image on the host. If anything is missing, install it here then retry.'
           : 'Pick how Cloud Agent runs on this machine. Browser desktops always use QEMU. If the host is missing binaries or images, follow the setup steps — no process restart is required after they are installed.'}
-      </p>
+      </Typography.Text>
       {error ? (
-        <p className="m-0 text-sm text-error" role="alert">
-          {error}
-        </p>
+        <div role="alert">
+          <Banner
+            fullMode={false}
+            type="danger"
+            description={error}
+            closeIcon={null}
+          />
+        </div>
       ) : null}
       {!snap ? (
-        <p className="text-sm opacity-50">Loading runtimes…</p>
+        <Typography.Text type="tertiary" size="small">
+          Loading runtimes…
+        </Typography.Text>
       ) : (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {engines.map((eng) => (
             <EngineCard
               key={eng.id}
@@ -127,18 +158,20 @@ export function RuntimePanel({ engineId, showPicker = true }: Props) {
             />
           ))}
           {showPicker ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={starting || saving || !current}
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+              <Button
+                theme="solid"
+                type="primary"
+                size="small"
+                loading={starting}
+                disabled={saving || !current}
                 onClick={() => void startAgent()}
               >
-                {starting ? 'Starting…' : current?.agentReady ? 'Start / resume Agent' : 'Retry after setup'}
-              </button>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load()}>
+                {current?.agentReady ? 'Start / resume Agent' : 'Retry after setup'}
+              </Button>
+              <Button type="tertiary" size="small" onClick={() => void load()}>
                 Recheck host
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>
@@ -163,31 +196,50 @@ function EngineCard({
   const ready = selectable ? engine.agentReady : engine.browserReady || engine.ready
   return (
     <div
-      className={`rounded-lg border p-4 ${selected ? 'border-primary' : 'border-base-300'}`}
+      style={{
+        borderRadius: 8,
+        border: `1px solid ${selected ? 'var(--semi-color-primary)' : 'var(--semi-color-border)'}`,
+        padding: 16,
+      }}
     >
-      <div className="flex flex-wrap items-start justify-between gap-2">
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: 8,
+        }}
+      >
         <div>
-          <div className="font-medium">{engine.label}</div>
-          <p className="mt-1 text-[0.8rem] leading-relaxed opacity-55">{engine.summary}</p>
+          <Typography.Text strong>{engine.label}</Typography.Text>
+          <Typography.Text
+            type="tertiary"
+            size="small"
+            style={{ display: 'block', marginTop: 4 }}
+          >
+            {engine.summary}
+          </Typography.Text>
         </div>
-        <div className="flex items-center gap-2">
-          <span className={`badge badge-sm ${ready ? 'badge-success' : 'badge-warning'}`}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Tag size="small" color={ready ? 'green' : 'orange'}>
             {ready ? 'Ready' : 'Needs setup'}
-          </span>
+          </Tag>
           {selectable ? (
-            <button
-              type="button"
-              className={`btn btn-sm ${selected ? 'btn-primary' : 'btn-outline'}`}
+            <Button
+              size="small"
+              theme={selected ? 'solid' : 'light'}
+              type={selected ? 'primary' : 'tertiary'}
               disabled={disabled}
               onClick={onSelect}
             >
               {selected ? 'Selected' : 'Use this'}
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
       {!ready && engine.setup?.length ? (
-        <div className="mt-3">
+        <div style={{ marginTop: 12 }}>
           <EngineSetupList steps={engine.setup} />
         </div>
       ) : null}

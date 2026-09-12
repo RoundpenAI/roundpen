@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import {
+  Button,
+  Collapse,
+  List,
+  Progress,
+  Spin,
+  Tag,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import { setupApi, type SetupActionRun, type SetupPlan } from '../api'
 
 type Props = {
@@ -36,12 +45,47 @@ function statusLabel(status: string): string {
   }
 }
 
+function statusColor(
+  status: string,
+): 'grey' | 'blue' | 'orange' | 'green' | 'red' | 'cyan' {
+  switch (status) {
+    case 'pending_confirm':
+    case 'pending_manual':
+      return 'orange'
+    case 'queued':
+      return 'grey'
+    case 'running':
+      return 'blue'
+    case 'succeeded':
+      return 'green'
+    case 'failed':
+      return 'red'
+    case 'skipped':
+      return 'cyan'
+    default:
+      return 'grey'
+  }
+}
+
 async function copyText(text: string) {
   try {
     await navigator.clipboard.writeText(text)
   } catch {
     /* ignore */
   }
+}
+
+const preStyle: CSSProperties = {
+  marginTop: 8,
+  overflow: 'auto',
+  maxHeight: 192,
+  borderRadius: 6,
+  padding: 8,
+  fontFamily: 'var(--semi-font-family-regular), monospace',
+  fontSize: 11,
+  whiteSpace: 'pre-wrap',
+  background: 'var(--semi-color-fill-0)',
+  color: 'var(--semi-color-text-1)',
 }
 
 function ActionRow({
@@ -65,84 +109,117 @@ function ActionRow({
   }
 
   return (
-    <li className="rounded-lg border border-base-300 px-3 py-2">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-medium">{action.title}</p>
-          <p className="text-xs opacity-55">{action.reason}</p>
-          <p className="mt-1 text-xs opacity-70">{statusLabel(action.status)}</p>
-          {action.error ? (
-            <p className="mt-1 text-xs text-error">{action.error}</p>
-          ) : null}
+    <List.Item
+      style={{
+        border: '1px solid var(--semi-color-border)',
+        borderRadius: 8,
+        marginBottom: 12,
+        padding: '12px 12px 4px',
+        background: 'var(--semi-color-bg-1)',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+      }}
+      main={
+        <div>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+          >
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <Typography.Text strong style={{ display: 'block' }}>
+                {action.title}
+              </Typography.Text>
+              <Typography.Text type="tertiary" size="small">
+                {action.reason}
+              </Typography.Text>
+              <div style={{ marginTop: 6 }}>
+                <Tag size="small" color={statusColor(action.status)}>
+                  {statusLabel(action.status)}
+                </Tag>
+              </div>
+              {action.error ? (
+                <Typography.Text
+                  type="danger"
+                  size="small"
+                  style={{ display: 'block', marginTop: 6 }}
+                >
+                  {action.error}
+                </Typography.Text>
+              ) : null}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {action.status === 'pending_confirm' &&
+                action.privilege === 'auto' && (
+                  <Button
+                    theme="solid"
+                    type="primary"
+                    size="small"
+                    loading={busy}
+                    onClick={() =>
+                      void run(() => setupApi.confirm(planId, action.actionId))
+                    }
+                  >
+                    允许并安装
+                  </Button>
+                )}
+              {action.status === 'pending_manual' && (
+                <>
+                  <Button
+                    type="tertiary"
+                    size="small"
+                    disabled={busy || !action.command}
+                    onClick={() => void copyText(action.command)}
+                  >
+                    复制命令
+                  </Button>
+                  <Button
+                    theme="solid"
+                    type="primary"
+                    size="small"
+                    loading={busy}
+                    onClick={() =>
+                      void run(() => setupApi.recheck(planId, action.actionId))
+                    }
+                  >
+                    我已装好，重新检测
+                  </Button>
+                </>
+              )}
+              {action.status === 'failed' && (
+                <Button
+                  size="small"
+                  loading={busy}
+                  onClick={() =>
+                    void run(() => setupApi.retry(planId, action.actionId))
+                  }
+                >
+                  重试
+                </Button>
+              )}
+            </div>
+          </div>
+          <Collapse style={{ marginTop: 8 }}>
+            <Collapse.Panel header="详情" itemKey="detail">
+              {action.command ? (
+                <pre style={preStyle}>{action.command}</pre>
+              ) : null}
+              {action.log ? (
+                <pre style={preStyle}>{action.log}</pre>
+              ) : (
+                <Typography.Text type="tertiary" size="small">
+                  暂无日志
+                </Typography.Text>
+              )}
+            </Collapse.Panel>
+          </Collapse>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {action.status === 'pending_confirm' &&
-            action.privilege === 'auto' && (
-              <button
-                type="button"
-                className="btn btn-primary btn-sm min-h-11 sm:min-h-0"
-                disabled={busy}
-                onClick={() =>
-                  void run(() => setupApi.confirm(planId, action.actionId))
-                }
-              >
-                允许并安装
-              </button>
-            )}
-          {action.status === 'pending_manual' && (
-            <>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm min-h-11 sm:min-h-0"
-                disabled={busy || !action.command}
-                onClick={() => void copyText(action.command)}
-              >
-                复制命令
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm min-h-11 sm:min-h-0"
-                disabled={busy}
-                onClick={() =>
-                  void run(() => setupApi.recheck(planId, action.actionId))
-                }
-              >
-                我已装好，重新检测
-              </button>
-            </>
-          )}
-          {action.status === 'failed' && (
-            <button
-              type="button"
-              className="btn btn-sm min-h-11 sm:min-h-0"
-              disabled={busy}
-              onClick={() =>
-                void run(() => setupApi.retry(planId, action.actionId))
-              }
-            >
-              重试
-            </button>
-          )}
-        </div>
-      </div>
-      <details className="mt-2 text-xs opacity-80">
-        <summary className="cursor-pointer select-none opacity-60">
-          详情
-        </summary>
-        {action.command ? (
-          <pre className="mt-1 overflow-x-auto rounded bg-base-200 p-2 font-mono text-[0.7rem]">
-            {action.command}
-          </pre>
-        ) : null}
-        {action.log ? (
-          <pre className="mt-1 max-h-48 overflow-auto rounded bg-base-200 p-2 font-mono text-[0.7rem] whitespace-pre-wrap">
-            {action.log}
-          </pre>
-        ) : (
-          <p className="mt-1 opacity-45">暂无日志</p>
-        )}
-      </details>
-    </li>
+      }
+    />
   )
 }
 
@@ -176,32 +253,37 @@ export function SetupWorkstation({ planId, onReady, onError }: Props) {
   }, [planId, onReady, onError])
 
   if (!plan) {
-    return <p className="mt-6 text-sm opacity-50">正在检测工位…</p>
+    return (
+      <div style={{ marginTop: 24 }}>
+        <Spin tip="正在检测工位…" />
+      </div>
+    )
   }
 
   const done = plan.actions.filter((a) => isTerminal(a.status)).length
   const total = plan.actions.length
+  const percent = total > 0 ? Math.round((done / total) * 100) : 100
 
   return (
-    <div className="mt-6 space-y-4">
-      <p className="text-sm opacity-80">{plan.summary}</p>
+    <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Typography.Text type="secondary">{plan.summary}</Typography.Text>
       {total > 0 ? (
-        <p className="text-xs opacity-50">
-          进度 {done} / {total}
-        </p>
+        <div>
+          <Typography.Text type="tertiary" size="small">
+            进度 {done} / {total}
+          </Typography.Text>
+          <Progress percent={percent} showInfo style={{ marginTop: 8 }} />
+        </div>
       ) : (
-        <p className="text-sm opacity-55">无需额外安装，工位已就绪。</p>
+        <Typography.Text type="tertiary">无需额外安装，工位已就绪。</Typography.Text>
       )}
-      <ul className="space-y-3">
-        {plan.actions.map((a) => (
-          <ActionRow
-            key={a.actionId}
-            planId={planId}
-            action={a}
-            onUpdated={setPlan}
-          />
-        ))}
-      </ul>
+      <List
+        dataSource={plan.actions}
+        split={false}
+        renderItem={(a) => (
+          <ActionRow planId={planId} action={a} onUpdated={setPlan} />
+        )}
+      />
     </div>
   )
 }

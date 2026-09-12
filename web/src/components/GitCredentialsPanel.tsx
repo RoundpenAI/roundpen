@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import {
+  Banner,
+  Button,
+  Input,
+  Select,
+  Typography,
+} from '@douyinfe/semi-ui-19'
 import { gitCredentials, type GitCredential } from '../api'
-
-const controlClass =
-  'input input-bordered w-full min-w-0 min-h-11 text-base sm:input-sm sm:min-h-0 sm:text-sm'
-const selectClass =
-  'select select-bordered w-full min-w-0 min-h-11 text-base sm:select-sm sm:min-h-0 sm:text-sm'
 
 const PROVIDERS = [
   { value: 'gitea', label: 'Gitea' },
@@ -12,6 +14,22 @@ const PROVIDERS = [
   { value: 'gitlab', label: 'GitLab' },
   { value: 'generic', label: 'Other git host' },
 ] as const
+
+const sectionGap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 16,
+}
+
+const fieldLabel: CSSProperties = {
+  display: 'block',
+  marginBottom: 4,
+}
+
+const codeStyle: CSSProperties = {
+  fontFamily: 'var(--semi-font-family-code)',
+  fontSize: '0.75rem',
+}
 
 export function GitCredentialsPanel() {
   const [list, setList] = useState<GitCredential[]>([])
@@ -66,102 +84,137 @@ export function GitCredentialsPanel() {
   }
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-sm font-medium">Git personal tokens</h2>
-      <p className="m-0 text-[0.8rem] leading-relaxed opacity-55">
+    <section style={sectionGap}>
+      <Typography.Title heading={5} style={{ margin: 0 }}>
+        Git personal tokens
+      </Typography.Title>
+      <Typography.Text type="tertiary" size="small">
         One personal token per git host. Roundpen stores it for your account and
-        injects it into the Cloud Agent workspace for <code className="font-mono text-[0.75rem]">git</code>,
-        and later <code className="font-mono text-[0.75rem]">tea</code> /{' '}
-        <code className="font-mono text-[0.75rem]">gh</code> /{' '}
-        <code className="font-mono text-[0.75rem]">glab</code> (issues, PRs).
-        Tokens never go into the image, and we do not copy SSH keys from this machine.
-      </p>
+        injects it into the Cloud Agent workspace for <code style={codeStyle}>git</code>,
+        and later <code style={codeStyle}>tea</code> /{' '}
+        <code style={codeStyle}>gh</code> /{' '}
+        <code style={codeStyle}>glab</code> (issues, PRs). Tokens never go into
+        the image, and we do not copy SSH keys from this machine.
+      </Typography.Text>
       {error ? (
-        <p className="m-0 text-sm text-error" role="alert">
-          {error}
-        </p>
+        <div role="alert">
+          <Banner
+            fullMode={false}
+            type="danger"
+            description={error}
+            closeIcon={null}
+          />
+        </div>
       ) : null}
       {list.length > 0 ? (
-        <ul className="space-y-2 text-sm">
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
           {list.map((c) => (
             <li
               key={c.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-base-300 px-3 py-2"
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                border: '1px solid var(--semi-color-border)',
+                borderRadius: 8,
+                padding: '8px 12px',
+              }}
             >
-              <div className="min-w-0">
-                <div className="font-mono text-xs">{c.host}</div>
-                <div className="text-[0.7rem] opacity-50">
+              <div style={{ minWidth: 0 }}>
+                <Typography.Text
+                  style={{
+                    fontFamily: 'var(--semi-font-family-code)',
+                    fontSize: 12,
+                  }}
+                >
+                  {c.host}
+                </Typography.Text>
+                <Typography.Text
+                  type="tertiary"
+                  size="small"
+                  style={{ display: 'block' }}
+                >
                   {c.provider}
                   {c.username ? ` · ${c.username}` : ''}
                   {c.hasToken ? ' · personal token saved' : ''}
-                </div>
+                </Typography.Text>
               </div>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => void onDelete(c.id)}
-              >
+              <Button type="tertiary" size="small" onClick={() => void onDelete(c.id)}>
                 Remove
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="m-0 text-sm opacity-45">No personal tokens yet. Add a host below.</p>
+        <Typography.Text type="tertiary" size="small">
+          No personal tokens yet. Add a host below.
+        </Typography.Text>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="form-control w-full gap-1.5">
-          <span className="label-text text-xs opacity-60">Provider</span>
-          <select
-            className={selectClass}
+      <div
+        style={{
+          display: 'grid',
+          gap: 12,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        }}
+      >
+        <div>
+          <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+            Provider
+          </Typography.Text>
+          <Select
             value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-          >
-            {PROVIDERS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="form-control w-full gap-1.5">
-          <span className="label-text text-xs opacity-60">Host</span>
-          <input
-            className={controlClass}
+            onChange={(v) => setProvider(String(v))}
+            optionList={[...PROVIDERS]}
+            style={{ width: '100%' }}
+          />
+        </div>
+        <div>
+          <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+            Host
+          </Typography.Text>
+          <Input
             value={host}
-            onChange={(e) => setHost(e.target.value)}
+            onChange={setHost}
             placeholder="git.eaxi.com"
           />
-        </label>
-        <label className="form-control w-full gap-1.5">
-          <span className="label-text text-xs opacity-60">Username (optional)</span>
-          <input
-            className={controlClass}
+        </div>
+        <div>
+          <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+            Username (optional)
+          </Typography.Text>
+          <Input
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={setUsername}
             placeholder="git"
           />
-        </label>
-        <label className="form-control w-full gap-1.5">
-          <span className="label-text text-xs opacity-60">Personal token</span>
-          <input
-            className={controlClass}
-            type="password"
+        </div>
+        <div>
+          <Typography.Text size="small" type="tertiary" style={fieldLabel}>
+            Personal token
+          </Typography.Text>
+          <Input
+            mode="password"
             autoComplete="new-password"
             value={token}
-            onChange={(e) => setToken(e.target.value)}
+            onChange={setToken}
             placeholder="PAT with repo + issues/PR scope"
           />
-        </label>
+        </div>
       </div>
-      <button
-        type="button"
-        className="btn btn-primary btn-sm"
-        disabled={saving || !host.trim() || !token.trim()}
-        onClick={() => void onSave()}
-      >
-        {saving ? 'Saving…' : 'Save personal token'}
-      </button>
+      <div>
+        <Button
+          theme="solid"
+          type="primary"
+          size="small"
+          loading={saving}
+          disabled={!host.trim() || !token.trim()}
+          onClick={() => void onSave()}
+        >
+          Save personal token
+        </Button>
+      </div>
     </section>
   )
 }
