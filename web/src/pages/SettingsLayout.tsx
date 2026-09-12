@@ -1,0 +1,66 @@
+import { Outlet, useNavigate, useParams } from 'react-router-dom'
+import { Button, Layout, Typography } from '@douyinfe/semi-ui-19'
+import { useAuth } from '../auth'
+import {
+  resolveSettingsSection,
+  visibleSettingsSections,
+} from '../lib/appNav'
+
+const { Sider, Content } = Layout
+
+export function SettingsLayout() {
+  const auth = useAuth()
+  const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
+  const { section } = useParams()
+  const navigate = useNavigate()
+  const active = resolveSettingsSection(section, isAdmin)
+  const sections = visibleSettingsSections(isAdmin)
+
+  return (
+    <Layout style={{ height: '100%', background: 'var(--semi-color-bg-0)' }}>
+      <Sider
+        style={{
+          width: 220,
+          minWidth: 220,
+          maxWidth: 220,
+          background: 'var(--semi-color-bg-1)',
+          borderRight: '1px solid var(--semi-color-border)',
+          padding: 8,
+        }}
+      >
+        <Typography.Text
+          type="tertiary"
+          size="small"
+          style={{ display: 'block', padding: '8px 8px 4px' }}
+        >
+          设置
+        </Typography.Text>
+        {sections.map((s) => (
+          <Button
+            key={s.key}
+            theme={active === s.key ? 'light' : 'borderless'}
+            type={active === s.key ? 'primary' : 'tertiary'}
+            style={{
+              justifyContent: 'flex-start',
+              width: '100%',
+              marginBottom: 2,
+            }}
+            onClick={() => navigate(`/settings/${s.key}`)}
+          >
+            {s.label}
+          </Button>
+        ))}
+      </Sider>
+      <Content
+        style={{
+          minWidth: 0,
+          minHeight: 0,
+          overflow: 'auto',
+          flex: 1,
+        }}
+      >
+        <Outlet />
+      </Content>
+    </Layout>
+  )
+}
