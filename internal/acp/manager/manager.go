@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -51,6 +52,7 @@ type Runtime struct {
 	// Postgres transcript preamble (same projection as System Agent).
 	seedHistory bool
 
+	gen    uint64
 	cancel context.CancelFunc
 	mu     sync.Mutex
 }
@@ -65,6 +67,7 @@ type Manager struct {
 	mu       sync.Mutex
 	runtimes map[string]*Runtime
 	gate     chan struct{}
+	nextGen  atomic.Uint64
 }
 
 // New creates a Manager.
@@ -121,6 +124,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	runCtx, cancel := context.WithCancel(context.Background())
 
 	var conn *acp.ClientSideConnection
+	var runtimeGen uint64
 	switch p.Mode {
 	case "sysadmin", "mock", "":
 		c2aR, c2aW := io.Pipe()
@@ -132,10 +136,13 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Slots:     m.sys.BrowserSlots,
 			SessionID: sessionID,
 		})
-		tools.RegisterShell(reg, &tools.AgentBinder{
+		binder := &tools.AgentBinder{
 			Slots: m.sys.AgentSlots,
 			Exec:  m.sandboxes,
-		})
+			Files: m.sandboxes,
+		}
+		tools.RegisterShell(reg, binder)
+		tools.RegisterFiles(reg, binder)
 		agent := sysagent.New(sysagent.Deps{
 			LLM: sysagent.LLMConfig{
 				BaseURL:      strings.TrimRight(m.sys.LoopbackBase, "/") + "/llmgw/openai",
@@ -162,7 +169,8 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		cmd = append(cmd, p.Args...)
 		stdinR, stdinW := io.Pipe()
 		stdoutR, stdoutW := io.Pipe()
-		go func() {
+		runtimeGen = m.nextGen.Add(1)
+		go func(gen uint64) {
 			err := m.sandboxes.AttachExec(runCtx, sandboxID, sandbox.AttachExecOpts{
 				Cmd: cmd, WorkDir: "/workspace",
 			}, stdinR, stdoutW, io.Discard)
@@ -171,7 +179,15 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			if err != nil && runCtx.Err() == nil {
 				m.log.Warn("attach exec ended", slog.String("session", sessionID), slog.Any("err", err))
 			}
-		}()
+			// Drop stale runtime so the next WS can Start fresh instead of
+			// accepting prompts on a dead ACP pipe (UI looks connected, chat hangs).
+			m.mu.Lock()
+			if cur := m.runtimes[sessionID]; cur != nil && cur.gen == gen {
+				delete(m.runtimes, sessionID)
+			}
+			m.mu.Unlock()
+			cancel()
+		}(runtimeGen)
 		conn = acp.NewClientSideConnection(bridge, stdinW, stdoutR)
 		conn.SetLogger(m.log)
 		go func() {
@@ -219,6 +235,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		conn:        conn,
 		acpSID:      sess.SessionId,
 		seedHistory: p.Mode == "stdio",
+		gen:         runtimeGen,
 		cancel:      cancel,
 	}
 	m.mu.Lock()
