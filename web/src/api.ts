@@ -473,6 +473,62 @@ export const runtime = {
     }),
 }
 
+export type SetupPrivilege = 'auto' | 'manual'
+
+export type SetupActionRun = {
+  actionId: string
+  title: string
+  reason: string
+  status: string
+  privilege?: SetupPrivilege
+  command: string
+  error?: string
+  log?: string
+}
+
+export type SetupPlan = {
+  id: string
+  summary: string
+  context: {
+    name: string
+    bio: string
+    identityMode: string
+    preset: string
+  }
+  actions: SetupActionRun[]
+  createdAt: string
+}
+
+export const setupApi = {
+  llmReady: () =>
+    api<{ ready: boolean; reason?: string }>('/v1/setup/llm-ready'),
+  createPlan: (body: {
+    name: string
+    bio: string
+    identityMode: string
+    preset: string
+  }) =>
+    api<SetupPlan>('/v1/setup/plans', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getPlan: (id: string) => api<SetupPlan>(`/v1/setup/plans/${id}`),
+  confirm: (planId: string, actionId: string) =>
+    api<SetupPlan>(
+      `/v1/setup/plans/${planId}/actions/${actionId}/confirm`,
+      { method: 'POST' },
+    ),
+  recheck: (planId: string, actionId: string) =>
+    api<SetupPlan>(
+      `/v1/setup/plans/${planId}/actions/${actionId}/recheck`,
+      { method: 'POST' },
+    ),
+  retry: (planId: string, actionId: string) =>
+    api<SetupPlan>(`/v1/setup/plans/${planId}/actions/${actionId}/retry`, {
+      method: 'POST',
+    }),
+}
+
 export type BrowserTask = {
   id: string
   userId: string
