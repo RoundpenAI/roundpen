@@ -8,13 +8,29 @@ import {
 } from 'react'
 import {
   Link,
-  NavLink,
   Navigate,
   Outlet,
   useLocation,
   useNavigate,
   useParams,
 } from 'react-router-dom'
+import {
+  Badge,
+  Banner,
+  Button,
+  Layout,
+  List,
+  SideSheet,
+  Spin,
+  Typography,
+} from '@douyinfe/semi-ui-19'
+import {
+  IconPlus,
+  IconMenu,
+  IconExit,
+  IconSetting,
+  IconMore,
+} from '@douyinfe/semi-icons'
 import {
   assistantsApi,
   ApiError,
@@ -23,8 +39,10 @@ import {
 } from '../api'
 import { doLogout, useAuth } from '../auth'
 import { NAV } from './PageShell'
+import { ThemeToggle } from './ThemeToggle'
 
 const SIDEBAR_KEY = 'roundpen.assistants.sidebarCollapsed'
+const { Sider, Header, Content } = Layout
 
 type AssistantLayoutValue = {
   assistants: Assistant[]
@@ -68,7 +86,6 @@ export function AssistantLayout() {
   const [error, setError] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const showCollapsed = collapsed && !mobileOpen
 
   const refresh = useCallback(async () => {
     try {
@@ -123,247 +140,356 @@ export function AssistantLayout() {
     [assistants, refresh],
   )
 
-  const sidebar = (
-    <aside
-      className={`chat-sidebar ${showCollapsed ? 'chat-sidebar-collapsed' : ''}`}
+  const title =
+    assistants.find((a) => a.id === assistantId)?.name ||
+    (location.pathname.includes('/new') ? '新建助手' : '助手')
+
+  const sidebarBody = (opts: { collapsedView: boolean; onNavigate?: () => void }) => (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        background: 'var(--semi-color-bg-1)',
+      }}
     >
-      <div className="chat-sidebar-top">
-        <button
-          type="button"
-          className="chat-icon-btn"
-          title={
-            mobileOpen
-              ? '关闭侧栏'
-              : showCollapsed
-                ? '展开侧栏'
-                : '收起侧栏'
-          }
-          aria-label={
-            mobileOpen
-              ? '关闭侧栏'
-              : showCollapsed
-                ? '展开侧栏'
-                : '收起侧栏'
-          }
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '12px 10px',
+          borderBottom: '1px solid var(--semi-color-border)',
+        }}
+      >
+        <Button
+          theme="borderless"
+          type="tertiary"
+          icon={<IconMenu />}
+          aria-label={opts.collapsedView ? '展开侧栏' : '收起侧栏'}
           onClick={() => {
-            if (
-              typeof window !== 'undefined' &&
-              window.matchMedia('(max-width: 767px)').matches
-            ) {
+            if (mobileOpen) {
               setMobileOpen(false)
               return
             }
             toggleCollapsed()
           }}
-        >
-          ☰
-        </button>
-        {!showCollapsed && (
+        />
+        {!opts.collapsedView && (
           <Link
             to="/a"
-            className="font-display truncate text-lg font-semibold"
-            onClick={() => setMobileOpen(false)}
+            onClick={opts.onNavigate}
+            style={{
+              fontWeight: 600,
+              fontSize: 16,
+              color: 'var(--semi-color-text-0)',
+              textDecoration: 'none',
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
           >
             Roundpen
           </Link>
         )}
-        <Link
-          to="/a/new"
-          className="chat-icon-btn ml-auto"
-          title="新建助手"
+        <Button
+          theme="borderless"
+          type="tertiary"
+          icon={<IconPlus />}
           aria-label="新建助手"
-          onClick={() => setMobileOpen(false)}
-        >
-          +
-        </Link>
-        {!showCollapsed && (
-          <button
-            type="button"
-            className="chat-icon-btn relative"
-            title="待处理协助单"
-            aria-label="待处理"
-            onClick={() => setPendingOpen((v) => !v)}
-          >
-            ◎
-            {pending.length > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-0.5 text-[10px] text-warning-content">
-                {pending.length}
-              </span>
-            )}
-          </button>
+          onClick={() => {
+            opts.onNavigate?.()
+            navigate('/a/new')
+          }}
+        />
+        {!opts.collapsedView && (
+          <Badge count={pending.length} overflowCount={99} type="warning">
+            <Button
+              theme="borderless"
+              type="tertiary"
+              aria-label="待处理"
+              onClick={() => setPendingOpen((v) => !v)}
+            >
+              待办
+            </Button>
+          </Badge>
         )}
       </div>
 
-      {pendingOpen && !showCollapsed && (
-        <div className="border-b border-base-300 px-3 py-2 text-xs">
-          <p className="mb-1 font-medium opacity-70">待处理</p>
-          {pending.length === 0 && (
-            <p className="opacity-45">没有待处理协助单</p>
+      {pendingOpen && !opts.collapsedView && (
+        <div
+          style={{
+            padding: 12,
+            borderBottom: '1px solid var(--semi-color-border)',
+          }}
+        >
+          <Typography.Text type="tertiary" size="small">
+            待处理
+          </Typography.Text>
+          {pending.length === 0 ? (
+            <Typography.Text type="tertiary" size="small" style={{ display: 'block' }}>
+              没有待处理协助单
+            </Typography.Text>
+          ) : (
+            <List
+              size="small"
+              dataSource={pending}
+              renderItem={(t) => (
+                <List.Item
+                  style={{ cursor: 'pointer', padding: '6px 0' }}
+                  onClick={() => {
+                    setPendingOpen(false)
+                    opts.onNavigate?.()
+                    void openAssistant(t.assistantId)
+                  }}
+                >
+                  {t.title}
+                </List.Item>
+              )}
+            />
           )}
-          {pending.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="mb-1 block w-full truncate rounded px-2 py-1.5 text-left hover:bg-base-200"
-              onClick={() => {
-                setPendingOpen(false)
-                setMobileOpen(false)
-                void openAssistant(t.assistantId)
-              }}
-            >
-              {t.title}
-            </button>
-          ))}
         </div>
       )}
 
-      {!showCollapsed && (
-        <Link
-          to="/a/new"
-          className="chat-new-btn"
-          onClick={() => setMobileOpen(false)}
-        >
-          新建助手
-        </Link>
+      {!opts.collapsedView && (
+        <div style={{ padding: '8px 10px' }}>
+          <Button
+            block
+            theme="solid"
+            type="primary"
+            icon={<IconPlus />}
+            onClick={() => {
+              opts.onNavigate?.()
+              navigate('/a/new')
+            }}
+          >
+            新建助手
+          </Button>
+        </div>
       )}
 
-      <nav className="chat-session-list" aria-label="助手">
-        {!showCollapsed && assistants.length === 0 && (
-          <p className="px-3 py-6 text-xs opacity-45">还没有助手</p>
+      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        {!opts.collapsedView && assistants.length === 0 && (
+          <Typography.Text
+            type="tertiary"
+            size="small"
+            style={{ display: 'block', padding: 16 }}
+          >
+            还没有助手
+          </Typography.Text>
         )}
-        {!showCollapsed &&
+        {!opts.collapsedView &&
           assistants.map((a) => {
             const active = a.id === assistantId
             return (
               <div
                 key={a.id}
-                className={`chat-session-row ${active ? 'active' : ''}`}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  padding: '4px 8px',
+                  background: active
+                    ? 'var(--semi-color-fill-0)'
+                    : 'transparent',
+                  borderRadius: 6,
+                  margin: '2px 6px',
+                }}
               >
                 <button
                   type="button"
-                  className="chat-session-link text-left"
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    textAlign: 'left',
+                    border: 'none',
+                    background: 'transparent',
+                    color: 'var(--semi-color-text-0)',
+                    cursor: 'pointer',
+                    padding: '6px 4px',
+                  }}
                   title={a.name}
                   onClick={() => {
-                    setMobileOpen(false)
+                    opts.onNavigate?.()
                     void openAssistant(a.id)
                   }}
                 >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{a.name}</span>
-                    <span className="block truncate text-[10px] opacity-45">
-                      {bioLine(a)}
-                    </span>
-                  </span>
+                  <Typography.Text strong ellipsis={{ showTooltip: true }} style={{ display: 'block' }}>
+                    {a.name}
+                  </Typography.Text>
+                  <Typography.Text type="tertiary" size="small" ellipsis style={{ display: 'block' }}>
+                    {bioLine(a)}
+                  </Typography.Text>
                 </button>
-                <NavLink
-                  to={`/a/${a.id}`}
-                  className="chat-session-end"
-                  title="助手详情"
+                <Button
+                  theme="borderless"
+                  type="tertiary"
+                  size="small"
+                  icon={<IconMore />}
                   aria-label={`${a.name} 详情`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setMobileOpen(false)
+                  onClick={() => {
+                    opts.onNavigate?.()
+                    navigate(`/a/${a.id}`)
                   }}
-                >
-                  ···
-                </NavLink>
+                />
               </div>
             )
           })}
-      </nav>
+      </div>
 
-      <div className="chat-sidebar-foot">
-        {!showCollapsed &&
+      <div
+        style={{
+          borderTop: '1px solid var(--semi-color-border)',
+          padding: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+        }}
+      >
+        {!opts.collapsedView && <ThemeToggle />}
+        {!opts.collapsedView &&
           NAV.filter((item) => item.id !== 'assistants' && !item.advanced).map(
             (item) => {
               if (item.admin && user?.role !== 'admin') return null
               return (
-                <Link
+                <Button
                   key={item.id}
-                  to={item.to}
-                  className="chat-nav-link"
-                  onClick={() => setMobileOpen(false)}
+                  theme="borderless"
+                  type="tertiary"
+                  icon={item.id === 'settings' ? <IconSetting /> : undefined}
+                  style={{ justifyContent: 'flex-start' }}
+                  onClick={() => {
+                    opts.onNavigate?.()
+                    navigate(item.to)
+                  }}
                 >
                   {item.label}
-                </Link>
+                </Button>
               )
             },
           )}
-        {!showCollapsed && user && (
-          <button
-            type="button"
-            className="chat-nav-link w-full text-left"
-            onClick={() => void doLogout().then(() => navigate('/login'))}
-          >
-            退出 ({user.username})
-          </button>
-        )}
-        {showCollapsed && user && (
-          <button
-            type="button"
-            className="chat-icon-btn"
-            title={`退出 ${user.username}`}
+        {user && (
+          <Button
+            theme="borderless"
+            type="tertiary"
+            icon={<IconExit />}
+            style={{ justifyContent: 'flex-start' }}
             aria-label={`退出 ${user.username}`}
             onClick={() => void doLogout().then(() => navigate('/login'))}
           >
-            ⎋
-          </button>
+            {opts.collapsedView ? null : `退出 (${user.username})`}
+          </Button>
         )}
       </div>
-    </aside>
+    </div>
   )
-
-  const title =
-    assistants.find((a) => a.id === assistantId)?.name ||
-    (location.pathname.includes('/new') ? '新建助手' : '助手')
 
   return (
     <AssistantLayoutContext.Provider value={value}>
-      <div className="chat-app">
-        {mobileOpen && (
-          <button
-            type="button"
-            className="chat-sidebar-backdrop"
-            aria-label="关闭侧栏"
-            onClick={() => setMobileOpen(false)}
-          />
-        )}
-        <div className={`chat-sidebar-slot ${mobileOpen ? 'open' : ''}`}>
-          {sidebar}
-        </div>
+      <Layout style={{ height: '100%', background: 'var(--semi-color-bg-0)' }}>
+        <Sider
+          style={{
+            width: collapsed ? 64 : 260,
+            maxWidth: collapsed ? 64 : 260,
+            minWidth: collapsed ? 64 : 260,
+            background: 'var(--semi-color-bg-1)',
+            borderRight: '1px solid var(--semi-color-border)',
+            display: 'none',
+          }}
+          className="rp-assistant-sider-desktop"
+        >
+          {sidebarBody({ collapsedView: collapsed })}
+        </Sider>
 
-        <div className="chat-main">
-          <header className="chat-main-bar">
-            <button
-              type="button"
-              className="chat-icon-btn md:hidden"
+        <SideSheet
+          title="助手"
+          visible={mobileOpen}
+          onCancel={() => setMobileOpen(false)}
+          placement="left"
+          width={280}
+          bodyStyle={{ padding: 0 }}
+        >
+          {sidebarBody({
+            collapsedView: false,
+            onNavigate: () => setMobileOpen(false),
+          })}
+        </SideSheet>
+
+        <Layout>
+          <Header
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '0 12px',
+              height: 48,
+              background: 'var(--semi-color-bg-1)',
+              borderBottom: '1px solid var(--semi-color-border)',
+            }}
+          >
+            <Button
+              theme="borderless"
+              type="tertiary"
+              icon={<IconMenu />}
               aria-label="打开菜单"
+              className="rp-assistant-menu-mobile"
               onClick={() => setMobileOpen(true)}
+            />
+            <Typography.Text
+              strong
+              ellipsis={{ showTooltip: true }}
+              style={{ flex: 1, minWidth: 0 }}
             >
-              ☰
-            </button>
-            <p className="min-w-0 flex-1 truncate text-sm font-medium opacity-80">
               {title}
-            </p>
+            </Typography.Text>
+            <div className="rp-assistant-theme-desktop">
+              <ThemeToggle />
+            </div>
             {assistantId && (
-              <Link
-                to={`/a/${assistantId}`}
-                className="btn btn-ghost btn-xs shrink-0 md:hidden"
+              <Button
+                theme="borderless"
+                type="tertiary"
+                size="small"
+                className="rp-assistant-menu-mobile"
+                onClick={() => navigate(`/a/${assistantId}`)}
               >
                 详情
-              </Link>
+              </Button>
             )}
-          </header>
-          <div className="chat-main-body">
+          </Header>
+          <Content
+            style={{
+              minHeight: 0,
+              overflow: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
             {error && (
-              <p className="px-4 py-2 text-sm text-error" role="alert">
-                {error}
-              </p>
+              <div role="alert" style={{ padding: '8px 16px' }}>
+                <Banner
+                  fullMode={false}
+                  type="danger"
+                  description={error}
+                  closeIcon={null}
+                />
+              </div>
             )}
             <Outlet />
-          </div>
-        </div>
-      </div>
+          </Content>
+        </Layout>
+      </Layout>
+      <style>{`
+        @media (min-width: 768px) {
+          .rp-assistant-sider-desktop { display: block !important; }
+          .rp-assistant-menu-mobile { display: none !important; }
+        }
+        @media (max-width: 767px) {
+          .rp-assistant-theme-desktop { display: none !important; }
+        }
+      `}</style>
     </AssistantLayoutContext.Provider>
   )
 }
@@ -378,8 +504,15 @@ export function AssistantsIndexRedirect() {
 
   if (!ready && assistants.length === 0) {
     return (
-      <div className="chat-pane flex items-center justify-center opacity-50">
-        加载中…
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Spin tip="加载中…" />
       </div>
     )
   }
