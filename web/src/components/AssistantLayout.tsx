@@ -6,7 +6,15 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { Link, NavLink, Navigate, Outlet, useNavigate, useParams } from 'react-router-dom'
+import {
+  Link,
+  NavLink,
+  Navigate,
+  Outlet,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom'
 import {
   assistantsApi,
   ApiError,
@@ -50,6 +58,7 @@ function bioLine(a: Assistant): string {
 export function AssistantLayout() {
   const auth = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const { assistantId } = useParams()
   const user = auth.status === 'ok' ? auth.user : null
 
@@ -59,6 +68,7 @@ export function AssistantLayout() {
   const [error, setError] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const showCollapsed = collapsed && !mobileOpen
 
   const refresh = useCallback(async () => {
     try {
@@ -85,7 +95,7 @@ export function AssistantLayout() {
 
   useEffect(() => {
     setMobileOpen(false)
-  }, [assistantId])
+  }, [location.pathname])
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -115,14 +125,26 @@ export function AssistantLayout() {
 
   const sidebar = (
     <aside
-      className={`chat-sidebar ${collapsed ? 'chat-sidebar-collapsed' : ''}`}
+      className={`chat-sidebar ${showCollapsed ? 'chat-sidebar-collapsed' : ''}`}
     >
       <div className="chat-sidebar-top">
         <button
           type="button"
           className="chat-icon-btn"
-          title={collapsed ? '打开侧栏' : '收起侧栏'}
-          aria-label={collapsed ? '打开侧栏' : '收起侧栏'}
+          title={
+            mobileOpen
+              ? '关闭侧栏'
+              : showCollapsed
+                ? '展开侧栏'
+                : '收起侧栏'
+          }
+          aria-label={
+            mobileOpen
+              ? '关闭侧栏'
+              : showCollapsed
+                ? '展开侧栏'
+                : '收起侧栏'
+          }
           onClick={() => {
             if (
               typeof window !== 'undefined' &&
@@ -136,8 +158,12 @@ export function AssistantLayout() {
         >
           ☰
         </button>
-        {!collapsed && (
-          <Link to="/a" className="font-display truncate text-lg font-semibold">
+        {!showCollapsed && (
+          <Link
+            to="/a"
+            className="font-display truncate text-lg font-semibold"
+            onClick={() => setMobileOpen(false)}
+          >
             Roundpen
           </Link>
         )}
@@ -146,26 +172,29 @@ export function AssistantLayout() {
           className="chat-icon-btn ml-auto"
           title="新建助手"
           aria-label="新建助手"
+          onClick={() => setMobileOpen(false)}
         >
           +
         </Link>
-        <button
-          type="button"
-          className="chat-icon-btn relative"
-          title="待处理协助单"
-          aria-label="待处理"
-          onClick={() => setPendingOpen((v) => !v)}
-        >
-          ◎
-          {pending.length > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-0.5 text-[10px] text-warning-content">
-              {pending.length}
-            </span>
-          )}
-        </button>
+        {!showCollapsed && (
+          <button
+            type="button"
+            className="chat-icon-btn relative"
+            title="待处理协助单"
+            aria-label="待处理"
+            onClick={() => setPendingOpen((v) => !v)}
+          >
+            ◎
+            {pending.length > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-0.5 text-[10px] text-warning-content">
+                {pending.length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
-      {pendingOpen && !collapsed && (
+      {pendingOpen && !showCollapsed && (
         <div className="border-b border-base-300 px-3 py-2 text-xs">
           <p className="mb-1 font-medium opacity-70">待处理</p>
           {pending.length === 0 && (
@@ -175,9 +204,10 @@ export function AssistantLayout() {
             <button
               key={t.id}
               type="button"
-              className="mb-1 block w-full truncate rounded px-2 py-1 text-left hover:bg-base-200"
+              className="mb-1 block w-full truncate rounded px-2 py-1.5 text-left hover:bg-base-200"
               onClick={() => {
                 setPendingOpen(false)
+                setMobileOpen(false)
                 void openAssistant(t.assistantId)
               }}
             >
@@ -187,17 +217,21 @@ export function AssistantLayout() {
         </div>
       )}
 
-      {!collapsed && (
-        <Link to="/a/new" className="chat-new-btn">
+      {!showCollapsed && (
+        <Link
+          to="/a/new"
+          className="chat-new-btn"
+          onClick={() => setMobileOpen(false)}
+        >
           新建助手
         </Link>
       )}
 
       <nav className="chat-session-list" aria-label="助手">
-        {!collapsed && assistants.length === 0 && (
+        {!showCollapsed && assistants.length === 0 && (
           <p className="px-3 py-6 text-xs opacity-45">还没有助手</p>
         )}
-        {!collapsed &&
+        {!showCollapsed &&
           assistants.map((a) => {
             const active = a.id === assistantId
             return (
@@ -209,7 +243,10 @@ export function AssistantLayout() {
                   type="button"
                   className="chat-session-link text-left"
                   title={a.name}
-                  onClick={() => void openAssistant(a.id)}
+                  onClick={() => {
+                    setMobileOpen(false)
+                    void openAssistant(a.id)
+                  }}
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{a.name}</span>
@@ -223,7 +260,10 @@ export function AssistantLayout() {
                   className="chat-session-end"
                   title="助手详情"
                   aria-label={`${a.name} 详情`}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setMobileOpen(false)
+                  }}
                 >
                   ···
                 </NavLink>
@@ -233,18 +273,23 @@ export function AssistantLayout() {
       </nav>
 
       <div className="chat-sidebar-foot">
-        {!collapsed &&
+        {!showCollapsed &&
           NAV.filter((item) => item.id !== 'assistants' && !item.advanced).map(
             (item) => {
               if (item.admin && user?.role !== 'admin') return null
               return (
-                <Link key={item.id} to={item.to} className="chat-nav-link">
+                <Link
+                  key={item.id}
+                  to={item.to}
+                  className="chat-nav-link"
+                  onClick={() => setMobileOpen(false)}
+                >
                   {item.label}
                 </Link>
               )
             },
           )}
-        {!collapsed && user && (
+        {!showCollapsed && user && (
           <button
             type="button"
             className="chat-nav-link w-full text-left"
@@ -253,9 +298,24 @@ export function AssistantLayout() {
             退出 ({user.username})
           </button>
         )}
+        {showCollapsed && user && (
+          <button
+            type="button"
+            className="chat-icon-btn"
+            title={`退出 ${user.username}`}
+            aria-label={`退出 ${user.username}`}
+            onClick={() => void doLogout().then(() => navigate('/login'))}
+          >
+            ⎋
+          </button>
+        )}
       </div>
     </aside>
   )
+
+  const title =
+    assistants.find((a) => a.id === assistantId)?.name ||
+    (location.pathname.includes('/new') ? '新建助手' : '助手')
 
   return (
     <AssistantLayoutContext.Provider value={value}>
@@ -263,30 +323,46 @@ export function AssistantLayout() {
         {mobileOpen && (
           <button
             type="button"
-            className="chat-mobile-backdrop"
-            aria-label="关闭菜单"
+            className="chat-sidebar-backdrop"
+            aria-label="关闭侧栏"
             onClick={() => setMobileOpen(false)}
           />
         )}
-        <div className={`chat-shell ${mobileOpen ? 'chat-mobile-open' : ''}`}>
+        <div className={`chat-sidebar-slot ${mobileOpen ? 'open' : ''}`}>
           {sidebar}
-          <main className="chat-main">
+        </div>
+
+        <div className="chat-main">
+          <header className="chat-main-bar">
+            <button
+              type="button"
+              className="chat-icon-btn md:hidden"
+              aria-label="打开菜单"
+              onClick={() => setMobileOpen(true)}
+            >
+              ☰
+            </button>
+            <p className="min-w-0 flex-1 truncate text-sm font-medium opacity-80">
+              {title}
+            </p>
+            {assistantId && (
+              <Link
+                to={`/a/${assistantId}`}
+                className="btn btn-ghost btn-xs shrink-0 md:hidden"
+              >
+                详情
+              </Link>
+            )}
+          </header>
+          <div className="chat-main-body">
             {error && (
               <p className="px-4 py-2 text-sm text-error" role="alert">
                 {error}
               </p>
             )}
             <Outlet />
-          </main>
+          </div>
         </div>
-        <button
-          type="button"
-          className="chat-mobile-menu-btn"
-          aria-label="菜单"
-          onClick={() => setMobileOpen(true)}
-        >
-          ☰
-        </button>
       </div>
     </AssistantLayoutContext.Provider>
   )

@@ -914,7 +914,7 @@ export function ChatSessionPage() {
         </div>
 
         {showBrowser && id && (
-          <div className="min-h-[240px] min-w-0 border-t border-base-300 lg:min-h-0 lg:border-t-0 lg:border-l">
+          <div className="max-lg:max-h-[42vh] min-h-[200px] min-w-0 border-t border-base-300 lg:min-h-0 lg:border-t-0 lg:border-l">
             <AgentBrowserPanel
               sessionId={id}
               active={showBrowser}

@@ -124,16 +124,22 @@ export function AssistantDetailPage() {
   }
 
   return (
-    <div className="chat-pane-scroll mx-auto max-w-2xl space-y-8 px-4 py-6">
+    <div className="chat-pane">
+      <div className="chat-pane-scroll mx-auto max-w-2xl space-y-6 px-3 py-4 sm:space-y-8 sm:px-4 sm:py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="font-display text-2xl font-semibold">{a.name}</h1>
+        <div className="min-w-0">
+          <h1 className="font-display truncate text-xl font-semibold sm:text-2xl">
+            {a.name}
+          </h1>
           <p className="text-sm opacity-50">
             状态：{a.status === 'active' ? '可用' : '已停用'}
             {a.primarySessionId ? ' · 有对话' : ''}
           </p>
         </div>
-        <Link className="btn btn-primary btn-sm" to={`/a/${a.id}/chat`}>
+        <Link
+          className="btn btn-primary btn-sm min-h-11 shrink-0 sm:min-h-0"
+          to={`/a/${a.id}/chat`}
+        >
           打开对话
         </Link>
       </div>
@@ -285,26 +291,32 @@ export function AssistantDetailPage() {
             </li>
           ))}
         </ul>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap">
           <input
-            className="input input-bordered input-sm flex-1"
+            className="input input-bordered input-sm w-full min-w-0 flex-1"
             placeholder="/path/to/folder"
             value={newPath}
             onChange={(e) => setNewPath(e.target.value)}
           />
-          <select
-            className="select select-bordered select-sm"
-            value={newMode}
-            onChange={(e) =>
-              setNewMode(e.target.value as 'read' | 'readwrite')
-            }
-          >
-            <option value="read">只读</option>
-            <option value="readwrite">读写</option>
-          </select>
-          <button type="button" className="btn btn-sm" onClick={addGrant}>
-            添加授权
-          </button>
+          <div className="flex gap-2">
+            <select
+              className="select select-bordered select-sm min-h-11 flex-1 sm:min-h-0 sm:flex-none"
+              value={newMode}
+              onChange={(e) =>
+                setNewMode(e.target.value as 'read' | 'readwrite')
+              }
+            >
+              <option value="read">只读</option>
+              <option value="readwrite">读写</option>
+            </select>
+            <button
+              type="button"
+              className="btn btn-sm min-h-11 sm:min-h-0"
+              onClick={addGrant}
+            >
+              添加授权
+            </button>
+          </div>
         </div>
       </section>
 
@@ -421,6 +433,7 @@ export function AssistantDetailPage() {
       </section>
 
       {saving && <p className="text-xs opacity-45">保存中…</p>}
+      </div>
     </div>
   )
 }
