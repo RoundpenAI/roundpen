@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Banner, Button, Spin } from '@douyinfe/semi-ui-19'
+import { Banner, Button } from '@douyinfe/semi-ui-19'
 import { assistantsApi, ApiError } from '../api'
+import { Loading } from '../components/Loading'
 
 /** Ensures a primary session then redirects into the chat route. */
 export function AssistantChatRedirect() {
@@ -69,7 +70,7 @@ export function AssistantChatRedirect() {
         justifyContent: 'center',
       }}
     >
-      <Spin tip="正在打开对话…" />
+      <Loading tip="正在打开对话…" />
     </div>
   )
 }

@@ -20,7 +20,6 @@ import {
   Layout,
   List,
   SideSheet,
-  Spin,
   Typography,
 } from '@douyinfe/semi-ui-19'
 import { IconPlus, IconMenu } from '@douyinfe/semi-icons'
@@ -30,6 +29,7 @@ import {
   type Assistant,
   type AssistTicket,
 } from '../api'
+import { Loading } from './Loading'
 import { pickHomeAssistant } from '../lib/assistants'
 
 const { Sider, Header, Content } = Layout
@@ -409,7 +409,7 @@ export function AssistantsIndexRedirect() {
           justifyContent: 'center',
         }}
       >
-        <Spin tip="加载中…" />
+        <Loading tip="加载中…" />
       </div>
     )
   }
@@ -424,7 +424,7 @@ export function AssistantsIndexRedirect() {
           justifyContent: 'center',
         }}
       >
-        <Spin tip="加载中…" />
+        <Loading tip="加载中…" />
       </div>
     )
   }
