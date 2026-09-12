@@ -1,12 +1,15 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os/exec"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -493,3 +496,83 @@ func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend
 }
 
 var _ backend.Backend = (*Backend)(nil)
+
+// CopyToWorkspace writes a single file into /workspace/<destRel> using Docker copy API.
+func (b *Backend) CopyToWorkspace(ctx context.Context, sandboxID, destRel string, r io.Reader) error {
+	destRel = strings.TrimPrefix(strings.TrimSpace(destRel), "/")
+	if destRel == "" || destRel == "." {
+		return fmt.Errorf("path is required")
+	}
+	data, err := io.ReadAll(io.LimitReader(r, 64<<20+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > 64<<20 {
+		return fmt.Errorf("file too large")
+	}
+	base := path.Base(destRel)
+	dir := path.Dir(destRel)
+	if dir == "." {
+		dir = ""
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name: base,
+		Mode: 0o644,
+		Size: int64(len(data)),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	if _, err := tw.Write(data); err != nil {
+		return err
+	}
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	guestDir := "/workspace"
+	if dir != "" {
+		guestDir = path.Join("/workspace", dir)
+		// Ensure parent directory exists inside the container.
+		if _, err := b.Exec(ctx, sandboxID, backend.ExecOpts{
+			Cmd:     []string{"mkdir", "-p", "--", guestDir},
+			WorkDir: "/workspace",
+		}); err != nil {
+			return fmt.Errorf("mkdir: %w", err)
+		}
+	}
+	return b.cli.CopyToContainer(ctx, containerName(sandboxID), guestDir, &buf, types.CopyToContainerOptions{})
+}
+
+// CopyFromWorkspace reads a single file from /workspace/<srcRel>.
+func (b *Backend) CopyFromWorkspace(ctx context.Context, sandboxID, srcRel string) (io.ReadCloser, error) {
+	srcRel = strings.TrimPrefix(strings.TrimSpace(srcRel), "/")
+	if srcRel == "" || srcRel == "." {
+		return nil, fmt.Errorf("path is required")
+	}
+	guest := path.Join("/workspace", srcRel)
+	rc, _, err := b.cli.CopyFromContainer(ctx, containerName(sandboxID), guest)
+	if err != nil {
+		return nil, err
+	}
+	tr := tar.NewReader(rc)
+	hdr, err := tr.Next()
+	if err != nil {
+		rc.Close()
+		return nil, err
+	}
+	if hdr.FileInfo().IsDir() {
+		rc.Close()
+		return nil, fmt.Errorf("is a directory")
+	}
+	return &tarFileReader{r: tr, closer: rc}, nil
+}
+
+type tarFileReader struct {
+	r      *tar.Reader
+	closer io.Closer
+}
+
+func (t *tarFileReader) Read(p []byte) (int, error) { return t.r.Read(p) }
+func (t *tarFileReader) Close() error               { return t.closer.Close() }

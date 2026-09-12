@@ -275,6 +275,30 @@ func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend
 	return b.engine(sandboxID).AttachExec(ctx, sandboxID, opts, stdin, stdout, stderr)
 }
 
+// CopyToWorkspace forwards to Docker when the sandbox is on the docker engine.
+func (b *Backend) CopyToWorkspace(ctx context.Context, sandboxID, destRel string, r io.Reader) error {
+	eng := b.engine(sandboxID)
+	c, ok := eng.(interface {
+		CopyToWorkspace(context.Context, string, string, io.Reader) error
+	})
+	if !ok {
+		return fmt.Errorf("guest workspace IO requires Docker")
+	}
+	return c.CopyToWorkspace(ctx, sandboxID, destRel, r)
+}
+
+// CopyFromWorkspace forwards to Docker when the sandbox is on the docker engine.
+func (b *Backend) CopyFromWorkspace(ctx context.Context, sandboxID, srcRel string) (io.ReadCloser, error) {
+	eng := b.engine(sandboxID)
+	c, ok := eng.(interface {
+		CopyFromWorkspace(context.Context, string, string) (io.ReadCloser, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("guest workspace IO requires Docker")
+	}
+	return c.CopyFromWorkspace(ctx, sandboxID, srcRel)
+}
+
 // VNCSock delegates to qemu when the sandbox is a VM.
 func (b *Backend) VNCSock(sandboxID string) (string, error) {
 	eng, err := b.qemuEngine()
