@@ -91,7 +91,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	diskSizeMB := 5120
 	var templateBuildID, internalTemplateID string
 	var useImageCmd bool
-	var startCmd string
 
 	if s.templates != nil {
 		ref := templateRef
@@ -115,7 +114,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 			templateBuildID = resolved.BuildID
 			internalTemplateID = resolved.TemplateID
 			useImageCmd = resolved.UseImageCmd
-			startCmd = resolved.StartCmd
 			if req.Metadata == nil {
 				req.Metadata = map[string]string{}
 			}
@@ -257,18 +255,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		sb.UpdatedAt = time.Now().UTC()
 		_ = s.store.Update(ctx, sb)
 		return nil, fmt.Errorf("backend start: %w", err)
-	}
-
-	if startCmd != "" && s.backend.Name() == "kern" {
-		// T2 partial: cold-start long-running process on kern (no snapshot support).
-		go func() {
-			execCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			_, _ = s.backend.Exec(execCtx, id, backend.ExecOpts{
-				Cmd:     []string{"/bin/sh", "-c", startCmd + " >/tmp/roundpen-start.log 2>&1 &"},
-				WorkDir: "/workspace",
-			})
-		}()
 	}
 
 	sb.Status = StatusRunning
@@ -484,9 +470,6 @@ func (s *Service) Connect(ctx context.Context, id string) (*Sandbox, bool, error
 
 	switch sb.Status {
 	case StatusRunning:
-		if err := s.hydrate(ctx, sb); err != nil {
-			return nil, false, err
-		}
 		if err := s.Touch(ctx, id); err != nil {
 			return nil, false, err
 		}
@@ -494,9 +477,6 @@ func (s *Service) Connect(ctx context.Context, id string) (*Sandbox, bool, error
 		return got, false, err
 
 	case StatusStopped, StatusPaused:
-		if err := s.hydrate(ctx, sb); err != nil {
-			return nil, false, fmt.Errorf("connect: %w", err)
-		}
 		if err := s.backend.Start(ctx, id); err != nil {
 			return nil, false, fmt.Errorf("connect start: %w", err)
 		}
@@ -570,15 +550,6 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (*Sa
 		}
 		return nil, err
 	}
-	// Refresh in-memory backend metadata (kern hostname) when still running.
-	if sb.Status == StatusRunning && sb.WorkspacePath != "" {
-		_, _ = s.backend.Create(ctx, backend.CreateOpts{
-			SandboxID: sb.ID,
-			Name:      sb.Name,
-			Image:     sb.Image,
-			MountDir:  sb.WorkspacePath,
-		})
-	}
 	return sb, nil
 }
 
@@ -640,9 +611,6 @@ func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecRe
 	if sb.Status != StatusRunning {
 		return nil, fmt.Errorf("sandbox %s is %s", id, sb.Status)
 	}
-	if err := s.hydrate(ctx, sb); err != nil {
-		return nil, err
-	}
 	res, err := s.backend.Exec(ctx, id, backend.ExecOpts{
 		Cmd:     req.Cmd,
 		WorkDir: req.WorkDir,
@@ -695,46 +663,6 @@ func (s *Service) mountPath(ctx context.Context, sb *Sandbox) (string, error) {
 		}
 	}
 	return mount, nil
-}
-
-// hydrate re-attaches in-memory backends (kern) after roundpend restart.
-func (s *Service) hydrate(ctx context.Context, sb *Sandbox) error {
-	if !needsKernHydrate(s.backend.Name(), sb) {
-		return nil
-	}
-	mount, err := s.mountPath(ctx, sb)
-	if err != nil {
-		return err
-	}
-	if _, err := s.backend.Create(ctx, backend.CreateOpts{
-		SandboxID: sb.ID,
-		Name:      sb.Name,
-		Image:     sb.Image,
-		MountDir:  mount,
-		Slot:      sb.Metadata["slot"],
-		Engine:    sb.Metadata["engine"],
-	}); err != nil {
-		return fmt.Errorf("hydrate: %w", err)
-	}
-	if sb.Status == StatusRunning {
-		if err := s.backend.Start(ctx, sb.ID); err != nil {
-			return fmt.Errorf("hydrate start: %w", err)
-		}
-	}
-	return nil
-}
-
-func needsKernHydrate(backendName string, sb *Sandbox) bool {
-	if backendName == "kern" {
-		return true
-	}
-	if backendName != "multi" || sb == nil {
-		return false
-	}
-	if sb.Metadata != nil && strings.EqualFold(sb.Metadata["engine"], "kern") {
-		return true
-	}
-	return strings.EqualFold(strings.TrimSpace(sb.Image), "host")
 }
 
 func (s *Service) ListFiles(ctx context.Context, id, relPath string) ([]workspace.DirEntry, error) {
@@ -794,9 +722,6 @@ func (s *Service) Dial(ctx context.Context, id string, port int) (net.Conn, erro
 	if sb.Status != StatusRunning {
 		return nil, fmt.Errorf("sandbox %s is %s", id, sb.Status)
 	}
-	if err := s.hydrate(ctx, sb); err != nil {
-		return nil, err
-	}
 	return s.backend.Dial(ctx, id, port)
 }
 
@@ -823,9 +748,6 @@ func (s *Service) AttachTerminal(ctx context.Context, id, sessionKey string, opt
 	if sb.Status != StatusRunning {
 		return fmt.Errorf("sandbox %s is %s", id, sb.Status)
 	}
-	if err := s.hydrate(ctx, sb); err != nil {
-		return err
-	}
 	_ = s.Touch(ctx, id)
 	return s.backend.AttachPTY(ctx, id, sessionKey, backend.PTYOpts{
 		Cmd: opts.Cmd, WorkDir: opts.WorkDir, Env: opts.Env,
@@ -844,9 +766,6 @@ func (s *Service) AttachExec(ctx context.Context, id string, opts AttachExecOpts
 	}
 	if sb.Status != StatusRunning {
 		return fmt.Errorf("sandbox %s is %s", id, sb.Status)
-	}
-	if err := s.hydrate(ctx, sb); err != nil {
-		return err
 	}
 	_ = s.Touch(ctx, id)
 	return s.backend.AttachExec(ctx, id, backend.AttachExecOpts{

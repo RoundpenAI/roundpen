@@ -58,9 +58,6 @@ func (s *Service) requireRunning(ctx context.Context, id string) (*Sandbox, erro
 	if sb.Status != StatusRunning && sb.Status != StatusCreating {
 		return nil, fmt.Errorf("sandbox %s is %s", id, sb.Status)
 	}
-	if err := s.hydrate(ctx, sb); err != nil {
-		return nil, err
-	}
 	return sb, nil
 }
 

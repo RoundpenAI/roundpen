@@ -3,7 +3,6 @@ package template
 import (
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/template/builder"
@@ -66,9 +65,6 @@ func BuilderUnavailableHint(cfg *config.Config) string {
 	case "ci":
 		return "template builds are delegated to remote CI; local builds are disabled"
 	default:
-		if strings.EqualFold(cfg.Backend, "kern") {
-			return "template builds require docker backend or kaniko (Settings → Template builds)"
-		}
 		return "template builds disabled — choose Docker, local Kaniko, or remote CI in Settings"
 	}
 }

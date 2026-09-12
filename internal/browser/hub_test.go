@@ -25,7 +25,7 @@ func (r *recDial) Dial(_ context.Context, sandboxID string, destPort int) (net.C
 func TestHubAttachDockerWithoutDialer(t *testing.T) {
 	h := NewHub(t.TempDir(), nil)
 	h.SetConfig(&config.Config{
-		Backend: "kern",
+		Backend: "docker",
 		CDP:     config.CDPConfig{Provider: config.CDPProviderDocker, Port: 9222},
 	})
 	_, err := h.Ensure(t.Context(), "sb-1")

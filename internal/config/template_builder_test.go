@@ -48,8 +48,8 @@ func TestResolveTemplateBuilder(t *testing.T) {
 			want: "kaniko",
 		},
 		{
-			name: "kern without kaniko",
-			cfg:  config.Config{Backend: "kern"},
+			name: "docker without kaniko",
+			cfg:  config.Config{Backend: "docker"},
 			want: "",
 		},
 	}
