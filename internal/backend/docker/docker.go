@@ -4,12 +4,15 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"os/exec"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +27,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
 // Backend talks to a local or remote Docker Engine.
@@ -587,6 +591,61 @@ func (b *Backend) CopyFromWorkspace(ctx context.Context, sandboxID, srcRel strin
 type tarFileReader struct {
 	r      *tar.Reader
 	closer io.Closer
+}
+
+// ListWorkspaceDir lists the immediate children of /workspace/<rel> via the
+// Docker archive API, so the guest image needs no extra tooling.
+// rel "" or "." lists the workspace root.
+func (b *Backend) ListWorkspaceDir(ctx context.Context, sandboxID, rel string) ([]workspace.DirEntry, error) {
+	rel = strings.TrimPrefix(strings.TrimSpace(rel), "/")
+	guest := "/workspace"
+	if rel != "" && rel != "." {
+		guest = path.Join("/workspace", rel)
+	}
+	rc, _, err := b.cli.CopyFromContainer(ctx, containerName(sandboxID), guest)
+	if err != nil {
+		return nil, guestPathErr(guest, err)
+	}
+	defer rc.Close()
+	return dirEntriesFromTar(path.Base(guest), rc)
+}
+
+// dirEntriesFromTar reads the daemon's archive stream (names rebased to the
+// listed directory's basename, root entry included) for immediate children.
+func dirEntriesFromTar(base string, r io.Reader) ([]workspace.DirEntry, error) {
+	tr := tar.NewReader(r)
+	out := []workspace.DirEntry{}
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		name := path.Clean(hdr.Name)
+		if name == base || path.Dir(name) != base {
+			continue
+		}
+		out = append(out, workspace.DirEntry{
+			Name:    path.Base(name),
+			IsDir:   hdr.FileInfo().IsDir(),
+			Size:    hdr.Size,
+			ModTime: hdr.ModTime,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// guestPathErr preserves 404 semantics for a missing path: the daemon reports
+// it as a plain error string, which the API layer matches via os.IsNotExist.
+func guestPathErr(guest string, err error) error {
+	msg := err.Error()
+	if strings.Contains(msg, "Could not find the file") || strings.Contains(msg, "no such file or directory") {
+		return &fs.PathError{Op: "list", Path: guest, Err: fs.ErrNotExist}
+	}
+	return err
 }
 
 func (t *tarFileReader) Read(p []byte) (int, error) { return t.r.Read(p) }

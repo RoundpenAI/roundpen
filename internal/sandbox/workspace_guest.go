@@ -2,7 +2,6 @@ package sandbox
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"path"
@@ -16,6 +15,11 @@ import (
 type workspaceCopier interface {
 	CopyToWorkspace(ctx context.Context, sandboxID, destRel string, r io.Reader) error
 	CopyFromWorkspace(ctx context.Context, sandboxID, srcRel string) (io.ReadCloser, error)
+}
+
+// workspaceLister is implemented by Docker (and multi forwarding to Docker).
+type workspaceLister interface {
+	ListWorkspaceDir(ctx context.Context, sandboxID, rel string) ([]workspace.DirEntry, error)
 }
 
 // guestRel normalizes a workspace-relative path and rejects escapes.
@@ -68,57 +72,21 @@ func (s *Service) workspaceCopier() (workspaceCopier, error) {
 	return nil, fmt.Errorf("guest workspace IO requires Docker")
 }
 
-// ListGuestFiles lists entries under /workspace via container exec.
+// ListGuestFiles lists entries under /workspace via the Docker archive API,
+// so the guest image needs no tooling (python3-free images included).
 func (s *Service) ListGuestFiles(ctx context.Context, id, rel string) ([]workspace.DirEntry, error) {
 	if _, err := s.requireRunning(ctx, id); err != nil {
 		return nil, err
 	}
-	abs, err := guestAbs(rel)
+	r, err := guestRel(rel)
 	if err != nil {
 		return nil, err
 	}
-	script := `import json,os,sys
-p=sys.argv[1]
-out=[]
-for name in sorted(os.listdir(p)):
-    fp=os.path.join(p,name)
-    try:
-        st=os.stat(fp, follow_symlinks=False)
-        out.append({"name":name,"is_dir":os.path.isdir(fp),"size":st.st_size})
-    except OSError:
-        continue
-print(json.dumps(out))`
-	res, err := s.backend.Exec(ctx, id, backend.ExecOpts{
-		Cmd:     []string{"python3", "-c", script, abs},
-		WorkDir: "/workspace",
-		Timeout: 0,
-	})
-	if err != nil {
-		return nil, err
+	l, ok := s.backend.(workspaceLister)
+	if !ok {
+		return nil, fmt.Errorf("guest workspace IO requires Docker")
 	}
-	if res.ExitCode != 0 {
-		msg := strings.TrimSpace(string(res.Stderr))
-		if msg == "" {
-			msg = strings.TrimSpace(string(res.Stdout))
-		}
-		if msg == "" {
-			msg = "list failed"
-		}
-		return nil, fmt.Errorf("%s", msg)
-	}
-	var raw []struct {
-		Name  string `json:"name"`
-		IsDir bool   `json:"is_dir"`
-		Size  int64  `json:"size"`
-	}
-	if err := json.Unmarshal(res.Stdout, &raw); err != nil {
-		return nil, fmt.Errorf("list parse: %w", err)
-	}
-	out := make([]workspace.DirEntry, 0, len(raw))
-	for _, e := range raw {
-		out = append(out, workspace.DirEntry{Name: e.Name, IsDir: e.IsDir, Size: e.Size})
-	}
-	return out, nil
+	return l.ListWorkspaceDir(ctx, id, r)
 }
 
 // ReadGuestFile streams a file from /workspace via Docker copy.

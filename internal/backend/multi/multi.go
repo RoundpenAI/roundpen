@@ -16,6 +16,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
 	"github.com/RoundpenAI/roundpen/internal/backend/qemu"
+	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
 // Options configure lazy engine attachment.
@@ -291,6 +292,18 @@ func (b *Backend) CopyFromWorkspace(ctx context.Context, sandboxID, srcRel strin
 		return nil, fmt.Errorf("guest workspace IO requires Docker")
 	}
 	return c.CopyFromWorkspace(ctx, sandboxID, srcRel)
+}
+
+// ListWorkspaceDir forwards to Docker when the sandbox is on the docker engine.
+func (b *Backend) ListWorkspaceDir(ctx context.Context, sandboxID, rel string) ([]workspace.DirEntry, error) {
+	eng := b.engine(sandboxID)
+	c, ok := eng.(interface {
+		ListWorkspaceDir(context.Context, string, string) ([]workspace.DirEntry, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("guest workspace IO requires Docker")
+	}
+	return c.ListWorkspaceDir(ctx, sandboxID, rel)
 }
 
 // VNCSock delegates to qemu when the sandbox is a VM.
