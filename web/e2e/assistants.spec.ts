@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { ADMIN, live, loginViaUi, skipIfNoLivePassword } from './helpers'
 
 test.describe('assistants', () => {

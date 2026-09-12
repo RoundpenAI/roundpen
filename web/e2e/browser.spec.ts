@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { hasSmokeHooks, live, loginViaApi, resetSmoke, skipIfNoLivePassword } from './helpers'
 
 test.describe.configure({ mode: 'serial' })
