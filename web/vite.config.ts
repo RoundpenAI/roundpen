@@ -1,4 +1,3 @@
-import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -8,10 +7,8 @@ const root = dirname(fileURLToPath(import.meta.url))
 const apiProxy = process.env.ROUNDPEN_API_PROXY || 'http://127.0.0.1:19001'
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react()],
   server: {
-    // make dev: UI :19000 → API :19001 (see scripts/dev-up.sh)
-    // UI smoke: ROUNDPEN_API_PROXY=http://127.0.0.1:19021
     host: '0.0.0.0',
     port: 19000,
     proxy: {
@@ -21,7 +18,6 @@ export default defineConfig({
     },
   },
   build: {
-    // Embed target for roundpend (see internal/ui).
     outDir: '../internal/ui/dist',
     emptyOutDir: true,
     rollupOptions: {

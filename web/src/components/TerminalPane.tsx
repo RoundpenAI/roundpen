@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
+import { Button, Spin, Typography } from '@douyinfe/semi-ui-19'
+import { IconRefresh } from '@douyinfe/semi-icons'
 import { terminalWsUrl } from '../api'
 
 type Props = {
@@ -140,38 +142,92 @@ export function TerminalPane({ sandboxId, disabled }: Props) {
 
   if (disabled) {
     return (
-      <div className="flex h-full items-center justify-center px-4 text-center text-sm opacity-50">
-        Terminal needs a running sandbox.
+      <div
+        style={{
+          display: 'flex',
+          height: '100%',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+          textAlign: 'center',
+        }}
+      >
+        <Typography.Text type="tertiary" size="small">
+          Terminal needs a running sandbox.
+        </Typography.Text>
       </div>
     )
   }
 
+  const statusLabel =
+    conn === 'open'
+      ? 'connected'
+      : conn === 'connecting'
+        ? 'connecting…'
+        : 'disconnected'
+
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-base-300/60 px-3 py-1">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-medium uppercase tracking-wide opacity-60">
+    <div
+      style={{
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexShrink: 0,
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          borderBottom: '1px solid var(--semi-color-border)',
+          padding: '4px 12px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Typography.Text
+            size="small"
+            type="tertiary"
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+            }}
+          >
             Terminal
-          </span>
-          <span className="font-mono text-[11px] opacity-40">
-            {conn === 'open'
-              ? 'connected'
-              : conn === 'connecting'
-                ? 'connecting…'
-                : 'disconnected'}
-          </span>
+          </Typography.Text>
+          {conn === 'connecting' ? (
+            <Spin size="small" />
+          ) : (
+            <Typography.Text
+              size="small"
+              type="tertiary"
+              style={{
+                fontFamily: 'var(--semi-font-family-code)',
+                fontSize: 11,
+              }}
+            >
+              {statusLabel}
+            </Typography.Text>
+          )}
         </div>
-        <button
-          type="button"
-          className="btn btn-ghost btn-xs"
+        <Button
+          theme="borderless"
+          type="tertiary"
+          size="small"
+          icon={<IconRefresh />}
           disabled={conn === 'connecting'}
           onClick={() => reconnect()}
           title="Open a new shell session"
         >
           Reconnect
-        </button>
+        </Button>
       </div>
-      <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
+      <div ref={hostRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} />
     </div>
   )
 }
