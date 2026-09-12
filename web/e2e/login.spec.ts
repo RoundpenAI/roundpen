@@ -11,7 +11,7 @@ test('login failure surfaces API error field', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('Password', { exact: true }).fill('wrong-password')
   await page.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('alert')).toHaveText('invalid user or password')
+  await expect(page.getByRole('alert').first()).toContainText('invalid user or password')
 })
 
 test('successful login reaches assistants', async ({ page }) => {

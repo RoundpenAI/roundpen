@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
@@ -89,6 +90,35 @@ func main() {
 			"createdAt": "2026-01-01T00:00:00Z",
 		}})
 	})
+	mux.HandleFunc("GET /v1/setup/llm-ready", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"ready": true})
+	})
+	mux.HandleFunc("POST /v1/setup/plans", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		writePlan(w, "plan-smoke", body)
+	})
+	mux.HandleFunc("GET /v1/setup/plans/{id}", func(w http.ResponseWriter, r *http.Request) {
+		writePlan(w, r.PathValue("id"), map[string]any{})
+	})
+
+	assistants := &assistantStore{}
+	mux.HandleFunc("GET /v1/assistants", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"assistants": assistants.list()})
+	})
+	mux.HandleFunc("POST /v1/assistants", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name         string `json:"name"`
+			Bio          string `json:"bio"`
+			IdentityMode string `json:"identityMode"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		writeJSON(w, assistants.create(body.Name, body.Bio, body.IdentityMode))
+	})
+	mux.HandleFunc("POST /v1/assistants/{id}/ensure-session", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"sessionId": "sess-" + r.PathValue("id")})
+	})
+
 	mux.HandleFunc("GET /v1/admin/settings", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{
 			"settings": map[string]any{
@@ -149,6 +179,66 @@ func main() {
 	if err := http.ListenAndServe(*listen, auth.Middleware(users, sessions)(mux)); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// writePlan returns a completed setup plan: empty actions count as all-terminal,
+// so the UI setup workstation fires onReady on its first poll.
+func writePlan(w http.ResponseWriter, id string, context map[string]any) {
+	if context == nil {
+		context = map[string]any{}
+	}
+	writeJSON(w, map[string]any{
+		"id":        id,
+		"summary":   "smoke setup plan",
+		"context":   context,
+		"actions":   []any{},
+		"createdAt": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+type assistantStore struct {
+	mu    sync.Mutex
+	items []map[string]any
+	seq   int
+}
+
+func (s *assistantStore) list() []map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.items == nil {
+		return []map[string]any{}
+	}
+	return s.items
+}
+
+func (s *assistantStore) create(name, bio, identityMode string) map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seq++
+	if name == "" {
+		name = "assistant"
+	}
+	if identityMode == "" {
+		identityMode = "proxy_user"
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	a := map[string]any{
+		"id":               fmt.Sprintf("as-%d", s.seq),
+		"userId":           "admin",
+		"name":             name,
+		"bio":              bio,
+		"identityMode":     identityMode,
+		"capabilities":     map[string]any{},
+		"networkTier":      "none",
+		"networkAllowlist": []any{},
+		"directoryGrants":  []any{},
+		"status":           "active",
+		"kind":             "user",
+		"createdAt":        now,
+		"updatedAt":        now,
+	}
+	s.items = append(s.items, a)
+	return a
 }
 
 type vncSock string

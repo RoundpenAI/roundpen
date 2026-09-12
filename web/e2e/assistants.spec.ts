@@ -13,7 +13,7 @@ test.describe('assistants', () => {
     await page.getByText('代理我', { exact: true }).click()
     await page.getByRole('button', { name: '下一步' }).click()
     await page.getByText('代码（含终端）').click()
-    await page.getByRole('button', { name: '创建' }).click()
+    await page.getByRole('button', { name: '下一步：准备工位' }).click()
     await expect(page).toHaveURL(/\/a\/.+\/s\//, { timeout: 120_000 })
   })
 })
