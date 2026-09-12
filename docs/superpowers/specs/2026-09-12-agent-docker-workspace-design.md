@@ -71,6 +71,8 @@
 
 实现顺序：鉴权（属主）→ `EnsureAgent(user)` → 在该用户 Agent 容器内、以容器运行用户操作，路径限制在 `/workspace`，拒绝 `..` 逃逸。
 
+容器内 IO 优先复用现有 Exec / 拷贝通道（例如 `docker exec` 做 list/rm，`docker cp` 或等价流式拷贝做 up/download），**不**再默认走宿主机 `workspace.FS` 写路径；具体封装落在实现计划。
+
 旧 `/v1/sandboxes/{id}/files`：可暂留 admin/兼容；**工作区页只走 `/v1/me/workspace/*`**，不向普通用户暴露 sandbox id。
 
 ### 4.3 权限（为何不 host 直管）
