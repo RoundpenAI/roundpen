@@ -50,4 +50,4 @@ make browser-image
 
 ## 二期
 
-独立 Agent QEMU 见 `docs/architecture/qemu-agent.md`（template `agent-claude`）。qemu Backend 保持通用：qcow2 + kernel sidecar，不要做成 Browser 专用死接口。
+Agent 槽位已固定为 Docker，不再走 QEMU；旧的 Agent-on-QEMU 方案见 `docs/architecture/qemu-agent.md`（历史 / 已降级）。qemu Backend 保持通用：qcow2 + kernel sidecar，供 Browser / Desktop / Mobile 槽位使用。

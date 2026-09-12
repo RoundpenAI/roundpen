@@ -1,6 +1,9 @@
-# QEMU Agent 固定环境
+# QEMU Agent 固定环境（历史 / 已降级）
 
-Agent 槽位是一台无桌面 QEMU VM（template `agent-claude`）。Guest 预装 git、OpenSSH 和 Claude Code。LLM 只走 Roundpen **llmgw**（virtual key）。运行时 **不依赖 Docker/Kata**。
+> **状态：已降级为历史路径。** Agent 槽位现在固定使用 **Docker**（官方 `code-agent` OCI 镜像）；QEMU 仅用于 Browser / Desktop / Mobile 槽位。
+> 本文描述的是旧的 Agent-on-QEMU（`agent-claude` qcow2）方案，保留供参考，**不再是默认或受支持路径**。新部署请见 [README 安装面](../../README.md) 与 [specs/2026-09-12-agent-docker-workspace-design.md](../superpowers/specs/2026-09-12-agent-docker-workspace-design.md)。
+
+Agent 槽位曾是一台无桌面 QEMU VM（template `agent-claude`）。Guest 预装 git、OpenSSH 和 Claude Code。LLM 只走 Roundpen **llmgw**（virtual key）。运行时 **不依赖 Docker/Kata**。
 
 ## 运行时
 
