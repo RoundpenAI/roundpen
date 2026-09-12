@@ -6,13 +6,13 @@ import {
   Input,
   Radio,
   RadioGroup,
-  Spin,
   Steps,
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui-19'
 import { assistantsApi, ApiError, setupApi } from '../api'
 import { useAssistantLayout } from '../components/AssistantLayout'
+import { Loading } from '../components/Loading'
 import { SetupWorkstation } from '../components/SetupWorkstation'
 import { useAuth } from '../auth'
 
@@ -147,7 +147,7 @@ export function AssistantCreatePage() {
           justifyContent: 'center',
         }}
       >
-        <Spin tip="检查模型配置…" />
+        <Loading tip="检查模型配置…" />
       </div>
     )
   }

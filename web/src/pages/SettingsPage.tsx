@@ -8,7 +8,6 @@ import {
   Input,
   Modal,
   Select,
-  Spin,
   Switch,
   Toast,
   Typography,
@@ -24,6 +23,7 @@ import {
 import { useAuth } from '../auth'
 import { useT, type MessageKey } from '../i18n'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
+import { Loading } from '../components/Loading'
 import { resolveSettingsSection } from '../lib/appNav'
 
 const emptySettings: AppSettings = {
@@ -352,7 +352,7 @@ export function SettingsPage() {
           justifyContent: 'center',
         }}
       >
-        <Spin tip={t('settings.loading')} />
+        <Loading tip={t('settings.loading')} />
       </div>
     )
   }
@@ -426,7 +426,7 @@ export function SettingsPage() {
 
         {section === 'general' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -471,7 +471,7 @@ export function SettingsPage() {
 
         {section === 'preview' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -504,7 +504,7 @@ export function SettingsPage() {
 
         {section === 'builds' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -570,7 +570,7 @@ export function SettingsPage() {
 
         {section === 'browser' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -648,7 +648,7 @@ export function SettingsPage() {
 
         {section === 'llmgw' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -825,7 +825,7 @@ export function SettingsPage() {
 
         {section === 'system' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ paddingTop: 16 }}>

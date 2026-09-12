@@ -9,7 +9,6 @@ import {
   Radio,
   RadioGroup,
   Select,
-  Spin,
   Switch,
   Tag,
   TextArea,
@@ -25,6 +24,7 @@ import {
   type AssistantDirectoryGrant,
 } from '../api'
 import { useAssistantLayout } from '../components/AssistantLayout'
+import { Loading } from '../components/Loading'
 import { isSystemAssistant } from '../lib/assistants'
 
 const fieldLabel: CSSProperties = {
@@ -111,7 +111,7 @@ export function AssistantDetailPage() {
           justifyContent: 'center',
         }}
       >
-        <Spin tip="加载中…" />
+        <Loading tip="加载中…" />
       </div>
     )
   }
