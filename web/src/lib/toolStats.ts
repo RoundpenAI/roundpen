@@ -63,8 +63,7 @@ export function classifyTool(call: ToolCallLike): ToolBucket {
     return 'search'
   }
   if (
-    /^(bash|shell|command|exec|terminal|run|sh)$/.test(name) ||
-    name.startsWith('roundpen_ensure_')
+    /^(bash|shell|command|exec|terminal|run|sh)$/.test(name)
   ) {
     return 'command'
   }
