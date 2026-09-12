@@ -369,6 +369,31 @@ export const files = {
     }),
 }
 
+export const meWorkspace = {
+  list: (path = '.') =>
+    api<FileList>(
+      `/v1/me/workspace/files?path=${encodeURIComponent(path)}`,
+    ),
+  downloadUrl: (path: string) =>
+    `/v1/me/workspace/files/content?path=${encodeURIComponent(path)}`,
+  upload: async (path: string, body: Blob) => {
+    const res = await fetch(
+      `/v1/me/workspace/files?path=${encodeURIComponent(path)}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body,
+      },
+    )
+    if (!res.ok) throw await parseError(res)
+  },
+  remove: (path: string) =>
+    api<void>(`/v1/me/workspace/files?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    }),
+}
+
 export type PreviewLink = {
   url: string
   port: number

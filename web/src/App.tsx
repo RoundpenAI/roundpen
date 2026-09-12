@@ -15,6 +15,7 @@ import { SettingsLayout } from './pages/SettingsLayout'
 import { SettingsPage } from './pages/SettingsPage'
 import { TemplatesPage } from './pages/TemplatesPage'
 import { WorkbenchPage } from './pages/WorkbenchPage'
+import { WorkspacePage } from './pages/WorkspacePage'
 
 export default function App() {
   return (
@@ -43,6 +44,7 @@ export default function App() {
             <Route index element={<Navigate to="runtime" replace />} />
             <Route path=":section" element={<SettingsPage />} />
           </Route>
+          <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/registry" element={<TemplatesPage />} />
         </Route>
         <Route path="/chats" element={<Navigate to="/a" replace />} />

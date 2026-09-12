@@ -11,12 +11,12 @@ import {
 describe('visiblePrimaryMenus', () => {
   it('hides registry for non-admin', () => {
     const keys = visiblePrimaryMenus(false).map((m) => m.id)
-    assert.deepEqual(keys, ['assistants', 'settings'])
+    assert.deepEqual(keys, ['assistants', 'workspace', 'settings'])
   })
 
   it('shows registry for admin', () => {
     const keys = visiblePrimaryMenus(true).map((m) => m.id)
-    assert.deepEqual(keys, ['assistants', 'settings', 'registry'])
+    assert.deepEqual(keys, ['assistants', 'workspace', 'settings', 'registry'])
   })
 })
 
@@ -56,11 +56,20 @@ describe('resolveSettingsSection', () => {
 describe('PRIMARY_MENUS paths', () => {
   it('matches product routes and label keys', () => {
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'assistants')?.to, '/a')
+    assert.equal(PRIMARY_MENUS.find((m) => m.id === 'workspace')?.to, '/workspace')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'settings')?.to, '/settings')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'registry')?.to, '/registry')
     assert.equal(
       PRIMARY_MENUS.find((m) => m.id === 'assistants')?.labelKey,
       'nav.assistants',
     )
+  })
+})
+
+describe('matchPrimaryMenu', () => {
+  it('matches workspace path', async () => {
+    const { matchPrimaryMenu } = await import('./appNav.ts')
+    assert.equal(matchPrimaryMenu('/workspace'), 'workspace')
+    assert.equal(matchPrimaryMenu('/a/x'), 'assistants')
   })
 })

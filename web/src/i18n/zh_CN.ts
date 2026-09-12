@@ -3,6 +3,7 @@ import type { MessageKey } from './en.ts'
 /** Chinese UI copy (default). */
 export const zh_CN: Record<MessageKey, string> = {
   'nav.assistants': '助手',
+  'nav.workspace': '工作区',
   'nav.settings': '设置',
   'nav.registry': '镜像',
   'nav.menu': '菜单',
@@ -11,6 +12,17 @@ export const zh_CN: Record<MessageKey, string> = {
   'nav.openMenu': '打开菜单',
   'nav.signOut': '退出',
   'nav.signOutUser': '退出 ({user})',
+
+  'workspace.title': '工作区',
+  'workspace.subtitle': '这里的文件是账号资料根，所有助手都可以用作工作材料。',
+  'workspace.preparing': '正在准备工作区…',
+  'workspace.upload': '上传',
+  'workspace.download': '下载',
+  'workspace.delete': '删除',
+  'workspace.refresh': '刷新',
+  'workspace.empty': '还没有文件。上传一些资料给助手用吧。',
+  'workspace.parent': '..',
+  'workspace.deleteConfirm': '删除 {name}？',
 
   'settings.title': '设置',
   'settings.section.runtime': 'Agent 运行时',

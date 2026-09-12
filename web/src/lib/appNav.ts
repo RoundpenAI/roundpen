@@ -1,6 +1,6 @@
 import type { MessageKey } from '../i18n/translate'
 
-export type PrimaryMenuId = 'assistants' | 'settings' | 'registry'
+export type PrimaryMenuId = 'assistants' | 'workspace' | 'settings' | 'registry'
 
 export type PrimaryMenu = {
   id: PrimaryMenuId
@@ -11,6 +11,7 @@ export type PrimaryMenu = {
 
 export const PRIMARY_MENUS: PrimaryMenu[] = [
   { id: 'assistants', to: '/a', labelKey: 'nav.assistants' },
+  { id: 'workspace', to: '/workspace', labelKey: 'nav.workspace' },
   { id: 'settings', to: '/settings', labelKey: 'nav.settings' },
   { id: 'registry', to: '/registry', labelKey: 'nav.registry', admin: true },
 ]
@@ -80,6 +81,7 @@ export function writePrimaryCollapsed(collapsed: boolean): void {
 
 /** Which primary menu matches the current pathname. */
 export function matchPrimaryMenu(pathname: string): PrimaryMenuId {
+  if (pathname.startsWith('/workspace')) return 'workspace'
   if (pathname.startsWith('/settings')) return 'settings'
   if (pathname.startsWith('/registry')) return 'registry'
   return 'assistants'

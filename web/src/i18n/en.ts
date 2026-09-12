@@ -1,6 +1,7 @@
 /** English UI copy (settings + app shell). Source for MessageKey. */
 export const en = {
   'nav.assistants': 'Assistants',
+  'nav.workspace': 'Workspace',
   'nav.settings': 'Settings',
   'nav.registry': 'Images',
   'nav.menu': 'Menu',
@@ -9,6 +10,18 @@ export const en = {
   'nav.openMenu': 'Open menu',
   'nav.signOut': 'Sign out',
   'nav.signOutUser': 'Sign out ({user})',
+
+  'workspace.title': 'Workspace',
+  'workspace.subtitle':
+    'Files here are shared by all your assistants as working material.',
+  'workspace.preparing': 'Preparing workspace…',
+  'workspace.upload': 'Upload',
+  'workspace.download': 'Download',
+  'workspace.delete': 'Delete',
+  'workspace.refresh': 'Refresh',
+  'workspace.empty': 'No files yet. Upload something for your assistants.',
+  'workspace.parent': '..',
+  'workspace.deleteConfirm': 'Delete {name}?',
 
   'settings.title': 'Settings',
   'settings.section.runtime': 'Agent runtime',
