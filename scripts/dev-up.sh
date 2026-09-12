@@ -107,6 +107,16 @@ fi
 if ! need_cmd executor; then
 	echo "note: Kaniko executor not on PATH — local Kaniko builds unavailable until installed."
 	echo "      make dev does not require it; set Template build engine in Settings when ready."
+	# Avoid roundpend soft-warn spam when .env still says kaniko from older defaults.
+	if [[ "${ROUNDPEN_TEMPLATE_BUILDER:-}" == "kaniko" ]] || grep -qE '^ROUNDPEN_TEMPLATE_BUILDER=kaniko$' .env 2>/dev/null; then
+		echo "note: clearing ROUNDPEN_TEMPLATE_BUILDER=kaniko for this session (executor missing)."
+		export ROUNDPEN_TEMPLATE_BUILDER=""
+		if [[ -f .env ]]; then
+			grep -v '^ROUNDPEN_TEMPLATE_BUILDER=' .env > .env.devtmp
+			echo "ROUNDPEN_TEMPLATE_BUILDER=" >> .env.devtmp
+			mv .env.devtmp .env
+		fi
+	fi
 fi
 
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
