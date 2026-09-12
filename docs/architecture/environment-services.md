@@ -31,7 +31,7 @@ P0 只落地三个 Resource/Surface：**Workspace**、**Ports**、**Terminal**�
 
 1. **控制面薄、引擎可插拔**：协议与鉴权在 API；PTY / Dial / 挂载在 `Backend`；宿主文件在 `workspace.FS`。
 2. **Host-side 文件优先**：读写以 `workspace.FS` 为准，不要求沙箱进程存活；容器内视角为可选增强。
-3. **先接口、后 sidecar**：Terminal 以 `AttachPTY`（docker exec / kern pty）起步；不默认引入 in-sandbox daemon。
+3. **先接口、后 sidecar**：Terminal 以 `AttachPTY`（docker exec / qemu ssh pty）起步；不默认引入 in-sandbox daemon。
 4. **安全默认**：预览流量默认需短时令牌或会话；不采用「知道短 ID 即可访问」。
 5. **可参考 ai-sandbox 的协议形状，不平移其控制面拓扑**（见文末清单）。
 
@@ -115,7 +115,7 @@ type DirEntry struct {
 ```go
 // Dial 建立到沙箱内 destPort 的 TCP 连接。
 // Docker：经容器 IP（本机 bridge 直连；远端 SSH/已有 docker 上下文另议）。
-// Kern：不支持 Ports（拒绝 Dial，避免打到控制面回环）。
+// QEMU：经 guest SSH hostfwd。
 Dial(ctx context.Context, engineID string, destPort int) (net.Conn, error)
 ```
 
@@ -173,7 +173,7 @@ Dial(ctx context.Context, engineID string, destPort int) (net.Conn, error)
 
 ```go
 type PTYOpts struct {
-    Cmd     []string // 默认 ["/bin/bash", "-l"]；Kern/无 bash 镜像可 ["/bin/sh", "-l"]
+    Cmd     []string // 默认 ["/bin/bash", "-l"]；无 bash 镜像可 ["/bin/sh", "-l"]
     WorkDir string   // 默认 /workspace
     Env     []string
     Rows    uint16
@@ -191,8 +191,8 @@ ResizePTY(ctx context.Context, engineID, sessionKey string, rows, cols uint16) e
 
 | Backend | P0 实现 |
 |---------|---------|
-| Docker | `docker exec -it` + resize API（对齐 ai-sandbox **extension 兜底路径**） |
-| Kern | 本机 `bubblewrap`：guest `/workspace` + `/home` 平行挂载；`cd /` 不可见宿主机根 |
+| Docker | `docker exec -it` + resize API（Agent 槽位） |
+| QEMU | guest SSH `AttachPTY`（Browser/Desktop 槽位） |
 
 **不**在 P0 引入 in-sandbox ConnectRPC daemon。
 
@@ -317,5 +317,5 @@ RemovePath(ctx context.Context, id, relPath string) error
 - [x] 认证后可对沙箱 workspace 做 list/read/write/delete（沙箱 stopped 时 host-side 仍可读）— `GET/POST/DELETE /v1/sandboxes/{id}/files*`
 - [x] `Backend.Dial` + path 预览 `/p/{id}/{port}/` + `GET /v1/sandboxes/{id}/preview-link`（短时 token）
 - [x] 认证 Terminal WS：`GET /v1/sandboxes/{id}/terminal`（JSON resize + 二进制 PTY）
-- [x] Docker（`exec -it` / bridge Dial）与 Kern（`creack/pty` / localhost Dial）均实现接口
+- [x] Docker（`exec -it` / bridge Dial）与 QEMU（SSH Dial）均实现接口
 - [x] 默认路径不依赖 hikari-daemon / 无鉴权 vhost

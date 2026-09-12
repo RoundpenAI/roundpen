@@ -83,11 +83,11 @@ run-daemon: build
 browser-image:
 	./images/browser-qemu/build.sh
 
-# Headless agent qcow2 + Claude Code (LLM via llmgw).
+# Deprecated: Agent runs on Docker now. Kept only for the experimental QEMU agent recipe.
 agent-image:
 	./images/agent-qemu/build.sh
 
-# Docker Cloud Agent image (git/ssh/curl). Required for sandbox_exec / git clone.
+# Docker Agent image (git/ssh/curl). Used by local dev / private overrides.
 code-agent-image:
 	docker build -t roundpen-code-agent:local images/code-agent
 

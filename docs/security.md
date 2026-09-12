@@ -43,9 +43,9 @@ Environment Services   ← 终端、工作区、端口预览（及后续 Browser
       │
 Sandbox Manager        ← 生命周期、执行、超时
       │
-Backend                ← Docker / Kern /（规划：Kubernetes）
+Backend                ← Agent: Docker；Browser/Desktop/Mobile: QEMU（规划：Kubernetes）
       │
-OCI Runtime            ← runc / gVisor / Kata 等（按部署选择）
+OCI Runtime            ← runc / gVisor / Kata 等（Agent 容器按部署选择）
 ```
 
 | 层级 | 职责 |
@@ -53,22 +53,22 @@ OCI Runtime            ← runc / gVisor / Kata 等（按部署选择）
 | 控制面 | 鉴权、策略、审计、记忆、LLM 与工具网关 |
 | Environment Services | Agent 操作面：文件、终端、预览等 |
 | Sandbox 抽象 | 统一生命周期与 exec，不绑定具体引擎 |
-| Backend | 可插拔执行后端（Docker、Kern 等） |
-| OCI Runtime | 由后端选用；Kern 作为轻量路径可绕过完整容器栈 |
+| Backend | 槽位固定后端：**Agent → Docker**；**Browser / Desktop / Mobile → QEMU**（规划：Kubernetes） |
+| OCI Runtime | Agent 容器由后端选用 runc / gVisor / Kata 等 |
 
 控制面与执行面职责分离：安全策略集中在控制面执行，更换后端引擎时不必重写规则。
 
 ## 设计原则
 
-### 1. 沙箱抽象，引擎可插拔
+### 1. 槽位后端钉死
 
-用户不应被锁定在单一运行时上。Roundpen 通过统一的 Sandbox 接口抽象后端差异：
+用户不应被要求选择运行时。Roundpen 按槽位固定后端，减少错误配置面：
 
-- **Kern**（默认、开发档）：免守护的本机进程隔离。guest `/` 被重建，工作区与 home 显式绑定，但默认共享宿主机 net/pid/uid，**不是**生产隔离。预览 `Dial` 在 Kern 上直接拒绝。局域网或公网部署应改用 Docker。
-- **Docker**：适合生产与小团队；容器默认丢弃特权（`CapDrop: ALL`）、禁止提权（`no-new-privileges`），可按需选用 `runc`、`crun`、`gVisor`、`Kata` 等 OCI 运行时。
-- **Kubernetes**（规划中）：面向集群扩展，预留 Backend 接口，不以 Operator 形态过度复杂化。
+- **Agent → Docker**：容器默认丢弃特权（`CapDrop: ALL`）、禁止提权（`no-new-privileges`），可按需选用 `runc`、`crun`、`gVisor`、`Kata` 等 OCI 运行时。镜像从官方注册表 pull 或离线 load。
+- **Browser / Desktop / Mobile → QEMU**：qemu 虚拟机提供画面与 CDP；与 Agent 容器隔离。
+- **Kubernetes**（规划中）：面向集群扩展，预留 Backend 接口。
 
-同一套 API，不同安全档位——由部署者按场景选择。
+同一套 API、按槽位固定后端——不再提供 QEMU/Kern/Docker 三选一。
 
 ### 2. 工作区有边界，文件访问可管
 
@@ -110,9 +110,9 @@ Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 A
 
 | 能力 | 说明 |
 |------|------|
-| 沙箱隔离与生命周期 | 创建、执行、停止、超时；按属主隔离；Docker 与 Kern 双后端 |
-| 工作区与文件 API | 路径与 symlink 边界校验；沙箱停止后仍可经认证 API 管理文件 |
-| 终端与端口预览 | 认证终端 WebSocket（同源 Origin）；预览须短时令牌；Kern 不提供 Ports |
+| 沙箱隔离与生命周期 | 创建、执行、停止、超时；按属主隔离；Agent 用 Docker、Browser 用 QEMU |
+| 工作区与文件 API | 路径与 symlink 边界校验；Agent 工作区经容器读写（与 Agent 同身份） |
+| 终端与端口预览 | 认证终端 WebSocket（同源 Origin）；预览须短时令牌 |
 | 用户体系 | 密码登录 + 每用户 API Key；登录限流 |
 | LLM 网关 | Virtual Key 代理、多上游、请求流水 |
 | 记忆服务 | 短期 JSONB + 长期向量；mem0 风格 Agent API |
@@ -144,7 +144,7 @@ Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 A
 | 约束 | 原因 |
 |------|------|
 | 不在沙箱内默认运行重型守护进程 | 控制面保持薄，镜像与攻击面更小 |
-| 不以容器 `exec` 作为唯一文件访问路径 | Host-side 工作区是默认模型 |
+| 不默认做 idmapped / PUID 写路径 | Agent 工作区读写统一经容器（同身份），避免宿主 UID 与 guest UID 不一致 |
 | 不提供默认无鉴权的预览或终端 | 自托管威胁模型不允许 |
 | 不做云厂商锁定方案 | 自托管与开放协议是产品核心 |
 
