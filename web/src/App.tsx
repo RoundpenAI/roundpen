@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { RequireAuth } from './auth'
+import { AppShell } from './components/AppShell'
 import {
   AssistantLayout,
   AssistantsIndexRedirect,
@@ -10,6 +11,7 @@ import { AssistantDetailPage } from './pages/AssistantDetailPage'
 import { BrowserPage } from './pages/BrowserPage'
 import { ChatSessionPage } from './pages/ChatSessionPage'
 import { LoginPage } from './pages/LoginPage'
+import { SettingsLayout } from './pages/SettingsLayout'
 import { SettingsPage } from './pages/SettingsPage'
 import { TemplatesPage } from './pages/TemplatesPage'
 import { WorkbenchPage } from './pages/WorkbenchPage'
@@ -21,18 +23,27 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<Navigate to="/a" replace />} />
         <Route
-          path="/a"
           element={
             <RequireAuth>
-              <AssistantLayout />
+              <AppShell />
             </RequireAuth>
           }
         >
-          <Route index element={<AssistantsIndexRedirect />} />
-          <Route path="new" element={<AssistantCreatePage />} />
-          <Route path=":assistantId" element={<AssistantDetailPage />} />
-          <Route path=":assistantId/chat" element={<AssistantChatRedirect />} />
-          <Route path=":assistantId/s/:id" element={<ChatSessionPage />} />
+          <Route path="/a" element={<AssistantLayout />}>
+            <Route index element={<AssistantsIndexRedirect />} />
+            <Route path="new" element={<AssistantCreatePage />} />
+            <Route path=":assistantId" element={<AssistantDetailPage />} />
+            <Route
+              path=":assistantId/chat"
+              element={<AssistantChatRedirect />}
+            />
+            <Route path=":assistantId/s/:id" element={<ChatSessionPage />} />
+          </Route>
+          <Route path="/settings" element={<SettingsLayout />}>
+            <Route index element={<Navigate to="runtime" replace />} />
+            <Route path=":section" element={<SettingsPage />} />
+          </Route>
+          <Route path="/registry" element={<TemplatesPage />} />
         </Route>
         <Route path="/chats" element={<Navigate to="/a" replace />} />
         <Route path="/chats/*" element={<Navigate to="/a" replace />} />
@@ -41,22 +52,6 @@ export default function App() {
           element={
             <RequireAuth>
               <BrowserPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/registry"
-          element={
-            <RequireAuth>
-              <TemplatesPage />
-            </RequireAuth>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <RequireAuth>
-              <SettingsPage />
             </RequireAuth>
           }
         />

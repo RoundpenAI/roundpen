@@ -14,7 +14,6 @@ import {
   type CreateTemplateResult,
   type Template,
 } from '../api'
-import { PageShell } from '../components/PageShell'
 import { TemplateBuildDialog } from '../components/TemplateBuildDialog'
 import { TemplateDetailDialog } from '../components/TemplateDetailDialog'
 import {
@@ -208,10 +207,14 @@ export function TemplatesPage() {
   )
 
   return (
-    <PageShell
-      subtitle="Environment images"
-      current="templates"
-      maxWidthClass="max-w-4xl"
+    <div
+      className="chat-pane-scroll"
+      style={{
+        padding: 16,
+        height: '100%',
+        boxSizing: 'border-box',
+        overflow: 'auto',
+      }}
     >
       <div
         style={{
@@ -317,7 +320,7 @@ export function TemplatesPage() {
         onClose={() => setBuilding(null)}
         onDone={handleBuildDone}
       />
-    </PageShell>
+    </div>
   )
 }
 

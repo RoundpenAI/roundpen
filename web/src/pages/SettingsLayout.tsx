@@ -1,4 +1,4 @@
-import { Outlet, useNavigate, useParams } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Layout, Typography } from '@douyinfe/semi-ui-19'
 import { useAuth } from '../auth'
 import {
@@ -11,9 +11,10 @@ const { Sider, Content } = Layout
 export function SettingsLayout() {
   const auth = useAuth()
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
-  const { section } = useParams()
+  const location = useLocation()
   const navigate = useNavigate()
-  const active = resolveSettingsSection(section, isAdmin)
+  const rawSection = location.pathname.split('/')[2]
+  const active = resolveSettingsSection(rawSection, isAdmin)
   const sections = visibleSettingsSections(isAdmin)
 
   return (
