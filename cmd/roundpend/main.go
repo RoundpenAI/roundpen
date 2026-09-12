@@ -24,6 +24,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	"github.com/RoundpenAI/roundpen/internal/api/platform"
+	"github.com/RoundpenAI/roundpen/internal/api/workspaceapi"
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/backend/multi"
@@ -230,6 +231,10 @@ func main() {
 		Tokens:    previewHandler.Tokens,
 		PublicURL: publicBase,
 		VNC:       eng,
+	}).Mount(mux)
+	(&workspaceapi.Handler{
+		Envs:  envSvc,
+		Files: sbSvc,
 	}).Mount(mux)
 	(&gitcred.Handler{Store: gitStore}).Mount(mux)
 	(&runtime.Handler{Probe: probe, Prefs: prefStore}).Mount(mux)
