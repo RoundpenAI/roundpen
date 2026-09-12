@@ -14,14 +14,14 @@ func TestStore_SeedAndResolveByTag(t *testing.T) {
 	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
-	res, err := store.ResolveByTag(ctx, ParsedRef{Namespace: DefaultNamespace, Name: "host", Tag: DefaultTag})
+	res, err := store.ResolveByTag(ctx, ParsedRef{Namespace: DefaultNamespace, Name: "base", Tag: DefaultTag})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Image != "host" {
+	if res.Image != "ubuntu:22.04" {
 		t.Fatalf("image=%q", res.Image)
 	}
 	if res.CPUCount != 1 || res.MemoryMB != 512 {
@@ -91,7 +91,7 @@ func TestStore_ResolveByBuildID(t *testing.T) {
 func TestStore_ListAndRecordSpawn(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := context.Background()
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
 	list, err := store.List(ctx)

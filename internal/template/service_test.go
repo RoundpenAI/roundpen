@@ -10,14 +10,14 @@ import (
 func TestService_Resolve_registeredAndLegacy(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := context.Background()
-	svc := NewService(store, "host")
-	if err := svc.Seed(ctx, "kern"); err != nil {
+	svc := NewService(store, "ghcr.io/roundpenai/code-agent:0.1.0")
+	if err := svc.Seed(ctx, "docker"); err != nil {
 		t.Fatal(err)
 	}
 
-	res, err := svc.Resolve(ctx, "host")
-	if err != nil || res.Image != "host" {
-		t.Fatalf("host resolve: err=%v res=%+v", err, res)
+	res, err := svc.Resolve(ctx, "base")
+	if err != nil || res.Image != "ubuntu:22.04" {
+		t.Fatalf("base resolve: err=%v res=%+v", err, res)
 	}
 
 	res, err = svc.Resolve(ctx, "python")
@@ -34,8 +34,8 @@ func TestService_Resolve_registeredAndLegacy(t *testing.T) {
 func TestService_Exists(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := context.Background()
-	svc := NewService(store, "host")
-	if err := svc.Seed(ctx, "kern"); err != nil {
+	svc := NewService(store, "ghcr.io/roundpenai/code-agent:0.1.0")
+	if err := svc.Seed(ctx, "docker"); err != nil {
 		t.Fatal(err)
 	}
 	ok, err := svc.Exists(ctx, "python")
@@ -51,8 +51,8 @@ func TestService_Exists(t *testing.T) {
 func TestService_List(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := context.Background()
-	svc := NewService(store, "host")
-	if err := svc.Seed(ctx, "kern"); err != nil {
+	svc := NewService(store, "ghcr.io/roundpenai/code-agent:0.1.0")
+	if err := svc.Seed(ctx, "docker"); err != nil {
 		t.Fatal(err)
 	}
 	list, err := svc.List(ctx)
@@ -64,7 +64,7 @@ func TestService_List(t *testing.T) {
 func TestService_ResolveByBuildID(t *testing.T) {
 	store, sqlDB := testStore(t)
 	ctx := context.Background()
-	svc := NewService(store, "host")
+	svc := NewService(store, "ghcr.io/roundpenai/code-agent:0.1.0")
 
 	created, err := store.CreateTemplate(ctx, CreateTemplateRequest{Name: "resolve-build-" + uuid.NewString()[:8]})
 	if err != nil {
@@ -82,7 +82,7 @@ func TestService_ResolveByBuildID(t *testing.T) {
 }
 
 func TestService_BuildsSupported(t *testing.T) {
-	svc := NewService(nil, "host")
+	svc := NewService(nil, "ghcr.io/roundpenai/code-agent:0.1.0")
 	if svc.BuildsSupported() {
 		t.Fatal("expected false without builder")
 	}

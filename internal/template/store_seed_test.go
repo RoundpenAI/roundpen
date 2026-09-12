@@ -10,7 +10,7 @@ func TestStore_SeedBuiltin_idempotent(t *testing.T) {
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
-		if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+		if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 			t.Fatalf("seed run %d: %v", i+1, err)
 		}
 	}
@@ -18,7 +18,7 @@ func TestStore_SeedBuiltin_idempotent(t *testing.T) {
 	var count int
 	if err := sqlDB.QueryRowContext(ctx, `
 		SELECT count(*) FROM templates
-		WHERE namespace=$1 AND name IN ('host','base','python','node','code-agent')`, DefaultNamespace).Scan(&count); err != nil {
+		WHERE namespace=$1 AND name IN ('base','python','node','code-agent','browser-desktop')`, DefaultNamespace).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 5 {
@@ -28,7 +28,7 @@ func TestStore_SeedBuiltin_idempotent(t *testing.T) {
 		SELECT count(*) FROM template_builds b
 		JOIN template_tags tg ON tg.build_id=b.id AND tg.tag='default'
 		JOIN templates t ON t.id=tg.template_id
-		WHERE t.namespace=$1 AND t.name IN ('host','base','python','node','code-agent')`, DefaultNamespace).Scan(&count); err != nil {
+		WHERE t.namespace=$1 AND t.name IN ('base','python','node','code-agent','browser-desktop')`, DefaultNamespace).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 5 {
@@ -40,22 +40,22 @@ func TestStore_SeedBuiltin_repairsMissingTag(t *testing.T) {
 	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
 	var tplID string
 	if err := sqlDB.QueryRowContext(ctx, `
-		SELECT id FROM templates WHERE namespace=$1 AND name='host'`, DefaultNamespace).Scan(&tplID); err != nil {
+		SELECT id FROM templates WHERE namespace=$1 AND name='base'`, DefaultNamespace).Scan(&tplID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sqlDB.ExecContext(ctx, `DELETE FROM template_tags WHERE template_id=$1`, tplID); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ResolveByTag(ctx, ParsedRef{Namespace: DefaultNamespace, Name: "host", Tag: DefaultTag}); err != nil {
+	if _, err := store.ResolveByTag(ctx, ParsedRef{Namespace: DefaultNamespace, Name: "base", Tag: DefaultTag}); err != nil {
 		t.Fatalf("resolve after repair: %v", err)
 	}
 }
@@ -64,7 +64,7 @@ func TestStore_SeedBuiltin_repairsBrokenBuild(t *testing.T) {
 	store, sqlDB := testStore(t)
 	ctx := context.Background()
 
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
 	var tplID, buildID string
@@ -80,7 +80,7 @@ func TestStore_SeedBuiltin_repairsBrokenBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
 	res, err := store.ResolveByTag(ctx, ParsedRef{Namespace: DefaultNamespace, Name: "python", Tag: DefaultTag})
@@ -99,21 +99,19 @@ func TestStore_SeedBuiltin_repairsBrokenBuild(t *testing.T) {
 	}
 }
 
-func TestStore_SeedBuiltin_updatesHostForDockerDefaultImage(t *testing.T) {
+func TestStore_SeedBuiltin_codeAgentUsesAgentImage(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := context.Background()
 
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	t.Setenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/example/code-agent:9.9.9")
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SeedBuiltin(ctx, "docker", "my-registry/roundpen:dev"); err != nil {
-		t.Fatal(err)
-	}
-	res, err := store.ResolveByTag(ctx, ParsedRef{Namespace: DefaultNamespace, Name: "host", Tag: DefaultTag})
+	res, err := store.ResolveByTag(ctx, ParsedRef{Namespace: DefaultNamespace, Name: "code-agent", Tag: DefaultTag})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Image != "my-registry/roundpen:dev" {
-		t.Fatalf("host image=%q", res.Image)
+	if res.Image != "ghcr.io/example/code-agent:9.9.9" {
+		t.Fatalf("code-agent image=%q", res.Image)
 	}
 }

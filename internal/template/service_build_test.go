@@ -144,12 +144,12 @@ func TestService_StartBuild_cacheHit(t *testing.T) {
 func TestService_StartBuild_fromTemplateBase(t *testing.T) {
 	store, sqlDB := testStore(t)
 	ctx := context.Background()
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
 
 	mb := &mockBuilder{artifact: "roundpen/fromtpl:1"}
-	svc := NewService(store, "host")
+	svc := NewService(store, "ghcr.io/roundpenai/code-agent:0.1.0")
 	svc.SetBuilder("docker", mb)
 
 	name := fmt.Sprintf("fromtpl-%s", uuid.NewString()[:8])
