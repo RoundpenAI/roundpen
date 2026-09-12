@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Banner,
   Button,
   Input,
   List,
+  Modal,
   Radio,
   RadioGroup,
   Select,
@@ -24,6 +25,7 @@ import {
   type AssistantDirectoryGrant,
 } from '../api'
 import { useAssistantLayout } from '../components/AssistantLayout'
+import { isSystemAssistant } from '../lib/assistants'
 
 const fieldLabel: CSSProperties = {
   display: 'block',
@@ -38,6 +40,7 @@ const sectionGap: CSSProperties = {
 
 export function AssistantDetailPage() {
   const { assistantId = '' } = useParams()
+  const navigate = useNavigate()
   const { refresh } = useAssistantLayout()
   const [a, setA] = useState<Assistant | null>(null)
   const [activity, setActivity] = useState<ActivityItem[]>([])
@@ -45,6 +48,7 @@ export function AssistantDetailPage() {
   const [tickets, setTickets] = useState<AssistTicket[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [name, setName] = useState('')
   const [bio, setBio] = useState('')
   const [newPath, setNewPath] = useState('')
@@ -153,6 +157,39 @@ export function AssistantDetailPage() {
       return
     }
     void patch({ identityMode: mode, confirmIdentityChange: true })
+  }
+
+  const confirmDelete = () => {
+    Modal.confirm({
+      title: `删除助手「${a.name}」？`,
+      content: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Typography.Text>
+            删除后将立即从侧边栏消失，无法再打开与它的对话。
+          </Typography.Text>
+          <Typography.Text type="tertiary" size="small">
+            其主会话与历史消息会停止用于新任务；已写入工作区的文件不会自动清除。此操作不可从列表撤销。
+          </Typography.Text>
+        </div>
+      ),
+      okText: '删除助手',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setDeleting(true)
+        setError(null)
+        try {
+          await assistantsApi.update(assistantId, { status: 'disabled' })
+          await refresh()
+          navigate('/a', { replace: true })
+        } catch (e) {
+          setError(e instanceof ApiError ? e.message : String(e))
+          throw e
+        } finally {
+          setDeleting(false)
+        }
+      },
+    })
   }
 
   const sortedActivity = [...activity]
@@ -573,6 +610,28 @@ export function AssistantDetailPage() {
             </Typography.Text>
           )}
         </section>
+
+        {!isSystemAssistant(a) && (
+        <section style={sectionGap}>
+          <Typography.Title heading={5} style={{ margin: 0 }}>
+            删除助手
+          </Typography.Title>
+          <Typography.Text type="tertiary" size="small">
+            删除后助手会从列表中移除，相关对话入口关闭；工作区里已有文件不会自动清理。请确认后再操作。
+          </Typography.Text>
+          <div>
+            <Button
+              type="danger"
+              theme="solid"
+              loading={deleting}
+              disabled={saving}
+              onClick={confirmDelete}
+            >
+              删除此助手
+            </Button>
+          </div>
+        </section>
+        )}
 
         {saving && (
           <Typography.Text type="tertiary" size="small">

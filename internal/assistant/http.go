@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
@@ -50,17 +51,21 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	list, err := h.Store.ListByUser(r.Context(), user.Username)
+	sys, err := h.Store.EnsureSystem(r.Context(), user.Username)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if len(list) == 0 {
-		list, err = h.backfillOrphans(r.Context(), user.Username)
-		if err != nil {
+	if h.Sessions != nil && sys != nil {
+		if _, err := h.Store.AttachOrphanSessions(r.Context(), user.Username, sys.ID); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+	}
+	list, err := h.Store.ListByUser(r.Context(), user.Username)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	if list == nil {
 		list = []*Assistant{}
@@ -69,29 +74,6 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		h.fillPrimarySession(r.Context(), user.Username, a)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"assistants": list})
-}
-
-func (h *Handler) backfillOrphans(ctx context.Context, userID string) ([]*Assistant, error) {
-	if h.Sessions == nil {
-		return nil, nil
-	}
-	orphans, err := h.Sessions.ListByUser(ctx, userID, 1)
-	if err != nil || len(orphans) == 0 {
-		return nil, err
-	}
-	a, err := h.Store.Create(ctx, userID, CreateInput{
-		Name:         "默认助手",
-		Bio:          "",
-		IdentityMode: IdentityProxyUser,
-		Preset:       "code",
-	})
-	if err != nil {
-		return nil, err
-	}
-	if _, err := h.Store.AttachOrphanSessions(ctx, userID, a.ID); err != nil {
-		return nil, err
-	}
-	return []*Assistant{a}, nil
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +181,10 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		Status:           body.Status,
 	})
 	if err != nil {
+		if errors.Is(err, ErrSystemUndeletable) {
+			writeErr(w, http.StatusForbidden, "系统助手不可删除")
+			return
+		}
 		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "must be") {
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
@@ -228,8 +214,14 @@ func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if len(list) > 0 {
-			writeJSON(w, http.StatusOK, map[string]any{"sessionId": list[0].ID})
-			return
+			existing := list[0]
+			// Prefer an in-process provider when present. Sandbox-backed
+			// sessions (e.g. legacy claude) are skipped so we can open a
+			// sysadmin chat without QEMU for now.
+			if meta, ok := providers.ByID(providers.Default(), existing.ProviderID); ok && !providers.NeedsSandbox(meta) {
+				writeJSON(w, http.StatusOK, map[string]any{"sessionId": existing.ID})
+				return
+			}
 		}
 	}
 	if h.Starter == nil {

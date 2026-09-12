@@ -33,6 +33,10 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Ass
 	caps.Desktop = false
 
 	now := time.Now().UTC()
+	kind := strings.TrimSpace(in.Kind)
+	if kind == "" {
+		kind = KindUser
+	}
 	a := &Assistant{
 		ID:               uuid.NewString(),
 		UserID:           userID,
@@ -44,6 +48,7 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Ass
 		NetworkAllowlist: []string{},
 		DirectoryGrants:  []DirectoryGrant{},
 		Status:           StatusActive,
+		Kind:             kind,
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -62,10 +67,10 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Ass
 	_, err = s.DB.ExecContext(ctx, `
 		INSERT INTO assistants (
 			id, user_id, name, bio, identity_mode, capabilities,
-			network_tier, network_allowlist, directory_grants, status, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+			network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 		a.ID, a.UserID, a.Name, a.Bio, a.IdentityMode, capRaw,
-		a.NetworkTier, allowRaw, dirRaw, a.Status, a.CreatedAt, a.UpdatedAt,
+		a.NetworkTier, allowRaw, dirRaw, a.Status, a.Kind, a.CreatedAt, a.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -77,7 +82,7 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Ass
 func (s *Store) Get(ctx context.Context, id string) (*Assistant, error) {
 	row := s.DB.QueryRowContext(ctx, `
 		SELECT id, user_id, name, bio, identity_mode, capabilities,
-			network_tier, network_allowlist, directory_grants, status, created_at, updated_at
+			network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
 		FROM assistants WHERE id=$1`, id)
 	a, err := scanAssistant(row)
 	if err != nil {
@@ -89,14 +94,15 @@ func (s *Store) Get(ctx context.Context, id string) (*Assistant, error) {
 	return a, nil
 }
 
-// ListByUser returns assistants for a user (newest first).
+// ListByUser returns assistants for a user (system first, then newest).
 func (s *Store) ListByUser(ctx context.Context, userID string) ([]*Assistant, error) {
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT id, user_id, name, bio, identity_mode, capabilities,
-			network_tier, network_allowlist, directory_grants, status, created_at, updated_at
+			network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
 		FROM assistants
 		WHERE user_id=$1 AND status <> $2
-		ORDER BY updated_at DESC`, userID, StatusDisabled)
+		ORDER BY CASE WHEN kind = $3 THEN 0 ELSE 1 END, updated_at DESC`,
+		userID, StatusDisabled, KindSystem)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +116,39 @@ func (s *Store) ListByUser(ctx context.Context, userID string) ([]*Assistant, er
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// EnsureSystem returns the user's active system assistant, creating one if needed.
+func (s *Store) EnsureSystem(ctx context.Context, userID string) (*Assistant, error) {
+	row := s.DB.QueryRowContext(ctx, `
+		SELECT id, user_id, name, bio, identity_mode, capabilities,
+			network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
+		FROM assistants
+		WHERE user_id=$1 AND kind=$2 AND status=$3
+		LIMIT 1`, userID, KindSystem, StatusActive)
+	a, err := scanAssistant(row)
+	if err == nil {
+		return a, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	created, err := s.Create(ctx, userID, DefaultSystemCreateInput())
+	if err != nil {
+		// Concurrent ensure: unique index may reject the second insert.
+		row = s.DB.QueryRowContext(ctx, `
+			SELECT id, user_id, name, bio, identity_mode, capabilities,
+				network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
+			FROM assistants
+			WHERE user_id=$1 AND kind=$2 AND status=$3
+			LIMIT 1`, userID, KindSystem, StatusActive)
+		a, err2 := scanAssistant(row)
+		if err2 == nil {
+			return a, nil
+		}
+		return nil, err
+	}
+	return created, nil
 }
 
 // UpdateInput holds optional fields for PATCH.
@@ -128,6 +167,9 @@ type UpdateInput struct {
 func (s *Store) Update(ctx context.Context, id string, in UpdateInput) (*Assistant, error) {
 	cur, err := s.Get(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateDisable(cur, in.Status); err != nil {
 		return nil, err
 	}
 	if in.Name != nil {
@@ -227,9 +269,12 @@ func scanAssistant(row interface{ Scan(dest ...any) error }) (*Assistant, error)
 	var capRaw, allowRaw, dirRaw []byte
 	if err := row.Scan(
 		&a.ID, &a.UserID, &a.Name, &a.Bio, &a.IdentityMode, &capRaw,
-		&a.NetworkTier, &allowRaw, &dirRaw, &a.Status, &a.CreatedAt, &a.UpdatedAt,
+		&a.NetworkTier, &allowRaw, &dirRaw, &a.Status, &a.Kind, &a.CreatedAt, &a.UpdatedAt,
 	); err != nil {
 		return nil, err
+	}
+	if a.Kind == "" {
+		a.Kind = KindUser
 	}
 	if len(capRaw) > 0 {
 		if err := json.Unmarshal(capRaw, &a.Capabilities); err != nil {

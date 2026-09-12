@@ -286,10 +286,16 @@ CREATE TABLE IF NOT EXISTS assistants (
     directory_grants  JSONB NOT NULL DEFAULT '[]',
     status          TEXT NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'disabled')),
+    kind            TEXT NOT NULL DEFAULT 'user'
+        CHECK (kind IN ('user', 'system')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS assistants_user_idx ON assistants (user_id, updated_at DESC);
+ALTER TABLE assistants ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'user';
+CREATE UNIQUE INDEX IF NOT EXISTS assistants_user_system_active_idx
+    ON assistants (user_id)
+    WHERE kind = 'system' AND status = 'active';
 
 ALTER TABLE agent_sessions
     ADD COLUMN IF NOT EXISTS assistant_id TEXT REFERENCES assistants (id) ON DELETE SET NULL;

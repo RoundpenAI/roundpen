@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -17,6 +18,12 @@ const (
 
 	StatusActive   = "active"
 	StatusDisabled = "disabled"
+
+	KindUser   = "user"
+	KindSystem = "system"
+
+	DefaultSystemName = "系统助手"
+	DefaultSystemBio  = "常驻入口。可协调其他助手（派活能力后续上线）。"
 )
 
 type Capabilities struct {
@@ -43,6 +50,7 @@ type Assistant struct {
 	NetworkAllowlist []string         `json:"networkAllowlist"`
 	DirectoryGrants  []DirectoryGrant `json:"directoryGrants"`
 	Status           string           `json:"status"`
+	Kind             string           `json:"kind"`
 	PrimarySessionID string           `json:"primarySessionId,omitempty"`
 	CreatedAt        time.Time        `json:"createdAt"`
 	UpdatedAt        time.Time        `json:"updatedAt"`
@@ -54,6 +62,7 @@ type CreateInput struct {
 	IdentityMode string
 	Preset       string // writing | code | code_browser | custom
 	Capabilities *Capabilities
+	Kind         string // user | system; empty means user
 }
 
 func ApplyPreset(preset string) Capabilities {
@@ -77,6 +86,32 @@ func ValidateCreate(in CreateInput) error {
 	case IdentityProxyUser, IdentityIndependent:
 	default:
 		return fmt.Errorf("identityMode must be proxy_user or independent")
+	}
+	switch strings.TrimSpace(in.Kind) {
+	case "", KindUser, KindSystem:
+	default:
+		return fmt.Errorf("kind must be user or system")
+	}
+	return nil
+}
+
+// DefaultSystemCreateInput is the seed for each user's undeletable system assistant.
+func DefaultSystemCreateInput() CreateInput {
+	return CreateInput{
+		Name:         DefaultSystemName,
+		Bio:          DefaultSystemBio,
+		IdentityMode: IdentityProxyUser,
+		Preset:       "code",
+		Kind:         KindSystem,
+	}
+}
+
+// ErrSystemUndeletable is returned when disabling a system assistant.
+var ErrSystemUndeletable = errors.New("system assistant cannot be deleted")
+
+func validateDisable(cur *Assistant, status *string) error {
+	if status != nil && *status == StatusDisabled && cur != nil && cur.Kind == KindSystem {
+		return ErrSystemUndeletable
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -137,5 +138,50 @@ func TestStore_AttachOrphanSessions(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("attached=%d want 1", n)
+	}
+}
+
+func TestStore_EnsureSystemAndUndeletable(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	user := "sys-" + uuid.NewString()[:8]
+	insertUser(t, db, user)
+
+	store := &Store{DB: db.SQL}
+	a, err := store.EnsureSystem(ctx, user)
+	if err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	if a.Kind != KindSystem || a.Name != DefaultSystemName {
+		t.Fatalf("system: %+v", a)
+	}
+	again, err := store.EnsureSystem(ctx, user)
+	if err != nil {
+		t.Fatalf("ensure again: %v", err)
+	}
+	if again.ID != a.ID {
+		t.Fatalf("not idempotent: %s vs %s", again.ID, a.ID)
+	}
+
+	userAsst, err := store.Create(ctx, user, CreateInput{
+		Name: "Temp", IdentityMode: IdentityProxyUser, Preset: "code",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, err := store.ListByUser(ctx, user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) < 2 || list[0].Kind != KindSystem {
+		t.Fatalf("system should sort first: %+v", list)
+	}
+
+	disabled := StatusDisabled
+	if _, err := store.Update(ctx, a.ID, UpdateInput{Status: &disabled}); !errors.Is(err, ErrSystemUndeletable) {
+		t.Fatalf("disable system: %v", err)
+	}
+	if _, err := store.Update(ctx, userAsst.ID, UpdateInput{Status: &disabled}); err != nil {
+		t.Fatalf("disable user: %v", err)
 	}
 }

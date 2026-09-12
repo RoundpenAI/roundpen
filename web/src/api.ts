@@ -495,7 +495,7 @@ export type SetupPlan = {
     identityMode: string
     preset: string
   }
-  actions: SetupActionRun[]
+  actions: SetupActionRun[] | null
   createdAt: string
 }
 
@@ -659,6 +659,7 @@ export type Assistant = {
   networkAllowlist: string[]
   directoryGrants: AssistantDirectoryGrant[]
   status: 'active' | 'disabled'
+  kind?: 'user' | 'system'
   primarySessionId?: string
   createdAt: string
   updatedAt: string
