@@ -54,9 +54,13 @@ describe('resolveSettingsSection', () => {
 })
 
 describe('PRIMARY_MENUS paths', () => {
-  it('matches product routes', () => {
+  it('matches product routes and label keys', () => {
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'assistants')?.to, '/a')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'settings')?.to, '/settings')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'registry')?.to, '/registry')
+    assert.equal(
+      PRIMARY_MENUS.find((m) => m.id === 'assistants')?.labelKey,
+      'nav.assistants',
+    )
   })
 })

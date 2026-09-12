@@ -1,16 +1,18 @@
+import type { MessageKey } from '../i18n/translate'
+
 export type PrimaryMenuId = 'assistants' | 'settings' | 'registry'
 
 export type PrimaryMenu = {
   id: PrimaryMenuId
   to: string
-  label: string
+  labelKey: MessageKey
   admin?: boolean
 }
 
 export const PRIMARY_MENUS: PrimaryMenu[] = [
-  { id: 'assistants', to: '/a', label: '助手' },
-  { id: 'settings', to: '/settings', label: '设置' },
-  { id: 'registry', to: '/registry', label: '镜像', admin: true },
+  { id: 'assistants', to: '/a', labelKey: 'nav.assistants' },
+  { id: 'settings', to: '/settings', labelKey: 'nav.settings' },
+  { id: 'registry', to: '/registry', labelKey: 'nav.registry', admin: true },
 ]
 
 export type SettingsSectionKey =
@@ -25,19 +27,19 @@ export type SettingsSectionKey =
 
 export type SettingsSection = {
   key: SettingsSectionKey
-  label: string
+  labelKey: MessageKey
   admin?: boolean
 }
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
-  { key: 'runtime', label: 'Agent runtime' },
-  { key: 'git', label: 'Git personal tokens' },
-  { key: 'general', label: 'General', admin: true },
-  { key: 'preview', label: 'Preview', admin: true },
-  { key: 'builds', label: 'Builds', admin: true },
-  { key: 'browser', label: 'Browser', admin: true },
-  { key: 'llmgw', label: 'LLM gateway', admin: true },
-  { key: 'system', label: 'System', admin: true },
+  { key: 'runtime', labelKey: 'settings.section.runtime' },
+  { key: 'git', labelKey: 'settings.section.git' },
+  { key: 'general', labelKey: 'settings.section.general', admin: true },
+  { key: 'preview', labelKey: 'settings.section.preview', admin: true },
+  { key: 'builds', labelKey: 'settings.section.builds', admin: true },
+  { key: 'browser', labelKey: 'settings.section.browser', admin: true },
+  { key: 'llmgw', labelKey: 'settings.section.llmgw', admin: true },
+  { key: 'system', labelKey: 'settings.section.system', admin: true },
 ]
 
 export const PRIMARY_COLLAPSED_KEY = 'roundpen.app.primaryCollapsed'

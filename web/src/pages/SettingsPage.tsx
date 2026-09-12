@@ -22,6 +22,7 @@ import {
   type Template,
 } from '../api'
 import { useAuth } from '../auth'
+import { useT, type MessageKey } from '../i18n'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
 import { RuntimePanel } from '../components/RuntimePanel'
 import { resolveSettingsSection } from '../lib/appNav'
@@ -55,51 +56,48 @@ const emptySettings: AppSettings = {
   cdpPort: 9222,
 }
 
-const BUILDER_OPTIONS = [
-  { value: '', label: 'Disabled (no local builds)' },
-  { value: 'kaniko', label: 'Local Kaniko' },
-  { value: 'docker', label: 'Local Docker' },
-  { value: 'ci', label: 'Remote CI (build elsewhere)' },
-  { value: 'auto', label: 'Auto (detect from backend / Kaniko config)' },
-] as const
+const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
+  { value: '', labelKey: 'settings.builder.disabled' },
+  { value: 'kaniko', labelKey: 'settings.builder.kaniko' },
+  { value: 'docker', labelKey: 'settings.builder.docker' },
+  { value: 'ci', labelKey: 'settings.builder.ci' },
+  { value: 'auto', labelKey: 'settings.builder.auto' },
+]
 
-const CDP_OPTIONS = [
-  {
-    value: 'auto',
-    label: 'Auto (Docker engine → Docker Chrome; else host Chrome if present)',
-  },
-  { value: 'docker', label: 'Docker Chrome (sandbox Dial to guest CDP)' },
-  { value: 'host', label: 'Host Chrome / debugging port on this machine' },
-  { value: 'remote', label: 'Remote CDP (Browserless or self-hosted)' },
-  { value: 'cloud', label: 'Cloud browser (paste session CDP URL)' },
-] as const
+const CDP_OPTIONS: { value: string; labelKey: MessageKey }[] = [
+  { value: 'auto', labelKey: 'settings.cdp.auto' },
+  { value: 'docker', labelKey: 'settings.cdp.docker' },
+  { value: 'host', labelKey: 'settings.cdp.host' },
+  { value: 'remote', labelKey: 'settings.cdp.remote' },
+  { value: 'cloud', labelKey: 'settings.cdp.cloud' },
+]
 
-const SANDBOX_TTL_OPTIONS = [
-  { value: 600, label: '10 minutes' },
-  { value: 900, label: '15 minutes' },
-  { value: 1200, label: '20 minutes' },
-  { value: 1800, label: '30 minutes' },
-  { value: 3600, label: '1 hour' },
-  { value: 7200, label: '2 hours' },
-  { value: 14400, label: '4 hours' },
-] as const
+const SANDBOX_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
+  { value: 600, labelKey: 'settings.ttl.10m' },
+  { value: 900, labelKey: 'settings.ttl.15m' },
+  { value: 1200, labelKey: 'settings.ttl.20m' },
+  { value: 1800, labelKey: 'settings.ttl.30m' },
+  { value: 3600, labelKey: 'settings.ttl.1h' },
+  { value: 7200, labelKey: 'settings.ttl.2h' },
+  { value: 14400, labelKey: 'settings.ttl.4h' },
+]
 
-const PREVIEW_TTL_OPTIONS = [
-  { value: 300, label: '5 minutes' },
-  { value: 600, label: '10 minutes' },
-  { value: 900, label: '15 minutes' },
-  { value: 1800, label: '30 minutes' },
-  { value: 3600, label: '1 hour' },
-] as const
+const PREVIEW_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
+  { value: 300, labelKey: 'settings.ttl.5m' },
+  { value: 600, labelKey: 'settings.ttl.10m' },
+  { value: 900, labelKey: 'settings.ttl.15m' },
+  { value: 1800, labelKey: 'settings.ttl.30m' },
+  { value: 3600, labelKey: 'settings.ttl.1h' },
+]
 
-const LOG_BODY_OPTIONS = [
-  { value: 0, label: 'Off (default)' },
-  { value: -1, label: 'Legacy default (off)' },
-  { value: 4096, label: '4 KiB' },
-  { value: 16384, label: '16 KiB' },
-  { value: 65536, label: '64 KiB' },
-  { value: 262144, label: '256 KiB' },
-] as const
+const LOG_BODY_OPTIONS: { value: number; labelKey: MessageKey }[] = [
+  { value: 0, labelKey: 'settings.logBody.off' },
+  { value: -1, labelKey: 'settings.logBody.legacy' },
+  { value: 4096, labelKey: 'settings.logBody.4k' },
+  { value: 16384, labelKey: 'settings.logBody.16k' },
+  { value: 65536, labelKey: 'settings.logBody.64k' },
+  { value: 262144, labelKey: 'settings.logBody.256k' },
+]
 
 const sectionGap: CSSProperties = {
   display: 'flex',
@@ -107,47 +105,57 @@ const sectionGap: CSSProperties = {
   gap: 16,
 }
 
-function optionsWithCurrentValue<T extends { value: string; label: string }>(
-  options: readonly T[],
+function optionsWithCurrentValue(
+  options: { value: string; label: string }[],
   current: string,
-): T[] {
-  if (options.some((o) => o.value === current)) return [...options]
-  return [...options, { value: current, label: `${current} (current)` } as T]
+  currentSuffix: (value: string) => string,
+): { value: string; label: string }[] {
+  if (options.some((o) => o.value === current)) return options
+  return [...options, { value: current, label: currentSuffix(current) }]
 }
 
-function formatDurationSeconds(seconds: number): string {
+function formatDurationSeconds(
+  seconds: number,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+): string {
   if (!Number.isFinite(seconds)) return String(seconds)
   if (seconds < 0) return String(seconds)
   if (seconds % 3600 === 0) {
     const h = seconds / 3600
-    return h === 1 ? '1 hour' : `${h} hours`
+    return h === 1 ? t('settings.duration.1h') : t('settings.duration.nh', { n: h })
   }
   if (seconds % 60 === 0) {
     const m = seconds / 60
-    return m === 1 ? '1 minute' : `${m} minutes`
+    return m === 1 ? t('settings.duration.1m') : t('settings.duration.nm', { n: m })
   }
-  return `${seconds}s`
+  return t('settings.duration.s', { n: seconds })
 }
 
 function ttlOptionsWithCurrent(
-  options: readonly { value: number; label: string }[],
+  options: { value: number; label: string }[],
   current: number,
+  currentSuffix: (value: string) => string,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
 ) {
-  if (options.some((o) => o.value === current)) return [...options]
+  if (options.some((o) => o.value === current)) return options
   return [
     ...options,
-    { value: current, label: `${formatDurationSeconds(current)} (current)` },
+    {
+      value: current,
+      label: currentSuffix(formatDurationSeconds(current, t)),
+    },
   ]
 }
 
 function numberOptionsWithCurrent(
-  options: readonly { value: number; label: string }[],
+  options: { value: number; label: string }[],
   current: number,
+  currentSuffix: (value: string) => string,
 ) {
-  if (options.some((o) => o.value === current)) return [...options]
+  if (options.some((o) => o.value === current)) return options
   return [
     ...options,
-    { value: current, label: `${current} (current)` },
+    { value: current, label: currentSuffix(String(current)) },
   ]
 }
 
@@ -237,6 +245,11 @@ export function SettingsPage() {
   const [dirty, setDirty] = useState(false)
   const [templateList, setTemplateList] = useState<Template[]>([])
   const { section: sectionParam } = useParams()
+  const t = useT()
+  const currentSuffix = useCallback(
+    (value: string) => t('settings.currentSuffix', { value }),
+    [t],
+  )
 
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
   const section = resolveSettingsSection(sectionParam, isAdmin)
@@ -259,11 +272,11 @@ export function SettingsPage() {
       setTemplateList(tpls.filter((t) => t.buildStatus === 'ready'))
       setDirty(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load settings')
+      setError(e instanceof Error ? e.message : t('settings.loadFailed'))
     } finally {
       setLoading(false)
     }
-  }, [isAdmin])
+  }, [isAdmin, t])
 
   const defaultImageOptions = useMemo(() => {
     const fromTemplates = templateList.flatMap((tpl) => {
@@ -281,27 +294,49 @@ export function SettingsPage() {
       seen.add(o.value)
       return true
     })
-    return optionsWithCurrentValue(unique, form.defaultImage)
-  }, [templateList, form.defaultImage])
+    return optionsWithCurrentValue(unique, form.defaultImage, currentSuffix)
+  }, [templateList, form.defaultImage, currentSuffix])
 
   const builderOptions = useMemo(
-    () => optionsWithCurrentValue(BUILDER_OPTIONS, form.templateBuilder),
-    [form.templateBuilder],
+    () =>
+      optionsWithCurrentValue(
+        BUILDER_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+        form.templateBuilder,
+        currentSuffix,
+      ),
+    [form.templateBuilder, t, currentSuffix],
   )
 
   const sandboxTtlOptions = useMemo(
-    () => ttlOptionsWithCurrent(SANDBOX_TTL_OPTIONS, form.defaultTtlSeconds),
-    [form.defaultTtlSeconds],
+    () =>
+      ttlOptionsWithCurrent(
+        SANDBOX_TTL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+        form.defaultTtlSeconds,
+        currentSuffix,
+        t,
+      ),
+    [form.defaultTtlSeconds, t, currentSuffix],
   )
 
   const previewTtlOptions = useMemo(
-    () => ttlOptionsWithCurrent(PREVIEW_TTL_OPTIONS, form.previewTokenTtlSeconds),
-    [form.previewTokenTtlSeconds],
+    () =>
+      ttlOptionsWithCurrent(
+        PREVIEW_TTL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+        form.previewTokenTtlSeconds,
+        currentSuffix,
+        t,
+      ),
+    [form.previewTokenTtlSeconds, t, currentSuffix],
   )
 
   const logBodyOptions = useMemo(
-    () => numberOptionsWithCurrent(LOG_BODY_OPTIONS, form.llmgwLogBodyMaxBytes),
-    [form.llmgwLogBodyMaxBytes],
+    () =>
+      numberOptionsWithCurrent(
+        LOG_BODY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
+        form.llmgwLogBodyMaxBytes,
+        currentSuffix,
+      ),
+    [form.llmgwLogBodyMaxBytes, t, currentSuffix],
   )
 
   useEffect(() => {
@@ -318,7 +353,7 @@ export function SettingsPage() {
           justifyContent: 'center',
         }}
       >
-        <Spin tip="Loading…" />
+        <Spin tip={t('settings.loading')} />
       </div>
     )
   }
@@ -339,9 +374,9 @@ export function SettingsPage() {
       setData(res)
       setForm({ ...emptySettings, ...res.settings })
       setDirty(false)
-      Toast.success('Settings saved.')
+      Toast.success(t('settings.saveSuccess'))
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : 'save failed')
+      setSaveError(e instanceof Error ? e.message : t('settings.saveFailed'))
     } finally {
       setSaving(false)
     }
@@ -350,7 +385,7 @@ export function SettingsPage() {
   function onReload() {
     if (dirty) {
       Modal.confirm({
-        title: 'Discard unsaved changes?',
+        title: t('settings.discardTitle'),
         onOk: () => {
           void load()
         },
@@ -393,7 +428,7 @@ export function SettingsPage() {
 
         {section === 'general' && (
           isAdmin && loading ? (
-            <Spin tip="Loading system settings…" />
+            <Spin tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -401,9 +436,9 @@ export function SettingsPage() {
                 checked={form.allowPublicRegistration}
                 onChange={(v) => patch({ allowPublicRegistration: v })}
               >
-                Allow public registration
+                {t('settings.general.allowRegistration')}
               </Toggle>
-              <Field label="Default template / image">
+              <Field label={t('settings.general.defaultImage')}>
                 {defaultImageOptions.length > 0 ? (
                   <Select
                     value={form.defaultImage}
@@ -418,7 +453,7 @@ export function SettingsPage() {
                   />
                 )}
               </Field>
-              <Field label="Default sandbox TTL">
+              <Field label={t('settings.general.defaultTtl')}>
                 <Select
                   value={form.defaultTtlSeconds}
                   onChange={(v) =>
@@ -438,11 +473,11 @@ export function SettingsPage() {
 
         {section === 'preview' && (
           isAdmin && loading ? (
-            <Spin tip="Loading system settings…" />
+            <Spin tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
-              <Field label="Public preview base URL">
+              <Field label={t('settings.preview.publicUrl')}>
                 <Input
                   inputMode="url"
                   autoComplete="url"
@@ -451,7 +486,7 @@ export function SettingsPage() {
                   onChange={(v) => patch({ previewPublicUrl: v })}
                 />
               </Field>
-              <Field label="Preview token TTL">
+              <Field label={t('settings.preview.tokenTtl')}>
                 <Select
                   value={form.previewTokenTtlSeconds}
                   onChange={(v) =>
@@ -471,11 +506,11 @@ export function SettingsPage() {
 
         {section === 'builds' && (
           isAdmin && loading ? (
-            <Spin tip="Loading system settings…" />
+            <Spin tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
-              <Field label="Template build engine">
+              <Field label={t('settings.builds.engine')}>
                 <Select
                   value={form.templateBuilder}
                   onChange={(v) => patch({ templateBuilder: String(v) })}
@@ -486,7 +521,7 @@ export function SettingsPage() {
                   style={{ width: '100%' }}
                 />
               </Field>
-              <Field label="Kaniko destination prefix">
+              <Field label={t('settings.builds.kanikoDest')}>
                 <Input
                   spellCheck={false}
                   placeholder="registry.example/roundpen"
@@ -494,7 +529,7 @@ export function SettingsPage() {
                   onChange={(v) => patch({ kanikoDestination: v })}
                 />
               </Field>
-              <Field label="Kaniko executor binary">
+              <Field label={t('settings.builds.kanikoExecutor')}>
                 <Input
                   spellCheck={false}
                   placeholder="executor"
@@ -502,7 +537,7 @@ export function SettingsPage() {
                   onChange={(v) => patch({ kanikoExecutor: v })}
                 />
               </Field>
-              <Field label="Kaniko registry mirrors">
+              <Field label={t('settings.builds.kanikoMirrors')}>
                 <Input
                   spellCheck={false}
                   placeholder="docker.1ms.run mirror.example"
@@ -514,15 +549,15 @@ export function SettingsPage() {
                 checked={form.kanikoInsecure}
                 onChange={(v) => patch({ kanikoInsecure: v })}
               >
-                Kaniko insecure registry
+                {t('settings.builds.kanikoInsecure')}
               </Toggle>
               <Toggle
                 checked={form.kanikoSkipTlsVerify}
                 onChange={(v) => patch({ kanikoSkipTlsVerify: v })}
               >
-                Kaniko skip TLS verify
+                {t('settings.builds.kanikoSkipTls')}
               </Toggle>
-              <Field label="Kaniko extra args">
+              <Field label={t('settings.builds.kanikoExtra')}>
                 <Input
                   spellCheck={false}
                   placeholder="--snapshot-mode=redo"
@@ -537,17 +572,21 @@ export function SettingsPage() {
 
         {section === 'browser' && (
           isAdmin && loading ? (
-            <Spin tip="Loading system settings…" />
+            <Spin tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
-              <Field label="CDP provider">
+              <Field label={t('settings.browser.cdpProvider')}>
                 <Select
                   value={form.cdpProvider}
                   onChange={(v) => patch({ cdpProvider: String(v) })}
                   optionList={optionsWithCurrentValue(
-                    CDP_OPTIONS,
+                    CDP_OPTIONS.map((o) => ({
+                      value: o.value,
+                      label: t(o.labelKey),
+                    })),
                     form.cdpProvider,
+                    currentSuffix,
                   )}
                   style={{ width: '100%' }}
                 />
@@ -558,8 +597,8 @@ export function SettingsPage() {
                 <Field
                   label={
                     form.cdpProvider === 'host'
-                      ? 'Host CDP URL (optional; empty starts local Chrome)'
-                      : 'CDP endpoint URL'
+                      ? t('settings.browser.hostCdpUrl')
+                          : t('settings.browser.cdpEndpoint')
                   }
                 >
                   <Input
@@ -578,11 +617,11 @@ export function SettingsPage() {
               )}
               {(form.cdpProvider === 'remote' ||
                 form.cdpProvider === 'cloud') && (
-                <Field label="CDP token (optional)">
+                <Field label={t('settings.browser.cdpToken')}>
                   <Input
                     mode="password"
                     autoComplete="new-password"
-                    placeholder="Leave masked to keep current"
+                    placeholder={t('settings.browser.keepMasked')}
                     value={form.cdpToken}
                     onChange={(v) => patch({ cdpToken: v })}
                   />
@@ -590,7 +629,7 @@ export function SettingsPage() {
               )}
               {(form.cdpProvider === 'auto' ||
                 form.cdpProvider === 'docker') && (
-                <Field label="Guest CDP port">
+                <Field label={t('settings.browser.guestPort')}>
                   <Input
                     inputMode="numeric"
                     spellCheck={false}
@@ -602,9 +641,7 @@ export function SettingsPage() {
                 </Field>
               )}
               <Typography.Text type="tertiary" size="small">
-                Browser tools attach to a DevTools websocket. NAS and compose
-                should use Docker Chrome or a remote/cloud CDP — do not install
-                Chrome on the NAS OS. Host Chrome is for laptop debugging only.
+                {t('settings.browser.hint')}
               </Typography.Text>
             </div>
             </Form>
@@ -613,31 +650,27 @@ export function SettingsPage() {
 
         {section === 'llmgw' && (
           isAdmin && loading ? (
-            <Spin tip="Loading system settings…" />
+            <Spin tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
               <Typography.Text type="tertiary" size="small">
-                Roundpen relays model calls so Agents never hold your real OpenAI /
-                Anthropic keys. Configure upstream credentials below; Agents and
-                Chats only receive a virtual key that calls /llmgw on this control
-                plane.
+                {t('settings.llmgw.intro')}
               </Typography.Text>
 
               <Toggle
                 checked={form.llmgwEnabled}
                 onChange={(v) => patch({ llmgwEnabled: v })}
               >
-                Enable relay (required for Agent Chats & memory embeddings)
+                {t('settings.llmgw.enable')}
               </Toggle>
 
               <div style={sectionGap}>
                 <Typography.Text strong size="small">
-                  1 · Upstream providers
+                  {t('settings.llmgw.upstreamTitle')}
                 </Typography.Text>
                 <Typography.Text type="tertiary" size="small">
-                  Where Roundpen forwards requests. These API keys stay in the
-                  control-plane database — they are never injected into sandboxes.
+                  {t('settings.llmgw.upstreamHint')}
                 </Typography.Text>
                 <div
                   style={{
@@ -648,8 +681,8 @@ export function SettingsPage() {
                   }}
                 >
                   <Field
-                    label="OpenAI-compatible base URL"
-                    hint="Official OpenAI, Azure OpenAI, or any OpenAI-compatible proxy."
+                    label={t('settings.llmgw.openaiBase')}
+                    hint={t('settings.llmgw.openaiBaseHint')}
                   >
                     <Input
                       inputMode="url"
@@ -660,20 +693,20 @@ export function SettingsPage() {
                     />
                   </Field>
                   <Field
-                    label="OpenAI-compatible API key"
-                    hint="Leave masked to keep the stored secret."
+                    label={t('settings.llmgw.openaiKey')}
+                    hint={t('settings.llmgw.keepSecret')}
                   >
                     <Input
                       mode="password"
                       autoComplete="new-password"
-                      placeholder="Leave masked to keep current"
+                      placeholder={t('settings.browser.keepMasked')}
                       value={form.llmgwOpenaiApiKey}
                       onChange={(v) => patch({ llmgwOpenaiApiKey: v })}
                     />
                   </Field>
                   <Field
-                    label="Anthropic base URL"
-                    hint="Optional. Leave empty if you only use OpenAI-compatible models."
+                    label={t('settings.llmgw.anthropicBase')}
+                    hint={t('settings.llmgw.anthropicBaseHint')}
                   >
                     <Input
                       inputMode="url"
@@ -684,13 +717,13 @@ export function SettingsPage() {
                     />
                   </Field>
                   <Field
-                    label="Anthropic API key"
-                    hint="Leave masked to keep the stored secret."
+                    label={t('settings.llmgw.anthropicKey')}
+                    hint={t('settings.llmgw.keepSecret')}
                   >
                     <Input
                       mode="password"
                       autoComplete="new-password"
-                      placeholder="Leave masked to keep current"
+                      placeholder={t('settings.browser.keepMasked')}
                       value={form.llmgwAnthropicApiKey}
                       onChange={(v) => patch({ llmgwAnthropicApiKey: v })}
                     />
@@ -706,15 +739,14 @@ export function SettingsPage() {
                 }}
               >
                 <Typography.Text strong size="small">
-                  2 · What Agents use
+                  {t('settings.llmgw.agentsTitle')}
                 </Typography.Text>
                 <Typography.Text type="tertiary" size="small">
-                  Sandboxes get OPENAI_BASE_URL / ANTHROPIC_BASE_URL pointing at
-                  this Roundpen, plus a virtual key as OPENAI_API_KEY.
+                  {t('settings.llmgw.agentsHint')}
                 </Typography.Text>
                 <Field
-                  label="Control-plane public URL"
-                  hint="URL Agents inside sandboxes can reach (e.g. http://host.docker.internal:9527 or your LAN IP). Not the upstream OpenAI URL."
+                  label={t('settings.llmgw.publicUrl')}
+                  hint={t('settings.llmgw.publicUrlHint')}
                 >
                   <Input
                     inputMode="url"
@@ -725,8 +757,8 @@ export function SettingsPage() {
                   />
                 </Field>
                 <Field
-                  label="Default model"
-                  hint="Used for both OpenAI and Anthropic relays when the request model is not in the upstream model map (and is not already an upstream target name). Leave empty to pass unknown models through."
+                  label={t('settings.llmgw.defaultModel')}
+                  hint={t('settings.llmgw.defaultModelHint')}
                 >
                   <Input
                     spellCheck={false}
@@ -737,8 +769,8 @@ export function SettingsPage() {
                   />
                 </Field>
                 <Field
-                  label="Virtual keys"
-                  hint="Client credentials for /llmgw. Format: vk-name:label or vk-name (comma-separated). Example: vk-dev:dev,vk-prod:prod. Agents pick a non-internal key automatically."
+                  label={t('settings.llmgw.virtualKeys')}
+                  hint={t('settings.llmgw.virtualKeysHint')}
                 >
                   <Input
                     spellCheck={false}
@@ -751,11 +783,11 @@ export function SettingsPage() {
               </div>
 
               <Collapse>
-                <Collapse.Panel header="Advanced" itemKey="advanced">
+                <Collapse.Panel header={t('settings.llmgw.advanced')} itemKey="advanced">
                   <div style={sectionGap}>
                     <Field
-                      label="Embedding model"
-                      hint="Upstream model aliased as roundpen-embed for long-term memory search."
+                      label={t('settings.llmgw.embedModel')}
+                      hint={t('settings.llmgw.embedModelHint')}
                     >
                       <Input
                         spellCheck={false}
@@ -767,8 +799,8 @@ export function SettingsPage() {
                       />
                     </Field>
                     <Field
-                      label="Request body logging"
-                      hint="How much of each relayed request/response to store for audit. Off = metadata only."
+                      label={t('settings.llmgw.logBody')}
+                      hint={t('settings.llmgw.logBodyHint')}
                     >
                       <Select
                         value={form.llmgwLogBodyMaxBytes}
@@ -783,10 +815,8 @@ export function SettingsPage() {
                       />
                     </Field>
                     <Typography.Text type="tertiary" size="small">
-                      Secrets are stored in PostgreSQL and shown masked. Leave a
-                      masked field unchanged to keep the existing value. Saves apply
-                      immediately — no restart.
-                    </Typography.Text>
+                          {t('settings.llmgw.secretsNote')}
+                        </Typography.Text>
                   </div>
                 </Collapse.Panel>
               </Collapse>
@@ -797,7 +827,7 @@ export function SettingsPage() {
 
         {section === 'system' && (
           isAdmin && loading ? (
-            <Spin tip="Loading system settings…" />
+            <Spin tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ paddingTop: 16 }}>
@@ -810,7 +840,7 @@ export function SettingsPage() {
                   }}
                 >
                   <Typography.Title heading={5} style={{ margin: '0 0 12px' }}>
-                    System (read-only)
+                    {t('settings.system.title')}
                   </Typography.Title>
                   <dl
                     style={{
@@ -821,31 +851,31 @@ export function SettingsPage() {
                       rowGap: 8,
                     }}
                   >
-                    <SystemRow label="Backend" value={sys.backend} />
-                    <SystemRow label="HTTP addr" value={sys.httpAddr} />
-                    <SystemRow label="Data root" value={sys.dataRoot} />
-                    <SystemRow label="Docker host" value={sys.dockerHost} />
+                    <SystemRow label={t('settings.system.backend')} value={sys.backend} />
+                    <SystemRow label={t('settings.system.httpAddr')} value={sys.httpAddr} />
+                    <SystemRow label={t('settings.system.dataRoot')} value={sys.dataRoot} />
+                    <SystemRow label={t('settings.system.dockerHost')} value={sys.dockerHost} />
                     <SystemRow
-                      label="Active builder"
-                      value={sys.templateBuilderActive || 'disabled'}
+                      label={t('settings.system.activeBuilder')}
+                      value={sys.templateBuilderActive || t('settings.system.disabled')}
                     />
                     <SystemRow
-                      label="LLM gateway"
+                      label={t('settings.system.llmgw')}
                       value={
                         sys.llmgwActive
-                          ? 'active'
+                          ? t('settings.system.llmgwActive')
                           : sys.llmgwMounted
-                            ? 'mounted (disabled)'
-                            : 'not mounted'
+                            ? t('settings.system.llmgwMounted')
+                            : t('settings.system.llmgwOff')
                       }
                     />
                     <SystemRow
-                      label="CDP provider"
+                      label={t('settings.system.cdpProvider')}
                       value={sys.cdpProviderActive || 'auto'}
                     />
                     <SystemRow
-                      label="Host Chrome"
-                      value={sys.cdpHostChromeFound ? 'found' : 'not on PATH'}
+                      label={t('settings.system.hostChrome')}
+                      value={sys.cdpHostChromeFound ? t('settings.system.hostChromeFound') : t('settings.system.hostChromeMissing')}
                     />
                   </dl>
                   {sys.templateBuilderHint && (
@@ -867,20 +897,16 @@ export function SettingsPage() {
                     </Typography.Text>
                   )}
                   <Typography.Text
-                    type="tertiary"
-                    size="small"
-                    style={{ display: 'block', marginTop: 12 }}
-                  >
-                    Database and listen address require environment variables and a
-                    process restart. The default Agent engine (`ROUNDPEN_BACKEND`)
-                    is only a fallback — users pick QEMU, Docker, or Kern in Agent
-                    runtime above. Template builds and LLM gateway settings apply at
-                    runtime.
-                  </Typography.Text>
+                        type="tertiary"
+                        size="small"
+                        style={{ display: 'block', marginTop: 12 }}
+                      >
+                        {t('settings.system.footer')}
+                      </Typography.Text>
                 </div>
               ) : (
                 <Typography.Text type="tertiary" size="small">
-                  System info unavailable.
+                  {t('settings.system.unavailable')}
                 </Typography.Text>
               )}
             </div>
@@ -937,14 +963,14 @@ export function SettingsPage() {
                 disabled={!dirty}
                 onClick={() => void onSave()}
               >
-                Save settings
+                {t('settings.save')}
               </Button>
               <Button
                 type="tertiary"
                 disabled={loading || saving}
                 onClick={onReload}
               >
-                Reload
+                {t('settings.reload')}
               </Button>
             </div>
           </div>

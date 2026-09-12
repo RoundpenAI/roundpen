@@ -13,6 +13,7 @@ import {
   type RuntimeSnapshot,
   type SetupStep,
 } from '../api'
+import { useT } from '../i18n'
 
 type Props = {
   /** When set, only render this engine (e.g. qemu on the Browser page). */
@@ -60,6 +61,7 @@ export function EngineSetupList({ steps }: { steps: SetupStep[] }) {
 }
 
 export function RuntimePanel({ engineId, showPicker = true }: Props) {
+  const t = useT()
   const [snap, setSnap] = useState<RuntimeSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -70,9 +72,9 @@ export function RuntimePanel({ engineId, showPicker = true }: Props) {
     try {
       setSnap(await runtime.get())
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load runtime')
+      setError(e instanceof Error ? e.message : t('runtime.loadFailed'))
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     void load()
@@ -88,7 +90,7 @@ export function RuntimePanel({ engineId, showPicker = true }: Props) {
     try {
       setSnap(await runtime.setAgentEngine(id))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'save failed')
+      setError(e instanceof Error ? e.message : t('runtime.saveFailed'))
     } finally {
       setSaving(false)
     }
@@ -114,7 +116,7 @@ export function RuntimePanel({ engineId, showPicker = true }: Props) {
           }
         })
       } else {
-        setError(e instanceof Error ? e.message : 'start failed')
+        setError(e instanceof Error ? e.message : t('runtime.startFailed'))
       }
     } finally {
       setStarting(false)
@@ -124,12 +126,10 @@ export function RuntimePanel({ engineId, showPicker = true }: Props) {
   return (
     <section style={sectionGap}>
       <Typography.Title heading={5} style={{ margin: 0 }}>
-        {engineId === 'qemu' ? 'Browser / QEMU' : 'Agent runtime'}
+        {engineId === 'qemu' ? t('runtime.titleQemu') : t('runtime.title')}
       </Typography.Title>
       <Typography.Text type="tertiary" size="small">
-        {engineId
-          ? 'This slot needs a QEMU VM image on the host. If anything is missing, install it here then retry.'
-          : 'Pick how Cloud Agent runs on this machine. Browser desktops always use QEMU. If the host is missing binaries or images, follow the setup steps — no process restart is required after they are installed.'}
+        {engineId ? t('runtime.descQemu') : t('runtime.desc')}
       </Typography.Text>
       {error ? (
         <div role="alert">
@@ -143,7 +143,7 @@ export function RuntimePanel({ engineId, showPicker = true }: Props) {
       ) : null}
       {!snap ? (
         <Typography.Text type="tertiary" size="small">
-          Loading runtimes…
+          {t('runtime.loading')}
         </Typography.Text>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -167,10 +167,10 @@ export function RuntimePanel({ engineId, showPicker = true }: Props) {
                 disabled={saving || !current}
                 onClick={() => void startAgent()}
               >
-                {current?.agentReady ? 'Start / resume Agent' : 'Retry after setup'}
+                {current?.agentReady ? t('runtime.start') : t('runtime.retry')}
               </Button>
               <Button type="tertiary" size="small" onClick={() => void load()}>
-                Recheck host
+                {t('runtime.recheck')}
               </Button>
             </div>
           ) : null}
@@ -193,6 +193,7 @@ function EngineCard({
   disabled: boolean
   onSelect: () => void
 }) {
+  const t = useT()
   const ready = selectable ? engine.agentReady : engine.browserReady || engine.ready
   return (
     <div
@@ -223,7 +224,7 @@ function EngineCard({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Tag size="small" color={ready ? 'green' : 'orange'}>
-            {ready ? 'Ready' : 'Needs setup'}
+            {ready ? t('runtime.ready') : t('runtime.needsSetup')}
           </Tag>
           {selectable ? (
             <Button
@@ -233,7 +234,7 @@ function EngineCard({
               disabled={disabled}
               onClick={onSelect}
             >
-              {selected ? 'Selected' : 'Use this'}
+              {selected ? t('runtime.selected') : t('runtime.useThis')}
             </Button>
           ) : null}
         </div>

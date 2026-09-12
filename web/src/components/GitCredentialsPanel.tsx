@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import {
   Banner,
   Button,
@@ -7,12 +7,14 @@ import {
   Typography,
 } from '@douyinfe/semi-ui-19'
 import { gitCredentials, type GitCredential } from '../api'
+import { useT } from '../i18n'
+import type { MessageKey } from '../i18n'
 
-const PROVIDERS = [
-  { value: 'gitea', label: 'Gitea' },
-  { value: 'github', label: 'GitHub' },
-  { value: 'gitlab', label: 'GitLab' },
-  { value: 'generic', label: 'Other git host' },
+const PROVIDER_KEYS = [
+  { value: 'gitea', labelKey: 'git.provider.gitea' as MessageKey },
+  { value: 'github', labelKey: 'git.provider.github' as MessageKey },
+  { value: 'gitlab', labelKey: 'git.provider.gitlab' as MessageKey },
+  { value: 'generic', labelKey: 'git.provider.generic' as MessageKey },
 ] as const
 
 const sectionGap: CSSProperties = {
@@ -26,12 +28,8 @@ const fieldLabel: CSSProperties = {
   marginBottom: 4,
 }
 
-const codeStyle: CSSProperties = {
-  fontFamily: 'var(--semi-font-family-code)',
-  fontSize: '0.75rem',
-}
-
 export function GitCredentialsPanel() {
+  const t = useT()
   const [list, setList] = useState<GitCredential[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -40,15 +38,24 @@ export function GitCredentialsPanel() {
   const [username, setUsername] = useState('')
   const [token, setToken] = useState('')
 
+  const providerOptions = useMemo(
+    () =>
+      PROVIDER_KEYS.map((p) => ({
+        value: p.value,
+        label: t(p.labelKey),
+      })),
+    [t],
+  )
+
   const load = useCallback(async () => {
     setError(null)
     try {
       const res = await gitCredentials.list()
       setList(res.credentials ?? [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'failed to load git credentials')
+      setError(e instanceof Error ? e.message : t('git.loadFailed'))
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     void load()
@@ -67,7 +74,7 @@ export function GitCredentialsPanel() {
       setToken('')
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'save failed')
+      setError(e instanceof Error ? e.message : t('git.saveFailed'))
     } finally {
       setSaving(false)
     }
@@ -79,22 +86,17 @@ export function GitCredentialsPanel() {
       await gitCredentials.remove(id)
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'delete failed')
+      setError(e instanceof Error ? e.message : t('git.deleteFailed'))
     }
   }
 
   return (
     <section style={sectionGap}>
       <Typography.Title heading={5} style={{ margin: 0 }}>
-        Git personal tokens
+        {t('git.title')}
       </Typography.Title>
       <Typography.Text type="tertiary" size="small">
-        One personal token per git host. Roundpen stores it for your account and
-        injects it into the Cloud Agent workspace for <code style={codeStyle}>git</code>,
-        and later <code style={codeStyle}>tea</code> /{' '}
-        <code style={codeStyle}>gh</code> /{' '}
-        <code style={codeStyle}>glab</code> (issues, PRs). Tokens never go into
-        the image, and we do not copy SSH keys from this machine.
+        {t('git.desc')}
       </Typography.Text>
       {error ? (
         <div role="alert">
@@ -138,18 +140,18 @@ export function GitCredentialsPanel() {
                 >
                   {c.provider}
                   {c.username ? ` · ${c.username}` : ''}
-                  {c.hasToken ? ' · personal token saved' : ''}
+                  {c.hasToken ? ` · ${t('git.tokenSaved')}` : ''}
                 </Typography.Text>
               </div>
               <Button type="tertiary" size="small" onClick={() => void onDelete(c.id)}>
-                Remove
+                {t('git.remove')}
               </Button>
             </li>
           ))}
         </ul>
       ) : (
         <Typography.Text type="tertiary" size="small">
-          No personal tokens yet. Add a host below.
+          {t('git.empty')}
         </Typography.Text>
       )}
       <div
@@ -161,18 +163,18 @@ export function GitCredentialsPanel() {
       >
         <div>
           <Typography.Text size="small" type="tertiary" style={fieldLabel}>
-            Provider
+            {t('git.provider')}
           </Typography.Text>
           <Select
             value={provider}
             onChange={(v) => setProvider(String(v))}
-            optionList={[...PROVIDERS]}
+            optionList={providerOptions}
             style={{ width: '100%' }}
           />
         </div>
         <div>
           <Typography.Text size="small" type="tertiary" style={fieldLabel}>
-            Host
+            {t('git.host')}
           </Typography.Text>
           <Input
             value={host}
@@ -182,7 +184,7 @@ export function GitCredentialsPanel() {
         </div>
         <div>
           <Typography.Text size="small" type="tertiary" style={fieldLabel}>
-            Username (optional)
+            {t('git.username')}
           </Typography.Text>
           <Input
             value={username}
@@ -192,14 +194,14 @@ export function GitCredentialsPanel() {
         </div>
         <div>
           <Typography.Text size="small" type="tertiary" style={fieldLabel}>
-            Personal token
+            {t('git.token')}
           </Typography.Text>
           <Input
             mode="password"
             autoComplete="new-password"
             value={token}
             onChange={setToken}
-            placeholder="PAT with repo + issues/PR scope"
+            placeholder={t('git.tokenPlaceholder')}
           />
         </div>
       </div>
@@ -212,7 +214,7 @@ export function GitCredentialsPanel() {
           disabled={!host.trim() || !token.trim()}
           onClick={() => void onSave()}
         >
-          Save personal token
+          {t('git.save')}
         </Button>
       </div>
     </section>

@@ -9,6 +9,7 @@ import {
   IconUser,
 } from '@douyinfe/semi-icons'
 import { doLogout, useAuth } from '../auth'
+import { useT } from '../i18n'
 import { ThemeToggle } from './ThemeToggle'
 import {
   matchPrimaryMenu,
@@ -28,6 +29,7 @@ function menuIcon(id: PrimaryMenuId) {
 
 export function AppShell() {
   const auth = useAuth()
+  const t = useT()
   const user = auth.status === 'ok' ? auth.user : null
   const isAdmin = user?.role === 'admin'
   const navigate = useNavigate()
@@ -68,7 +70,9 @@ export function AppShell() {
           theme="borderless"
           type="tertiary"
           icon={<IconMenu />}
-          aria-label={opts.collapsedView ? '展开一级菜单' : '收起一级菜单'}
+          aria-label={
+            opts.collapsedView ? t('nav.expandPrimary') : t('nav.collapsePrimary')
+          }
           onClick={() => {
             if (mobileOpen) {
               setMobileOpen(false)
@@ -101,7 +105,7 @@ export function AppShell() {
               navigate(m.to)
             }}
           >
-            {opts.collapsedView ? null : m.label}
+            {opts.collapsedView ? null : t(m.labelKey)}
           </Button>
         ))}
       </div>
@@ -124,10 +128,12 @@ export function AppShell() {
               justifyContent: opts.collapsedView ? 'center' : 'flex-start',
               width: '100%',
             }}
-            aria-label={`退出 ${user.username}`}
+            aria-label={t('nav.signOutUser', { user: user.username })}
             onClick={() => void doLogout().then(() => navigate('/login'))}
           >
-            {opts.collapsedView ? null : `退出 (${user.username})`}
+            {opts.collapsedView
+              ? null
+              : t('nav.signOutUser', { user: user.username })}
           </Button>
         )}
       </div>
@@ -150,7 +156,7 @@ export function AppShell() {
         {rail({ collapsedView: collapsed })}
       </Sider>
       <SideSheet
-        title="菜单"
+        title={t('nav.menu')}
         visible={mobileOpen}
         onCancel={() => setMobileOpen(false)}
         placement="left"
@@ -178,7 +184,7 @@ export function AppShell() {
             theme="borderless"
             type="tertiary"
             icon={<IconMenu />}
-            aria-label="打开菜单"
+            aria-label={t('nav.openMenu')}
             onClick={() => setMobileOpen(true)}
           />
           <Typography.Text strong style={{ marginLeft: 8 }}>

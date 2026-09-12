@@ -1,6 +1,7 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Layout, Typography } from '@douyinfe/semi-ui-19'
 import { useAuth } from '../auth'
+import { useT } from '../i18n'
 import {
   resolveSettingsSection,
   visibleSettingsSections,
@@ -10,6 +11,7 @@ const { Sider, Content } = Layout
 
 export function SettingsLayout() {
   const auth = useAuth()
+  const t = useT()
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
   const location = useLocation()
   const navigate = useNavigate()
@@ -34,7 +36,7 @@ export function SettingsLayout() {
           size="small"
           style={{ display: 'block', padding: '8px 8px 4px' }}
         >
-          设置
+          {t('settings.title')}
         </Typography.Text>
         {sections.map((s) => (
           <Button
@@ -48,7 +50,7 @@ export function SettingsLayout() {
             }}
             onClick={() => navigate(`/settings/${s.key}`)}
           >
-            {s.label}
+            {t(s.labelKey)}
           </Button>
         ))}
       </Sider>
