@@ -1,5 +1,8 @@
 import type { AgentMessage } from '../api'
 
+/** Marker on Semi messages that only carry thought + tool activity (no bubble chrome). */
+export const ACTIVITY_MODEL = 'roundpen-activity'
+
 /** Minimal Semi AIChatDialogue Message shape (compatible with foundation Message). */
 export type SemiChatMessage = {
   id: string
@@ -7,6 +10,7 @@ export type SemiChatMessage = {
   content?: string | SemiContentItem[]
   status?: string
   createdAt?: number
+  model?: string
 }
 
 export type SemiContentItem =
@@ -53,6 +57,37 @@ function mapStatus(metaStatus: string | undefined, streaming?: boolean): string 
   return 'completed'
 }
 
+function isThought(m: AgentMessage): boolean {
+  const typ = m.meta?.type || m.role
+  return typ === 'thought' || typ === 'reasoning' || m.role === 'thought'
+}
+
+function isTool(m: AgentMessage): boolean {
+  const typ = m.meta?.type || m.role
+  return m.role === 'tool' || typ === 'tool_call' || Boolean(m.meta?.toolId && typ !== 'permission')
+}
+
+function thoughtItem(m: AgentMessage): SemiContentItem {
+  return {
+    type: 'reasoning',
+    summary: [{ type: 'summary_text', text: m.content || '' }],
+  }
+}
+
+function toolItem(m: AgentMessage): SemiContentItem {
+  const name = m.meta?.title || m.meta?.toolId || m.id
+  const args = formatUnknown(m.meta?.input)
+  const output = formatUnknown(m.meta?.output ?? m.content)
+  return {
+    type: 'function_call',
+    call_id: m.meta?.toolId || m.id,
+    name,
+    arguments: args || undefined,
+    status: m.meta?.status,
+    output: output || undefined,
+  }
+}
+
 /**
  * Map Roundpen ACP / AgentMessage rows into Semi AIChatDialogue messages.
  * Unknown types degrade to system/user/assistant text so the session still renders.
@@ -61,40 +96,23 @@ export function agentMessageToSemi(m: AgentMessage): SemiChatMessage {
   const typ = m.meta?.type || m.role
   const createdAt = createdAtMs(m.createdAt)
 
-  if (m.role === 'tool' || typ === 'tool_call' || (m.meta?.toolId && typ !== 'permission')) {
-    const name = m.meta?.title || m.meta?.toolId || m.id
-    const args = formatUnknown(m.meta?.input)
-    const output = formatUnknown(m.meta?.output ?? m.content)
+  if (isTool(m)) {
     return {
       id: m.id,
       role: 'assistant',
       createdAt,
       status: mapStatus(m.meta?.status),
-      content: [
-        {
-          type: 'function_call',
-          call_id: m.meta?.toolId || m.id,
-          name,
-          arguments: args || undefined,
-          status: m.meta?.status,
-          output: output || undefined,
-        },
-      ],
+      content: [toolItem(m)],
     }
   }
 
-  if (typ === 'thought' || typ === 'reasoning') {
+  if (isThought(m)) {
     return {
       id: m.id,
       role: 'assistant',
       createdAt,
       status: mapStatus(m.meta?.status),
-      content: [
-        {
-          type: 'reasoning',
-          summary: [{ type: 'summary_text', text: m.content || '' }],
-        },
-      ],
+      content: [thoughtItem(m)],
     }
   }
 
@@ -129,7 +147,6 @@ export function agentMessageToSemi(m: AgentMessage): SemiChatMessage {
     }
   }
 
-  // assistant / agent_message / default
   const streaming =
     m.meta?.status === 'in_progress' || m.meta?.status === 'pending'
   return {
@@ -141,6 +158,56 @@ export function agentMessageToSemi(m: AgentMessage): SemiChatMessage {
   }
 }
 
+function activityStatus(items: SemiContentItem[]): string {
+  for (const item of items) {
+    if (item.type === 'function_call' && (item.status === 'pending' || item.status === 'in_progress')) {
+      return 'in_progress'
+    }
+  }
+  return 'completed'
+}
+
+/**
+ * Collapse consecutive thought + tool rows into one activity message so the UI
+ * can render a single collapsible group instead of one bubble per tool.
+ */
 export function agentMessagesToSemi(messages: AgentMessage[]): SemiChatMessage[] {
-  return messages.map(agentMessageToSemi)
+  const out: SemiChatMessage[] = []
+  let turnItems: SemiContentItem[] = []
+  let turnId = ''
+  let turnCreated: number | undefined
+
+  const flushTurn = () => {
+    if (turnItems.length === 0) return
+    out.push({
+      id: turnId || `turn-${out.length}`,
+      role: 'assistant',
+      model: ACTIVITY_MODEL,
+      createdAt: turnCreated,
+      status: activityStatus(turnItems),
+      content: turnItems,
+    })
+    turnItems = []
+    turnId = ''
+    turnCreated = undefined
+  }
+
+  for (const m of messages) {
+    if (isThought(m) || isTool(m)) {
+      if (turnItems.length === 0) {
+        turnId = `turn-${m.id}`
+        turnCreated = createdAtMs(m.createdAt)
+      }
+      turnItems.push(isThought(m) ? thoughtItem(m) : toolItem(m))
+      continue
+    }
+    flushTurn()
+    out.push(agentMessageToSemi(m))
+  }
+  flushTurn()
+  return out
+}
+
+export function isActivityMessage(message: { model?: string } | null | undefined): boolean {
+  return message?.model === ACTIVITY_MODEL
 }

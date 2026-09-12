@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AIChatDialogue,
@@ -22,6 +22,27 @@ import {
   agentMessagesToSemi,
   type SemiChatMessage,
 } from '../lib/semiChatAdapter'
+import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
+import {
+  WS_CONNECT_TIMEOUT_MS,
+  wsCanSendProp,
+  wsCloseDetail,
+  wsConnectTimeoutDetail,
+  wsInputPlaceholder,
+  wsReconnectDelayMs,
+  wsStatusLabel,
+  type WsUiStatus,
+} from '../lib/sessionWsUi'
+import {
+  drainOutbox,
+  enqueueOutbox,
+  outboxWaitingHint,
+} from '../lib/sessionOutbox'
+import {
+  detachSocket,
+  shouldApplySocketOpen,
+  socketLooksOpen,
+} from '../lib/sessionWsConnect'
 
 type PermReq = {
   requestId: string
@@ -31,10 +52,12 @@ type PermReq = {
 }
 
 const ROLE_CONFIG = {
-  user: { name: 'User' },
-  assistant: { name: 'Assistant' },
-  system: { name: 'System' },
+  user: { name: '' },
+  assistant: { name: '' },
+  system: { name: '' },
 }
+
+const DIALOGUE_RENDER = chatDialogueRenderConfig()
 
 function pickOrdinaryAllow(
   options: { optionId: string; kind?: string }[],
@@ -206,6 +229,15 @@ function messageContentToPlainText(payload: MessageContent): string {
     .trim()
 }
 
+function contentsHaveSendableText(
+  contents: Array<{ text?: unknown }> | undefined,
+): boolean {
+  if (!contents?.length) return false
+  return contents.some(
+    (c) => typeof c.text === 'string' && c.text.trim().length > 0,
+  )
+}
+
 const sentPending = new Set<string>()
 
 function pendingKey(sessionId: string) {
@@ -250,10 +282,19 @@ export function ChatSessionPage() {
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserSeen, setBrowserSeen] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
-  const bottomRef = useRef<HTMLDivElement | null>(null)
+  const outboxRef = useRef<string[]>([])
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const initialScrollDone = useRef(false)
   const [histReady, setHistReady] = useState(false)
-  const [wsOpen, setWsOpen] = useState(false)
+  const [wsStatus, setWsStatus] = useState<WsUiStatus>('connecting')
+  const [wsDetail, setWsDetail] = useState<string | null>(null)
+  const wsOpen = wsStatus === 'open'
   const [autoMode, setAutoMode] = useState(readAutoMode)
+  const [composerFocused, setComposerFocused] = useState(false)
+  const [composerHasText, setComposerHasText] = useState(false)
+  const composerIdle = !composerHasText && !busy
+  const showComposerSend = busy || composerHasText
 
   const chats: SemiChatMessage[] = useMemo(
     () => agentMessagesToSemi(messages.filter(shouldShowInDialogue)),
@@ -291,14 +332,91 @@ export function ChatSessionPage() {
   }, [id])
 
   useEffect(() => {
+    outboxRef.current = []
+  }, [id])
+
+  useEffect(() => {
     if (!id) return
     let disposed = false
     let attempt = 0
     let retryTimer: number | null = null
+    let openTimer: number | null = null
+    let pollTimer: number | null = null
+    let announcedOpen = false
     let ws: WebSocket | null = null
+    // Reset before connect so Strict Mode remount cannot leave chrome on
+    // 「已连接」while the live socket is still connecting / null.
+    setWsStatus('connecting')
+    setWsDetail(null)
+
+    const clearOpenTimer = () => {
+      if (openTimer != null) {
+        window.clearTimeout(openTimer)
+        openTimer = null
+      }
+    }
+
+    const clearPollTimer = () => {
+      if (pollTimer != null) {
+        window.clearInterval(pollTimer)
+        pollTimer = null
+      }
+    }
+
+    /** @returns true only on the connecting → open transition */
+    const markOpen = (socket: WebSocket) => {
+      if (!shouldApplySocketOpen(disposed, wsRef.current, socket)) return false
+      if (!socketLooksOpen(socket)) return false
+      clearOpenTimer()
+      clearPollTimer()
+      attempt = 0
+      setError(null)
+      setWsDetail(null)
+      setWsStatus('open')
+      if (announcedOpen) return false
+      announcedOpen = true
+      return true
+    }
+
+    const scheduleReconnect = (detail: string) => {
+      setWsStatus('error')
+      setWsDetail(detail)
+      setBusy(false)
+      const waiting = outboxWaitingHint(outboxRef.current.length)
+      setStatusHint(waiting)
+      const delay = wsReconnectDelayMs(attempt)
+      attempt += 1
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer)
+      }
+      retryTimer = window.setTimeout(connect, delay)
+    }
+
+    const flushOutbox = (socket: WebSocket) => {
+      const { remaining, items } = drainOutbox(outboxRef.current)
+      outboxRef.current = remaining
+      for (const text of items) {
+        setBusy(true)
+        setStatusHint('Working…')
+        setError(null)
+        socket.send(JSON.stringify({ type: 'prompt', text }))
+      }
+    }
 
     const bind = (socket: WebSocket) => {
       socket.onmessage = (ev) => {
+        // Any server frame means the upgrade completed — sync UI even if
+        // onopen was missed (seen with Vite proxy + slow ACP Start).
+        if (markOpen(socket)) {
+          try {
+            socket.send(
+              JSON.stringify({ type: 'auto', enabled: readAutoMode() }),
+            )
+          } catch {
+            /* ignore */
+          }
+          flushOutbox(socket)
+        }
         try {
           const msg = JSON.parse(String(ev.data)) as {
             type: string
@@ -317,6 +435,9 @@ export function ChatSessionPage() {
             requestId?: string
             title?: string
             options?: { optionId: string; name: string; kind?: string }[]
+          }
+          if (msg.type === 'hello') {
+            return
           }
           if (msg.type === 'event' && msg.event) {
             const e = msg.event
@@ -437,79 +558,181 @@ export function ChatSessionPage() {
             setBusy(false)
             setStatusHint(null)
             setMessages((prev) => clearStreaming(prev))
-            setError(msg.message ?? 'error')
+            const msgText = msg.message ?? 'error'
+            setError(msgText)
+            setWsStatus('error')
+            setWsDetail(msgText)
           }
         } catch {
           /* ignore */
         }
       }
       socket.onerror = () => {
-        // onclose follows; avoid racing setState with a remounted effect.
         if (!disposed && wsRef.current === socket) {
-          setError('WebSocket error')
+          setWsDetail('WebSocket 错误')
         }
       }
-      socket.onclose = () => {
-        // Intentional dispose clears handlers before close — skip retries.
+      socket.onclose = (ev) => {
+        clearOpenTimer()
         if (disposed) return
         if (wsRef.current !== socket) return
         wsRef.current = null
-        setWsOpen(false)
-        setBusy(false)
-        setStatusHint(null)
-        const delay = Math.min(1000 * 2 ** attempt, 15000)
-        attempt += 1
-        retryTimer = window.setTimeout(connect, delay)
+        scheduleReconnect(wsCloseDetail(ev.code, ev.reason || ''))
       }
     }
 
     const connect = () => {
       if (disposed) return
-      const socket = new WebSocket(agents.sessionWsUrl(id))
-      ws = socket
-      wsRef.current = socket
-      socket.onopen = () => {
-        if (disposed || wsRef.current !== socket) return
-        attempt = 0
-        setError(null)
-        setWsOpen(true)
-        socket.send(JSON.stringify({ type: 'auto', enabled: readAutoMode() }))
-      }
-      bind(socket)
-    }
-
-    connect()
-    return () => {
-      disposed = true
       if (retryTimer != null) {
         window.clearTimeout(retryTimer)
         retryTimer = null
       }
-      // Do not setWsOpen(false) here: under React Strict Mode the cleanup
-      // setState can land after the remounted effect's onopen and leave the
-      // UI stuck on "Reconnecting" while the socket is actually open.
+      clearOpenTimer()
+      clearPollTimer()
+      announcedOpen = false
+      setWsStatus('connecting')
+      if (attempt === 0) setWsDetail(null)
+
+      const prev = ws
+      ws = null
+      if (wsRef.current === prev) {
+        wsRef.current = null
+      }
+      detachSocket(prev)
+
+      const socket = new WebSocket(agents.sessionWsUrl(id))
+      ws = socket
+      wsRef.current = socket
+
+      const onBecameOpen = () => {
+        if (!markOpen(socket)) return
+        try {
+          socket.send(
+            JSON.stringify({ type: 'auto', enabled: readAutoMode() }),
+          )
+        } catch {
+          /* ignore */
+        }
+        flushOutbox(socket)
+      }
+
+      socket.onopen = onBecameOpen
+      bind(socket)
+
+      if (socketLooksOpen(socket)) {
+        onBecameOpen()
+      }
+      pollTimer = window.setInterval(() => {
+        if (disposed || wsRef.current !== socket) {
+          clearPollTimer()
+          return
+        }
+        if (socketLooksOpen(socket)) {
+          onBecameOpen()
+        }
+      }, 100)
+
+      openTimer = window.setTimeout(() => {
+        openTimer = null
+        clearPollTimer()
+        if (disposed || wsRef.current !== socket) return
+        // Heal: socket is live but UI missed onopen.
+        if (socketLooksOpen(socket)) {
+          onBecameOpen()
+          return
+        }
+        detachSocket(socket)
+        if (wsRef.current === socket) {
+          wsRef.current = null
+        }
+        if (ws === socket) {
+          ws = null
+        }
+        scheduleReconnect(wsConnectTimeoutDetail())
+      }, WS_CONNECT_TIMEOUT_MS)
+    }
+
+    const reconnectNowIfNeeded = () => {
+      if (disposed) return
+      if (document.visibilityState === 'hidden') return
+      const cur = wsRef.current ?? ws
+      if (
+        cur &&
+        (cur.readyState === WebSocket.OPEN ||
+          cur.readyState === WebSocket.CONNECTING)
+      ) {
+        return
+      }
+      attempt = 0
+      connect()
+    }
+
+    document.addEventListener('visibilitychange', reconnectNowIfNeeded)
+
+    connect()
+    return () => {
+      disposed = true
+      document.removeEventListener('visibilitychange', reconnectNowIfNeeded)
+      clearOpenTimer()
+      clearPollTimer()
+      if (retryTimer != null) {
+        window.clearTimeout(retryTimer)
+        retryTimer = null
+      }
       const s = ws
       ws = null
       if (wsRef.current === s) {
         wsRef.current = null
       }
-      if (
-        s &&
-        (s.readyState === WebSocket.OPEN ||
-          s.readyState === WebSocket.CONNECTING)
-      ) {
-        s.onopen = null
-        s.onmessage = null
-        s.onerror = null
-        s.onclose = null
-        s.close(1000, 'page dispose')
-      }
+      detachSocket(s)
     }
   }, [id])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chats, perm, statusHint, busy])
+    initialScrollDone.current = false
+  }, [id])
+
+  useLayoutEffect(() => {
+    if (!histReady) return
+    const scroller = scrollRef.current
+    const content = contentRef.current
+    if (!scroller || !content) return
+
+    const pinBottom = () => {
+      scroller.scrollTop = scroller.scrollHeight
+    }
+
+    // Live updates after the first pin: jump once per change.
+    if (initialScrollDone.current) {
+      pinBottom()
+      return
+    }
+
+    // First paint after history: keep pinning while Markdown/layout grows,
+    // otherwise refresh lands mid last-message.
+    pinBottom()
+    let settleTimer = 0
+    const ro = new ResizeObserver(() => {
+      pinBottom()
+      window.clearTimeout(settleTimer)
+      settleTimer = window.setTimeout(() => {
+        pinBottom()
+        initialScrollDone.current = true
+        ro.disconnect()
+      }, 120)
+    })
+    ro.observe(content)
+    const maxWait = window.setTimeout(() => {
+      pinBottom()
+      initialScrollDone.current = true
+      ro.disconnect()
+    }, 2000)
+    return () => {
+      window.clearTimeout(settleTimer)
+      window.clearTimeout(maxWait)
+      ro.disconnect()
+    }
+  }, [histReady, chats, perm, statusHint, busy])
 
   const toggleAuto = () => {
     const next = !autoMode
@@ -525,10 +748,7 @@ export function ChatSessionPage() {
     }
   }
 
-  const sendPrompt = (ws: WebSocket, text: string) => {
-    setBusy(true)
-    setStatusHint('Working…')
-    setError(null)
+  const appendLocalUser = (text: string) => {
     setMessages((prev) => [
       ...clearStreaming(prev),
       {
@@ -539,33 +759,48 @@ export function ChatSessionPage() {
         createdAt: nowIso(),
       },
     ])
+  }
+
+  const sendPrompt = (ws: WebSocket, text: string) => {
+    setBusy(true)
+    setStatusHint('Working…')
+    setError(null)
+    appendLocalUser(text)
     ws.send(JSON.stringify({ type: 'prompt', text }))
   }
 
   const handleMessageSend = (payload: MessageContent) => {
     const text = messageContentToPlainText(payload)
-    if (!text || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+    if (!text) return
+    setComposerHasText(false)
+    setComposerFocused(false)
+    const ws = wsRef.current
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendPrompt(ws, text)
       return
     }
-    sendPrompt(wsRef.current, text)
+    // WeChat-style: show the bubble immediately; deliver when WS is ready.
+    appendLocalUser(text)
+    outboxRef.current = enqueueOutbox(outboxRef.current, text)
+    setStatusHint(outboxWaitingHint(outboxRef.current.length))
+    setError(null)
   }
 
   useEffect(() => {
     const pending = readPendingPrompt(id).trim()
     const ws = wsRef.current
-    if (
-      !pending ||
-      sentPending.has(id) ||
-      !histReady ||
-      !wsOpen ||
-      !ws ||
-      ws.readyState !== WebSocket.OPEN
-    ) {
+    if (!pending || sentPending.has(id) || !histReady) {
       return
     }
     sentPending.add(id)
     clearPendingPrompt(id)
-    sendPrompt(ws, pending)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendPrompt(ws, pending)
+      return
+    }
+    appendLocalUser(pending)
+    outboxRef.current = enqueueOutbox(outboxRef.current, pending)
+    setStatusHint(outboxWaitingHint(outboxRef.current.length))
   }, [histReady, wsOpen, id])
 
   const answerPerm = (optionId: string) => {
@@ -644,10 +879,11 @@ export function ChatSessionPage() {
           </Typography.Text>
         )}
         <Typography.Text
-          type={wsOpen ? 'tertiary' : 'warning'}
+          type={wsStatus === 'open' ? 'tertiary' : 'danger'}
           size="small"
+          title={wsDetail ?? undefined}
         >
-          {wsOpen ? '已连接' : '重连中'}
+          {wsStatusLabel(wsStatus, wsDetail)}
         </Typography.Text>
         <Button
           size="small"
@@ -691,10 +927,14 @@ export function ChatSessionPage() {
       >
         <div className="chat-pane">
           <div
+            ref={scrollRef}
             className="chat-pane-scroll"
             style={{ padding: '12px 16px', fontSize: 14 }}
           >
-            <div style={{ maxWidth: 768, margin: '0 auto', minWidth: 0 }}>
+            <div
+              ref={contentRef}
+              style={{ maxWidth: 768, margin: '0 auto', minWidth: 0 }}
+            >
               {chats.length === 0 && !showWorking && (
                 <Typography.Text
                   type="tertiary"
@@ -709,6 +949,7 @@ export function ChatSessionPage() {
                   mode="bubble"
                   chats={chats}
                   roleConfig={ROLE_CONFIG}
+                  dialogueRenderConfig={DIALOGUE_RENDER}
                 />
               )}
               {showWorking && (
@@ -739,22 +980,39 @@ export function ChatSessionPage() {
                   </Typography.Text>
                 </div>
               )}
-              <div ref={bottomRef} />
             </div>
           </div>
 
-          <div className="chat-composer-dock">
+          <div
+            className={[
+              'chat-composer-dock',
+              composerIdle ? 'is-idle' : '',
+              composerFocused ? 'is-focused' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+          >
             <div className="chat-composer-dock-inner">
               <AIChatInput
                 keepSkillAfterSend={false}
                 generating={busy}
-                canSend={wsOpen}
+                canSend={wsCanSendProp(wsStatus) && composerHasText}
                 showUploadButton={false}
                 showUploadFile={false}
                 showReference={false}
-                placeholder={
-                  wsOpen ? 'Message the agent…' : 'Reconnecting…'
-                }
+                round
+                placeholder={wsInputPlaceholder(wsStatus)}
+                renderConfigureArea={() => null}
+                renderActionArea={({ menuItem, className }) => {
+                  if (!showComposerSend) return null
+                  const sendBtn = menuItem[menuItem.length - 1]
+                  return <div className={className}>{sendBtn}</div>
+                }}
+                onFocus={() => setComposerFocused(true)}
+                onBlur={() => setComposerFocused(false)}
+                onContentChange={(contents) => {
+                  setComposerHasText(contentsHaveSendableText(contents))
+                }}
                 onMessageSend={handleMessageSend}
                 onStopGenerate={() =>
                   wsRef.current?.send(JSON.stringify({ type: 'cancel' }))
