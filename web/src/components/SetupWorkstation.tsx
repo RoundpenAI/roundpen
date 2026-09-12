@@ -21,7 +21,8 @@ function isTerminal(status: string): boolean {
 }
 
 function planReady(plan: SetupPlan): boolean {
-  return plan.actions.every((a) => isTerminal(a.status))
+  const actions = plan.actions ?? []
+  return actions.every((a) => isTerminal(a.status))
 }
 
 function statusLabel(status: string): string {
@@ -260,8 +261,9 @@ export function SetupWorkstation({ planId, onReady, onError }: Props) {
     )
   }
 
-  const done = plan.actions.filter((a) => isTerminal(a.status)).length
-  const total = plan.actions.length
+  const actions = plan.actions ?? []
+  const done = actions.filter((a) => isTerminal(a.status)).length
+  const total = actions.length
   const percent = total > 0 ? Math.round((done / total) * 100) : 100
 
   return (
@@ -278,7 +280,7 @@ export function SetupWorkstation({ planId, onReady, onError }: Props) {
         <Typography.Text type="tertiary">无需额外安装，工位已就绪。</Typography.Text>
       )}
       <List
-        dataSource={plan.actions}
+        dataSource={actions}
         split={false}
         renderItem={(a) => (
           <ActionRow planId={planId} action={a} onUpdated={setPlan} />

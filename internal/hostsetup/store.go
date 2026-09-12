@@ -115,6 +115,7 @@ func (s *Service) CreatePlan(ctx context.Context, user string, w WizardContext) 
 		Summary:   plan.Summary,
 		Context:   w,
 		CreatedAt: time.Now().UTC(),
+		Actions:   []ActionRun{},
 	}
 	for _, a := range plan.Actions {
 		ar := ActionRun{
@@ -347,12 +348,16 @@ func (s *Service) snapshot(rec *PlanRecord) *PlanRecord {
 }
 
 func (s *Service) snapshotLocked(rec *PlanRecord) *PlanRecord {
+	actions := append([]ActionRun{}, rec.Actions...)
+	if actions == nil {
+		actions = []ActionRun{}
+	}
 	out := &PlanRecord{
 		ID:        rec.ID,
 		Summary:   rec.Summary,
 		Context:   rec.Context,
 		CreatedAt: rec.CreatedAt,
-		Actions:   append([]ActionRun(nil), rec.Actions...),
+		Actions:   actions,
 	}
 	return out
 }
