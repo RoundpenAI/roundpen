@@ -31,13 +31,15 @@ jobs:
 
       - name: Compute image tags
         id: tags
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           owner_lc="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           image="ghcr.io/${owner_lc}/code-agent"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME#v}"
-          elif [[ -n "${{ inputs.tag }}" ]]; then
-            tag="${{ inputs.tag }}"
+          elif [[ -n "${INPUT_TAG}" ]]; then
+            tag="${INPUT_TAG}"
           else
             tag="sha-${GITHUB_SHA::7}"
           fi
