@@ -23,12 +23,12 @@ func Reconcile(raw Plan, f HostFacts, priv Privilege, w WizardContext) Plan {
 			continue
 		}
 		switch a.ID {
-		case ActionInstallQEMU:
-			if f.BinariesOK {
+		case ActionInstallDocker:
+			if f.DockerReady {
 				continue
 			}
-		case ActionBuildAgentImage:
-			if f.AgentImageOK {
+		case ActionInstallQEMU:
+			if f.BinariesOK {
 				continue
 			}
 		case ActionBuildBrowserImage:
@@ -80,11 +80,11 @@ func (p *LLMPlanner) Plan(ctx context.Context, w WizardContext, f HostFacts) (Pl
 	}
 	sys := `你是 Roundpen 工位准备规划器。只输出 JSON，不要 markdown。
 格式: {"summary":"中文短句","actions":[{"id":"...","title":"...","reason":"..."}]}
-id 只能是: install_qemu, build_agent_image, build_browser_image。
+id 只能是: install_docker, install_qemu, build_browser_image。
 不要输出 shell 命令。已就绪的项不要列入。`
 	user := fmt.Sprintf(
-		"wizard=%s preset=%s bio=%q\nfacts binariesOK=%v agentImageOK=%v browserImageOK=%v",
-		w.Name, w.Preset, w.Bio, f.BinariesOK, f.AgentImageOK, f.BrowserImageOK,
+		"wizard=%s preset=%s bio=%q\nfacts dockerReady=%v binariesOK=%v browserImageOK=%v",
+		w.Name, w.Preset, w.Bio, f.DockerReady, f.BinariesOK, f.BrowserImageOK,
 	)
 	body := map[string]any{
 		"model": p.Model,

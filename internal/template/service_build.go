@@ -16,7 +16,7 @@ func (s *Service) SetLogger(logger *slog.Logger) {
 	}
 }
 
-// SetBuilder attaches an image builder (nil on kern-only deployments).
+// SetBuilder attaches an image builder (nil when template builds are disabled).
 func (s *Service) SetBuilder(backend string, b builder.Runner) {
 	s.backend = backend
 	s.builder = b

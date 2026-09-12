@@ -24,7 +24,6 @@ import {
 import { useAuth } from '../auth'
 import { useT, type MessageKey } from '../i18n'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
-import { RuntimePanel } from '../components/RuntimePanel'
 import { resolveSettingsSection } from '../lib/appNav'
 
 const emptySettings: AppSettings = {
@@ -423,7 +422,6 @@ export function SettingsPage() {
           </div>
         )}
 
-        {section === 'runtime' && <RuntimePanel />}
         {section === 'git' && <GitCredentialsPanel />}
 
         {section === 'general' && (

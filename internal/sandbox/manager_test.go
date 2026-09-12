@@ -429,7 +429,7 @@ func TestService_Resolve(t *testing.T) {
 }
 
 func TestService_UpdateRenameTimeoutTouch(t *testing.T) {
-	svc, _, _ := newTestService(t, newStubBackend("kern"))
+	svc, _, _ := newTestService(t, newStubBackend("docker"))
 	ctx := adminCtx()
 
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{Name: "old", Category: "Code"})
@@ -498,31 +498,6 @@ func TestService_FileOps(t *testing.T) {
 	}
 	if err := svc.RemoveFile(ctx, sb.ID, "dir/note.txt"); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestService_HydrateKernBackend(t *testing.T) {
-	be := newStubBackend("kern")
-	svc, _, _ := newTestService(t, be)
-	ctx := adminCtx()
-
-	sb, err := svc.Create(ctx, sandbox.CreateRequest{Name: "hydrate-me"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	be.mu.Lock()
-	delete(be.running, sb.ID)
-	delete(be.created, sb.ID)
-	be.mu.Unlock()
-
-	if _, err := svc.Exec(ctx, sb.ID, sandbox.ExecRequest{Cmd: []string{"true"}}); err != nil {
-		t.Fatalf("exec after hydrate: %v", err)
-	}
-	be.mu.Lock()
-	_, ok := be.created[sb.ID]
-	be.mu.Unlock()
-	if !ok {
-		t.Fatal("hydrate should recreate backend instance")
 	}
 }
 
@@ -616,7 +591,7 @@ func TestService_DeleteKeepsPersistentWorkspace(t *testing.T) {
 }
 
 func TestService_AttachAndResizeTerminal(t *testing.T) {
-	svc, _, _ := newTestService(t, newStubBackend("kern"))
+	svc, _, _ := newTestService(t, newStubBackend("docker"))
 	ctx := adminCtx()
 	sb, err := svc.Create(ctx, sandbox.CreateRequest{})
 	if err != nil {
@@ -631,7 +606,7 @@ func TestService_AttachAndResizeTerminal(t *testing.T) {
 }
 
 func TestService_UpdateConflictAndClearDefault(t *testing.T) {
-	svc, _, _ := newTestService(t, newStubBackend("kern"))
+	svc, _, _ := newTestService(t, newStubBackend("docker"))
 	ctx := adminCtx()
 
 	first, err := svc.Create(ctx, sandbox.CreateRequest{Name: "first", Category: "Lab", IsDefault: true})
@@ -709,7 +684,7 @@ func TestService_NotFoundAndMissingWorkspace(t *testing.T) {
 }
 
 func TestService_ConnectResumeAndRefresh(t *testing.T) {
-	be := newStubBackend("kern")
+	be := newStubBackend("docker")
 	svc, _, _ := newTestService(t, be)
 	ctx := adminCtx()
 

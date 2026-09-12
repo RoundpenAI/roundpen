@@ -427,7 +427,13 @@ export function AssistantDetailPage() {
             可见范围
           </Typography.Title>
           <Typography.Text type="tertiary" size="small">
-            默认有一个仅它可见的工作区。需要访问本机目录时在此授权。
+            默认资料在账号工作区，所有助手可共用。需要访问本机目录时在此授权。{' '}
+            <Typography.Text
+              link
+              onClick={() => navigate('/workspace')}
+            >
+              管理账号工作区
+            </Typography.Text>
           </Typography.Text>
           <List
             size="small"

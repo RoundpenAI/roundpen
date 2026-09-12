@@ -86,8 +86,8 @@ if [[ "$fail" -ne 0 ]]; then
 fi
 
 if ! need_cmd docker; then
-	echo "note: Docker is not installed. Sandboxes run under QEMU (ROUNDPEN_BACKEND=qemu)."
-	echo "      Docker is only needed to rebuild agent/browser qcow2 images."
+	echo "note: Docker is not installed. Agent slots require Docker (ROUNDPEN_BACKEND=docker)."
+	echo "      Install Docker Engine, or Browser slots only will be available."
 fi
 
 if ! need_cmd bwrap; then
@@ -148,9 +148,10 @@ fi
 ensure_env_key DATABASE_URL "$DSN_DEFAULT"
 ensure_env_key ROUNDPEN_TEST_DATABASE_URL "$TEST_DSN_DEFAULT"
 ensure_env_key ROUNDPEN_HTTP_ADDR ":${API_PORT}"
-ensure_env_key ROUNDPEN_BACKEND "qemu"
-ensure_env_key ROUNDPEN_DEFAULT_IMAGE "images/agent-qemu/out/agent.qcow2"
-ensure_env_key ROUNDPEN_DEFAULT_AGENT_TEMPLATE "agent-claude"
+ensure_env_key ROUNDPEN_BACKEND "docker"
+ensure_env_key ROUNDPEN_DEFAULT_IMAGE "roundpen-code-agent:local"
+ensure_env_key ROUNDPEN_AGENT_IMAGE "roundpen-code-agent:local"
+ensure_env_key ROUNDPEN_DEFAULT_AGENT_TEMPLATE "code-agent"
 ensure_env_key ROUNDPEN_DATA_ROOT "./data"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
@@ -162,6 +163,29 @@ ensure_env_key ROUNDPEN_KANIKO_SKIP_TLS_VERIFY "false"
 ensure_env_key ROUNDPEN_KANIKO_REGISTRY_MIRROR "https://docker.1ms.run"
 ensure_env_key ROUNDPEN_GITEA_REGISTRY_HOST "$GITEA_REGISTRY_HOST"
 ensure_env_key ROUNDPEN_GITEA_REGISTRY_USER "sandbox"
+
+# Agent is Docker-only now. Migrate legacy kern/qemu settings left in .env.
+if grep -qE '^ROUNDPEN_BACKEND=(kern|qemu)$' .env; then
+	echo "note: Agent backend is Docker-only; setting ROUNDPEN_BACKEND=docker"
+	grep -v '^ROUNDPEN_BACKEND=' .env > .env.devtmp
+	echo "ROUNDPEN_BACKEND=docker" >> .env.devtmp
+	mv .env.devtmp .env
+fi
+if grep -qE '^ROUNDPEN_DEFAULT_IMAGE=(host|.*\.qcow2)$' .env; then
+	grep -v '^ROUNDPEN_DEFAULT_IMAGE=' .env > .env.devtmp
+	echo "ROUNDPEN_DEFAULT_IMAGE=roundpen-code-agent:local" >> .env.devtmp
+	mv .env.devtmp .env
+fi
+if grep -qE '^ROUNDPEN_AGENT_IMAGE=(.*\.qcow2|host)$' .env; then
+	grep -v '^ROUNDPEN_AGENT_IMAGE=' .env > .env.devtmp
+	echo "ROUNDPEN_AGENT_IMAGE=roundpen-code-agent:local" >> .env.devtmp
+	mv .env.devtmp .env
+fi
+if grep -qE '^ROUNDPEN_DEFAULT_AGENT_TEMPLATE=(agent-claude|host)$' .env; then
+	grep -v '^ROUNDPEN_DEFAULT_AGENT_TEMPLATE=' .env > .env.devtmp
+	echo "ROUNDPEN_DEFAULT_AGENT_TEMPLATE=code-agent" >> .env.devtmp
+	mv .env.devtmp .env
+fi
 
 if grep -qE '^ROUNDPEN_KANIKO_DESTINATION=127\.0\.0\.1:5000/roundpen$' .env; then
 	echo "note: migrating kaniko destination to Gitea (${GITEA_KANIKO_DEST})"
@@ -201,7 +225,7 @@ set +a
 export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"
 export ROUNDPEN_HTTP_ADDR="${ROUNDPEN_HTTP_ADDR:-:${API_PORT}}"
 export DATABASE_URL="${DATABASE_URL:-$DSN_DEFAULT}"
-export ROUNDPEN_BACKEND="${ROUNDPEN_BACKEND:-qemu}"
+export ROUNDPEN_BACKEND="${ROUNDPEN_BACKEND:-docker}"
 export ROUNDPEN_DATA_ROOT="${ROUNDPEN_DATA_ROOT:-./data}"
 export ROUNDPEN_HTTP_ADDR="${ROUNDPEN_HTTP_ADDR:-0.0.0.0:${API_PORT}}"
 export ROUNDPEN_PREVIEW_PUBLIC_URL="${ROUNDPEN_PREVIEW_PUBLIC_URL:-http://${LAN_IP}:${API_PORT}}"

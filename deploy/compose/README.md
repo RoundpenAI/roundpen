@@ -18,7 +18,10 @@ Services:
 | `postgres` | PostgreSQL 16 + pgvector |
 | `roundpend` | Control plane + embedded Web UI |
 
-Default backend is `kern` (host processes inside the container). For Docker
-sandboxes on the host engine, see comments in `compose.yaml`.
+Default backend is `docker`: Agent containers run on the host Docker Engine via
+`/var/run/docker.sock` (mounted by `compose.yaml`). The official Agent image
+`ghcr.io/roundpenai/code-agent:0.1.0` is pulled on first start (override with
+`ROUNDPEN_AGENT_IMAGE`, or `docker load -i code-agent.tar` offline). Browser /
+Desktop slots use QEMU on the host.
 
 Dev without Compose: `make setup && make dev`（pg0 + API + Vite；见 `scripts/dev-up.sh`）。

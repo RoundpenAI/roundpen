@@ -3,6 +3,7 @@ import type { MessageKey } from './en.ts'
 /** Chinese UI copy (default). */
 export const zh_CN: Record<MessageKey, string> = {
   'nav.assistants': '助手',
+  'nav.workspace': '工作区',
   'nav.settings': '设置',
   'nav.registry': '镜像',
   'nav.menu': '菜单',
@@ -12,8 +13,18 @@ export const zh_CN: Record<MessageKey, string> = {
   'nav.signOut': '退出',
   'nav.signOutUser': '退出 ({user})',
 
+  'workspace.title': '工作区',
+  'workspace.subtitle': '这里的文件是账号资料根，所有助手都可以用作工作材料。',
+  'workspace.preparing': '正在准备工作区…',
+  'workspace.upload': '上传',
+  'workspace.download': '下载',
+  'workspace.delete': '删除',
+  'workspace.refresh': '刷新',
+  'workspace.empty': '还没有文件。上传一些资料给助手用吧。',
+  'workspace.parent': '..',
+  'workspace.deleteConfirm': '删除 {name}？',
+
   'settings.title': '设置',
-  'settings.section.runtime': 'Agent 运行时',
   'settings.section.git': 'Git 个人令牌',
   'settings.section.general': '通用',
   'settings.section.preview': '预览',
@@ -143,26 +154,8 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.system.hostChromeMissing': '不在 PATH',
   'settings.system.unavailable': '无法获取系统信息。',
   'settings.system.footer':
-    '数据库与监听地址需通过环境变量配置并重启进程。默认 Agent 引擎（`ROUNDPEN_BACKEND`）只是回退项 — 用户在上方 Agent 运行时中选择 QEMU、Docker 或 Kern。模板构建与 LLM 网关设置在运行时生效。',
+    '数据库与监听地址需通过环境变量配置并重启进程。Agent 固定使用 Docker；Browser / Desktop / Mobile 使用 QEMU。Agent 镜像在首次启动时从注册表拉取（或离线加载）。模板构建与 LLM 网关设置在运行时生效。',
   'settings.system.disabled': '已禁用',
-
-  'runtime.title': 'Agent 运行时',
-  'runtime.titleQemu': '浏览器 / QEMU',
-  'runtime.desc':
-    '选择本机如何运行 Cloud Agent。浏览器桌面始终使用 QEMU。若主机缺少二进制或镜像，按安装步骤操作即可 — 安装后无需重启进程。',
-  'runtime.descQemu':
-    '此槽位需要主机上的 QEMU 虚拟机镜像。若有缺失，在此安装后重试。',
-  'runtime.loading': '正在加载运行时…',
-  'runtime.loadFailed': '加载运行时失败',
-  'runtime.saveFailed': '保存失败',
-  'runtime.startFailed': '启动失败',
-  'runtime.start': '启动 / 恢复 Agent',
-  'runtime.retry': '完成安装后重试',
-  'runtime.recheck': '重新检查主机',
-  'runtime.ready': '就绪',
-  'runtime.needsSetup': '需要安装',
-  'runtime.selected': '已选择',
-  'runtime.useThis': '使用此引擎',
 
   'git.title': 'Git 个人令牌',
   'git.desc':

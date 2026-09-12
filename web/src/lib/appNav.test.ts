@@ -11,20 +11,20 @@ import {
 describe('visiblePrimaryMenus', () => {
   it('hides registry for non-admin', () => {
     const keys = visiblePrimaryMenus(false).map((m) => m.id)
-    assert.deepEqual(keys, ['assistants', 'settings'])
+    assert.deepEqual(keys, ['assistants', 'workspace', 'settings'])
   })
 
   it('shows registry for admin', () => {
     const keys = visiblePrimaryMenus(true).map((m) => m.id)
-    assert.deepEqual(keys, ['assistants', 'settings', 'registry'])
+    assert.deepEqual(keys, ['assistants', 'workspace', 'settings', 'registry'])
   })
 })
 
 describe('visibleSettingsSections', () => {
-  it('non-admin only runtime + git', () => {
+  it('non-admin only git', () => {
     assert.deepEqual(
       visibleSettingsSections(false).map((s) => s.key),
-      ['runtime', 'git'],
+      ['git'],
     )
   })
 
@@ -37,9 +37,9 @@ describe('visibleSettingsSections', () => {
 })
 
 describe('resolveSettingsSection', () => {
-  it('defaults to runtime', () => {
-    assert.equal(resolveSettingsSection(undefined, false), 'runtime')
-    assert.equal(resolveSettingsSection('', true), 'runtime')
+  it('defaults to git', () => {
+    assert.equal(resolveSettingsSection(undefined, false), 'git')
+    assert.equal(resolveSettingsSection('', true), 'git')
   })
 
   it('accepts known visible section', () => {
@@ -48,19 +48,28 @@ describe('resolveSettingsSection', () => {
   })
 
   it('rejects unknown or unauthorized section', () => {
-    assert.equal(resolveSettingsSection('nope', true), 'runtime')
-    assert.equal(resolveSettingsSection('general', false), 'runtime')
+    assert.equal(resolveSettingsSection('nope', true), 'git')
+    assert.equal(resolveSettingsSection('general', false), 'git')
   })
 })
 
 describe('PRIMARY_MENUS paths', () => {
   it('matches product routes and label keys', () => {
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'assistants')?.to, '/a')
+    assert.equal(PRIMARY_MENUS.find((m) => m.id === 'workspace')?.to, '/workspace')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'settings')?.to, '/settings')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'registry')?.to, '/registry')
     assert.equal(
       PRIMARY_MENUS.find((m) => m.id === 'assistants')?.labelKey,
       'nav.assistants',
     )
+  })
+})
+
+describe('matchPrimaryMenu', () => {
+  it('matches workspace path', async () => {
+    const { matchPrimaryMenu } = await import('./appNav.ts')
+    assert.equal(matchPrimaryMenu('/workspace'), 'workspace')
+    assert.equal(matchPrimaryMenu('/a/x'), 'assistants')
   })
 })

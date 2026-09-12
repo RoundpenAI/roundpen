@@ -8,6 +8,12 @@ func UserWorkspaceID(username string) string {
 	return "user-" + sanitizeWorkspaceUser(username)
 }
 
+// AgentSandboxID is the stable sandbox id for the user's Agent slot.
+// Docker container name is "roundpen-" + AgentSandboxID (see docker.containerName).
+func AgentSandboxID(username string) string {
+	return sanitizeWorkspaceUser(username)
+}
+
 func sanitizeWorkspaceUser(u string) string {
 	u = strings.ToLower(strings.TrimSpace(u))
 	var b strings.Builder

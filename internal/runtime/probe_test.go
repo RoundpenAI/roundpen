@@ -1,51 +1,50 @@
 package runtime
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
-func TestNormalizeAndTemplate(t *testing.T) {
+func TestNormalizeAndEngineOfImage(t *testing.T) {
 	if NormalizeEngine("QEMU") != EngineQEMU {
 		t.Fatal("qemu")
 	}
-	if TemplateForEngine("docker") != "code-agent" {
-		t.Fatal("docker template")
+	if NormalizeEngine("docker") != EngineDocker {
+		t.Fatal("docker")
 	}
-	if TemplateForEngine("kern") != "host" {
-		t.Fatal("kern template")
-	}
-	if TemplateForEngine("qemu") != "agent-claude" {
-		t.Fatal("qemu template")
+	if NormalizeEngine("kern") != "" {
+		t.Fatal("kern must be removed")
 	}
 	if EngineOfImage("images/x.qcow2") != EngineQEMU {
 		t.Fatal("qcow2")
-	}
-	if EngineOfImage("host") != EngineKern {
-		t.Fatal("host")
 	}
 	if EngineOfImage("python:3.12") != EngineDocker {
 		t.Fatal("oci")
 	}
 }
 
-func TestProbeKernWithoutBwrapStillReports(t *testing.T) {
+func TestSnapshotDockerNotReady(t *testing.T) {
 	p := &Probe{Cfg: nil, DockerReady: false, DockerErr: "cannot ping"}
 	snap := p.Snapshot()
-	if len(snap.Engines) != 3 {
-		t.Fatalf("engines=%d", len(snap.Engines))
-	}
-	if snap.DefaultAgentEngine != EngineQEMU {
-		t.Fatalf("default %s", snap.DefaultAgentEngine)
-	}
-	var docker EngineStatus
-	for _, e := range snap.Engines {
-		if e.ID == EngineDocker {
-			docker = e
-		}
-	}
-	if docker.AgentReady {
+	if snap.DockerReady {
 		t.Fatal("docker should not be ready")
 	}
-	if len(docker.Setup) == 0 {
-		t.Fatal("docker setup steps")
+	if len(snap.Missing) == 0 || len(snap.Setup) == 0 {
+		t.Fatalf("missing=%v setup=%v", snap.Missing, snap.Setup)
+	}
+	if snap.AgentImage == "" {
+		t.Fatal("agent image ref required")
+	}
+}
+
+func TestSnapshotDockerReadyImageLocal(t *testing.T) {
+	p := &Probe{DockerReady: true, HasImage: func(_ context.Context, _ string) bool { return true }}
+	snap := p.Snapshot()
+	if !snap.DockerReady || !snap.ImageLocal {
+		t.Fatalf("snap=%+v", snap)
+	}
+	if len(snap.Missing) != 0 || len(snap.Setup) != 0 {
+		t.Fatalf("missing=%v setup=%v", snap.Missing, snap.Setup)
 	}
 }
 

@@ -49,21 +49,31 @@ func (r *Runner) Run(ctx context.Context, actionID string, priv Privilege, log i
 	defer l.Unlock()
 
 	switch actionID {
+	case ActionInstallDocker:
+		if priv != PrivilegeAuto {
+			return fmt.Errorf("install_docker requires privilege=auto (use manual copy-paste flow)")
+		}
+		argv := installDockerArgv(os.Geteuid() == 0)
+		return r.runCmd(ctx, argv[0], argv[1:], log)
 	case ActionInstallQEMU:
 		if priv != PrivilegeAuto {
 			return fmt.Errorf("install_qemu requires privilege=auto (use manual copy-paste flow)")
 		}
 		argv := installQEMUArgv(os.Geteuid() == 0)
 		return r.runCmd(ctx, argv[0], argv[1:], log)
-	case ActionBuildAgentImage:
-		script := filepath.Join(r.RepoRoot, "images/agent-qemu/build.sh")
-		return r.runCmd(ctx, "bash", []string{script}, log)
 	case ActionBuildBrowserImage:
 		script := filepath.Join(r.RepoRoot, "images/browser-qemu/build.sh")
 		return r.runCmd(ctx, "bash", []string{script}, log)
 	default:
 		return fmt.Errorf("unknown action %q", actionID)
 	}
+}
+
+func installDockerArgv(isRoot bool) []string {
+	if isRoot {
+		return []string{"bash", "-c", "apt-get install -y docker.io && systemctl enable --now docker"}
+	}
+	return []string{"bash", "-c", "sudo apt-get install -y docker.io && sudo systemctl enable --now docker"}
 }
 
 func installQEMUArgv(isRoot bool) []string {
@@ -94,7 +104,7 @@ func (r *Runner) runCmd(ctx context.Context, name string, args []string, log io.
 	return nil
 }
 
-// FindRepoRoot walks up from cwd for images/agent-qemu/build.sh, or uses ROUNDPEN_REPO_ROOT.
+// FindRepoRoot walks up from cwd for images/browser-qemu/build.sh, or uses ROUNDPEN_REPO_ROOT.
 func FindRepoRoot() string {
 	if v := os.Getenv("ROUNDPEN_REPO_ROOT"); v != "" {
 		return v
@@ -105,7 +115,7 @@ func FindRepoRoot() string {
 	}
 	dir := wd
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "images/agent-qemu/build.sh")); err == nil {
+		if _, err := os.Stat(filepath.Join(dir, "images/browser-qemu/build.sh")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)

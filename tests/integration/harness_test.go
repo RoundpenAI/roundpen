@@ -1,7 +1,9 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -15,13 +17,11 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
-	kernbackend "github.com/RoundpenAI/roundpen/internal/backend/kern"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
-	"github.com/RoundpenAI/roundpen/internal/workspace/local"
 	"github.com/RoundpenAI/roundpen/internal/workspace/sshfs"
 )
 
@@ -96,12 +96,6 @@ func startHarness(t *testing.T, be backend.Backend, fs workspace.FS, dataRoot, d
 	return &harness{URL: srv.URL, Client: srv.Client(), DataRoot: dataRoot, FS: fs, APIKey: apiKey}
 }
 
-func startKernHarness(t *testing.T) *harness {
-	t.Helper()
-	root := t.TempDir()
-	return startHarness(t, kernbackend.New(), local.New(root), root, "host")
-}
-
 func startDockerSSHHarness(t *testing.T) *harness {
 	t.Helper()
 	host := os.Getenv("ROUNDPEN_TEST_DOCKER_HOST")
@@ -135,4 +129,31 @@ func startDockerSSHHarness(t *testing.T) *harness {
 		image = "alpine:3.20"
 	}
 	return startHarness(t, be, fs, root, image)
+}
+
+func (h *harness) mustDo(t testing.TB, method, path string, body any) *http.Response {
+	t.Helper()
+	var rdr io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rdr = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, h.URL+path, rdr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if h.APIKey != "" {
+		req.Header.Set("X-API-Key", h.APIKey)
+	}
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
 }

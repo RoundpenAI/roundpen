@@ -369,6 +369,31 @@ export const files = {
     }),
 }
 
+export const meWorkspace = {
+  list: (path = '.') =>
+    api<FileList>(
+      `/v1/me/workspace/files?path=${encodeURIComponent(path)}`,
+    ),
+  downloadUrl: (path: string) =>
+    `/v1/me/workspace/files/content?path=${encodeURIComponent(path)}`,
+  upload: async (path: string, body: Blob) => {
+    const res = await fetch(
+      `/v1/me/workspace/files?path=${encodeURIComponent(path)}`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body,
+      },
+    )
+    if (!res.ok) throw await parseError(res)
+  },
+  remove: (path: string) =>
+    api<void>(`/v1/me/workspace/files?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    }),
+}
+
 export type PreviewLink = {
   url: string
   port: number
@@ -435,42 +460,13 @@ export const environments = {
       '/v1/me/environments/browser/ensure',
       { method: 'POST' },
     ),
-  ensureAgent: (engine?: string) =>
+  ensureAgent: () =>
     api<{ slot: string; sandboxId: string; status: string; name: string }>(
       '/v1/me/environments/agent/ensure',
-      {
-        method: 'POST',
-        body: engine ? JSON.stringify({ engine }) : JSON.stringify({}),
-      },
+      { method: 'POST', body: '{}' },
     ),
   browserDesktop: () =>
     api<DesktopLink>('/v1/me/environments/browser/desktop'),
-}
-
-export type EngineStatus = {
-  id: string
-  label: string
-  summary: string
-  ready: boolean
-  agentReady: boolean
-  browserReady?: boolean
-  missing?: string[]
-  setup?: SetupStep[]
-}
-
-export type RuntimeSnapshot = {
-  defaultAgentEngine: string
-  agentEngine: string
-  engines: EngineStatus[]
-}
-
-export const runtime = {
-  get: () => api<RuntimeSnapshot>('/v1/runtime'),
-  setAgentEngine: (agentEngine: string) =>
-    api<RuntimeSnapshot>('/v1/runtime', {
-      method: 'PUT',
-      body: JSON.stringify({ agentEngine }),
-    }),
 }
 
 export type SetupPrivilege = 'auto' | 'manual'

@@ -55,6 +55,8 @@ type Sandbox struct {
 
 // CreateRequest is the input to create a sandbox.
 type CreateRequest struct {
+	// ID if non-empty is used as the sandbox primary key (Agent slot: workspace.AgentSandboxID).
+	ID          string
 	Name        string // optional display name; defaulted if empty
 	Category    string // optional class for resolve-by-category
 	IsDefault   bool   // mark as default within Category

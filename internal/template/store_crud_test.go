@@ -63,10 +63,10 @@ func TestStore_GetUpdateDeleteTemplate(t *testing.T) {
 func TestStore_UpdateBuiltinAllowedDeleteRejected(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := context.Background()
-	if err := store.SeedBuiltin(ctx, "kern", "host"); err != nil {
+	if err := store.SeedBuiltin(ctx, "docker", "ghcr.io/roundpenai/code-agent:0.1.0"); err != nil {
 		t.Fatal(err)
 	}
-	rec, err := store.GetByID(ctx, mustTemplateIDByName(t, store, "host"))
+	rec, err := store.GetByID(ctx, mustTemplateIDByName(t, store, "code-agent"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -349,19 +349,10 @@ func scanRecord(row rowScanner) (Record, error) {
 }
 
 func builtinEntries(backend, defaultImage string) []seedEntry {
-	hostArtifact := defaultImage
-	if hostArtifact == "" {
-		hostArtifact = "host"
-	}
+	// Official Agent image: overridable for offline/private registries.
+	agentArtifact := getenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0")
 	browserArtifact := getenv("ROUNDPEN_BROWSER_IMAGE", "images/browser-qemu/out/browser.qcow2")
-	agentArtifact := getenv("ROUNDPEN_AGENT_IMAGE", "images/agent-qemu/out/agent.qcow2")
-	entries := []seedEntry{
-		{
-			Namespace: DefaultNamespace, Name: "host",
-			Description: "Kern host environment (local dev default)",
-			Profile:     "dev", Slot: "agent", ArtifactRef: "host", BaseImage: "host",
-			CPUCount: 1, MemoryMB: 512, DiskSizeMB: 5120, Public: true,
-		},
+	return []seedEntry{
 		{
 			Namespace: DefaultNamespace, Name: "base",
 			Description: "Minimal Ubuntu 22.04",
@@ -384,14 +375,7 @@ func builtinEntries(backend, defaultImage string) []seedEntry {
 			Namespace: DefaultNamespace, Name: "code-agent",
 			Description: "Ubuntu with git/curl/openssh for coding agents",
 			Profile:     "dev", Slot: "agent",
-			ArtifactRef: "roundpen-code-agent:local", BaseImage: "ubuntu:22.04",
-			CPUCount: 2, MemoryMB: 2048, DiskSizeMB: 10240, Public: true,
-		},
-		{
-			Namespace: DefaultNamespace, Name: "agent-claude",
-			Description: "Headless Ubuntu + Claude Code (QEMU qcow2; LLM via llmgw)",
-			Profile:     "dev", Slot: "agent",
-			ArtifactRef: agentArtifact, BaseImage: agentArtifact,
+			ArtifactRef: agentArtifact, BaseImage: "ubuntu:22.04",
 			CPUCount: 2, MemoryMB: 2048, DiskSizeMB: 10240, Public: true,
 		},
 		{
@@ -402,14 +386,6 @@ func builtinEntries(backend, defaultImage string) []seedEntry {
 			CPUCount: 2, MemoryMB: 4096, DiskSizeMB: 20480, Public: true,
 		},
 	}
-	if backend == "kern" {
-		// Kern uses host jail; docker-only images are listed but host stays primary.
-		entries[0].ArtifactRef = "host"
-	} else if backend == "docker" && hostArtifact != "host" {
-		entries[0].ArtifactRef = hostArtifact
-		entries[0].BaseImage = hostArtifact
-	}
-	return entries
 }
 
 func getenv(key, fallback string) string {

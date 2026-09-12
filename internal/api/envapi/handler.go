@@ -34,7 +34,6 @@ type Environments interface {
 // Handler serves /v1/me/environments*.
 type Handler struct {
 	Envs      Environments
-	Prefs     *runtime.PrefStore
 	Tokens    *preview.Store
 	PublicURL string
 	VNC       VNCSockLookup
@@ -98,10 +97,6 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type ensureAgentReq struct {
-	Engine string `json:"engine"`
-}
-
 func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
@@ -111,14 +106,6 @@ func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
 	if h.Envs == nil {
 		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
-	}
-	var req ensureAgentReq
-	_ = json.NewDecoder(r.Body).Decode(&req)
-	if eng := runtime.NormalizeEngine(req.Engine); eng != "" && h.Prefs != nil {
-		if err := h.Prefs.SetAgentEngine(r.Context(), user.Username, eng); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
 	}
 	sb, err := h.Envs.EnsureAgent(r.Context(), user.Username)
 	if err != nil {

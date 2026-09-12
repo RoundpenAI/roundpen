@@ -7,11 +7,11 @@ func TestReconcilePlanDropsUnknown(t *testing.T) {
 		Summary: "x",
 		Actions: []PlannedAction{
 			{ID: "rm_rf", Title: "bad"},
-			{ID: ActionBuildAgentImage, Title: "盘"},
+			{ID: ActionInstallDocker, Title: "装 Docker"},
 		},
 	}
-	out := Reconcile(raw, HostFacts{BinariesOK: true, AgentImageOK: false}, PrivilegeAuto, WizardContext{Preset: "code"})
-	if len(out.Actions) != 1 || out.Actions[0].ID != ActionBuildAgentImage {
+	out := Reconcile(raw, HostFacts{DockerReady: false}, PrivilegeAuto, WizardContext{Preset: "code"})
+	if len(out.Actions) != 1 || out.Actions[0].ID != ActionInstallDocker {
 		t.Fatalf("%#v", out.Actions)
 	}
 	if out.Actions[0].Command == "" {

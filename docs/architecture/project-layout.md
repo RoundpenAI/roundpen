@@ -1,6 +1,6 @@
 # Roundpen 项目结构
 
-单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：Agent 槽位 Docker/Kern（Kern 为开发档弱隔离），Browser 槽位 QEMU。`policy` / `toolgw` 仍是空包。
+单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 槽位固定 Docker**（官方 `code-agent` OCI 镜像），**Browser / Desktop / Mobile 槽位固定 QEMU**。`policy` / `toolgw` 仍是空包。
 
 ## 目录树
 
@@ -23,9 +23,8 @@ roundpen/
 │   ├── sandbox/               # 环境生命周期 Manager（按属主隔离）
 │   ├── backend/
 │   │   ├── docker/            # Agent OCI
-│   │   ├── kern/              # 本地免守护（弱隔离）
-│   │   ├── qemu/              # Browser/Agent VM（通用）
-│   │   └── multi/             # 按 slot 路由
+│   │   ├── qemu/              # Browser/Desktop VM（通用）
+│   │   └── multi/             # 按 slot 路由（agent→docker，browser→qemu）
 │   ├── browser/               # CDP Hub（Dial 进 Browser env）
 │   ├── acp/                   # ACP / sysagent
 │   ├── audit/                 # 最小 slog 审计
@@ -46,13 +45,13 @@ roundpen/
 | `userenv` | PG `user_environments` |
 | `template` | slot 镜像配方与构建产物 |
 | `backend/qemu` | qcow2 生命周期、CDP hostfwd、VNC unix sock |
-| `backend/multi` | agent→primary，browser→qemu |
+| `backend/multi` | agent→docker，browser→qemu |
 
 ## 装配
 
-`roundpend`：config → 可信代理 → PG migrate → seed templates → docker|kern + optional qemu → multi → sandbox Manager → platform / envapi / agentapi / browser Hub。
+`roundpend`：config → 可信代理 → PG migrate → seed templates → docker + optional qemu → multi → sandbox Manager → platform / envapi / agentapi / browser Hub。
 
 ## 演进
 
-- 本期：删除 E2B 兼容；Browser QEMU；Agent 仍 Docker
-- 二期：独立 Agent QEMU；Mobile 槽位
+- 本期：删除 E2B 兼容；Browser QEMU；Agent 固定 Docker；删除 Kern 与 Agent-QEMU 默认路径
+- 二期：Browser 窄共享工作区；Mobile 槽位

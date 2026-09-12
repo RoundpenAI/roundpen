@@ -102,8 +102,7 @@ var errSlotFailed = errors.New("sandbox is failed")
 // Config controls Ensure* defaults.
 type Config struct {
 	BrowserTemplate string // default "browser-desktop"
-	AgentTemplate   string // default from engine (agent-claude / code-agent / host)
-	DefaultEngine   string // qemu | docker | kern — used when the user has not chosen
+	AgentTemplate   string // default "code-agent"
 	PublicURL       string // control-plane / llmgw base, e.g. http://127.0.0.1:9527
 	VirtualKey      string // llmgw virtual key (not an upstream key)
 	DefaultModel    func() string
@@ -149,7 +148,6 @@ type Service struct {
 	Sandboxes sandbox.Manager
 	Git       *gitcred.Store
 	Probe     *runtime.Probe
-	Prefs     *runtime.PrefStore
 	Config    Config
 }
 
@@ -159,28 +157,6 @@ func (s *Service) browserTemplate() string {
 		return "browser-desktop"
 	}
 	return t
-}
-
-func (s *Service) agentEngine(ctx context.Context, userID string) string {
-	fallback := runtime.NormalizeEngine(s.Config.DefaultEngine)
-	if fallback == "" {
-		fallback = runtime.EngineQEMU
-	}
-	if s.Prefs == nil {
-		return fallback
-	}
-	got, err := s.Prefs.ResolveAgentEngine(ctx, userID, fallback)
-	if err != nil || got == "" {
-		return fallback
-	}
-	return got
-}
-
-func (s *Service) agentTemplateFor(engine string) string {
-	if t := strings.TrimSpace(s.Config.AgentTemplate); t != "" && runtime.NormalizeEngine(engine) == runtime.EngineQEMU {
-		return t
-	}
-	return runtime.TemplateForEngine(engine)
 }
 
 // EnsureBrowser starts or resumes the user's Browser QEMU environment.
@@ -194,14 +170,19 @@ func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*sandbox.Sa
 }
 
 // EnsureAgent starts or resumes the user's Cloud Agent environment.
+// Agent is always Docker + code-agent (or Config.AgentTemplate override).
 func (s *Service) EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error) {
-	engine := s.agentEngine(ctx, userID)
+	engine := runtime.EngineDocker
 	if s.Probe != nil {
 		if err := s.Probe.RequireAgent(engine); err != nil {
 			return nil, err
 		}
 	}
-	sb, err := s.ensure(ctx, userID, SlotAgent, s.agentTemplateFor(engine), "Agent", engine)
+	templateID := "code-agent"
+	if t := strings.TrimSpace(s.Config.AgentTemplate); t != "" {
+		templateID = t
+	}
+	sb, err := s.ensure(ctx, userID, SlotAgent, templateID, "Agent", engine)
 	if err != nil {
 		return nil, err
 	}
@@ -401,6 +382,7 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 		TTL:        24 * time.Hour,
 	}
 	if slot == SlotAgent {
+		create.ID = workspace.AgentSandboxID(userID)
 		create.WorkspaceID = workspace.UserWorkspaceID(userID)
 	}
 	return s.Sandboxes.Create(ctx, create)

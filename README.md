@@ -10,7 +10,7 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 
 - **轻量自托管**：单二进制控制面，面向 NAS、笔记本与单机服务器
 - **固定环境槽位**：登录即可用 **Cloud Agent**、**Browser**（及后续 Mobile），一槽位一机器；不是多开沙箱 SDK
-- **可插拔后端**：Agent 槽位默认 Docker / Kern（Kern 为开发用弱隔离）；Browser 槽位使用 **QEMU**（qcow2 + CDP hostfwd + VNC unix sock）
+- **后端钉死**：Agent 槽位固定 **Docker**（官方 OCI 镜像 pull / 离线 load）；Browser / Desktop / Mobile 固定 **QEMU**（qcow2 + CDP hostfwd + VNC unix sock）
 - **可定制镜像**：Templates = 槽位镜像配方（`slot=agent|browser`）；Agent→OCI，Browser→qcow2
 - **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）
 - **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key（入库为哈希）；沙箱/记忆按属主隔离
@@ -20,9 +20,9 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 
 | 槽位 | 本期 | 形态 |
 |------|------|------|
-| Cloud Agent | Docker / Kern | coding / stdio ACP |
+| Cloud Agent | Docker | coding / stdio ACP；官方 `code-agent` OCI 镜像 |
 | Browser | QEMU | XFCE + Chrome；CDP + 主机 VNC→WebSocket |
-| Mobile | 预留 | 后续独立 VM |
+| Mobile | 预留 | 后续独立 VM（QEMU） |
 
 ## 架构（摘要）
 
@@ -35,8 +35,8 @@ Browser: Chrome CDP :9222 via hostfwd；桌面 = QEMU -vnc unix:…/vnc.sock →
 |------|------|
 | 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、`/v1/me/environments`。`policy` / `toolgw` 仍是空包 |
 | 环境抽象 | Sandbox Manager + 用户槽位映射（`user_environments`） |
-| 后端 | Docker / Kern（agent）+ QEMU（browser）；`multi` 按 slot 路由 |
-| 镜像 | `internal/template`（slot）+ `images/browser-qemu/` |
+| 后端 | **Agent → Docker**；**Browser/Desktop/Mobile → QEMU**；`multi` 按 slot 路由 |
+| 镜像 | `internal/template`（slot）+ `images/code-agent/`（官方 OCI）+ `images/browser-qemu/` |
 
 仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。QEMU Browser 部署见 [docs/architecture/qemu-browser.md](docs/architecture/qemu-browser.md)。Agent 安全见 [docs/security.md](docs/security.md)。
 
@@ -82,6 +82,18 @@ docker compose up -d --build
 
 Browser 槽位需要宿主机 `qemu-system-x86_64`、`qemu-img`，以及 `make browser-image` 产出的 `out/browser.qcow2` + `vmlinuz`/`initrd.img`（见 [docs/architecture/qemu-browser.md](docs/architecture/qemu-browser.md)）。
 
+### 安装面（Agent 镜像）
+
+Agent 固定使用 Docker，镜像通过以下方式获取（无需本机持有 Dockerfile）：
+
+| 方式 | 命令 |
+|------|------|
+| 注册表 pull（默认） | `docker pull ghcr.io/roundpenai/code-agent:0.1.0`（首次 Ensure 自动 pull） |
+| 离线安装 | Release 附 OCI tar：`docker load -i code-agent.tar` |
+| 开发者本地构建 | `make code-agent-image`（`roundpen-code-agent:local`，用 `ROUNDPEN_AGENT_IMAGE` 覆盖） |
+
+单二进制部署只需 Docker + 可达的注册表；`ROUNDPEN_AGENT_IMAGE` 可指向私有镜像。
+
 详见 [deploy/compose/README.md](deploy/compose/README.md)。
 
 ### 本地开发（贡献者）
@@ -100,15 +112,15 @@ make dev            # pg0 → roundpend :19001 + UI :19000
 |------|------|
 | 语言 | Go（跨平台单二进制） |
 | API | 原生 REST（`/v1/...`） |
-| Agent 后端 | Docker Daemon 或 `Kern` |
+| Agent 后端 | Docker（官方 `code-agent` OCI 镜像） |
 | Browser 后端 | QEMU（qcow2 + VNC unix + CDP hostfwd） |
 | 记忆 | PostgreSQL + `pgvector` |
 | 文件 | 本地目录或 SSH 远端（`WorkspaceFS`） |
 
 ## 路线图
 
-- **近期**：固定环境模型 + Browser QEMU；删除多开沙箱 / E2B 兼容
-- **中期**：Agent 独立 QEMU；镜像可视化定制加深
+- **近期**：固定环境模型 + Browser QEMU；删除多开沙箱 / E2B 兼容；删除 Kern 与 Agent-QEMU 默认路径
+- **中期**：镜像可视化定制加深；Agent 容器工作区增强
 - **远期**：Mobile 槽位、集群扩展与企业能力
 
 ## 二进制与模块

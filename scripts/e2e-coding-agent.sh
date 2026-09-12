@@ -41,7 +41,7 @@ curl -sf "$BASE/health" >/dev/null
 
 echo "-- create sandbox"
 CREATE=$(curl -sf "${AUTH[@]}" -H 'Content-Type: application/json' \
-  -d '{"templateID":"host","timeout":600,"envVars":{"AGENT":"live-e2e"}}' \
+  -d '{"templateID":"code-agent","timeout":600,"envVars":{"AGENT":"live-e2e"}}' \
   "$BASE/sandboxes")
 SID=$(echo "$CREATE" | json '.sandboxID')
 test -n "$SID"

@@ -9,7 +9,7 @@ import (
 func TestCreatePlanEmptyWhenReady(t *testing.T) {
 	svc := &Service{
 		Facts: func() HostFacts {
-			return HostFacts{BinariesOK: true, AgentImageOK: true, BrowserImageOK: true}
+			return HostFacts{DockerReady: true, BinariesOK: true, BrowserImageOK: true}
 		},
 	}
 	rec, err := svc.CreatePlan(context.Background(), "u", WizardContext{Preset: "code"})
@@ -24,7 +24,7 @@ func TestCreatePlanEmptyWhenReady(t *testing.T) {
 func TestSensitiveManualStaysPendingManual(t *testing.T) {
 	svc := &Service{
 		Facts: func() HostFacts {
-			return HostFacts{BinariesOK: false, AgentImageOK: true, BrowserImageOK: true}
+			return HostFacts{DockerReady: false}
 		},
 		Privilege: func() Privilege { return PrivilegeManual },
 	}
@@ -32,7 +32,7 @@ func TestSensitiveManualStaysPendingManual(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rec.Actions) != 1 || rec.Actions[0].ActionID != ActionInstallQEMU {
+	if len(rec.Actions) != 1 || rec.Actions[0].ActionID != ActionInstallDocker {
 		t.Fatalf("%#v", rec.Actions)
 	}
 	if rec.Actions[0].Status != StatusPendingManual {
@@ -43,7 +43,7 @@ func TestSensitiveManualStaysPendingManual(t *testing.T) {
 func TestSensitiveAutoConfirmRuns(t *testing.T) {
 	svc := &Service{
 		Facts: func() HostFacts {
-			return HostFacts{BinariesOK: false, AgentImageOK: true, BrowserImageOK: true}
+			return HostFacts{DockerReady: false}
 		},
 		Privilege: func() Privilege { return PrivilegeAuto },
 		Runner:    NewRunner(RunnerConfig{RepoRoot: t.TempDir()}),
@@ -55,7 +55,7 @@ func TestSensitiveAutoConfirmRuns(t *testing.T) {
 	if rec.Actions[0].Status != StatusPendingConfirm {
 		t.Fatalf("status=%s", rec.Actions[0].Status)
 	}
-	if _, err := svc.Confirm("u", rec.ID, ActionInstallQEMU); err != nil {
+	if _, err := svc.Confirm("u", rec.ID, ActionInstallDocker); err != nil {
 		t.Fatal(err)
 	}
 	var st string
@@ -80,7 +80,7 @@ func TestRecheckSucceedsWhenFactOK(t *testing.T) {
 	ok := false
 	svc := &Service{
 		Facts: func() HostFacts {
-			return HostFacts{BinariesOK: ok, AgentImageOK: true, BrowserImageOK: true}
+			return HostFacts{DockerReady: ok}
 		},
 		Privilege: func() Privilege { return PrivilegeManual },
 	}
@@ -89,7 +89,7 @@ func TestRecheckSucceedsWhenFactOK(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok = true
-	rec2, err := svc.Recheck("u", rec.ID, ActionInstallQEMU)
+	rec2, err := svc.Recheck("u", rec.ID, ActionInstallDocker)
 	if err != nil {
 		t.Fatal(err)
 	}
