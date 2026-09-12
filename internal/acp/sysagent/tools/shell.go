@@ -68,14 +68,26 @@ func (b *AgentBinder) ensureID(ctx context.Context, actor Actor) (string, error)
 }
 
 func (b *AgentBinder) exec(ctx context.Context, sbID string, cmd []string, workDir string, timeout time.Duration) (string, error) {
+	res, err := b.execResult(ctx, sbID, cmd, workDir, timeout)
+	if err != nil {
+		return "", err
+	}
+	out := formatExecResult(res)
+	if res.ExitCode != 0 {
+		return out, fmt.Errorf("exit %d", res.ExitCode)
+	}
+	return out, nil
+}
+
+func (b *AgentBinder) execResult(ctx context.Context, sbID string, cmd []string, workDir string, timeout time.Duration) (*sandbox.ExecResult, error) {
 	if b == nil || b.Exec == nil {
-		return "", fmt.Errorf("workspace exec not configured")
+		return nil, fmt.Errorf("workspace exec not configured")
 	}
 	if timeout <= 0 {
 		timeout = defaultExecTimeout
 	}
 	if workDir == "" {
-		workDir = "/workspace"
+		workDir = WorkspaceRoot
 	}
 	env := map[string]string{
 		"GIT_TERMINAL_PROMPT": "0",
@@ -85,20 +97,12 @@ func (b *AgentBinder) exec(ctx context.Context, sbID string, cmd []string, workD
 			env[k] = v
 		}
 	}
-	res, err := b.Exec.Exec(ctx, sbID, sandbox.ExecRequest{
+	return b.Exec.Exec(ctx, sbID, sandbox.ExecRequest{
 		Cmd:     cmd,
 		WorkDir: workDir,
 		Env:     env,
 		Timeout: timeout,
 	})
-	if err != nil {
-		return "", err
-	}
-	out := formatExecResult(res)
-	if res.ExitCode != 0 {
-		return out, fmt.Errorf("exit %d", res.ExitCode)
-	}
-	return out, nil
 }
 
 func formatExecResult(res *sandbox.ExecResult) string {

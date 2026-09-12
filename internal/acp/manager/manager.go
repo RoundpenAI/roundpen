@@ -143,6 +143,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		}
 		tools.RegisterShell(reg, binder)
 		tools.RegisterFiles(reg, binder)
+		tools.RegisterSearch(reg, binder)
 		agent := sysagent.New(sysagent.Deps{
 			LLM: sysagent.LLMConfig{
 				BaseURL:      strings.TrimRight(m.sys.LoopbackBase, "/") + "/llmgw/openai",
