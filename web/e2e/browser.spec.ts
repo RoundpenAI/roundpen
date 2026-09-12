@@ -19,13 +19,13 @@ test('browser start / resume is idempotent in the UI', async ({ page }) => {
   await expect(page.locator('dt', { hasText: 'Status' }).locator('+ dd')).toHaveText('running', {
     timeout: live ? 120_000 : 10_000,
   })
-  await expect(page.locator('.alert-error')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Start / resume' }).click()
   await expect(page.locator('dt', { hasText: 'Status' }).locator('+ dd')).toHaveText('running', {
     timeout: live ? 120_000 : 10_000,
   })
-  await expect(page.locator('.alert-error')).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
 test('browser start surfaces {error} from the API', async ({ page }) => {
@@ -37,7 +37,7 @@ test('browser start surfaces {error} from the API', async ({ page }) => {
   })
   await page.goto('/browser')
   await page.getByRole('button', { name: 'Start / resume' }).click()
-  await expect(page.locator('.alert-error')).toContainText(
+  await expect(page.getByRole('alert').first()).toContainText(
     'conflict: sandbox name already exists',
   )
   await page.request.put('/v1/test/ensure-error', { data: { error: '' } })
