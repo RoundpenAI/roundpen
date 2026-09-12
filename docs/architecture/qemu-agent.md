@@ -33,6 +33,20 @@ ACP stdio 走 QEMU SSH hostfwd。聊天里选 **Claude Code**（provider `claude
 
 Guest 从 Docker 导出时 `/etc/resolv.conf` 经常是空文件。后端在 SSH 起来后写入 QEMU slirp DNS `10.0.2.3`，并把 Claude Code 的内层 `sandbox.enabled` 关掉——隔离边界是这台 VM。
 
+## 首次使用
+
+新建助手向导会先检查 LLM gateway，再自动探测本机是否缺少 QEMU 或 `agent.qcow2`：
+
+- 缺二进制：若进程用户为 root 或 `sudo -n` 可用，确认后由平台安装；否则展示可复制的 `apt` 命令，装完点「重新检测」。
+- 缺镜像：自动跑 `images/agent-qemu/build.sh`（浏览器能力还会构建 browser 镜像）。
+
+也可仍手动执行：
+
+```bash
+make agent-image
+# 或 ./images/agent-qemu/build.sh
+```
+
 ## 构建默认镜像
 
 ```bash
