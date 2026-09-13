@@ -602,7 +602,7 @@ git commit -m "feat(tools): add WebFetch fetch and markdown pipeline"
 - Modify: `internal/acp/sysagent/tools/web.go`（替换 Task 2 的 `extract` 占位实现）
 - Test: `internal/acp/sysagent/tools/web_test.go`（追加测试）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `internal/acp/sysagent/tools/web_test.go` 末尾追加，并在 import 块补上 `"errors"`：
 
@@ -668,12 +668,12 @@ func TestWebFetchModelErrorPropagates(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `go test ./internal/acp/sysagent/tools/ -run 'TestWebFetchUsesModel|TestWebFetchWithoutPromptSkipsModel|TestWebFetchTruncatesModelInput|TestWebFetchModelError' -count=1`
 Expected: FAIL（`extraction is not configured`，模型未被调用）
 
-- [ ] **Step 3: 实现 extract**
+- [x] **Step 3: 实现 extract**
 
 把 `internal/acp/sysagent/tools/web.go` 中的占位实现替换为：
 
@@ -701,12 +701,12 @@ func (b *WebBinder) extract(ctx context.Context, prompt, content string) (string
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `go test ./internal/acp/sysagent/tools/ -count=1`
 Expected: 全部 PASS（含 Task 1、2 的测试）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add internal/acp/sysagent/tools/web.go internal/acp/sysagent/tools/web_test.go
@@ -714,6 +714,9 @@ git commit -m "feat(tools): extract WebFetch pages via model prompt"
 ```
 
 ---
+
+
+> 评审补充（已实现）：`truncateRunes` 的截断边界改为按 rune 起点判断——原实现用整段前缀合法性，遇到非法 UTF-8 字节会把输出塌缩到该字节（150KB → 6B）。新增 `truncate_test.go`；`web_test.go` 追加空模型输出、32KB 输出上限与空 system prompt 断言。
 
 ### Task 4: WebSearch（Tavily）
 
