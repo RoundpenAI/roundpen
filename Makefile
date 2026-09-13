@@ -56,7 +56,7 @@ test-integration:
 test-e2e:
 	go test ./tests/integration/ -run TestE2E_CodingAgentWorkflow -count=1 -v
 
-# Console UI smoke (Playwright + uismoke-api RFB). First run: cd web && npx playwright install chromium
+# Console UI smoke (Playwright + uismoke-api). First run: cd web && npx playwright install chromium
 test-ui:
 	cd web && npm run test:e2e
 
