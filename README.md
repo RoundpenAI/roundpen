@@ -54,10 +54,10 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 
 ## 快速开始
 
-见下文 Docker Compose / `make dev`。Browser 环境是一个 Docker 容器（browserless/chrome），首次使用自动 pull；引擎的 Playwright driver 首次使用自动安装：
+见下文 Docker Compose / `make dev`。Browser 环境是一个 Docker 容器（browserless/chrome），首次使用自动 pull；引擎的 Playwright driver 已烘焙在官方镜像内（`/opt/playwright`），首次使用无需下载：
 
 ```bash
-make browser-driver   # 可选：预装 Playwright driver（只装 driver，不下载浏览器）
+make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver（只装 driver，不下载浏览器）
 ```
 
 环境变量示例见 `.env.example`（`ROUNDPEN_CDP_PROVIDER`、`ROUNDPEN_BROWSER_IMAGE`）。
@@ -81,7 +81,7 @@ docker compose up -d --build
 # 首次启动：docker compose logs roundpend | head   # admin 密码与 API Key 各打印一次
 ```
 
-Browser 槽位需要 Docker，首次使用会拉取 `ghcr.io/browserless/chrome:v2.56.7`（可用 `ROUNDPEN_BROWSER_IMAGE` 覆盖）；开发机首次跑引擎会自动安装 Playwright driver（`make browser-driver`）。来源可切到局域网 / 商业云 browserless 或本机 Chrome，见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。
+Browser 槽位需要 Docker，首次使用会拉取 `ghcr.io/browserless/chrome:v2.56.7`（可用 `ROUNDPEN_BROWSER_IMAGE` 覆盖）；官方镜像已内置 Playwright driver，裸机 / 开发机首次跑引擎会自动安装（`make browser-driver`）。来源可切到局域网 / 商业云 browserless 或本机 Chrome，见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。
 
 ### 安装面（Agent 镜像）
 

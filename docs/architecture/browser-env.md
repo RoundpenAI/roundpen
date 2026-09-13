@@ -62,7 +62,7 @@ driver 只装 driver、不下载浏览器（浏览器在 Browser env 容器里�
 make browser-driver            # = go run ./cmd/browserdriver
 ```
 
-首次使用引擎时也会自动安装（幂等，约几十 MB；从 npm / Node 分发源下载，离线或内网部署建议预置 driver 目录）。相关变量：
+官方镜像（`deploy/Dockerfile`）已把 driver 烘焙进 `/opt/playwright`（`PLAYWRIGHT_DRIVER_PATH=/opt/playwright`，运行时用镜像内 alpine `nodejs`），离线 / 内网部署开箱即用；裸机 / 开发环境首次跑引擎仍会自动安装（幂等，约几十 MB；从 npm / Node 分发源下载），也可用上面的 `make browser-driver` 显式安装。相关变量：
 
 | 变量 | 含义 |
 |------|------|
@@ -70,7 +70,7 @@ make browser-driver            # = go run ./cmd/browserdriver
 | `PLAYWRIGHT_NODEJS_PATH` | 复用系统 Node，跳过 driver 附带 Node 的下载（无预编译 Node 的平台必需） |
 | `PLAYWRIGHT_GO_NPM_REGISTRY` | 下载 playwright-core 用的 npm 镜像（内网 / 镜像构建） |
 
-镜像构建时可先跑 `go run ./cmd/browserdriver` 把 driver 烘焙进镜像（配 `PLAYWRIGHT_DRIVER_PATH=/opt/playwright` 等），运行时用同一组环境变量复用；仓库自带的 `deploy/Dockerfile` 目前没有预置 driver，容器内首次使用会走上面的自动安装（需要可访问下载源，或提前预置目录）。
+自建镜像可仿照 `deploy/Dockerfile` 在构建阶段跑 `go run ./cmd/browserdriver`（配 `PLAYWRIGHT_DRIVER_PATH=/opt/playwright` 与 `PLAYWRIGHT_NODEJS_PATH`），运行时用同一组环境变量复用。
 
 ## 实时视图（替代 VNC 桌面）
 
