@@ -71,6 +71,7 @@ func TestHubTakeover(t *testing.T) {
 
 func TestHubDockerDialsGivenSandbox(t *testing.T) {
 	h := NewHub(t.TempDir(), nil)
+	t.Cleanup(h.Close)
 	h.SetConfig(&config.Config{
 		Backend: "docker",
 		CDP:     config.CDPConfig{Provider: config.CDPProviderDocker, Port: 9222},

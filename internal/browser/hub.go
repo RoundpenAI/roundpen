@@ -41,7 +41,8 @@ type Session struct {
 	release   func()
 }
 
-// NewHub returns a session hub. dataDir holds Chrome user-data dirs for host provider.
+// NewHub returns a session hub. dataDir holds per-session scratch dirs for the
+// injected test engine; production providers keep their state elsewhere.
 func NewHub(dataDir string, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.Default()
@@ -65,6 +66,8 @@ func (h *Hub) SetConfig(cfg *config.Config) {
 }
 
 // SetTokenLookup supplies sandbox metadata lookup for the browserless token.
+// The callback runs outside the hub lock, so it is safe for it to touch
+// sandbox or hub state.
 func (h *Hub) SetTokenLookup(f func(sandboxID string) string) {
 	if h == nil {
 		return
@@ -386,7 +389,6 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		}
 		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height, release: stop}, nil
 	default:
-		_ = ctx
 		return nil, fmt.Errorf("unknown cdp provider %q", provider)
 	}
 }
