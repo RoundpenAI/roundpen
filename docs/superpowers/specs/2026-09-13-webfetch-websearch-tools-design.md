@@ -84,6 +84,7 @@ Include the sources above in your response as markdown links.
 ### 5. 配置与接线
 
 - `internal/config`：新增 `WebToolsConfig{SearchEndpoint, SearchAPIKey}`，环境变量 `ROUNDPEN_WEB_SEARCH_ENDPOINT`（默认 `https://api.tavily.com`）、`ROUNDPEN_WEB_SEARCH_API_KEY`。二者任一显式设置即启用（支持无 Key 的内网 Tavily 兼容代理，此时不带 `Authorization` 头）；都未设置则不注册 `WebSearch`。注意：搜索 endpoint 与 WebFetch 共用同一出站防护 client，**环回地址（127.0.0.1）恒被拨号守卫拒绝**——同机 sidecar 需绑定内网地址而非 localhost。
+- 后续迭代（`2026-09-13-websearch-settings-design.md`）已把配置迁到设置页（管理员「Web 工具」区块），env 仅作首次 Bootstrap 的初始值。
 - `manager.SysDeps` 增加 `WebSearchEndpoint` / `WebSearchAPIKey` 两个字符串字段（避免 manager 依赖 config 包），`cmd/roundpend/main.go` 从 `WebToolsConfig` 传入。启用状态在 daemon 启动时打一条 info 日志（endpoint + 是否带 Key），便于发现"只配了一半"的部署（如只设 endpoint 导致请求无鉴权）。
 - tools 包不能 import sysagent（sysagent 已 import tools），因此 `ModelRunner` 接口定义在 tools 包：
 
