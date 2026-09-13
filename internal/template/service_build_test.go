@@ -45,7 +45,7 @@ func TestService_StartBuild_requiresBuilder(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = svc.StartBuild(ctx, created.TemplateID, created.BuildID, BuildSpec{FromImage: "alpine:3.20"}, CreateBuildRequest{})
-	if err == nil || err.Error() != "template builds are not configured (set ROUNDPEN_TEMPLATE_BUILDER=docker|kaniko)" {
+	if err == nil || err.Error() != "template builds are not configured (set ROUNDPEN_TEMPLATE_BUILDER=docker|ci)" {
 		t.Fatalf("StartBuild err=%v", err)
 	}
 }

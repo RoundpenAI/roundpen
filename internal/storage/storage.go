@@ -86,17 +86,47 @@ func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
 	if meta == nil {
 		meta = []byte("{}")
 	}
-	_, err = s.db.SQL.ExecContext(ctx, `
+	// Stable-id sandboxes (the agent slot) are deleted and recreated with the
+	// same id; revive a soft-deleted row instead of failing on the primary key.
+	res, err := s.db.SQL.ExecContext(ctx, `
 		INSERT INTO sandboxes (
 			id, container_id, image, status, workspace_id, workspace_path,
 			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at,
 			name, category, is_default, cpu_count, memory_mb, disk_size_mb, template_build_id, owner
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+		ON CONFLICT (id) DO UPDATE SET
+			container_id=EXCLUDED.container_id,
+			image=EXCLUDED.image,
+			status=EXCLUDED.status,
+			workspace_id=EXCLUDED.workspace_id,
+			workspace_path=EXCLUDED.workspace_path,
+			metadata=EXCLUDED.metadata,
+			ttl_seconds=EXCLUDED.ttl_seconds,
+			expires_at=EXCLUDED.expires_at,
+			last_active_at=EXCLUDED.last_active_at,
+			created_at=EXCLUDED.created_at,
+			updated_at=EXCLUDED.updated_at,
+			name=EXCLUDED.name,
+			category=EXCLUDED.category,
+			is_default=EXCLUDED.is_default,
+			cpu_count=EXCLUDED.cpu_count,
+			memory_mb=EXCLUDED.memory_mb,
+			disk_size_mb=EXCLUDED.disk_size_mb,
+			template_build_id=EXCLUDED.template_build_id,
+			owner=EXCLUDED.owner,
+			deleted_at=NULL
+		WHERE sandboxes.deleted_at IS NOT NULL`,
 		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
 		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.CreatedAt, sb.UpdatedAt,
 		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild, sb.Owner,
 	)
-	return mapUniqueViolation(err)
+	if err != nil {
+		return mapUniqueViolation(err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sandbox.ErrConflict
+	}
+	return nil
 }
 
 // Update writes mutable fields.

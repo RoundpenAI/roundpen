@@ -135,6 +135,11 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		cfg.Cmd = []string{"sleep", "infinity"}
 	}
 
+	// Capabilities are dropped, so root cannot write a foreign-owned mount:
+	// the manager asks for the workspace owner identity instead (see
+	// CreateOpts.User) to keep host-side and in-container ownership aligned.
+	cfg.User = opts.User
+
 	name := containerName(opts.SandboxID)
 	resp, err := b.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, name)
 	if err != nil {
@@ -240,10 +245,18 @@ func (b *Backend) Exec(ctx context.Context, sandboxID string, opts backend.ExecO
 		return nil, fmt.Errorf("exec attach: %w", err)
 	}
 	defer attach.Close()
+	// The hijacked connection is not tied to execCtx; close it on cancellation
+	// so a stopped command stops blocking StdCopy. The in-container process
+	// keeps running — the exec API cannot signal it.
+	stopOnCancel := context.AfterFunc(execCtx, func() { attach.Close() })
+	defer stopOnCancel()
 
 	var stdout, stderr strings.Builder
 	_, err = stdcopy.StdCopy(&stdout, &stderr, attach.Reader)
-	if err != nil && execCtx.Err() == nil {
+	if err != nil {
+		if execCtx.Err() != nil {
+			return nil, fmt.Errorf("exec canceled: %w", execCtx.Err())
+		}
 		return nil, fmt.Errorf("exec copy: %w", err)
 	}
 

@@ -3,6 +3,7 @@ package sandbox_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -68,6 +69,7 @@ func (m *memStore) Insert(_ context.Context, sb *sandbox.Sandbox) error {
 		}
 	}
 	m.byID[sb.ID] = m.clone(sb)
+	delete(m.deleted, sb.ID)
 	return nil
 }
 
@@ -574,6 +576,54 @@ func TestService_OwnerIsolation(t *testing.T) {
 	}
 	if _, err := svc.Create(context.Background(), sandbox.CreateRequest{}); !errors.Is(err, sandbox.ErrUnauthorized) {
 		t.Fatalf("no actor: %v", err)
+	}
+}
+
+func TestService_RunsPersistentWorkspaceAsOwner(t *testing.T) {
+	be := newStubBackend("docker")
+	svc, _, _ := newTestService(t, be)
+	ctx := adminCtx()
+
+	persistent, err := svc.Create(ctx, sandbox.CreateRequest{Name: "agent", WorkspaceID: "user-admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ephemeral, err := svc.Create(ctx, sandbox.CreateRequest{Name: "scratch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	want := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	if got := be.created[persistent.ID].User; got != want {
+		t.Fatalf("persistent workspace user = %q, want %q", got, want)
+	}
+	if got := be.created[ephemeral.ID].User; got != "" {
+		t.Fatalf("ephemeral workspace user = %q, want empty", got)
+	}
+}
+
+func TestService_RecreateDeletedStableID(t *testing.T) {
+	be := newStubBackend("docker")
+	svc, _, _ := newTestService(t, be)
+	ctx := adminCtx()
+
+	req := sandbox.CreateRequest{ID: "admin", Name: "agent-admin", WorkspaceID: "user-admin"}
+	sb, err := svc.Create(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, sb.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := svc.Create(ctx, req)
+	if err != nil {
+		t.Fatalf("recreate after delete: %v", err)
+	}
+	if again.ID != "admin" || again.Status != sandbox.StatusRunning {
+		t.Fatalf("got %#v", again)
 	}
 }
 
