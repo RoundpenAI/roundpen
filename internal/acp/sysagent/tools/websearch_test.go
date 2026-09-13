@@ -168,3 +168,66 @@ func TestWebSearchReportsHTTPError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestWebSearchTransportErrorHidesEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Close() // 关闭监听后请求必然传输失败
+	reg := newSearchRegistry(t, srv.URL, "k")
+	_, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"})
+	if err == nil || !strings.Contains(err.Error(), "web search failed") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(err.Error(), srv.URL) {
+		t.Fatalf("error must not echo the endpoint URL: %v", err)
+	}
+}
+
+func TestWebSearchRejectsOversizeBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", (10<<20)+1)))
+	}))
+	defer srv.Close()
+	reg := newSearchRegistry(t, srv.URL, "k")
+	_, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"})
+	if err == nil || !strings.Contains(err.Error(), "10MB") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWebSearchKeepsSourcesReminderAfterTruncation(t *testing.T) {
+	big := strings.Repeat("s", 5000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		results := make([]map[string]any, 0, 20)
+		for i := 0; i < 20; i++ {
+			results = append(results, map[string]any{
+				"title": "T", "url": "https://example.com/x", "content": big,
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": results})
+	}))
+	defer srv.Close()
+	reg := newSearchRegistry(t, srv.URL, "k")
+	out, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"})
+	if err != nil {
+		t.Fatalf("WebSearch: %v", err)
+	}
+	if !strings.HasSuffix(out, "Include the sources above in your response as markdown links.") {
+		t.Fatalf("sources reminder lost after truncation, tail = %q", out[len(out)-60:])
+	}
+}
+
+func TestWebSearchOmitsAuthHeaderWithoutKey(t *testing.T) {
+	authSet := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, authSet = r.Header["Authorization"]
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{}})
+	}))
+	defer srv.Close()
+	reg := newSearchRegistry(t, srv.URL, "")
+	if _, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"}); err != nil {
+		t.Fatalf("WebSearch: %v", err)
+	}
+	if authSet {
+		t.Fatal("Authorization header must be absent when no API key is configured")
+	}
+}

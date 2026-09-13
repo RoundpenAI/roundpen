@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -117,6 +119,10 @@ func (b *WebSearchBinder) search(ctx context.Context, query string, allowed, blo
 	}
 	resp, err := b.HTTP.Do(req)
 	if err != nil {
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err
+		}
 		return "", fmt.Errorf("web search failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -128,10 +134,17 @@ func (b *WebSearchBinder) search(ctx context.Context, query string, allowed, blo
 		}
 		return "", fmt.Errorf("web search failed: HTTP %d: %s", resp.StatusCode, truncateRunes(msg, 500))
 	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxWebBodyBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("web search failed: %w", err)
+	}
+	if len(body) > maxWebBodyBytes {
+		return "", fmt.Errorf("web search failed: response exceeds 10MB")
+	}
 	var out struct {
 		Results []tavilyHit `json:"results"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxWebBodyBytes)).Decode(&out); err != nil {
+	if err := json.Unmarshal(body, &out); err != nil {
 		return "", fmt.Errorf("web search failed: %w", err)
 	}
 	return formatWebSearchResults(query, out.Results), nil
@@ -141,16 +154,17 @@ func formatWebSearchResults(query string, hits []tavilyHit) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Web search results for query: %q\n\n", query)
 	if len(hits) == 0 {
-		sb.WriteString("No search results found.")
-		return sb.String()
+		return sb.String() + "No search results found."
 	}
 	for _, h := range hits {
-		fmt.Fprintf(&sb, "- [%s](%s)", strings.TrimSpace(h.Title), strings.TrimSpace(h.URL))
+		fmt.Fprintf(&sb, "- [%s](%s)",
+			strings.Join(strings.Fields(h.Title), " "),
+			strings.Join(strings.Fields(h.URL), " "))
 		if snippet := strings.Join(strings.Fields(h.Content), " "); snippet != "" {
 			fmt.Fprintf(&sb, ": %s", snippet)
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\nInclude the sources above in your response as markdown links.")
-	return truncateRunes(sb.String(), maxWebResult)
+	// 提醒放在截断之外：结果很长时引用来源的指令不能被挤掉。
+	return truncateRunes(sb.String(), maxWebResult) + "\nInclude the sources above in your response as markdown links."
 }
