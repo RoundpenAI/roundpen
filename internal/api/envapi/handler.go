@@ -275,7 +275,8 @@ func (h *Handler) proxyLiveWS(w http.ResponseWriter, r *http.Request, conn net.C
 	req.URL.Path = upstreamPath
 	req.URL.RawQuery = q.Encode()
 	req.RequestURI = ""
-	req.Header.Set("Host", "127.0.0.1")
+	// Request.Write ignores the Host header; the field is what goes on the wire.
+	req.Host = "127.0.0.1"
 	if err := req.Write(conn); err != nil {
 		_ = conn.Close()
 		_ = client.Close()
