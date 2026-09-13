@@ -1,7 +1,7 @@
 # 设计：System Agent WebFetch / WebSearch 工具
 
 > 日期：2026-09-13
-> 状态：待评审
+> 状态：已评审待实施
 > 范围：`internal/acp/sysagent/tools`（新增 web 工具）/ `internal/acp/manager`（接线）/ `internal/config`（Tavily 配置）/ 系统提示与文档
 
 ## 背景与目标
@@ -137,7 +137,7 @@ type ModelRunner interface {
 ## 依赖与前置
 
 - 新依赖：`github.com/JohannesKaufmann/html-to-markdown`（v1.6.0，`goproxy.cn` 可拉取，已实测）。
-- 端到端验证需要 `ROUNDPEN_WEB_SEARCH_API_KEY`（Tavily）；单测用 stub，不依赖 Key。
+- 端到端验证需要 `ROUNDPEN_WEB_SEARCH_API_KEY`（Tavily）；单测用 stub，不依赖 Key。Key 仅经环境变量注入，不入库、不进提交。
 - 二次模型调用复用 llmgw（`ROUNDPEN_LLMGW_*` 已配置）。
 
 ## 风险与边界
