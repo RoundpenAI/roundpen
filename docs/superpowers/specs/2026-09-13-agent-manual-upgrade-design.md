@@ -50,7 +50,8 @@ Body（可选）: {"force": false}
 |------|------|--------|
 | force=false，digest 未变化 | 不重建 | `up_to_date` |
 | force=false，digest 变化 | 删旧容器 → 重建 | `upgraded` |
-| force=true | 不比对，直接重建 | `restarted` |
+| force=true，digest 变化 | 不比对，直接重建 | `upgraded` |
+| force=true，digest 未变化 | 不比对，直接重建 | `restarted` |
 | agent 沙盒不存在 | 直接创建（等价 ensure） | `created` |
 
 约定：
