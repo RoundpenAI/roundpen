@@ -30,9 +30,9 @@ type chatMessage struct {
 }
 
 type toolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
-	Function toolCallFn   `json:"function"`
+	ID       string     `json:"id"`
+	Type     string     `json:"type"`
+	Function toolCallFn `json:"function"`
 }
 
 type toolCallFn struct {
