@@ -329,6 +329,9 @@ func main() {
 		BrowserSlots: envSvc,
 		AgentSlots:   envSvc,
 		History:      agentStore,
+
+		WebSearchEndpoint: cfg.WebTools.SearchEndpoint,
+		WebSearchAPIKey:   cfg.WebTools.SearchAPIKey,
 	})
 	provisioner := &agentenv.Provisioner{
 		Sandboxes: mgr,

@@ -35,7 +35,11 @@ type SysDeps struct {
 	BrowserHub   *browser.Hub
 	BrowserSlots tools.BrowserSlot
 	AgentSlots   tools.AgentSlot
-	History      sysagent.MessageSource
+
+	WebSearchEndpoint string // Tavily 兼容搜索 endpoint（空 = 默认 https://api.tavily.com）
+	WebSearchAPIKey   string // 二者任一非空即注册 WebSearch 工具
+
+	History sysagent.MessageSource
 }
 
 // Runtime is a live ACP connection for one agent session.
@@ -129,6 +133,11 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	case "sysadmin", "mock", "":
 		c2aR, c2aW := io.Pipe()
 		a2cR, a2cW := io.Pipe()
+		llmCfg := sysagent.LLMConfig{
+			BaseURL:      strings.TrimRight(m.sys.LoopbackBase, "/") + "/llmgw/openai",
+			APIKey:       m.sys.LLMKey,
+			DefaultModel: m.sys.DefaultModel,
+		}
 		reg := tools.NewRegistry()
 		tools.RegisterRoundpen(reg, &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase})
 		tools.RegisterBrowser(reg, &tools.BrowserBinder{
@@ -144,12 +153,15 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		tools.RegisterShell(reg, binder)
 		tools.RegisterFiles(reg, binder)
 		tools.RegisterSearch(reg, binder)
+		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{})
+		tools.RegisterWebFetch(reg, &tools.WebBinder{HTTP: webClient, Model: llmCfg})
+		tools.RegisterWebSearch(reg, &tools.WebSearchBinder{
+			Endpoint: m.sys.WebSearchEndpoint,
+			APIKey:   m.sys.WebSearchAPIKey,
+			HTTP:     webClient,
+		})
 		agent := sysagent.New(sysagent.Deps{
-			LLM: sysagent.LLMConfig{
-				BaseURL:      strings.TrimRight(m.sys.LoopbackBase, "/") + "/llmgw/openai",
-				APIKey:       m.sys.LLMKey,
-				DefaultModel: m.sys.DefaultModel,
-			},
+			LLM:       llmCfg,
 			Tools:     reg,
 			Actor:     opts.Actor,
 			History:   m.sys.History,
