@@ -3,7 +3,9 @@ package userenv
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -420,6 +422,18 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 	if engine != "" {
 		meta["engine"] = engine
 	}
+	if slot == SlotBrowser {
+		token, err := randomToken()
+		if err != nil {
+			return nil, err
+		}
+		env["TOKEN"] = token
+		env["MAX_CONCURRENT_SESSIONS"] = "3"
+		env["CONNECTION_TIMEOUT"] = "600000"
+		env["ENABLE_DEBUGGER"] = "true"
+		env["DEFAULT_LAUNCH_ARGS"] = `["--window-size=1280,800","--hide-scrollbars","--mute-audio","--disable-dev-shm-usage"]`
+		meta["browserToken"] = token
+	}
 	create := sandbox.CreateRequest{
 		TemplateID: templateID,
 		Name:       name,
@@ -434,6 +448,15 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 		create.WorkspaceID = workspace.UserWorkspaceID(userID)
 	}
 	return s.Sandboxes.Create(ctx, create)
+}
+
+// randomToken returns a 32-char hex token for the browserless container.
+func randomToken() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 func slotSandboxName(slot, userID string) string {

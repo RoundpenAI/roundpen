@@ -195,6 +195,13 @@ func main() {
 	mgr = sbSvc
 	logger.Info("using multi backend", slog.String("default_agent_engine", cfg.Backend))
 	browserHub.SetDialer(sbSvc)
+	browserHub.SetTokenLookup(func(sandboxID string) string {
+		sb, err := sbSvc.Get(context.Background(), sandboxID)
+		if err != nil || sb == nil || sb.Metadata == nil {
+			return ""
+		}
+		return sb.Metadata["browserToken"]
+	})
 
 	mux := http.NewServeMux()
 	auth.Mount(mux, userStore, sessionStore, allowRegistration)

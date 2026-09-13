@@ -3,6 +3,7 @@ package userenv
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/RoundpenAI/roundpen/internal/config"
@@ -92,6 +93,38 @@ func TestEnsureBrowserManagedProvider(t *testing.T) {
 	}
 	if target.Provider != config.CDPProviderDocker {
 		t.Fatalf("provider = %q", target.Provider)
+	}
+}
+
+func TestBrowserSlotEnvCarriesTokenAndLaunchArgs(t *testing.T) {
+	ctx := context.Background()
+	boxes := &fakeSandboxes{}
+	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}
+	svc.Cfg = &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderDocker}}
+
+	target, err := svc.EnsureBrowser(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := boxes.lastCreate.Env
+	token := env["TOKEN"]
+	if len(token) != 32 {
+		t.Fatalf("TOKEN = %q (len %d), want 32 hex chars", token, len(token))
+	}
+	if env["MAX_CONCURRENT_SESSIONS"] != "3" {
+		t.Fatalf("MAX_CONCURRENT_SESSIONS = %q", env["MAX_CONCURRENT_SESSIONS"])
+	}
+	if env["CONNECTION_TIMEOUT"] != "600000" {
+		t.Fatalf("CONNECTION_TIMEOUT = %q", env["CONNECTION_TIMEOUT"])
+	}
+	if env["ENABLE_DEBUGGER"] != "true" {
+		t.Fatalf("ENABLE_DEBUGGER = %q", env["ENABLE_DEBUGGER"])
+	}
+	if !strings.Contains(env["DEFAULT_LAUNCH_ARGS"], "--disable-dev-shm-usage") {
+		t.Fatalf("DEFAULT_LAUNCH_ARGS = %q", env["DEFAULT_LAUNCH_ARGS"])
+	}
+	if target.Sandbox.Metadata["browserToken"] != token {
+		t.Fatalf("metadata token = %q, want %q", target.Sandbox.Metadata["browserToken"], token)
 	}
 }
 

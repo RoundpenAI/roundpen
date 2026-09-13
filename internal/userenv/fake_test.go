@@ -76,6 +76,7 @@ type fakeSandboxes struct {
 	byID       map[string]*sandbox.Sandbox
 	connectErr error
 	creates    int
+	lastCreate sandbox.CreateRequest
 }
 
 func (f *fakeSandboxes) put(sb *sandbox.Sandbox) {
@@ -112,6 +113,7 @@ func (f *fakeSandboxes) Create(_ context.Context, req sandbox.CreateRequest) (*s
 			return nil, fmt.Errorf("%w: sandbox name already exists", sandbox.ErrConflict)
 		}
 	}
+	f.lastCreate = req
 	f.creates++
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
