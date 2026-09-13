@@ -88,6 +88,23 @@ func TestHubDockerDialsGivenSandbox(t *testing.T) {
 	}
 }
 
+func TestHubBrowserTokenUsesLookup(t *testing.T) {
+	h := NewHub(t.TempDir(), nil)
+	h.SetTokenLookup(func(id string) string {
+		if id != "sb-1" {
+			t.Fatalf("lookup id = %q", id)
+		}
+		return "tok-1"
+	})
+	if got := h.browserToken("sb-1"); got != "tok-1" {
+		t.Fatalf("browserToken = %q, want tok-1", got)
+	}
+	h2 := NewHub(t.TempDir(), nil)
+	if got := h2.browserToken("sb-1"); got != "" {
+		t.Fatalf("empty lookup should yield empty token, got %q", got)
+	}
+}
+
 func TestCDPRetryable(t *testing.T) {
 	if !cdpRetryable(fmt.Errorf("env cdp (nothing listening on guest :9222): cdp attach: connection reset by peer")) {
 		t.Fatal("guest reset should retry")

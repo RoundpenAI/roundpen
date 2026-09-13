@@ -74,13 +74,19 @@ func (h *Hub) SetTokenLookup(f func(sandboxID string) string) {
 	h.mu.Unlock()
 }
 
-// browserTokenLocked returns the browserless token for a sandbox. Callers must
-// hold h.mu.
-func (h *Hub) browserTokenLocked(sandboxID string) string {
-	if h.tokenLookup == nil {
+// browserToken returns the browserless token stored for a sandbox; the lookup
+// runs outside h.mu so it cannot deadlock against other Hub methods.
+func (h *Hub) browserToken(sandboxID string) string {
+	if h == nil {
 		return ""
 	}
-	return h.tokenLookup(sandboxID)
+	h.mu.Lock()
+	lookup := h.tokenLookup
+	h.mu.Unlock()
+	if lookup == nil {
+		return ""
+	}
+	return lookup(sandboxID)
 }
 
 // SetDialer supplies sandbox port dialing for the docker provider.
@@ -296,8 +302,12 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 	cfg := h.cfg
 	dial := h.dial
 	driver := h.driver
-	token := h.browserTokenLocked(id)
 	h.mu.Unlock()
+
+	token := h.browserToken(id)
+	if driver == nil {
+		driver = &pwDriver{}
+	}
 
 	width, height := 1280, 800
 	provider := config.ResolveCDPProvider(cfg, ChromeOnPATH())
@@ -307,8 +317,9 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 	case config.CDPProviderHost:
 		if cfg != nil && strings.TrimSpace(cfg.CDP.Endpoint) != "" {
 			att.Endpoint = cfg.CDP.Endpoint
-			att.Token = cfg.CDP.Token
-			if att.Token == "" {
+			if cfg != nil && cfg.CDP.Token != "" {
+				att.Token = cfg.CDP.Token
+			} else {
 				att.Token = token
 			}
 			eng, err := newPlaywrightEngine(driver, att)
@@ -336,6 +347,8 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		att.Endpoint = endpoint
 		if cfg != nil && cfg.CDP.Token != "" {
 			att.Token = cfg.CDP.Token
+		} else {
+			att.Token = token
 		}
 		eng, err := newPlaywrightEngine(driver, att)
 		if err != nil {
