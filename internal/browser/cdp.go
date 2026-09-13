@@ -19,8 +19,8 @@ import (
 var candidateWSPaths = []string{"/chrome", "/chromium", "/"}
 
 func candidatePaths(endpointPath string) []string {
-	p := strings.TrimSpace(endpointPath)
-	if p == "" || p == "/" {
+	p := strings.TrimRight(strings.TrimSpace(endpointPath), "/")
+	if p == "" {
 		return append([]string(nil), candidateWSPaths...)
 	}
 	return []string{p}

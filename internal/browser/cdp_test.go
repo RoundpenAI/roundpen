@@ -1,7 +1,10 @@
 // internal/browser/cdp_test.go
 package browser
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestCandidatePaths(t *testing.T) {
 	cases := []struct {
@@ -23,6 +26,43 @@ func TestCandidatePaths(t *testing.T) {
 			if got[i] != c.want[i] {
 				t.Fatalf("candidatePaths(%q) = %v, want %v", c.in, got, c.want)
 			}
+		}
+	}
+}
+
+func TestCandidatePathsTrailingSlash(t *testing.T) {
+	if got, want := candidatePaths("/chrome/"), []string{"/chrome"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("candidatePaths(%q) = %v, want %v", "/chrome/", got, want)
+	}
+	want := []string{"/chrome", "/chromium", "/"}
+	if got := candidatePaths("/"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("candidatePaths(%q) = %v, want %v", "/", got, want)
+	}
+}
+
+func TestBuildWSURLPathWithoutLeadingSlash(t *testing.T) {
+	got, err := buildWSURL("http://h:3000", "chrome", "")
+	if err != nil {
+		t.Fatalf("buildWSURL: %v", err)
+	}
+	if want := "ws://h:3000/chrome"; got != want {
+		t.Fatalf("buildWSURL = %q, want %q", got, want)
+	}
+}
+
+func TestBuildWSURLErrors(t *testing.T) {
+	cases := []struct {
+		endpoint string
+		path     string
+		token    string
+	}{
+		{"ftp://h/x", "/chrome", ""},
+		{"http://", "/chrome", ""},
+		{"not a url", "/chrome", ""},
+	}
+	for _, c := range cases {
+		if got, err := buildWSURL(c.endpoint, c.path, c.token); err == nil {
+			t.Fatalf("buildWSURL(%q, %q, %q) = %q, want error", c.endpoint, c.path, c.token, got)
 		}
 	}
 }

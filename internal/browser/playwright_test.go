@@ -3,6 +3,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -25,6 +26,13 @@ func TestPlaywrightEngineAgainstRealBrowser(t *testing.T) {
 	defer eng.Close()
 
 	ctx := context.Background()
+	probe, err := ProbeCDP(ctx, endpoint, "")
+	if err != nil || probe.Path == "" {
+		t.Fatalf("probe %s: %+v, %v", endpoint, probe, err)
+	}
+	if probe.Version == "" {
+		t.Log("endpoint has no /meta version (plain Chrome CDP endpoint)")
+	}
 	if err := eng.SetViewport(ctx, 1024, 768); err != nil {
 		t.Fatalf("set viewport: %v", err)
 	}
@@ -37,6 +45,9 @@ func TestPlaywrightEngineAgainstRealBrowser(t *testing.T) {
 	snap, err := eng.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("snapshot: %v", err)
+	}
+	if snap.Width != 1024 || snap.Height != 768 {
+		t.Fatalf("snapshot viewport = %dx%d, want 1024x768", snap.Width, snap.Height)
 	}
 	var inputRef, buttonRef string
 	for _, n := range snap.Nodes {
@@ -52,6 +63,20 @@ func TestPlaywrightEngineAgainstRealBrowser(t *testing.T) {
 	}
 	if err := eng.Type(ctx, inputRef, "hello", false); err != nil {
 		t.Fatalf("type: %v", err)
+	}
+	v, err := eng.Evaluate(ctx, "document.querySelector('input').value")
+	if err != nil {
+		t.Fatalf("evaluate input value: %v", err)
+	}
+	var value string
+	if err := json.Unmarshal(v, &value); err != nil {
+		t.Fatalf("unmarshal input value %s: %v", v, err)
+	}
+	if value != "hello" {
+		t.Fatalf("input value = %q, want hello", value)
+	}
+	if err := eng.Type(ctx, inputRef, "x", true); err != nil {
+		t.Fatalf("type submit: %v", err)
 	}
 	if err := eng.Hover(ctx, buttonRef); err != nil {
 		t.Fatalf("hover: %v", err)

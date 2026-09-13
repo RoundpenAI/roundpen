@@ -12,7 +12,14 @@ import (
 	"github.com/mxschmitt/playwright-go"
 )
 
-const pwNavTimeout = 45 * time.Second
+const (
+	pwNavTimeout    = 45 * time.Second
+	pwActionTimeout = 5 * time.Second
+)
+
+// pwActionTimeoutMS is pwActionTimeout in the millisecond unit the Playwright
+// option fields expect.
+var pwActionTimeoutMS = float64(pwActionTimeout.Milliseconds())
 
 // pwDriver starts the Playwright driver process once per roundpend process.
 type pwDriver struct {
@@ -35,6 +42,7 @@ func (d *pwDriver) get() (*playwright.Playwright, error) {
 	return d.pw, d.err
 }
 
+// stop must run after every engine using this driver has been closed.
 func (d *pwDriver) stop() {
 	if d != nil && d.pw != nil {
 		_ = d.pw.Stop()
@@ -122,25 +130,32 @@ func newPlaywrightEngine(d *pwDriver, att pwAttach) (*PlaywrightEngine, error) {
 // cdpPathCache remembers the working ws path per endpoint origin.
 var cdpPathCache sync.Map // string -> string
 
-// connectCandidate connects over CDP, trying candidate paths in order.
+// connectCandidate connects over CDP, trying candidate paths in order. A
+// cached path is trusted first, but a failure evicts the entry and falls back
+// to the full sweep so a stale cache cannot poison the process for good.
 func connectCandidate(pw *playwright.Playwright, endpoint, token string) (playwright.Browser, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
 		return nil, fmt.Errorf("cdp endpoint is required")
 	}
-	paths := candidatePaths(endpointPathOf(endpoint))
-	if v, ok := cdpPathCache.Load(endpoint); ok {
-		paths = []string{v.(string)}
+	cacheKey := strings.TrimRight(endpoint, "/")
+	if v, ok := cdpPathCache.Load(cacheKey); ok {
+		if wsURL, err := buildWSURL(endpoint, v.(string), token); err == nil {
+			if b, err := pw.Chromium.ConnectOverCDP(wsURL); err == nil {
+				return b, nil
+			}
+		}
+		cdpPathCache.Delete(cacheKey) // stale: sweep the candidates again
 	}
 	var lastErr error
-	for _, p := range paths {
+	for _, p := range candidatePaths(endpointPathOf(endpoint)) {
 		wsURL, err := buildWSURL(endpoint, p, token)
 		if err != nil {
 			return nil, err
 		}
 		b, err := pw.Chromium.ConnectOverCDP(wsURL)
 		if err == nil {
-			cdpPathCache.Store(endpoint, p)
+			cdpPathCache.Store(cacheKey, p)
 			return b, nil
 		}
 		lastErr = err
@@ -164,10 +179,16 @@ func (e *PlaywrightEngine) Navigate(ctx context.Context, target string) error {
 	}); err != nil {
 		return err
 	}
+	e.noteURL()
+	return nil
+}
+
+// noteURL refreshes the cached page URL. Page.URL is driver-side state, so
+// this costs no round trip.
+func (e *PlaywrightEngine) noteURL() {
 	e.mu.Lock()
 	e.url = e.page.URL()
 	e.mu.Unlock()
-	return nil
 }
 
 func (e *PlaywrightEngine) URL() string {
@@ -210,30 +231,70 @@ func (e *PlaywrightEngine) locator(ref string) playwright.Locator {
 	return e.page.Locator(fmt.Sprintf(`[data-rp-ref=%q]`, ref))
 }
 
+// actionLocator resolves a snapshot ref, failing fast when it is unknown.
+func (e *PlaywrightEngine) actionLocator(ref string) (playwright.Locator, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, fmt.Errorf("ref is required")
+	}
+	loc := e.locator(ref)
+	n, err := loc.Count()
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, fmt.Errorf("%s: unknown ref", ref)
+	}
+	return loc, nil
+}
+
 func (e *PlaywrightEngine) Hover(ctx context.Context, ref string) error {
 	_ = ctx
-	return e.locator(ref).Hover()
+	loc, err := e.actionLocator(ref)
+	if err != nil {
+		return err
+	}
+	return loc.Hover(playwright.LocatorHoverOptions{Timeout: playwright.Float(pwActionTimeoutMS)})
 }
 
 func (e *PlaywrightEngine) Click(ctx context.Context, ref string) error {
 	_ = ctx
-	return e.locator(ref).Click()
+	loc, err := e.actionLocator(ref)
+	if err != nil {
+		return err
+	}
+	if err := loc.Click(playwright.LocatorClickOptions{Timeout: playwright.Float(pwActionTimeoutMS)}); err != nil {
+		return err
+	}
+	e.noteURL()
+	return nil
 }
 
 func (e *PlaywrightEngine) Type(ctx context.Context, ref, text string, submit bool) error {
 	_ = ctx
-	if err := e.locator(ref).Fill(text); err != nil {
+	loc, err := e.actionLocator(ref)
+	if err != nil {
+		return err
+	}
+	if err := loc.Fill(text, playwright.LocatorFillOptions{Timeout: playwright.Float(pwActionTimeoutMS)}); err != nil {
 		return err
 	}
 	if submit {
-		return e.locator(ref).Press("Enter")
+		if err := loc.Press("Enter", playwright.LocatorPressOptions{Timeout: playwright.Float(pwActionTimeoutMS)}); err != nil {
+			return err
+		}
 	}
+	e.noteURL()
 	return nil
 }
 
 func (e *PlaywrightEngine) Press(ctx context.Context, key string) error {
 	_ = ctx
-	return e.page.Keyboard().Press(key)
+	if err := e.page.Keyboard().Press(normalizeKey(key)); err != nil {
+		return err
+	}
+	e.noteURL()
+	return nil
 }
 
 func (e *PlaywrightEngine) Screenshot(ctx context.Context) ([]byte, error) {
@@ -243,6 +304,9 @@ func (e *PlaywrightEngine) Screenshot(ctx context.Context) ([]byte, error) {
 
 func (e *PlaywrightEngine) SetViewport(ctx context.Context, width, height int) error {
 	_ = ctx
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("invalid viewport %dx%d", width, height)
+	}
 	if err := e.page.SetViewportSize(width, height); err != nil {
 		return err
 	}
@@ -275,8 +339,13 @@ func (e *PlaywrightEngine) InputMove(ctx context.Context, x, y float64) error {
 	return e.page.Mouse().Move(x, y)
 }
 
+// InputWheel moves the pointer to (x,y) first: Playwright's Wheel has no
+// coordinates, so the wheel event lands wherever the pointer last was.
 func (e *PlaywrightEngine) InputWheel(ctx context.Context, x, y, deltaX, deltaY float64) error {
 	_ = ctx
+	if err := e.page.Mouse().Move(x, y); err != nil {
+		return err
+	}
 	return e.page.Mouse().Wheel(deltaX, deltaY)
 }
 
@@ -287,7 +356,7 @@ func (e *PlaywrightEngine) InputType(ctx context.Context, text string) error {
 
 func (e *PlaywrightEngine) InputKey(ctx context.Context, key string) error {
 	_ = ctx
-	return e.page.Keyboard().Press(key)
+	return e.page.Keyboard().Press(normalizeKey(key))
 }
 
 func (e *PlaywrightEngine) Close() error {
