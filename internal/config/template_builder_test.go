@@ -18,9 +18,9 @@ func TestResolveTemplateBuilder(t *testing.T) {
 			want: "docker",
 		},
 		{
-			name: "explicit kaniko",
-			cfg:  config.Config{TemplateBuilder: "kaniko", KanikoDestination: "reg/t"},
-			want: "kaniko",
+			name: "legacy kaniko maps to docker",
+			cfg:  config.Config{TemplateBuilder: "kaniko"},
+			want: "docker",
 		},
 		{
 			name: "explicit ci",
@@ -29,12 +29,12 @@ func TestResolveTemplateBuilder(t *testing.T) {
 		},
 		{
 			name: "disabled",
-			cfg:  config.Config{TemplateBuilder: "disabled", KanikoDestination: "reg/t"},
+			cfg:  config.Config{TemplateBuilder: "disabled"},
 			want: "",
 		},
 		{
-			name: "empty ignores destination",
-			cfg:  config.Config{Backend: "qemu", KanikoDestination: "reg/t"},
+			name: "empty disabled",
+			cfg:  config.Config{Backend: "qemu"},
 			want: "",
 		},
 		{
@@ -43,12 +43,12 @@ func TestResolveTemplateBuilder(t *testing.T) {
 			want: "docker",
 		},
 		{
-			name: "auto qemu with kaniko destination",
-			cfg:  config.Config{TemplateBuilder: "auto", Backend: "qemu", KanikoDestination: "reg/t"},
-			want: "kaniko",
+			name: "auto non-docker backend",
+			cfg:  config.Config{TemplateBuilder: "auto", Backend: "qemu"},
+			want: "",
 		},
 		{
-			name: "docker without kaniko",
+			name: "docker without builder",
 			cfg:  config.Config{Backend: "docker"},
 			want: "",
 		},

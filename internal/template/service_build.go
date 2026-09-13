@@ -65,7 +65,7 @@ func (s *Service) CreateBuild(ctx context.Context, templateID string, req Create
 // build ID is allocated automatically so prior versions stay intact.
 func (s *Service) StartBuild(ctx context.Context, templateID, buildID string, spec BuildSpec, opts CreateBuildRequest) (StartBuildResult, error) {
 	if s.builder == nil {
-		return StartBuildResult{}, fmt.Errorf("template builds are not configured (set ROUNDPEN_TEMPLATE_BUILDER=docker|kaniko)")
+		return StartBuildResult{}, fmt.Errorf("template builds are not configured (set ROUNDPEN_TEMPLATE_BUILDER=docker|ci)")
 	}
 	info, err := s.store.GetBuild(ctx, templateID, buildID)
 	if err != nil {

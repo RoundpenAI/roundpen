@@ -43,10 +43,3 @@ func TestWriteBuildContext(t *testing.T) {
 		t.Fatalf("dockerfile=%q", data)
 	}
 }
-
-func TestDirContextURI(t *testing.T) {
-	got := builder.DirContextURI("/tmp/ctx")
-	if got != "dir:///tmp/ctx" {
-		t.Fatalf("got %q", got)
-	}
-}

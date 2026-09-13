@@ -45,8 +45,7 @@ func TestBootstrapSeedsFromConfig(t *testing.T) {
 		DefaultTTL:              45 * time.Minute,
 		PreviewPublicURL:        "http://preview.test",
 		PreviewTokenTTL:         10 * time.Minute,
-		TemplateBuilder:         "kaniko",
-		KanikoDestination:       "registry.test/tpl",
+		TemplateBuilder:         "docker",
 	}
 
 	got, err := settings.Bootstrap(ctx, store, cfg)

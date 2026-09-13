@@ -33,12 +33,6 @@ const emptySettings: AppSettings = {
   previewPublicUrl: '',
   previewTokenTtlSeconds: 900,
   templateBuilder: '',
-  kanikoDestination: '',
-  kanikoExecutor: '',
-  kanikoRegistryMirrors: '',
-  kanikoInsecure: false,
-  kanikoSkipTlsVerify: false,
-  kanikoExtraArgs: '',
   llmgwEnabled: false,
   llmgwPublicUrl: '',
   llmgwLogBodyMaxBytes: 0,
@@ -57,7 +51,6 @@ const emptySettings: AppSettings = {
 
 const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
   { value: '', labelKey: 'settings.builder.disabled' },
-  { value: 'kaniko', labelKey: 'settings.builder.kaniko' },
   { value: 'docker', labelKey: 'settings.builder.docker' },
   { value: 'ci', labelKey: 'settings.builder.ci' },
   { value: 'auto', labelKey: 'settings.builder.auto' },
@@ -517,50 +510,6 @@ export function SettingsPage() {
                     label: o.label,
                   }))}
                   style={{ width: '100%' }}
-                />
-              </Field>
-              <Field label={t('settings.builds.kanikoDest')}>
-                <Input
-                  spellCheck={false}
-                  placeholder="registry.example/roundpen"
-                  value={form.kanikoDestination}
-                  onChange={(v) => patch({ kanikoDestination: v })}
-                />
-              </Field>
-              <Field label={t('settings.builds.kanikoExecutor')}>
-                <Input
-                  spellCheck={false}
-                  placeholder="executor"
-                  value={form.kanikoExecutor}
-                  onChange={(v) => patch({ kanikoExecutor: v })}
-                />
-              </Field>
-              <Field label={t('settings.builds.kanikoMirrors')}>
-                <Input
-                  spellCheck={false}
-                  placeholder="docker.1ms.run mirror.example"
-                  value={form.kanikoRegistryMirrors}
-                  onChange={(v) => patch({ kanikoRegistryMirrors: v })}
-                />
-              </Field>
-              <Toggle
-                checked={form.kanikoInsecure}
-                onChange={(v) => patch({ kanikoInsecure: v })}
-              >
-                {t('settings.builds.kanikoInsecure')}
-              </Toggle>
-              <Toggle
-                checked={form.kanikoSkipTlsVerify}
-                onChange={(v) => patch({ kanikoSkipTlsVerify: v })}
-              >
-                {t('settings.builds.kanikoSkipTls')}
-              </Toggle>
-              <Field label={t('settings.builds.kanikoExtra')}>
-                <Input
-                  spellCheck={false}
-                  placeholder="--snapshot-mode=redo"
-                  value={form.kanikoExtraArgs}
-                  onChange={(v) => patch({ kanikoExtraArgs: v })}
                 />
               </Field>
             </div>
