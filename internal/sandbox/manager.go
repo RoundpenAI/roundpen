@@ -648,6 +648,31 @@ func hostPathOwner(p string) string {
 	return fmt.Sprintf("%d:%d", st.Uid, st.Gid)
 }
 
+// RefreshTemplateImage resolves templateRef to an image and refreshes it.
+func (s *Service) RefreshTemplateImage(ctx context.Context, templateRef string) (string, bool, string, error) {
+	if s.backend == nil {
+		return "", false, "", fmt.Errorf("backend not configured")
+	}
+	image := strings.TrimSpace(templateRef)
+	if s.templates != nil {
+		resolved, err := s.templates.Resolve(ctx, templateRef)
+		if err != nil {
+			return "", false, "", fmt.Errorf("template: %w", err)
+		}
+		if resolved.Image != "" {
+			image = resolved.Image
+		}
+	}
+	if image == "" {
+		image = s.defaultImage
+	}
+	changed, digest, err := s.backend.RefreshImage(ctx, image)
+	if err != nil {
+		return image, false, "", err
+	}
+	return image, changed, digest, nil
+}
+
 func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecResult, error) {
 	sb, err := s.load(ctx, id)
 	if err != nil {

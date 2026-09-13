@@ -146,6 +146,10 @@ type Manager interface {
 	Update(ctx context.Context, id string, req UpdateRequest) (*Sandbox, error)
 	Exec(ctx context.Context, id string, req ExecRequest) (*ExecResult, error)
 
+	// RefreshTemplateImage resolves a template ref and pulls its image,
+	// reporting whether the local image digest changed.
+	RefreshTemplateImage(ctx context.Context, templateRef string) (image string, changed bool, digest string, err error)
+
 	ListFiles(ctx context.Context, id, relPath string) ([]workspace.DirEntry, error)
 	StatFile(ctx context.Context, id, relPath string) (*workspace.FileStat, error)
 	ReadFile(ctx context.Context, id, relPath string) (io.ReadCloser, error)

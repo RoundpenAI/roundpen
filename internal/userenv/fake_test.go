@@ -208,6 +208,9 @@ func (f *fakeSandboxes) Update(context.Context, string, sandbox.UpdateRequest) (
 func (f *fakeSandboxes) Exec(context.Context, string, sandbox.ExecRequest) (*sandbox.ExecResult, error) {
 	return nil, fmt.Errorf("unused")
 }
+func (f *fakeSandboxes) RefreshTemplateImage(context.Context, string) (string, bool, string, error) {
+	return "", false, "", fmt.Errorf("unused")
+}
 func (f *fakeSandboxes) ListFiles(context.Context, string, string) ([]workspace.DirEntry, error) {
 	return nil, fmt.Errorf("unused")
 }
