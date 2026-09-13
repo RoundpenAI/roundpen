@@ -579,6 +579,8 @@ export type AppSettings = {
   llmgwAnthropicBaseUrl: string
   llmgwAnthropicApiKey: string
   llmgwVirtualKeys: string
+  webSearchEndpoint: string
+  webSearchApiKey: string
   cdpProvider: string
   cdpEndpoint: string
   cdpToken: string

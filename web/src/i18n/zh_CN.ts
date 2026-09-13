@@ -32,6 +32,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.section.builds': '构建',
   'settings.section.browser': '浏览器',
   'settings.section.llmgw': 'LLM 网关',
+  'settings.section.webtools': 'Web 工具',
   'settings.section.system': '系统',
 
   'settings.loading': '加载中…',
@@ -132,6 +133,16 @@ export const zh_CN: Record<MessageKey, string> = {
     '审计时保存多少中继请求/响应正文。关闭 = 仅元数据。',
   'settings.llmgw.secretsNote':
     '密钥存于 PostgreSQL 并以掩码显示。掩码字段不改则保留原值。保存立即生效，无需重启。',
+
+  'settings.webtools.intro':
+    'Web 工具让 Agent 从控制面抓取网页并联网搜索。在下方配置 Tavily 兼容的搜索端点；WebFetch 无需配置。',
+  'settings.webtools.endpoint': '搜索端点',
+  'settings.webtools.endpointHint':
+    'Tavily 兼容 API 的 Base URL。留空使用 https://api.tavily.com。环回地址（127.0.0.1）会被拒绝。',
+  'settings.webtools.apiKey': '搜索 API 密钥',
+  'settings.webtools.keepSecret': '保持掩码以保留已存储的密钥。',
+  'settings.webtools.note':
+    '保存后对新开的 Agent 会话生效——重开会话即可看到 WebSearch 工具。两项都留空则关闭 WebSearch。',
 
   'settings.system.title': '系统（只读）',
   'settings.system.backend': '后端',

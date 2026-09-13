@@ -24,6 +24,7 @@ export type SettingsSectionKey =
   | 'builds'
   | 'browser'
   | 'llmgw'
+  | 'webtools'
   | 'system'
 
 export type SettingsSection = {
@@ -40,6 +41,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'builds', labelKey: 'settings.section.builds', admin: true },
   { key: 'browser', labelKey: 'settings.section.browser', admin: true },
   { key: 'llmgw', labelKey: 'settings.section.llmgw', admin: true },
+  { key: 'webtools', labelKey: 'settings.section.webtools', admin: true },
   { key: 'system', labelKey: 'settings.section.system', admin: true },
 ]
 

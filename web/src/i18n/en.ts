@@ -31,6 +31,7 @@ export const en = {
   'settings.section.builds': 'Builds',
   'settings.section.browser': 'Browser',
   'settings.section.llmgw': 'LLM gateway',
+  'settings.section.webtools': 'Web tools',
   'settings.section.system': 'System',
 
   'settings.loading': 'Loading…',
@@ -133,6 +134,16 @@ export const en = {
     'How much of each relayed request/response to store for audit. Off = metadata only.',
   'settings.llmgw.secretsNote':
     'Secrets are stored in PostgreSQL and shown masked. Leave a masked field unchanged to keep the existing value. Saves apply immediately — no restart.',
+
+  'settings.webtools.intro':
+    'Web tools let Agents fetch pages and search the web from the control plane. Configure the Tavily-compatible search endpoint below; WebFetch needs no configuration.',
+  'settings.webtools.endpoint': 'Search endpoint',
+  'settings.webtools.endpointHint':
+    'Tavily-compatible API base URL. Leave empty to use https://api.tavily.com. Loopback addresses (127.0.0.1) are rejected.',
+  'settings.webtools.apiKey': 'Search API key',
+  'settings.webtools.keepSecret': 'Leave masked to keep the stored secret.',
+  'settings.webtools.note':
+    'Saving applies to new Agent sessions — reopen a session to see the WebSearch tool. Leave both empty to disable WebSearch.',
 
   'settings.system.title': 'System (read-only)',
   'settings.system.backend': 'Backend',
