@@ -75,6 +75,7 @@ type fakeSandboxes struct {
 	mu         sync.Mutex
 	byID       map[string]*sandbox.Sandbox
 	connectErr error
+	deleteErr  error
 	creates    int
 
 	refreshImage   string
@@ -198,6 +199,9 @@ func (f *fakeSandboxes) Connect(_ context.Context, id string) (*sandbox.Sandbox,
 func (f *fakeSandboxes) Delete(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
 	f.deletes++
 	delete(f.byID, id)
 	return nil

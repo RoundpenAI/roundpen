@@ -434,12 +434,28 @@ func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (
 		return &UpgradeResult{Status: "up_to_date", Image: image, Digest: digest, Environment: view}, nil
 	}
 
-	existed := false
+	existingID := ""
 	if m, err := s.Store.Get(ctx, userID, SlotAgent); err != nil {
 		return nil, err
 	} else if m != nil && m.SandboxID != "" {
-		existed = true
-		if err := s.Sandboxes.Delete(ctx, m.SandboxID); err != nil && !errors.Is(err, sandbox.ErrNotFound) {
+		existingID = m.SandboxID
+	}
+	if existingID == "" {
+		// The mapping can be missing while the sandbox it names is still live
+		// (lost Upsert, manual cleanup); fall back to the stable slot name,
+		// mirroring List's discovery path.
+		if sb, err := s.Sandboxes.Resolve(ctx, sandbox.ResolveRequest{Name: slotSandboxName(SlotAgent, userID)}); err == nil && sb != nil {
+			existingID = sb.ID
+		}
+	}
+	existed := false
+	if existingID != "" {
+		switch err := s.Sandboxes.Delete(ctx, existingID); {
+		case err == nil:
+			existed = true
+		case errors.Is(err, sandbox.ErrNotFound):
+			// Already gone: the rebuild below still creates a fresh sandbox.
+		default:
 			return nil, err
 		}
 	}

@@ -117,3 +117,60 @@ func TestUpgradeAgent_CreatesWhenAbsent(t *testing.T) {
 		t.Fatalf("res=%+v deletes=%d creates=%d", res, boxes.deletes, boxes.creates)
 	}
 }
+
+func TestUpgradeAgent_DeletesUnmappedExistingSandbox(t *testing.T) {
+	ctx := context.Background()
+	boxes := &fakeSandboxes{refreshChanged: true, refreshImage: "img:2"}
+	boxes.put(&sandbox.Sandbox{ID: "agent-1", Name: "agent-alice", Status: sandbox.StatusRunning, Image: "img:1"})
+	svc, _ := newUpgradeService(boxes) // no mapping exists
+
+	res, err := svc.UpgradeAgent(ctx, "alice", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "upgraded" || boxes.deletes != 1 || boxes.creates != 1 {
+		t.Fatalf("res=%+v deletes=%d creates=%d", res, boxes.deletes, boxes.creates)
+	}
+	if res.Image != "img:2" {
+		t.Fatalf("image=%q", res.Image)
+	}
+}
+
+func TestUpgradeAgent_DeleteFailureAborts(t *testing.T) {
+	ctx := context.Background()
+	boxes := &fakeSandboxes{refreshChanged: true, deleteErr: errors.New("docker daemon down")}
+	boxes.put(&sandbox.Sandbox{ID: "agent-1", Name: "agent-alice", Status: sandbox.StatusRunning})
+	svc, slots := newUpgradeService(boxes)
+	if err := slots.Upsert(ctx, "alice", SlotAgent, "agent-1", "code-agent"); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := svc.UpgradeAgent(ctx, "alice", false)
+	if err == nil {
+		t.Fatal("expected delete error")
+	}
+	if boxes.creates != 0 {
+		t.Fatalf("must abort before rebuild: creates=%d", boxes.creates)
+	}
+	if _, ok := boxes.byID["agent-1"]; !ok {
+		t.Fatal("existing sandbox was removed")
+	}
+}
+
+func TestUpgradeAgent_StaleMappingStillCreates(t *testing.T) {
+	ctx := context.Background()
+	boxes := &fakeSandboxes{refreshChanged: true, deleteErr: sandbox.ErrNotFound}
+	svc, slots := newUpgradeService(boxes)
+	if err := slots.Upsert(ctx, "alice", SlotAgent, "agent-1", "code-agent"); err != nil {
+		t.Fatal(err)
+	}
+	// The mapping points at a sandbox that no longer exists.
+
+	res, err := svc.UpgradeAgent(ctx, "alice", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Status != "created" || boxes.creates != 1 {
+		t.Fatalf("res=%+v creates=%d", res, boxes.creates)
+	}
+}
