@@ -90,7 +90,7 @@ const stealthInitJS = `(() => {
 })()`
 
 // snapshotText renders a compact text view of a snapshot (same shape the
-// chromedp engine produced; mcp.go returns this text to tool callers).
+// previous CDP engine produced; mcp.go returns this text to tool callers).
 func snapshotText(s Snapshot) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "- Page: %s\n- URL: %s\n", s.Title, s.URL)

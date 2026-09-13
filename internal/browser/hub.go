@@ -276,13 +276,23 @@ func cdpRetryable(err error) bool {
 	if strings.Contains(s, "requires a sandbox dialer") {
 		return false
 	}
-	return strings.Contains(s, "nothing listening") ||
-		strings.Contains(s, "not serving devtools") ||
-		strings.Contains(s, "cdp attach") ||
-		strings.Contains(s, "connection reset") ||
-		strings.Contains(s, "connection refused") ||
-		strings.Contains(s, "empty reply") ||
-		strings.Contains(s, "eof")
+	for _, needle := range []string{
+		"cdp attach",
+		"econnrefused",
+		"connection refused",
+		"connection reset",
+		"websocket was closed before the connection was established",
+		"socket hang up",
+		"timeout",
+		"timed out",
+		"empty reply",
+		"eof",
+	} {
+		if strings.Contains(s, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {

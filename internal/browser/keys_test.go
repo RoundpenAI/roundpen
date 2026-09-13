@@ -26,7 +26,7 @@ func TestNormalizeKey(t *testing.T) {
 		{"arrowright", "ArrowRight"},
 		{"delete", "Delete"},
 		{"del", "Delete"},
-		// Aliases are case-insensitive, matching the old chromedp engine.
+		// Aliases are case-insensitive, matching the previous CDP engine.
 		{"Enter", "Enter"},
 		{"ARROWDOWN", "ArrowDown"},
 		// Unlisted keys pass through unchanged.
@@ -37,7 +37,7 @@ func TestNormalizeKey(t *testing.T) {
 		{"  Enter  ", "Enter"},
 		{"  Control+a  ", "Control+a"},
 		// A literal single space is the space-bar key and must survive
-		// trimming (the old chromedp engine supported it explicitly).
+		// trimming (the previous CDP engine supported it explicitly).
 		{" ", " "},
 	}
 	for _, c := range cases {

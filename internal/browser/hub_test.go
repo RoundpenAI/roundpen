@@ -106,8 +106,13 @@ func TestHubBrowserTokenUsesLookup(t *testing.T) {
 }
 
 func TestCDPRetryable(t *testing.T) {
-	if !cdpRetryable(fmt.Errorf("env cdp (nothing listening on guest :9222): cdp attach: connection reset by peer")) {
-		t.Fatal("guest reset should retry")
+	// The docker provider wraps attach failures around the playwright error;
+	// the guest browser is not serving CDP yet while browserless boots.
+	if !cdpRetryable(fmt.Errorf("env cdp (Browser env :3000 not serving CDP): cdp attach: connect ECONNREFUSED 127.0.0.1:39999")) {
+		t.Fatal("docker attach refused should retry")
+	}
+	if !cdpRetryable(fmt.Errorf("env cdp (Browser env :3000 not serving CDP): cdp attach: WebSocket was closed before the connection was established")) {
+		t.Fatal("browserless not ready should retry")
 	}
 	if cdpRetryable(fmt.Errorf("docker cdp requires a sandbox dialer")) {
 		t.Fatal("missing dialer should not retry")
