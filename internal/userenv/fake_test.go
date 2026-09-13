@@ -77,6 +77,7 @@ type fakeSandboxes struct {
 	connectErr error
 	deleteErr  error
 	creates    int
+	lastCreate sandbox.CreateRequest
 
 	refreshImage   string
 	refreshChanged bool
@@ -121,6 +122,7 @@ func (f *fakeSandboxes) Create(_ context.Context, req sandbox.CreateRequest) (*s
 			return nil, fmt.Errorf("%w: sandbox name already exists", sandbox.ErrConflict)
 		}
 	}
+	f.lastCreate = req
 	f.creates++
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
@@ -146,7 +148,7 @@ func (f *fakeSandboxes) Create(_ context.Context, req sandbox.CreateRequest) (*s
 				sb.Image = f.refreshImage
 			}
 		case "qemu":
-			sb.Image = "images/browser-qemu/out/browser.qcow2"
+			sb.Image = "images/agent-qemu/out/agent.qcow2"
 		}
 	}
 	f.put(sb)

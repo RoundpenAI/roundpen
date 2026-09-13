@@ -101,7 +101,7 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 
 `/chats/:id` 宽屏左右分栏：左侧对话，右侧截图预览。出现 `browser_*` 工具或用户点 Show browser 时打开。Takeover 后可在预览上点击/打字处理验证码，Resume 后 Agent 继续控制。
 
-这是 **headless CDP 截图流**，不是沙箱 noVNC。沙箱浏览器仍走 Workbench `preview-link` + :6080。
+这是 **headless CDP 截图流**，不是 Browser 页的实时视图。Browser 页走 `GET /v1/me/environments/browser/live-link`（托管容器反代 browserless debugger；见 [browser-env.md](./browser-env.md)）。
 
 ## System Agent 上下文（对齐 Claude Code）
 
@@ -131,7 +131,7 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 internal/acp/{client,manager,providers,sysagent,sysagent/tools}
 internal/agentsession/
 internal/agentenv/
-internal/browser  # Hub + agent session browser API
+internal/browser  # Playwright 引擎 + Hub + agent session browser API
 ```
 
 ## 非目标
@@ -140,5 +140,5 @@ internal/browser  # Hub + agent session browser API
 - 用 ACP 驱动会话式 Agent UI
 - 完整 policy / toolgw 产品化（registry 仅 System Agent 内）
 - computer-use / 宿主机键鼠（预留扩展点；takeover 仅 CDP Input）
-- 聊天内嵌 noVNC / WebRTC 视频流
+- 聊天内嵌浏览器实时视图 / WebRTC 视频流
 - 替换 Sandboxes / Templates 运维页

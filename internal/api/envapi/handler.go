@@ -5,46 +5,39 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"strings"
-	"time"
-
-	"github.com/gorilla/websocket"
+	"sync"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
-	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
-// VNCSockLookup resolves a sandbox id to a QEMU VNC unix socket path.
-type VNCSockLookup interface {
-	VNCSock(sandboxID string) (string, error)
+// SandboxDialer opens a TCP connection to a port inside a sandbox.
+type SandboxDialer interface {
+	Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error)
 }
 
 // Environments is the userenv surface used by environment HTTP handlers.
 type Environments interface {
 	List(ctx context.Context, userID string) ([]userenv.EnvView, error)
-	EnsureBrowser(ctx context.Context, userID string) (*sandbox.Sandbox, error)
+	EnsureBrowser(ctx context.Context, userID string) (*userenv.BrowserTarget, error)
 	EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error)
 	UpgradeAgent(ctx context.Context, userID string, force bool) (*userenv.UpgradeResult, error)
 }
 
 // Handler serves /v1/me/environments*.
 type Handler struct {
-	Envs      Environments
-	Tokens    *preview.Store
-	PublicURL string
-	VNC       VNCSockLookup
-}
+	Envs Environments
+	Cfg  *config.Config
+	Dial SandboxDialer
 
-var desktopUpgrader = websocket.Upgrader{
-	CheckOrigin:  func(r *http.Request) bool { return true },
-	Subprotocols: []string{"binary"},
+	liveMu    sync.Mutex
+	liveCache map[string]liveTarget // username -> resolved browser container
 }
 
 // Mount registers environment routes.
@@ -53,8 +46,9 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/me/environments/browser/ensure", h.ensureBrowser)
 	mux.HandleFunc("POST /v1/me/environments/agent/ensure", h.ensureAgent)
 	mux.HandleFunc("POST /v1/me/environments/agent/upgrade", h.upgradeAgent)
-	mux.HandleFunc("GET /v1/me/environments/browser/desktop", h.desktopLink)
-	mux.HandleFunc("GET /v1/me/environments/browser/desktop/ws", h.desktopWS)
+	mux.HandleFunc("GET /v1/me/environments/browser/live-link", h.liveLink)
+	// The subtree pattern also redirects /live to /live/ (query preserved).
+	mux.HandleFunc(liveRoutePrefix+"/", h.live)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +79,7 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
 	}
-	sb, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
+	target, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
 	if err != nil {
 		if runtime.WriteNotReady(w, err) {
 			return
@@ -93,12 +87,16 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"slot":      userenv.SlotBrowser,
-		"sandboxId": sb.ID,
-		"status":    sb.Status,
-		"name":      sb.Name,
-	})
+	resp := map[string]any{
+		"slot":     userenv.SlotBrowser,
+		"provider": target.Provider,
+		"managed":  target.Managed,
+	}
+	if target.Sandbox != nil {
+		resp["sandboxId"] = target.Sandbox.ID
+		resp["status"] = string(target.Sandbox.Status)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
@@ -158,119 +156,6 @@ func (h *Handler) upgradeAgent(w http.ResponseWriter, r *http.Request) {
 		"digest":      res.Digest,
 		"environment": res.Environment,
 	})
-}
-
-func (h *Handler) desktopLink(w http.ResponseWriter, r *http.Request) {
-	user := auth.GetUser(r.Context())
-	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	if h.Envs == nil || h.Tokens == nil {
-		writeErr(w, http.StatusServiceUnavailable, "desktop not configured")
-		return
-	}
-	sb, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
-	if err != nil {
-		if runtime.WriteNotReady(w, err) {
-			return
-		}
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	token, exp, err := h.Tokens.Issue(sb.ID, 0, user.Username) // port 0 = desktop/VNC
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	base := strings.TrimRight(h.PublicURL, "/")
-	if base == "" {
-		base = "http://" + r.Host
-	}
-	wsURL := fmt.Sprintf("%s/v1/me/environments/browser/desktop/ws?token=%s", httpToWS(base), token)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"sandboxId": sb.ID,
-		"wsUrl":     wsURL,
-		"token":     token,
-		"expiresAt": exp.UTC().Format(time.RFC3339),
-	})
-}
-
-func httpToWS(u string) string {
-	u = strings.TrimSpace(u)
-	switch {
-	case strings.HasPrefix(u, "https://"):
-		return "wss://" + strings.TrimPrefix(u, "https://")
-	case strings.HasPrefix(u, "http://"):
-		return "ws://" + strings.TrimPrefix(u, "http://")
-	default:
-		return u
-	}
-}
-
-func (h *Handler) desktopWS(w http.ResponseWriter, r *http.Request) {
-	if h.Tokens == nil || h.VNC == nil {
-		http.Error(w, "desktop not configured", http.StatusServiceUnavailable)
-		return
-	}
-	token := r.URL.Query().Get("token")
-	sandboxID, _, _, ok := h.Tokens.Lookup(token)
-	if !ok || sandboxID == "" {
-		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
-		return
-	}
-	sock, err := h.VNC.VNCSock(sandboxID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	unixConn, err := net.DialTimeout("unix", sock, 5*time.Second)
-	if err != nil {
-		http.Error(w, "vnc dial: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	ws, err := desktopUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		_ = unixConn.Close()
-		return
-	}
-	defer ws.Close()
-	defer unixConn.Close()
-
-	errCh := make(chan error, 2)
-	go func() {
-		buf := make([]byte, 32*1024)
-		for {
-			n, err := unixConn.Read(buf)
-			if n > 0 {
-				if werr := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					errCh <- werr
-					return
-				}
-			}
-			if err != nil {
-				errCh <- err
-				return
-			}
-		}
-	}()
-	go func() {
-		for {
-			mt, data, err := ws.ReadMessage()
-			if err != nil {
-				errCh <- err
-				return
-			}
-			if mt != websocket.BinaryMessage && mt != websocket.TextMessage {
-				continue
-			}
-			if _, err := unixConn.Write(data); err != nil {
-				errCh <- err
-				return
-			}
-		}
-	}()
-	<-errCh
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

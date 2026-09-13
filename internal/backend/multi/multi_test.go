@@ -6,9 +6,9 @@ func TestRouteKind(t *testing.T) {
 	tests := []struct {
 		slot, image, want string
 	}{
-		{"browser", "alpine:3.20", "qemu"},
+		{"browser", "ghcr.io/browserless/chrome:v2.56.7", "docker"},
 		{"mobile", "", "qemu"},
-		{"agent", "images/browser-qemu/out/browser.qcow2", "qemu"},
+		{"agent", "images/agent-qemu/out/agent.qcow2", "qemu"},
 		{"agent", "roundpen-code-agent:local", "docker"},
 		{"agent", "python:3.12-slim", "docker"},
 		{"", "python:3.12-slim", "docker"},

@@ -26,6 +26,9 @@ vendor/
 *.swp
 .DS_Store
 
+# Isolated worktrees
+/.worktrees/
+
 # pg0 / local postgres
 .pg0/
 
@@ -33,8 +36,7 @@ vendor/
 /internal/ui/dist/*
 !/internal/ui/dist/.gitkeep
 
-# Browser / agent QEMU build artifacts (qcow2 + kernel sidecars)
-/images/browser-qemu/out/
+# Agent QEMU build artifacts (qcow2 + kernel sidecars)
 /images/agent-qemu/out/
 
 # Node (web/)

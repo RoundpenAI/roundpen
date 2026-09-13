@@ -35,7 +35,7 @@ export default defineConfig({
     ? undefined
     : [
         {
-          command: `go run ./tests/uismoke -listen ${apiListen} -public ${baseURL}`,
+          command: `go run ./tests/uismoke -listen ${apiListen}`,
           cwd: '..',
           url: `http://${apiListen}/v1/ready`,
           reuseExistingServer: !process.env.CI,

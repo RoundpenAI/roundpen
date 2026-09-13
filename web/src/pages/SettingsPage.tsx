@@ -47,7 +47,7 @@ const emptySettings: AppSettings = {
   cdpProvider: 'auto',
   cdpEndpoint: '',
   cdpToken: '',
-  cdpPort: 9222,
+  cdpPort: 3000,
 }
 
 const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
@@ -236,6 +236,7 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [browserTest, setBrowserTest] = useState<string>('')
   const [templateList, setTemplateList] = useState<Template[]>([])
   const { section: sectionParam } = useParams()
   const t = useT()
@@ -386,6 +387,25 @@ export function SettingsPage() {
       return
     }
     void load()
+  }
+
+  async function testBrowser() {
+    setBrowserTest('…')
+    try {
+      const res = await adminSettings.browserTest()
+      if (!res.ok) {
+        setBrowserTest(res.error || 'connection failed')
+        return
+      }
+      const r = res.result
+      setBrowserTest(
+        r?.provider === 'host'
+          ? `host chrome: ${r.chromePath || 'not found'}`
+          : `provider=${r?.provider}${r?.version ? ` browserless=${r.version}` : ''}${r?.path ? ` path=${r.path}` : ''}`,
+      )
+    } catch (e) {
+      setBrowserTest(e instanceof Error ? e.message : 'connection failed')
+    }
   }
 
   const sys = data?.system
@@ -583,13 +603,34 @@ export function SettingsPage() {
                   <Input
                     inputMode="numeric"
                     spellCheck={false}
-                    value={String(form.cdpPort || 9222)}
+                    value={String(form.cdpPort || 3000)}
                     onChange={(v) =>
-                      patch({ cdpPort: Number(v) || 9222 })
+                      patch({ cdpPort: Number(v) || 3000 })
                     }
                   />
                 </Field>
               )}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                }}
+              >
+                <Button
+                  size="small"
+                  theme="borderless"
+                  onClick={() => void testBrowser()}
+                >
+                  {t('settings.browser.test')}
+                </Button>
+                {browserTest && (
+                  <Typography.Text type="tertiary" size="small">
+                    {browserTest}
+                  </Typography.Text>
+                )}
+              </div>
               <Typography.Text type="tertiary" size="small">
                 {t('settings.browser.hint')}
               </Typography.Text>

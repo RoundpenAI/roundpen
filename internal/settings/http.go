@@ -22,6 +22,7 @@ type settingsResp struct {
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/admin/settings", auth.RequireAdmin(h.get))
 	mux.HandleFunc("PUT /v1/admin/settings", auth.RequireAdmin(h.put))
+	mux.HandleFunc("POST /v1/admin/settings/browser/test", auth.RequireAdmin(h.browserTest))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +53,15 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		Settings: settings,
 		System:   system,
 	})
+}
+
+func (h *Handler) browserTest(w http.ResponseWriter, r *http.Request) {
+	res, err := h.Svc.TestBrowser(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "result": res})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

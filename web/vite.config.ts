@@ -1,9 +1,6 @@
 import react from '@vitejs/plugin-react'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 
-const root = dirname(fileURLToPath(import.meta.url))
 const apiProxy = process.env.ROUNDPEN_API_PROXY || 'http://127.0.0.1:19001'
 
 export default defineConfig({
@@ -20,11 +17,5 @@ export default defineConfig({
   build: {
     outDir: '../internal/ui/dist',
     emptyOutDir: true,
-    rollupOptions: {
-      input: {
-        main: resolve(root, 'index.html'),
-        vnc: resolve(root, 'vnc.html'),
-      },
-    },
   },
 })

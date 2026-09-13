@@ -22,10 +22,10 @@ type Config struct {
 	DockerHost              string
 	DockerRuntime           string // e.g. runc, runsc; empty = daemon default
 	DefaultImage            string
-	DefaultBrowserTemplate  string // browser slot template name (default browser-desktop)
+	DefaultBrowserTemplate  string // browser slot template name (default "browser")
 	DefaultAgentTemplate    string // agent slot template name (default code-agent)
 	AgentImage              string // default agent OCI image ref
-	BrowserImage            string // default browser qcow2
+	BrowserImage            string // default browser OCI image
 	DefaultTTL              time.Duration
 	LogLevel                slog.Level
 	LLMGW                   LLMGWConfig
@@ -51,10 +51,10 @@ func Load() (*Config, error) {
 		DockerHost:              getenv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		DockerRuntime:           os.Getenv("ROUNDPEN_DOCKER_RUNTIME"),
 		DefaultImage:            getenv("ROUNDPEN_DEFAULT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
-		DefaultBrowserTemplate:  getenv("ROUNDPEN_DEFAULT_BROWSER_TEMPLATE", "browser-desktop"),
+		DefaultBrowserTemplate:  getenv("ROUNDPEN_DEFAULT_BROWSER_TEMPLATE", "browser"),
 		DefaultAgentTemplate:    getenv("ROUNDPEN_DEFAULT_AGENT_TEMPLATE", "code-agent"),
 		AgentImage:              getenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
-		BrowserImage:            getenv("ROUNDPEN_BROWSER_IMAGE", "images/browser-qemu/out/browser.qcow2"),
+		BrowserImage:            getenv("ROUNDPEN_BROWSER_IMAGE", "ghcr.io/browserless/chrome:v2.56.7"),
 		DefaultTTL:              30 * time.Minute,
 		LogLevel:                slog.LevelInfo,
 		PreviewPublicURL:        os.Getenv("ROUNDPEN_PREVIEW_PUBLIC_URL"),

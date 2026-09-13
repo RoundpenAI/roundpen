@@ -7,7 +7,7 @@ var BuiltinNames = map[string]struct{}{
 	"python":          {},
 	"node":            {},
 	"code-agent":      {},
-	"browser-desktop": {},
+	"browser":         {},
 }
 
 // IsBuiltin reports whether a template row is a seeded built-in.

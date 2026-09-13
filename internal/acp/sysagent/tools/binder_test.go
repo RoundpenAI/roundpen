@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RoundpenAI/roundpen/internal/browser"
-	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
 type stubSlots struct {
@@ -15,13 +15,13 @@ type stubSlots struct {
 	fail  error
 }
 
-func (s *stubSlots) EnsureBrowser(_ context.Context, userID string) (*sandbox.Sandbox, error) {
+func (s *stubSlots) EnsureBrowser(_ context.Context, userID string) (*userenv.BrowserTarget, error) {
 	s.calls++
 	s.user = userID
 	if s.fail != nil {
 		return nil, s.fail
 	}
-	return &sandbox.Sandbox{ID: s.id, Name: "browser-alice"}, nil
+	return &userenv.BrowserTarget{Key: s.id, Provider: "docker", Managed: true}, nil
 }
 
 func TestBrowserBinderUsesSlotSandbox(t *testing.T) {

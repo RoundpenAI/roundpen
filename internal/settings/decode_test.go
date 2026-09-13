@@ -1,8 +1,10 @@
 package settings_test
 
 import (
+	"fmt"
 	"testing"
 
+	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/settings"
 )
 
@@ -32,8 +34,47 @@ func TestDecodeAppSettingsKeepsFallbackLLMGW(t *testing.T) {
 	if !got.LlmgwEnabled || got.LlmgwOpenaiAPIKey != "sk-env" {
 		t.Fatalf("llmgw fallback lost: %+v", got)
 	}
-	if got.CDPProvider != "docker" || got.CDPPort != 9222 {
+	// The docker fallback keeps its provider, but the legacy 9222 port is
+	// migrated to the browserless default.
+	if got.CDPProvider != "docker" || got.CDPPort != config.DefaultCDPPort {
 		t.Fatalf("cdp fallback lost: %+v", got)
+	}
+}
+
+// TestDecodeAppSettingsMigratesLegacyCDPPort proves rows written before the
+// browserless move (port 9222) are repaired for the providers that own the
+// managed container, while an explicit external provider keeps its port.
+func TestDecodeAppSettingsMigratesLegacyCDPPort(t *testing.T) {
+	cases := []struct {
+		name     string
+		provider string
+		wantPort int
+	}{
+		{"empty provider", "", config.DefaultCDPPort},
+		{"auto provider", config.CDPProviderAuto, config.DefaultCDPPort},
+		{"docker provider", config.CDPProviderDocker, config.DefaultCDPPort},
+		{"remote provider keeps its port", config.CDPProviderRemote, 9222},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := fmt.Sprintf(`{
+				"defaultImage": "host",
+				"defaultTtlSeconds": 1800,
+				"previewTokenTtlSeconds": 900,
+				"cdpProvider": %q,
+				"cdpPort": 9222
+			}`, tc.provider)
+			got, err := settings.DecodeAppSettings([]byte(raw), settings.AppSettings{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.CDPProvider != tc.provider {
+				t.Fatalf("cdpProvider = %q, want %q", got.CDPProvider, tc.provider)
+			}
+			if got.CDPPort != tc.wantPort {
+				t.Fatalf("cdpPort = %d, want %d", got.CDPPort, tc.wantPort)
+			}
+		})
 	}
 }
 

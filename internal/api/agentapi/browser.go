@@ -9,6 +9,8 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
 func (h *Handler) mountBrowser(mux *http.ServeMux) {
@@ -49,6 +51,11 @@ func (h *Handler) hubKey(r *http.Request, sess *agentsession.Session) string {
 		if user := auth.GetUser(r.Context()); user != nil {
 			userID = user.Username
 		}
+		// Ask the provider first: a stale sandbox mapping must not shadow the
+		// key EnsureBrowser hands out for external providers.
+		if h.Envs.Provider() != config.CDPProviderDocker {
+			return userenv.BrowserKey(userID)
+		}
 		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {
 			return id
 		}
@@ -64,8 +71,13 @@ func (h *Handler) ensureHubKey(r *http.Request, sess *agentsession.Session) stri
 		if user := auth.GetUser(r.Context()); user != nil {
 			userID = user.Username
 		}
-		if sb, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && sb != nil {
-			return sb.ID
+		if target, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && target != nil {
+			return target.Key
+		}
+		// EnsureBrowser failed: only the docker provider has a managed container
+		// to fall back to. External providers keep their stable user key.
+		if h.Envs.Provider() != config.CDPProviderDocker {
+			return userenv.BrowserKey(userID)
 		}
 		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {
 			return id

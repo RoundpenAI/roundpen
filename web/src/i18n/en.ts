@@ -58,11 +58,11 @@ export const en = {
   'settings.builder.auto': 'Auto (detect from backend)',
 
   'settings.cdp.auto':
-    'Auto (Docker engine → Docker Chrome; else host Chrome if present)',
-  'settings.cdp.docker': 'Docker Chrome (sandbox Dial to guest CDP)',
-  'settings.cdp.host': 'Host Chrome / debugging port on this machine',
-  'settings.cdp.remote': 'Remote CDP (Browserless or self-hosted)',
-  'settings.cdp.cloud': 'Cloud browser (paste session CDP URL)',
+    'Auto (Roundpen-managed browserless container)',
+  'settings.cdp.docker': 'Roundpen-managed container (browserless/chrome)',
+  'settings.cdp.host': 'Chrome on the roundpend host',
+  'settings.cdp.remote': 'LAN / self-hosted browserless',
+  'settings.cdp.cloud': 'Commercial cloud browser (CDP URL + token)',
 
   'settings.ttl.10m': '10 minutes',
   'settings.ttl.15m': '15 minutes',
@@ -86,6 +86,7 @@ export const en = {
   'settings.logBody.256k': '256 KiB',
 
   'settings.browser.cdpProvider': 'CDP provider',
+  'settings.browser.test': 'Test connection',
   'settings.browser.hostCdpUrl':
     'Host CDP URL (optional; empty starts local Chrome)',
   'settings.browser.cdpEndpoint': 'CDP endpoint URL',
@@ -149,7 +150,7 @@ export const en = {
   'settings.system.hostChromeMissing': 'not on PATH',
   'settings.system.unavailable': 'System info unavailable.',
   'settings.system.footer':
-    'Database and listen address require environment variables and a process restart. Agent always runs on Docker; Browser/Desktop/Mobile run on QEMU. The Agent image is pulled from the registry (or loaded offline) on first start. Template builds and LLM gateway settings apply at runtime.',
+    'Database and listen address require environment variables and a process restart. Agent and Browser always run on Docker; Desktop/Mobile are reserved for QEMU. The Agent and Browser images are pulled from the registry (or loaded offline) on first start. Template builds and LLM gateway settings apply at runtime.',
   'settings.system.disabled': 'disabled',
 
   'git.title': 'Git personal tokens',

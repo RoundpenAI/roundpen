@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"testing"
+
+	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
 func TestNormalizeAndEngineOfImage(t *testing.T) {
@@ -45,6 +47,21 @@ func TestSnapshotDockerReadyImageLocal(t *testing.T) {
 	}
 	if len(snap.Missing) != 0 || len(snap.Setup) != 0 {
 		t.Fatalf("missing=%v setup=%v", snap.Missing, snap.Setup)
+	}
+}
+
+func TestRequireBrowserProviderAware(t *testing.T) {
+	p := &Probe{Cfg: &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderRemote, Endpoint: "ws://lan:3000/chrome"}}}
+	if err := p.RequireBrowser(); err != nil {
+		t.Fatalf("remote with endpoint should be ready: %v", err)
+	}
+	p2 := &Probe{Cfg: &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderRemote}}}
+	if err := p2.RequireBrowser(); err == nil {
+		t.Fatal("remote without endpoint must be not-ready")
+	}
+	p3 := &Probe{Cfg: &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderDocker}}, DockerReady: false}
+	if err := p3.RequireBrowser(); err == nil {
+		t.Fatal("docker provider without docker must be not-ready")
 	}
 }
 

@@ -45,20 +45,3 @@ export async function hasSmokeHooks(page: Page): Promise<boolean> {
     return false
   }
 }
-
-export async function desktopWsUrl(page: Page): Promise<string> {
-  await loginViaApi(page)
-  const ensure = await page.request.post('/v1/me/environments/browser/ensure')
-  if (!ensure.ok()) {
-    throw new Error(`ensure: ${ensure.status()} ${await ensure.text()}`)
-  }
-  const link = await page.request.get('/v1/me/environments/browser/desktop')
-  if (!link.ok()) {
-    throw new Error(`desktop: ${link.status()} ${await link.text()}`)
-  }
-  const body = (await link.json()) as { wsUrl: string }
-  if (!body.wsUrl) {
-    throw new Error('desktop link missing wsUrl')
-  }
-  return body.wsUrl
-}
