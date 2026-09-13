@@ -278,7 +278,7 @@ func (s *slotEnvs) List(_ context.Context, _ string) ([]userenv.EnvView, error) 
 	}, nil
 }
 
-func (s *slotEnvs) EnsureBrowser(_ context.Context, _ string) (*sandbox.Sandbox, error) {
+func (s *slotEnvs) EnsureBrowser(_ context.Context, _ string) (*userenv.BrowserTarget, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ensureErr != nil {
@@ -293,7 +293,7 @@ func (s *slotEnvs) EnsureBrowser(_ context.Context, _ string) (*sandbox.Sandbox,
 			Status: sandbox.StatusRunning,
 		}
 	}
-	return s.browser, nil
+	return &userenv.BrowserTarget{Key: s.browser.ID, Provider: "docker", Managed: true, Sandbox: s.browser}, nil
 }
 
 func (s *slotEnvs) EnsureAgent(_ context.Context, _ string) (*sandbox.Sandbox, error) {

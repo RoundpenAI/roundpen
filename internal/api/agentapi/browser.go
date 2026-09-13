@@ -64,8 +64,8 @@ func (h *Handler) ensureHubKey(r *http.Request, sess *agentsession.Session) stri
 		if user := auth.GetUser(r.Context()); user != nil {
 			userID = user.Username
 		}
-		if sb, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && sb != nil {
-			return sb.ID
+		if target, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && target != nil && target.Key != "" {
+			return target.Key
 		}
 		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {
 			return id

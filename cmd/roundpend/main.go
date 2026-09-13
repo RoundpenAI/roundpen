@@ -217,6 +217,7 @@ func main() {
 		Sandboxes: mgr,
 		Git:       gitStore,
 		Probe:     probe,
+		Cfg:       cfg,
 		Config: userenv.Config{
 			BrowserTemplate: cfg.DefaultBrowserTemplate,
 			AgentTemplate:   cfg.DefaultAgentTemplate,

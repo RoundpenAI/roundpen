@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
@@ -44,17 +45,67 @@ func TestGatewayEnv(t *testing.T) {
 	}
 }
 
+func TestEnsureBrowserExternalProvider(t *testing.T) {
+	ctx := context.Background()
+	boxes := &fakeSandboxes{}
+	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}
+	svc.Cfg = &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderRemote, Endpoint: "ws://10.10.1.3:3000/chrome"}}
+
+	target, err := svc.EnsureBrowser(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Managed || target.Sandbox != nil {
+		t.Fatalf("remote provider must not create a sandbox: %+v", target)
+	}
+	if target.Key != "browser-alice" {
+		t.Fatalf("key = %q, want browser-alice", target.Key)
+	}
+	if target.Provider != config.CDPProviderRemote {
+		t.Fatalf("provider = %q", target.Provider)
+	}
+	if boxes.creates != 0 {
+		t.Fatalf("creates=%d", boxes.creates)
+	}
+
+	svc.Cfg = &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderRemote}}
+	if _, err := svc.EnsureBrowser(ctx, "alice"); err == nil {
+		t.Fatal("remote provider without an endpoint must fail")
+	}
+}
+
+func TestEnsureBrowserManagedProvider(t *testing.T) {
+	ctx := context.Background()
+	boxes := &fakeSandboxes{}
+	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}
+	svc.Cfg = &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderDocker}}
+
+	target, err := svc.EnsureBrowser(ctx, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !target.Managed || target.Sandbox == nil {
+		t.Fatalf("docker provider must create a sandbox: %+v", target)
+	}
+	if target.Key != target.Sandbox.ID {
+		t.Fatalf("key = %q, want %q", target.Key, target.Sandbox.ID)
+	}
+	if target.Provider != config.CDPProviderDocker {
+		t.Fatalf("provider = %q", target.Provider)
+	}
+}
+
 func TestEnsureBrowserCreates(t *testing.T) {
 	ctx := context.Background()
 	boxes := &fakeSandboxes{}
 	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}
 
-	sb, err := svc.EnsureBrowser(ctx, "alice")
+	target, err := svc.EnsureBrowser(ctx, "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sb.Name != "browser-alice" || sb.Status != sandbox.StatusRunning {
-		t.Fatalf("got %+v", sb)
+	if target.Sandbox == nil || target.Sandbox.Name != "browser-alice" || target.Sandbox.Status != sandbox.StatusRunning {
+		t.Fatalf("got %+v", target)
 	}
 	if boxes.creates != 1 {
 		t.Fatalf("creates=%d", boxes.creates)
@@ -64,8 +115,8 @@ func TestEnsureBrowserCreates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.ID != sb.ID || boxes.creates != 1 {
-		t.Fatalf("second ensure created a new sandbox: %s vs %s creates=%d", again.ID, sb.ID, boxes.creates)
+	if again.Sandbox == nil || again.Sandbox.ID != target.Sandbox.ID || boxes.creates != 1 {
+		t.Fatalf("second ensure created a new sandbox: %+v vs %+v creates=%d", again, target, boxes.creates)
 	}
 }
 
@@ -76,15 +127,15 @@ func TestEnsureBrowserResumesUnmappedName(t *testing.T) {
 	}}
 	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}
 
-	sb, err := svc.EnsureBrowser(ctx, "alice")
+	target, err := svc.EnsureBrowser(ctx, "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sb.ID != "old" {
-		t.Fatalf("should reuse existing name, got %s", sb.ID)
+	if target.Sandbox == nil || target.Sandbox.ID != "old" {
+		t.Fatalf("should reuse existing name, got %+v", target)
 	}
-	if sb.Status != sandbox.StatusRunning {
-		t.Fatalf("status %s", sb.Status)
+	if target.Sandbox.Status != sandbox.StatusRunning {
+		t.Fatalf("status %s", target.Sandbox.Status)
 	}
 	if boxes.creates != 0 {
 		t.Fatalf("should not create, creates=%d", boxes.creates)
@@ -102,12 +153,12 @@ func TestEnsureBrowserReplacesFailed(t *testing.T) {
 	}}
 	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}
 
-	sb, err := svc.EnsureBrowser(ctx, "alice")
+	target, err := svc.EnsureBrowser(ctx, "alice")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sb.ID == "dead" {
-		t.Fatal("should replace failed sandbox")
+	if target.Sandbox == nil || target.Sandbox.ID == "dead" {
+		t.Fatalf("should replace failed sandbox: %+v", target)
 	}
 	if boxes.creates != 1 {
 		t.Fatalf("creates=%d", boxes.creates)

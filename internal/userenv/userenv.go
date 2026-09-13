@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
+	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -99,9 +101,17 @@ type slotStore interface {
 
 var errSlotFailed = errors.New("sandbox is failed")
 
+// BrowserTarget is the resolved browser source for one user.
+type BrowserTarget struct {
+	Key      string           // hub session key: sandbox id (managed) or browser-<user>
+	Provider string           // resolved provider (docker|remote|cloud|host)
+	Managed  bool             // true when Roundpen runs the container
+	Sandbox  *sandbox.Sandbox // non-nil when Managed
+}
+
 // Config controls Ensure* defaults.
 type Config struct {
-	BrowserTemplate string // default "browser-desktop"
+	BrowserTemplate string // default "browser"
 	AgentTemplate   string // default "code-agent"
 	PublicURL       string // control-plane / llmgw base, e.g. http://127.0.0.1:9527
 	VirtualKey      string // llmgw virtual key (not an upstream key)
@@ -149,24 +159,40 @@ type Service struct {
 	Git       *gitcred.Store
 	Probe     *runtime.Probe
 	Config    Config
+	Cfg       *config.Config
 }
 
 func (s *Service) browserTemplate() string {
 	t := strings.TrimSpace(s.Config.BrowserTemplate)
 	if t == "" {
-		return "browser-desktop"
+		return "browser"
 	}
 	return t
 }
 
-// EnsureBrowser starts or resumes the user's Browser QEMU environment.
-func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*sandbox.Sandbox, error) {
+// EnsureBrowser resolves the user's browser source. Managed (default) starts or
+// resumes the Roundpen browserless container; external providers need no sandbox.
+func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTarget, error) {
+	provider := config.ResolveCDPProvider(s.Cfg, browser.ChromeOnPATH())
+	if provider != config.CDPProviderDocker {
+		switch provider {
+		case config.CDPProviderRemote, config.CDPProviderCloud:
+			if s.Cfg == nil || strings.TrimSpace(s.Cfg.CDP.Endpoint) == "" {
+				return nil, fmt.Errorf("cdp provider %s requires an endpoint", provider)
+			}
+		}
+		return &BrowserTarget{Key: "browser-" + sanitizeUser(userID), Provider: provider}, nil
+	}
 	if s.Probe != nil {
 		if err := s.Probe.RequireBrowser(); err != nil {
 			return nil, err
 		}
 	}
-	return s.ensure(ctx, userID, SlotBrowser, s.browserTemplate(), "Browser", runtime.EngineQEMU)
+	sb, err := s.ensure(ctx, userID, SlotBrowser, s.browserTemplate(), "Browser", runtime.EngineDocker)
+	if err != nil {
+		return nil, err
+	}
+	return &BrowserTarget{Key: sb.ID, Provider: provider, Managed: true, Sandbox: sb}, nil
 }
 
 // EnsureAgent starts or resumes the user's Cloud Agent environment.
@@ -197,6 +223,7 @@ type EnvView struct {
 	TemplateID string `json:"templateId,omitempty"`
 	Status     string `json:"status"`
 	Name       string `json:"name,omitempty"`
+	Provider   string `json:"provider,omitempty"`
 }
 
 // List returns agent/browser(+mobile placeholder) views for the user.
@@ -218,6 +245,9 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 			out = append(out, v)
 			continue
 		}
+		if slot == SlotBrowser {
+			v.Provider = config.ResolveCDPProvider(s.Cfg, browser.ChromeOnPATH())
+		}
 		if m, ok := bySlot[slot]; ok {
 			v.SandboxID = m.SandboxID
 			v.TemplateID = m.TemplateID
@@ -238,6 +268,9 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 					v.TemplateID = sb.Metadata["templateID"]
 				}
 			}
+		}
+		if slot == SlotBrowser && v.Provider != config.CDPProviderDocker && v.SandboxID == "" {
+			v.Status = "external"
 		}
 		out = append(out, v)
 	}

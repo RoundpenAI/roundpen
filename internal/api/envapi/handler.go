@@ -27,7 +27,7 @@ type VNCSockLookup interface {
 // Environments is the userenv surface used by environment HTTP handlers.
 type Environments interface {
 	List(ctx context.Context, userID string) ([]userenv.EnvView, error)
-	EnsureBrowser(ctx context.Context, userID string) (*sandbox.Sandbox, error)
+	EnsureBrowser(ctx context.Context, userID string) (*userenv.BrowserTarget, error)
 	EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error)
 }
 
@@ -81,7 +81,7 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
 	}
-	sb, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
+	target, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
 	if err != nil {
 		if runtime.WriteNotReady(w, err) {
 			return
@@ -89,12 +89,16 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"slot":      userenv.SlotBrowser,
-		"sandboxId": sb.ID,
-		"status":    sb.Status,
-		"name":      sb.Name,
-	})
+	resp := map[string]any{
+		"slot":     userenv.SlotBrowser,
+		"provider": target.Provider,
+		"managed":  target.Managed,
+	}
+	if target.Sandbox != nil {
+		resp["sandboxId"] = target.Sandbox.ID
+		resp["status"] = string(target.Sandbox.Status)
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +137,7 @@ func (h *Handler) desktopLink(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "desktop not configured")
 		return
 	}
-	sb, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
+	target, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
 	if err != nil {
 		if runtime.WriteNotReady(w, err) {
 			return
@@ -141,6 +145,11 @@ func (h *Handler) desktopLink(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	if target.Sandbox == nil {
+		writeErr(w, http.StatusConflict, "live view requires the managed browser container")
+		return
+	}
+	sb := target.Sandbox
 	token, exp, err := h.Tokens.Issue(sb.ID, 0, user.Username) // port 0 = desktop/VNC
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
