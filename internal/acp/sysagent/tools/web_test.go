@@ -198,6 +198,35 @@ func TestWebFetchUsesModelWhenPromptGiven(t *testing.T) {
 	if !strings.Contains(m.gotUser, "What color?") {
 		t.Fatalf("model did not receive prompt: %q", m.gotUser)
 	}
+	if m.gotSystem != "" {
+		t.Fatalf("system prompt must be empty, got %q", m.gotSystem)
+	}
+}
+
+func TestWebFetchEmptyModelResponse(t *testing.T) {
+	srv := htmlServer(t, "text/html", "<p>hi</p>")
+	m := &stubModel{reply: ""}
+	reg := newWebRegistry(m)
+	out, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL, "prompt": "what?"})
+	if err != nil {
+		t.Fatalf("WebFetch: %v", err)
+	}
+	if out != "No response from model" {
+		t.Fatalf("out = %q", out)
+	}
+}
+
+func TestWebFetchTruncatesModelOutput(t *testing.T) {
+	srv := htmlServer(t, "text/html", "<p>hi</p>")
+	m := &stubModel{reply: strings.Repeat("z", 100_000)}
+	reg := newWebRegistry(m)
+	out, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL, "prompt": "what?"})
+	if err != nil {
+		t.Fatalf("WebFetch: %v", err)
+	}
+	if len(out) > (32<<10)+8 {
+		t.Fatalf("model output not capped: %d bytes", len(out))
+	}
 }
 
 func TestWebFetchWithoutPromptSkipsModel(t *testing.T) {
