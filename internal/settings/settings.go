@@ -111,7 +111,12 @@ func (s *AppSettings) MergeSecrets(previous AppSettings) {
 	s.LlmgwAnthropicAPIKey = ResolveSecret(s.LlmgwAnthropicAPIKey, previous.LlmgwAnthropicAPIKey)
 	s.LlmgwVirtualKeys = ResolveVirtualKeysSetting(s.LlmgwVirtualKeys, previous.LlmgwVirtualKeys)
 	s.CDPToken = ResolveSecret(s.CDPToken, previous.CDPToken)
-	s.WebSearchApiKey = ResolveSecret(s.WebSearchApiKey, previous.WebSearchApiKey)
+	// Web 搜索密钥例外于其它密钥字段：提交掩码 = 保持原值，提交空串 = 显式清除
+	// （设置页清空输入框即可关闭 WebSearch）。JSON 中缺省的字段在
+	// DecodeAppSettings 阶段已回填当前值，不会走到这里被清空。
+	if s.WebSearchApiKey == SecretMask {
+		s.WebSearchApiKey = previous.WebSearchApiKey
+	}
 }
 
 // ApplyToConfig writes settings into the in-memory process config.

@@ -37,8 +37,8 @@ func TestWebSearchSecretMaskAndMerge(t *testing.T) {
 	}
 	s.WebSearchApiKey = ""
 	s.MergeSecrets(AppSettings{WebSearchApiKey: "tvly-stored"})
-	if s.WebSearchApiKey != "tvly-stored" {
-		t.Fatalf("empty submit must keep stored key, got %q", s.WebSearchApiKey)
+	if s.WebSearchApiKey != "" {
+		t.Fatalf("empty submit must clear the stored key, got %q", s.WebSearchApiKey)
 	}
 }
 
@@ -82,5 +82,23 @@ func TestDecodeAppSettingsKeepsWebSearchFallback(t *testing.T) {
 	}
 	if got2.WebSearchApiKey != "tvly-db" {
 		t.Fatalf("stored value not applied: %+v", got2)
+	}
+}
+
+func TestWebSearchClearedKeyStaysClearedAcrossDecode(t *testing.T) {
+	cfg := &config.Config{WebTools: config.WebToolsConfig{SearchEndpoint: "", SearchAPIKey: "tvly-env"}}
+	seed := FromConfig(cfg)
+	cleared := AppSettings{WebSearchEndpoint: "", WebSearchApiKey: ""}
+	cleared.MergeSecrets(seed)
+	if cleared.WebSearchApiKey != "" {
+		t.Fatalf("cleared key must stay empty, got %q", cleared.WebSearchApiKey)
+	}
+	raw := []byte(`{"webSearchEndpoint":"","webSearchApiKey":""}`)
+	got, err := DecodeAppSettings(raw, seed)
+	if err != nil {
+		t.Fatalf("DecodeAppSettings: %v", err)
+	}
+	if got.WebSearchApiKey != "" || got.WebSearchEndpoint != "" {
+		t.Fatalf("stored empties must survive decode, got %+v", got)
 	}
 }

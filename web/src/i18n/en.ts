@@ -139,7 +139,7 @@ export const en = {
     'Web tools let Agents fetch pages and search the web from the control plane. Configure the Tavily-compatible search endpoint below; WebFetch needs no configuration.',
   'settings.webtools.endpoint': 'Search endpoint',
   'settings.webtools.endpointHint':
-    'Tavily-compatible API base URL. Leave empty to use https://api.tavily.com. Loopback addresses (127.0.0.1) are rejected.',
+    'Tavily-compatible API base URL. Leave empty to use https://api.tavily.com. Loopback addresses (127.0.0.1) are rejected when the tool makes a request.',
   'settings.webtools.apiKey': 'Search API key',
   'settings.webtools.keepSecret': 'Leave masked to keep the stored secret.',
   'settings.webtools.note':

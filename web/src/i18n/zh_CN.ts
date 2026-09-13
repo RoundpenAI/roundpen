@@ -138,7 +138,7 @@ export const zh_CN: Record<MessageKey, string> = {
     'Web 工具让 Agent 从控制面抓取网页并联网搜索。在下方配置 Tavily 兼容的搜索端点；WebFetch 无需配置。',
   'settings.webtools.endpoint': '搜索端点',
   'settings.webtools.endpointHint':
-    'Tavily 兼容 API 的 Base URL。留空使用 https://api.tavily.com。环回地址（127.0.0.1）会被拒绝。',
+    'Tavily 兼容 API 的 Base URL。留空使用 https://api.tavily.com。环回地址（127.0.0.1）在工具发起请求时会被拒绝。',
   'settings.webtools.apiKey': '搜索 API 密钥',
   'settings.webtools.keepSecret': '保持掩码以保留已存储的密钥。',
   'settings.webtools.note':
