@@ -120,7 +120,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	}
 	m.mu.Unlock()
 
-	bridge := acpclient.New(m.log, m.sandboxes, sandboxID, opts.AutoApprove)
+	bridge := acpclient.New(m.log, m.sandboxes, sandboxID, opts.AutoApprove, opts.Actor.Authz())
 	runCtx, cancel := context.WithCancel(context.Background())
 
 	var conn *acp.ClientSideConnection

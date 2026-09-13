@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+
+	"github.com/RoundpenAI/roundpen/internal/authz"
 )
 
 // Actor is the authenticated Roundpen user the agent acts as.
@@ -15,6 +17,11 @@ type Actor struct {
 	Username string
 	Role     string
 	APIKey   string
+}
+
+// Authz returns the control-plane identity used by owner-scoped services.
+func (a Actor) Authz() authz.Actor {
+	return authz.Actor{Username: a.Username, Admin: a.Role == "admin"}
 }
 
 // Tool is one LLM-callable function.
