@@ -11,6 +11,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
@@ -32,6 +33,7 @@ type Bridge struct {
 	log       *slog.Logger
 	sandboxes sandbox.Manager
 	sandboxID string
+	actor     authz.Actor
 
 	mu                sync.Mutex
 	onEvent           func(Event)
@@ -42,11 +44,11 @@ type Bridge struct {
 var _ acp.Client = (*Bridge)(nil)
 
 // New creates a Bridge.
-func New(log *slog.Logger, sandboxes sandbox.Manager, sandboxID string, autoApprove bool) *Bridge {
+func New(log *slog.Logger, sandboxes sandbox.Manager, sandboxID string, autoApprove bool, actor authz.Actor) *Bridge {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Bridge{log: log, sandboxes: sandboxes, sandboxID: sandboxID, autoApprove: autoApprove}
+	return &Bridge{log: log, sandboxes: sandboxes, sandboxID: sandboxID, autoApprove: autoApprove, actor: actor}
 }
 
 // SetOnEvent sets the live event sink.
@@ -151,6 +153,9 @@ func (b *Bridge) RequestPermission(ctx context.Context, params acp.RequestPermis
 }
 
 func (b *Bridge) ReadTextFile(ctx context.Context, params acp.ReadTextFileRequest) (acp.ReadTextFileResponse, error) {
+	// File requests arrive off the ACP read loop, which cannot carry context
+	// values; re-attach the actor for the owner-scoped manager call.
+	ctx = authz.WithActor(ctx, b.actor)
 	rel, err := guestToRel(params.Path)
 	if err != nil {
 		return acp.ReadTextFileResponse{}, err
@@ -175,6 +180,7 @@ func (b *Bridge) ReadTextFile(ctx context.Context, params acp.ReadTextFileReques
 }
 
 func (b *Bridge) WriteTextFile(ctx context.Context, params acp.WriteTextFileRequest) (acp.WriteTextFileResponse, error) {
+	ctx = authz.WithActor(ctx, b.actor)
 	rel, err := guestToRel(params.Path)
 	if err != nil {
 		return acp.WriteTextFileResponse{}, err

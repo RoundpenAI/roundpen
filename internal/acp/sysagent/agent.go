@@ -13,6 +13,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
+	"github.com/RoundpenAI/roundpen/internal/authz"
 )
 
 // keepLastToolResults is how many recent tool payloads stay verbatim in-context.
@@ -101,6 +102,9 @@ func (a *Agent) Prompt(_ context.Context, params acp.PromptRequest) (acp.PromptR
 		s.cancel()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	// The ACP pipe cannot carry context values, so re-attach the authenticated
+	// actor for the owner-scoped sandbox/memory calls made by tools.
+	ctx = authz.WithActor(ctx, a.deps.Actor.Authz())
 	a.mu.Lock()
 	s.cancel = cancel
 	a.mu.Unlock()
