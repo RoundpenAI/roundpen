@@ -332,6 +332,15 @@ func main() {
 	envSvc.Config.DefaultModel = gw.DefaultModel
 	agentStore := &agentsession.Store{DB: db.SQL}
 	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
+	if cfg.WebTools.SearchEndpoint != "" || cfg.WebTools.SearchAPIKey != "" {
+		endpoint := cfg.WebTools.SearchEndpoint
+		if endpoint == "" {
+			endpoint = "(default)"
+		}
+		logger.Info("web search enabled",
+			"endpoint", endpoint,
+			"api_key_set", cfg.WebTools.SearchAPIKey != "")
+	}
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
 		LoopbackBase: loopback,
 		LLMKey:       llmgw.InternalVirtualKey,
@@ -340,6 +349,9 @@ func main() {
 		BrowserSlots: envSvc,
 		AgentSlots:   envSvc,
 		History:      agentStore,
+
+		WebSearchEndpoint: cfg.WebTools.SearchEndpoint,
+		WebSearchAPIKey:   cfg.WebTools.SearchAPIKey,
 	})
 	provisioner := &agentenv.Provisioner{
 		Sandboxes: mgr,

@@ -46,3 +46,47 @@ func TestWorkspaceToolSurface(t *testing.T) {
 		t.Fatalf("missing from list: %q", name)
 	}
 }
+
+func TestWebToolSurface(t *testing.T) {
+	reg := tools.NewRegistry()
+	tools.RegisterWebFetch(reg, &tools.WebBinder{
+		HTTP: tools.NewWebHTTPClient(tools.WebClientOptions{AllowLoopback: true}),
+	})
+	tools.RegisterWebSearch(reg, &tools.WebSearchBinder{}) // 未配置 → 不注册
+
+	if _, ok := reg.Get("WebFetch"); !ok {
+		t.Fatal("missing WebFetch")
+	}
+	if _, ok := reg.Get("WebSearch"); ok {
+		t.Fatal("WebSearch must not register without endpoint/key")
+	}
+	assertCleanReadOnly(t, reg)
+
+	reg2 := tools.NewRegistry()
+	tools.RegisterWebSearch(reg2, &tools.WebSearchBinder{APIKey: "tvly-test"})
+	if _, ok := reg2.Get("WebSearch"); !ok {
+		t.Fatal("missing WebSearch when configured")
+	}
+	assertCleanReadOnly(t, reg2)
+}
+
+func assertCleanReadOnly(t *testing.T, reg *tools.Registry) {
+	t.Helper()
+	if len(reg.List()) == 0 {
+		t.Fatal("registry is empty")
+	}
+	for _, tool := range reg.List() {
+		if strings.TrimSpace(tool.Description) == "" {
+			t.Fatalf("%s has an empty description", tool.Name)
+		}
+		lower := strings.ToLower(tool.Description)
+		for _, bad := range []string{"sandbox", "guest", "qemu"} {
+			if strings.Contains(lower, bad) {
+				t.Fatalf("%s description mentions %q", tool.Name, bad)
+			}
+		}
+		if tool.Mutating {
+			t.Fatalf("%s must be read-only", tool.Name)
+		}
+	}
+}

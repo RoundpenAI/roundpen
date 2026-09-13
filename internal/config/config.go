@@ -29,6 +29,7 @@ type Config struct {
 	DefaultTTL              time.Duration
 	LogLevel                slog.Level
 	LLMGW                   LLMGWConfig
+	WebTools                WebToolsConfig
 	PreviewPublicURL        string        // absolute base URL for preview links
 	PreviewTokenTTL         time.Duration // default 15m
 	TrustedProxies          string        // comma-separated CIDRs that may send X-Forwarded-*
@@ -112,6 +113,7 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.LLMGW = llmgwCfg
+	cfg.WebTools = loadWebTools()
 	cdpCfg, err := loadCDP()
 	if err != nil {
 		return nil, err

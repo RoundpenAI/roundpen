@@ -125,7 +125,7 @@ func truncateRunes(s string, max int) string {
 	if max <= 0 || len(s) <= max {
 		return s
 	}
-	for max > 0 && !utf8.ValidString(s[:max]) {
+	for max > 0 && !utf8.RuneStart(s[max]) {
 		max--
 	}
 	return s[:max] + "…"

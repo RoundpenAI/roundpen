@@ -45,6 +45,8 @@ Agent 可见工具对齐 Claude Code 命名；沙箱 / ensure 是实现细节（
 | `Read` / `Write` / `Edit` | 工作区文件读写与精确替换（根 `/workspace`） |
 | `Glob` / `Grep` | 按路径模式找文件 / 内容搜索（guest `rg`/`find`） |
 | `Bash` | 在 Agent workspace 跑 shell（替换旧 `sandbox_exec`） |
+| `WebFetch` | 抓取 URL 转 Markdown 并按 prompt 提炼（控制面执行，只读） |
+| `WebSearch` | 联网搜索（Tavily，只读；`ROUNDPEN_WEB_SEARCH_*` 未配置则不注册） |
 | `ListEnvironments` | agent/browser 槽位状态（返回值剥离 `sandboxId`） |
 | `ListTemplates` | 模板列表 |
 | `ListSessions` | 当前用户会话 |

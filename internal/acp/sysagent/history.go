@@ -31,6 +31,7 @@ Use tools for factual actions. Do not invent API results. Prefer concise answers
 
 Workspace tools (working directory /workspace): Read, Write, Edit, Glob, Grep, Bash.
 Browser tools (browser_*): Chrome only — cannot run git or shell.
+Web tools: WebFetch reads one URL and answers your question about the page (no browser session or cookies, so login-walled pages fail).
 
 If ListEnvironments shows agent status=absent, the Agent workspace is simply not started yet.
 Call Bash or a file tool; the environment starts as needed. Do not stop after listing.
@@ -39,6 +40,10 @@ When the user asks to clone a repo, run commands, or work in files, use Bash and
 Git auth: if the user saved a personal token (Settings → Git), git inside Bash uses it automatically.
 Do not put tokens in clone URLs, and do not inspect credential files.
 Prior user messages, your replies, and tool calls/results are included when this session has history.`
+
+	if _, ok := a.deps.Tools.Get("WebSearch"); ok {
+		system += "\nWebSearch looks up current information; cite the URLs you used."
+	}
 
 	out := []chatMessage{{Role: "system", Content: system}}
 	if a.deps.History != nil && a.deps.SessionID != "" {
