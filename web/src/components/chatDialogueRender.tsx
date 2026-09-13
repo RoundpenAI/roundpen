@@ -6,12 +6,19 @@ import {
 } from '../components/ToolCallCard'
 import {
   isActivityMessage,
-  type SemiChatMessage,
   type SemiContentItem,
 } from '../lib/semiChatAdapter'
 
+// Structural view of Semi's Message; the library type is wider than the
+// adapter's SemiChatMessage, so render hooks take the minimal shape they need.
+type DialogueMessage = {
+  model?: string
+  content?: unknown
+  status?: string
+}
+
 type ContentProps = {
-  message?: SemiChatMessage
+  message?: DialogueMessage
   defaultContent?: ReactNode | ReactNode[]
   className?: string
 }
@@ -25,7 +32,7 @@ function parseArgs(raw: string | undefined): unknown {
   }
 }
 
-function activityFromMessage(message: SemiChatMessage): {
+function activityFromMessage(message: DialogueMessage): {
   thoughts: { text: string; streaming?: boolean }[]
   tools: ToolCallData[]
 } {
@@ -54,7 +61,7 @@ function activityFromMessage(message: SemiChatMessage): {
   return { thoughts, tools }
 }
 
-export function renderActivityContent(message: SemiChatMessage): ReactNode {
+export function renderActivityContent(message: DialogueMessage): ReactNode {
   const { thoughts, tools } = activityFromMessage(message)
   const thoughtText = thoughts.map((t) => t.text).filter(Boolean).join('\n\n')
   const streaming = thoughts.some((t) => t.streaming)

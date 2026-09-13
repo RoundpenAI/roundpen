@@ -14,8 +14,6 @@ func TestDecodeAppSettingsKeepsFallbackLLMGW(t *testing.T) {
 		LlmgwEnabled:           true,
 		LlmgwOpenaiBaseURL:     "https://api.openai.com",
 		LlmgwOpenaiAPIKey:      "sk-env",
-		KanikoExecutor:         "executor",
-		KanikoRegistryMirrors:  "docker.1ms.run",
 		CDPProvider:            "docker",
 		CDPPort:                9222,
 	}
@@ -34,11 +32,24 @@ func TestDecodeAppSettingsKeepsFallbackLLMGW(t *testing.T) {
 	if !got.LlmgwEnabled || got.LlmgwOpenaiAPIKey != "sk-env" {
 		t.Fatalf("llmgw fallback lost: %+v", got)
 	}
-	if got.KanikoExecutor != "executor" || got.KanikoRegistryMirrors != "docker.1ms.run" {
-		t.Fatalf("kaniko fallback lost: %+v", got)
-	}
 	if got.CDPProvider != "docker" || got.CDPPort != 9222 {
 		t.Fatalf("cdp fallback lost: %+v", got)
+	}
+}
+
+func TestDecodeAppSettingsMapsLegacyKaniko(t *testing.T) {
+	got, err := settings.DecodeAppSettings([]byte(`{
+		"defaultImage": "host",
+		"defaultTtlSeconds": 1800,
+		"previewTokenTtlSeconds": 900,
+		"templateBuilder": "kaniko",
+		"kanikoDestination": "git.example.com/roundpen"
+	}`), settings.AppSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TemplateBuilder != "docker" {
+		t.Fatalf("legacy kaniko should map to docker, got %q", got.TemplateBuilder)
 	}
 }
 

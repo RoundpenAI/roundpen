@@ -6,8 +6,9 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
-import { Banner, Button, Spin, Typography } from '@douyinfe/semi-ui-19'
+import { Banner, Button, Typography } from '@douyinfe/semi-ui-19'
 import { agents, type AgentBrowserStatus, ApiError } from '../api'
+import { Loading } from './Loading'
 
 type Props = {
   sessionId: string
@@ -426,7 +427,7 @@ export function AgentBrowserPanel({
             }}
           >
             {takeoverBusy ? (
-              <Spin tip="Starting browser…" />
+              <Loading tip="Starting browser…" />
             ) : (
               <Typography.Text type="tertiary" size="small">
                 No live frame yet. Open the browser to start.

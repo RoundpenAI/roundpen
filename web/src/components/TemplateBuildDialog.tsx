@@ -504,22 +504,14 @@ export function TemplateBuildDialog({
               )}
 
               <Typography.Text type="tertiary" size="small">
-                Image builds require a configured builder: docker backend, or kaniko
-                with{' '}
+                Image builds require a configured builder: docker with{' '}
                 <Typography.Text
                   size="small"
                   style={{ fontFamily: 'var(--semi-font-family-code)' }}
                 >
-                  ROUNDPEN_TEMPLATE_BUILDER=kaniko
+                  ROUNDPEN_TEMPLATE_BUILDER=docker
                 </Typography.Text>{' '}
-                and{' '}
-                <Typography.Text
-                  size="small"
-                  style={{ fontFamily: 'var(--semi-font-family-code)' }}
-                >
-                  ROUNDPEN_KANIKO_DESTINATION
-                </Typography.Text>
-                . T2 snapshot verification currently needs docker.
+                or remote CI.
               </Typography.Text>
 
               {showErr && (

@@ -32,13 +32,7 @@ type Config struct {
 	PreviewPublicURL        string        // absolute base URL for preview links
 	PreviewTokenTTL         time.Duration // default 15m
 	TrustedProxies          string        // comma-separated CIDRs that may send X-Forwarded-*
-	TemplateBuilder         string        // docker | kaniko | auto
-	KanikoExecutor          string
-	KanikoDestination       string
-	KanikoInsecure          bool
-	KanikoSkipTLSVerify     bool
-	KanikoRegistryMirrors   []string
-	KanikoExtraArgs         []string
+	TemplateBuilder         string        // docker | ci | auto
 	CDP                     CDPConfig
 	QEMUEnabled             bool // attempt to attach qemu for browser slot
 }
@@ -66,15 +60,7 @@ func Load() (*Config, error) {
 		PreviewTokenTTL:         15 * time.Minute,
 		TrustedProxies:          strings.TrimSpace(os.Getenv("ROUNDPEN_TRUSTED_PROXIES")),
 		TemplateBuilder:         strings.ToLower(strings.TrimSpace(os.Getenv("ROUNDPEN_TEMPLATE_BUILDER"))),
-		KanikoExecutor:          getenv("ROUNDPEN_KANIKO_EXECUTOR", "executor"),
-		KanikoDestination:       strings.TrimSpace(os.Getenv("ROUNDPEN_KANIKO_DESTINATION")),
-		KanikoInsecure:          getenvBool("ROUNDPEN_KANIKO_INSECURE", false),
-		KanikoSkipTLSVerify:     getenvBool("ROUNDPEN_KANIKO_SKIP_TLS_VERIFY", false),
-		KanikoRegistryMirrors:   SplitKanikoMirrors(os.Getenv("ROUNDPEN_KANIKO_REGISTRY_MIRROR")),
 		QEMUEnabled:             getenvBool("ROUNDPEN_QEMU_ENABLED", true),
-	}
-	if v := strings.TrimSpace(os.Getenv("ROUNDPEN_KANIKO_EXTRA_ARGS")); v != "" {
-		cfg.KanikoExtraArgs = strings.Fields(v)
 	}
 	if v := os.Getenv("ROUNDPEN_PREVIEW_TOKEN_TTL"); v != "" {
 		secs, err := strconv.Atoi(v)
@@ -153,27 +139,4 @@ func getenvBool(key string, fallback bool) bool {
 		return false
 	}
 	return fallback
-}
-
-// SplitKanikoMirrors parses space/comma-separated registry mirrors.
-// Accepts hosts or URLs (https://docker.1ms.run → docker.1ms.run).
-func SplitKanikoMirrors(v string) []string {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return nil
-	}
-	fields := strings.FieldsFunc(v, func(r rune) bool {
-		return r == ',' || r == ' ' || r == '\t' || r == '\n'
-	})
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		f = strings.TrimSpace(f)
-		f = strings.TrimPrefix(f, "https://")
-		f = strings.TrimPrefix(f, "http://")
-		f = strings.TrimSuffix(f, "/")
-		if f != "" {
-			out = append(out, f)
-		}
-	}
-	return out
 }

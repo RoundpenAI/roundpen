@@ -18,9 +18,6 @@ stop:
 dev-check:
 	@./scripts/dev-up.sh --check-only
 
-install-kaniko:
-	@./scripts/install-kaniko.sh
-
 # Node is only needed here (and in the Docker builder). End users run a
 # prebuilt binary or `docker compose up` — they never need npm.
 build-ui:

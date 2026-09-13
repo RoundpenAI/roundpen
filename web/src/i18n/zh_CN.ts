@@ -51,18 +51,11 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.preview.tokenTtl': '预览令牌 TTL',
 
   'settings.builds.engine': '模板构建引擎',
-  'settings.builds.kanikoDest': 'Kaniko 目标前缀',
-  'settings.builds.kanikoExecutor': 'Kaniko executor 二进制',
-  'settings.builds.kanikoMirrors': 'Kaniko 镜像源',
-  'settings.builds.kanikoInsecure': 'Kaniko 不安全仓库',
-  'settings.builds.kanikoSkipTls': 'Kaniko 跳过 TLS 校验',
-  'settings.builds.kanikoExtra': 'Kaniko 额外参数',
 
   'settings.builder.disabled': '禁用（不在本地构建）',
-  'settings.builder.kaniko': '本地 Kaniko',
   'settings.builder.docker': '本地 Docker',
   'settings.builder.ci': '远程 CI（在别处构建）',
-  'settings.builder.auto': '自动（根据后端 / Kaniko 配置检测）',
+  'settings.builder.auto': '自动（根据后端检测）',
 
   'settings.cdp.auto':
     '自动（Docker 引擎 → Docker Chrome；否则使用本机 Chrome）',

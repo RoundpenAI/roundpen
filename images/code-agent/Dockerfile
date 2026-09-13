@@ -25,8 +25,7 @@ RUN set -eux; \
         ca-certificates \
         curl \
         git \
-        openssh-client \
-        python3-minimal; \
+        openssh-client; \
     rm -rf /var/lib/apt/lists/*; \
     git --version; \
     ssh -V 2>&1 | head -1

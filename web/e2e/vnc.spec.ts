@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { desktopWsUrl, live, skipIfNoLivePassword } from './helpers'
 
 test('vnc.html completes RFB handshake on the real desktop URL', async ({ page }) => {

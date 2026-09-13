@@ -22,11 +22,6 @@ func WriteBuildContext(dockerfile string) (dir string, cleanup func(), err error
 	return dir, cleanup, nil
 }
 
-// DirContextURI returns a Kaniko dir:// context URI for a local path.
-func DirContextURI(dir string) string {
-	return "dir://" + dir
-}
-
 // SanitizeImageRef strips a trailing slash from registry prefixes.
 func SanitizeImageRef(ref string) string {
 	for len(ref) > 0 && ref[len(ref)-1] == '/' {

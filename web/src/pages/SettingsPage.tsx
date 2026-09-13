@@ -8,7 +8,6 @@ import {
   Input,
   Modal,
   Select,
-  Spin,
   Switch,
   Toast,
   Typography,
@@ -24,6 +23,7 @@ import {
 import { useAuth } from '../auth'
 import { useT, type MessageKey } from '../i18n'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
+import { Loading } from '../components/Loading'
 import { resolveSettingsSection } from '../lib/appNav'
 
 const emptySettings: AppSettings = {
@@ -33,12 +33,6 @@ const emptySettings: AppSettings = {
   previewPublicUrl: '',
   previewTokenTtlSeconds: 900,
   templateBuilder: '',
-  kanikoDestination: '',
-  kanikoExecutor: '',
-  kanikoRegistryMirrors: '',
-  kanikoInsecure: false,
-  kanikoSkipTlsVerify: false,
-  kanikoExtraArgs: '',
   llmgwEnabled: false,
   llmgwPublicUrl: '',
   llmgwLogBodyMaxBytes: 0,
@@ -57,7 +51,6 @@ const emptySettings: AppSettings = {
 
 const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
   { value: '', labelKey: 'settings.builder.disabled' },
-  { value: 'kaniko', labelKey: 'settings.builder.kaniko' },
   { value: 'docker', labelKey: 'settings.builder.docker' },
   { value: 'ci', labelKey: 'settings.builder.ci' },
   { value: 'auto', labelKey: 'settings.builder.auto' },
@@ -352,7 +345,7 @@ export function SettingsPage() {
           justifyContent: 'center',
         }}
       >
-        <Spin tip={t('settings.loading')} />
+        <Loading tip={t('settings.loading')} />
       </div>
     )
   }
@@ -426,7 +419,7 @@ export function SettingsPage() {
 
         {section === 'general' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -471,7 +464,7 @@ export function SettingsPage() {
 
         {section === 'preview' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -504,7 +497,7 @@ export function SettingsPage() {
 
         {section === 'builds' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -519,50 +512,6 @@ export function SettingsPage() {
                   style={{ width: '100%' }}
                 />
               </Field>
-              <Field label={t('settings.builds.kanikoDest')}>
-                <Input
-                  spellCheck={false}
-                  placeholder="registry.example/roundpen"
-                  value={form.kanikoDestination}
-                  onChange={(v) => patch({ kanikoDestination: v })}
-                />
-              </Field>
-              <Field label={t('settings.builds.kanikoExecutor')}>
-                <Input
-                  spellCheck={false}
-                  placeholder="executor"
-                  value={form.kanikoExecutor}
-                  onChange={(v) => patch({ kanikoExecutor: v })}
-                />
-              </Field>
-              <Field label={t('settings.builds.kanikoMirrors')}>
-                <Input
-                  spellCheck={false}
-                  placeholder="docker.1ms.run mirror.example"
-                  value={form.kanikoRegistryMirrors}
-                  onChange={(v) => patch({ kanikoRegistryMirrors: v })}
-                />
-              </Field>
-              <Toggle
-                checked={form.kanikoInsecure}
-                onChange={(v) => patch({ kanikoInsecure: v })}
-              >
-                {t('settings.builds.kanikoInsecure')}
-              </Toggle>
-              <Toggle
-                checked={form.kanikoSkipTlsVerify}
-                onChange={(v) => patch({ kanikoSkipTlsVerify: v })}
-              >
-                {t('settings.builds.kanikoSkipTls')}
-              </Toggle>
-              <Field label={t('settings.builds.kanikoExtra')}>
-                <Input
-                  spellCheck={false}
-                  placeholder="--snapshot-mode=redo"
-                  value={form.kanikoExtraArgs}
-                  onChange={(v) => patch({ kanikoExtraArgs: v })}
-                />
-              </Field>
             </div>
             </Form>
           ) : null
@@ -570,7 +519,7 @@ export function SettingsPage() {
 
         {section === 'browser' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -648,7 +597,7 @@ export function SettingsPage() {
 
         {section === 'llmgw' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ ...sectionGap, paddingTop: 16 }}>
@@ -825,7 +774,7 @@ export function SettingsPage() {
 
         {section === 'system' && (
           isAdmin && loading ? (
-            <Spin tip={t('settings.loadingSystem')} />
+            <Loading tip={t('settings.loadingSystem')} />
           ) : isAdmin ? (
             <Form labelPosition="top" labelAlign="left" style={sectionGap}>
             <div style={{ paddingTop: 16 }}>

@@ -4,11 +4,11 @@ import {
   Collapse,
   List,
   Progress,
-  Spin,
   Tag,
   Typography,
 } from '@douyinfe/semi-ui-19'
 import { setupApi, type SetupActionRun, type SetupPlan } from '../api'
+import { Loading } from './Loading'
 
 type Props = {
   planId: string
@@ -256,7 +256,7 @@ export function SetupWorkstation({ planId, onReady, onError }: Props) {
   if (!plan) {
     return (
       <div style={{ marginTop: 24 }}>
-        <Spin tip="正在检测工位…" />
+        <Loading tip="正在检测工位…" />
       </div>
     )
   }

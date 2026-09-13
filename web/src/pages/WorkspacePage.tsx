@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Button,
-  Spin,
   Table,
   Typography,
   Toast,
 } from '@douyinfe/semi-ui-19'
 import { IconFolder, IconFile, IconRefresh, IconUpload } from '@douyinfe/semi-icons'
 import { meWorkspace, type DirEntry } from '../api'
+import { Loading } from '../components/Loading'
 import { useT } from '../i18n'
 
 function joinPath(base: string, name: string): string {
@@ -135,7 +135,7 @@ export function WorkspacePage() {
 
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}>
-            <Spin tip={t('workspace.preparing')} />
+            <Loading tip={t('workspace.preparing')} />
           </div>
         ) : (
           <Table

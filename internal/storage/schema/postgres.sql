@@ -345,13 +345,6 @@ CREATE TABLE IF NOT EXISTS user_git_credentials (
 );
 CREATE INDEX IF NOT EXISTS user_git_credentials_user_idx ON user_git_credentials (user_id, host);
 
--- Per-user agent engine preference (qemu | docker | kern)
-CREATE TABLE IF NOT EXISTS user_runtime (
-    user_id       TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
-    agent_engine  TEXT NOT NULL DEFAULT '',
-    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 -- Assist tickets: human-in-the-loop requests raised by assistants (not auto on soft deny).
 CREATE TABLE IF NOT EXISTS assist_tickets (
     id              TEXT PRIMARY KEY,

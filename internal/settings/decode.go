@@ -3,6 +3,7 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // DecodeAppSettings unmarshals stored JSON on top of fallback so newly added
@@ -10,14 +11,14 @@ import (
 func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 	out := fallback
 	if len(raw) == 0 {
-		return out, nil
+		return normalizeLegacy(out), nil
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return AppSettings{}, fmt.Errorf("decode settings: %w", err)
 	}
 	var keys map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &keys); err != nil {
-		return out, nil
+		return normalizeLegacy(out), nil
 	}
 	if _, ok := keys["llmgwEnabled"]; !ok {
 		out.LlmgwEnabled = fallback.LlmgwEnabled
@@ -34,17 +35,21 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 	if _, ok := keys["llmgwDefaultModel"]; !ok {
 		out.LlmgwDefaultModel = fallback.LlmgwDefaultModel
 	}
-	if _, ok := keys["kanikoExecutor"]; !ok {
-		out.KanikoExecutor = fallback.KanikoExecutor
-	}
-	if _, ok := keys["kanikoRegistryMirrors"]; !ok {
-		out.KanikoRegistryMirrors = fallback.KanikoRegistryMirrors
-	}
 	if _, ok := keys["cdpProvider"]; !ok {
 		out.CDPProvider = fallback.CDPProvider
 		out.CDPEndpoint = fallback.CDPEndpoint
 		out.CDPToken = fallback.CDPToken
 		out.CDPPort = fallback.CDPPort
 	}
-	return out, nil
+	return normalizeLegacy(out), nil
+}
+
+// normalizeLegacy maps pre-removal values onto their current equivalents so old
+// settings rows keep working. Removing kaniko from the validation set would
+// otherwise fail the row and reset settings from env.
+func normalizeLegacy(s AppSettings) AppSettings {
+	if strings.EqualFold(strings.TrimSpace(s.TemplateBuilder), "kaniko") {
+		s.TemplateBuilder = "docker"
+	}
+	return s
 }

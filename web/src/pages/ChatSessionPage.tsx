@@ -230,7 +230,7 @@ function messageContentToPlainText(payload: MessageContent): string {
 }
 
 function contentsHaveSendableText(
-  contents: Array<{ text?: unknown }> | undefined,
+  contents: Array<{ [key: string]: unknown }> | undefined,
 ): boolean {
   if (!contents?.length) return false
   return contents.some(
