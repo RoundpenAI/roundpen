@@ -245,10 +245,18 @@ func (b *Backend) Exec(ctx context.Context, sandboxID string, opts backend.ExecO
 		return nil, fmt.Errorf("exec attach: %w", err)
 	}
 	defer attach.Close()
+	// The hijacked connection is not tied to execCtx; close it on cancellation
+	// so a stopped command stops blocking StdCopy. The in-container process
+	// keeps running — the exec API cannot signal it.
+	stopOnCancel := context.AfterFunc(execCtx, func() { attach.Close() })
+	defer stopOnCancel()
 
 	var stdout, stderr strings.Builder
 	_, err = stdcopy.StdCopy(&stdout, &stderr, attach.Reader)
-	if err != nil && execCtx.Err() == nil {
+	if err != nil {
+		if execCtx.Err() != nil {
+			return nil, fmt.Errorf("exec canceled: %w", execCtx.Err())
+		}
 		return nil, fmt.Errorf("exec copy: %w", err)
 	}
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -27,7 +28,26 @@ func (m memHistory) ListMessages(context.Context, string, int) ([]*agentsession.
 }
 
 type captureClient struct {
-	texts []string
+	mu          sync.Mutex
+	texts       []string
+	toolUpdates []toolUpdate
+}
+
+type toolUpdate struct {
+	id     string
+	status string
+}
+
+func (c *captureClient) toolStatuses() []toolUpdate {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]toolUpdate(nil), c.toolUpdates...)
+}
+
+func (c *captureClient) textsSnapshot() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.texts...)
 }
 
 func (c *captureClient) RequestPermission(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
@@ -39,8 +59,16 @@ func (c *captureClient) RequestPermission(context.Context, acp.RequestPermission
 	}, nil
 }
 func (c *captureClient) SessionUpdate(_ context.Context, n acp.SessionNotification) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if n.Update.AgentMessageChunk != nil && n.Update.AgentMessageChunk.Content.Text != nil {
 		c.texts = append(c.texts, n.Update.AgentMessageChunk.Content.Text.Text)
+	}
+	if u := n.Update.ToolCallUpdate; u != nil && u.Status != nil {
+		c.toolUpdates = append(c.toolUpdates, toolUpdate{
+			id:     string(u.ToolCallId),
+			status: string(*u.Status),
+		})
 	}
 	return nil
 }
@@ -149,14 +177,15 @@ func TestAgent_ToolLoop(t *testing.T) {
 	if resp.StopReason == "" {
 		t.Fatal("empty stop")
 	}
+	texts := client.textsSnapshot()
 	found := false
-	for _, ttxt := range client.texts {
+	for _, ttxt := range texts {
 		if strings.Contains(ttxt, "pong done") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("expected final text, got %#v", client.texts)
+		t.Fatalf("expected final text, got %#v", texts)
 	}
 	if round.Load() < 2 {
 		t.Fatalf("expected 2 llm rounds, got %d", round.Load())
