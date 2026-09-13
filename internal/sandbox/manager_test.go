@@ -661,6 +661,31 @@ func TestService_DeleteKeepsPersistentWorkspace(t *testing.T) {
 	}
 }
 
+func TestService_CreateConflictKeepsPersistentWorkspace(t *testing.T) {
+	root := t.TempDir()
+	fs := local.New(root)
+	store := newMemStore()
+	svc := sandbox.NewService(store, newStubBackend("docker"), fs, "host", time.Minute, nil)
+	ctx := adminCtx()
+
+	if _, err := svc.Create(ctx, sandbox.CreateRequest{Name: "dup", WorkspaceID: "user-ws"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Write(ctx, "user-ws", "keep.txt", strings.NewReader("data")); err != nil {
+		t.Fatal(err)
+	}
+	// Second create with the same name fails; its cleanup must not remove the
+	// persistent workspace.
+	if _, err := svc.Create(ctx, sandbox.CreateRequest{Name: "dup", WorkspaceID: "user-ws"}); !errors.Is(err, sandbox.ErrConflict) {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+	rc, err := fs.Open(ctx, "user-ws", "keep.txt")
+	if err != nil {
+		t.Fatalf("persistent workspace was removed: %v", err)
+	}
+	_ = rc.Close()
+}
+
 func TestService_AttachAndResizeTerminal(t *testing.T) {
 	svc, _, _ := newTestService(t, newStubBackend("docker"))
 	ctx := adminCtx()

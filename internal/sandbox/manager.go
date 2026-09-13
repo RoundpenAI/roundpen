@@ -177,7 +177,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	}
 	if isDefault {
 		if err := s.store.ClearDefaultInCategory(ctx, category, id, actor.Username); err != nil {
-			_ = s.fs.Remove(ctx, wsID)
+			if ephemeral {
+				_ = s.fs.Remove(ctx, wsID)
+			}
 			return nil, err
 		}
 	}
@@ -210,7 +212,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	}
 
 	if err := s.store.Insert(ctx, sb); err != nil {
-		_ = s.fs.Remove(ctx, wsID)
+		if ephemeral {
+			_ = s.fs.Remove(ctx, wsID)
+		}
 		if errors.Is(err, ErrConflict) {
 			return nil, fmt.Errorf("%w: sandbox name already exists", ErrConflict)
 		}
