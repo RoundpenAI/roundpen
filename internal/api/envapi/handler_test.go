@@ -18,6 +18,7 @@ import (
 type fakeEnvs struct {
 	force  bool
 	calls  int
+	user   string
 	result *userenv.UpgradeResult
 	err    error
 }
@@ -32,6 +33,7 @@ func (f *fakeEnvs) EnsureAgent(context.Context, string) (*sandbox.Sandbox, error
 func (f *fakeEnvs) UpgradeAgent(_ context.Context, userID string, force bool) (*userenv.UpgradeResult, error) {
 	f.calls++
 	f.force = force
+	f.user = userID
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -53,23 +55,41 @@ func upgradeRequest(t *testing.T, envs *fakeEnvs, body string) *httptest.Respons
 }
 
 func TestUpgradeAgentEndpoint_OK(t *testing.T) {
-	envs := &fakeEnvs{result: &userenv.UpgradeResult{Status: "upgraded", Image: "img:2", Digest: "sha256:y"}}
+	envs := &fakeEnvs{result: &userenv.UpgradeResult{
+		Status: "upgraded", Image: "img:2", Digest: "sha256:y",
+		Environment: userenv.EnvView{Slot: userenv.SlotAgent, Status: "running", Image: "img:2"},
+	}}
 	rec := upgradeRequest(t, envs, `{"force":false}`)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 	var out struct {
-		Status string `json:"status"`
-		Image  string `json:"image"`
+		Status      string `json:"status"`
+		Image       string `json:"image"`
+		Digest      string `json:"digest"`
+		Environment struct {
+			Slot   string `json:"slot"`
+			Status string `json:"status"`
+			Image  string `json:"image"`
+		} `json:"environment"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.Status != "upgraded" || out.Image != "img:2" {
+	if out.Status != "upgraded" || out.Image != "img:2" || out.Digest != "sha256:y" {
 		t.Fatalf("out=%+v", out)
+	}
+	if out.Environment.Slot != "agent" || out.Environment.Status != "running" || out.Environment.Image != "img:2" {
+		t.Fatalf("environment=%+v", out.Environment)
 	}
 	if envs.force {
 		t.Fatal("force should be false")
+	}
+	if envs.user != "alice" {
+		t.Fatalf("user=%q, want alice", envs.user)
+	}
+	if envs.calls != 1 {
+		t.Fatalf("calls=%d, want 1", envs.calls)
 	}
 }
 
@@ -78,6 +98,17 @@ func TestUpgradeAgentEndpoint_ForceFlag(t *testing.T) {
 	rec := upgradeRequest(t, envs, `{"force":true}`)
 	if rec.Code != http.StatusOK || !envs.force {
 		t.Fatalf("status=%d force=%v", rec.Code, envs.force)
+	}
+}
+
+func TestUpgradeAgentEndpoint_MalformedBody(t *testing.T) {
+	envs := &fakeEnvs{}
+	rec := upgradeRequest(t, envs, `{`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if envs.calls != 0 {
+		t.Fatalf("service must not be called: calls=%d", envs.calls)
 	}
 }
 

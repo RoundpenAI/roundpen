@@ -4,7 +4,9 @@ package envapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -138,8 +140,9 @@ func (h *Handler) upgradeAgent(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Force bool `json:"force"`
 	}
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
 	}
 	res, err := h.Envs.UpgradeAgent(r.Context(), user.Username, body.Force)
 	if err != nil {

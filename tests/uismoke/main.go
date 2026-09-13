@@ -304,9 +304,8 @@ func (s *slotEnvs) EnsureAgent(_ context.Context, _ string) (*sandbox.Sandbox, e
 // upgrade button gets a benign answer instead of an error.
 func (s *slotEnvs) UpgradeAgent(_ context.Context, _ string, _ bool) (*userenv.UpgradeResult, error) {
 	return &userenv.UpgradeResult{
-		Status: "up_to_date",
-		Image:  "uismoke-agent",
-		Digest: "sha256:uismoke",
+		Status: "up_to_date", Image: "uismoke-agent", Digest: "sha256:uismoke",
+		Environment: userenv.EnvView{Slot: userenv.SlotAgent, Status: "running", Image: "uismoke-agent"},
 	}, nil
 }
 
