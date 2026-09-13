@@ -59,10 +59,10 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'settings.cdp.auto':
     '自动（Docker 引擎 → Docker Chrome；否则使用本机 Chrome）',
-  'settings.cdp.docker': 'Docker Chrome（沙箱 Dial 到访客 CDP）',
-  'settings.cdp.host': '本机 Chrome / 本机调试端口',
-  'settings.cdp.remote': '远程 CDP（Browserless 或自建）',
-  'settings.cdp.cloud': '云浏览器（粘贴会话 CDP URL）',
+  'settings.cdp.docker': 'Roundpen 托管容器（browserless/chrome）',
+  'settings.cdp.host': 'roundpend 主机上的 Chrome',
+  'settings.cdp.remote': '局域网 / 自建 browserless',
+  'settings.cdp.cloud': '商业云浏览器（CDP 地址 + token）',
 
   'settings.ttl.10m': '10 分钟',
   'settings.ttl.15m': '15 分钟',
@@ -86,6 +86,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.logBody.256k': '256 KiB',
 
   'settings.browser.cdpProvider': 'CDP 提供方',
+  'settings.browser.test': '测试连接',
   'settings.browser.hostCdpUrl': '本机 CDP URL（可选；留空则启动本地 Chrome）',
   'settings.browser.cdpEndpoint': 'CDP 端点 URL',
   'settings.browser.cdpToken': 'CDP 令牌（可选）',

@@ -58,10 +58,10 @@ export const en = {
 
   'settings.cdp.auto':
     'Auto (Docker engine → Docker Chrome; else host Chrome if present)',
-  'settings.cdp.docker': 'Docker Chrome (sandbox Dial to guest CDP)',
-  'settings.cdp.host': 'Host Chrome / debugging port on this machine',
-  'settings.cdp.remote': 'Remote CDP (Browserless or self-hosted)',
-  'settings.cdp.cloud': 'Cloud browser (paste session CDP URL)',
+  'settings.cdp.docker': 'Roundpen-managed container (browserless/chrome)',
+  'settings.cdp.host': 'Chrome on the roundpend host',
+  'settings.cdp.remote': 'LAN / self-hosted browserless',
+  'settings.cdp.cloud': 'Commercial cloud browser (CDP URL + token)',
 
   'settings.ttl.10m': '10 minutes',
   'settings.ttl.15m': '15 minutes',
@@ -85,6 +85,7 @@ export const en = {
   'settings.logBody.256k': '256 KiB',
 
   'settings.browser.cdpProvider': 'CDP provider',
+  'settings.browser.test': 'Test connection',
   'settings.browser.hostCdpUrl':
     'Host CDP URL (optional; empty starts local Chrome)',
   'settings.browser.cdpEndpoint': 'CDP endpoint URL',

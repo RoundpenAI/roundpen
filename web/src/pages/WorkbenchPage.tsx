@@ -541,20 +541,14 @@ export function WorkbenchPage() {
                     {mcpPath}
                   </Typography.Text>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {[
-                      { port: 8000, label: 'MCP 8000' },
-                      { port: 6080, label: 'noVNC 6080' },
-                    ].map((p) => (
-                      <Button
-                        key={p.port}
-                        theme="borderless"
-                        type="tertiary"
-                        size="small"
-                        onClick={() => setPort(p.port)}
-                      >
-                        {p.label}
-                      </Button>
-                    ))}
+                    <Button
+                      theme="borderless"
+                      type="tertiary"
+                      size="small"
+                      onClick={() => setPort(8000)}
+                    >
+                      MCP 8000
+                    </Button>
                   </div>
                 </Card>
               )}
