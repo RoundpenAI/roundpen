@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -195,7 +196,9 @@ func main() {
 	sbSvc = sandbox.NewService(store, eng, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
 	mgr = sbSvc
 	logger.Info("using multi backend", slog.String("default_agent_engine", cfg.Backend))
-	browserHub.SetDialer(sbSvc)
+	// The hub dials the user's browser container from the control plane:
+	// sandbox.Service.Dial authorizes via authz, so pass an internal actor.
+	browserHub.SetDialer(internalDialer{sandbox: sbSvc})
 	browserHub.SetTokenLookup(func(sandboxID string) string {
 		// The hub runs inside the control plane: sandbox.Service.Get authorizes
 		// via authz, so pass an internal admin actor for this metadata read.
@@ -415,6 +418,18 @@ func newWorkspaceFS(cfg *config.Config, dataRoot string, logger *slog.Logger) (w
 		return nil, err
 	}
 	return local.New(dataRoot), nil
+}
+
+// internalDialer adapts sandbox.Service for the browser hub: the hub dials
+// sandboxes from inside the control plane, so it carries an internal admin
+// actor (sandbox.Service.Dial authorizes via authz).
+type internalDialer struct {
+	sandbox *sandbox.Service
+}
+
+func (d internalDialer) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {
+	ctx = authz.WithActor(ctx, authz.Actor{Username: "roundpend", Admin: true})
+	return d.sandbox.Dial(ctx, sandboxID, destPort)
 }
 
 func firstNonEmpty(vals ...string) string {

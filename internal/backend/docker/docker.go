@@ -122,17 +122,21 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 	}
 
 	cfg := &container.Config{
-		Image:      opts.Image,
-		Env:        env,
-		WorkingDir: "/workspace",
+		Image: opts.Image,
+		Env:   env,
 		Labels: map[string]string{
 			"roundpen.sandbox_id": opts.SandboxID,
 		},
 	}
 	if opts.UseImageCmd {
-		// Keep image ENTRYPOINT/CMD (template snapshot with init script).
+		// Keep the image ENTRYPOINT/CMD (template snapshot with init script) and
+		// its own WORKDIR: commands may be relative to it (e.g. browserless runs
+		// ./scripts/start.sh from /usr/src/app) and break if cwd is overridden.
 	} else {
 		cfg.Cmd = []string{"sleep", "infinity"}
+		// Sleep-infinity sandboxes carry no meaningful image workdir; anchor
+		// them to the bind-mounted workspace.
+		cfg.WorkingDir = "/workspace"
 	}
 
 	name := containerName(opts.SandboxID)
