@@ -44,6 +44,7 @@ describe('resolveSettingsSection', () => {
 
   it('accepts known visible section', () => {
     assert.equal(resolveSettingsSection('git', false), 'git')
+    assert.equal(resolveSettingsSection('agent', false), 'agent')
     assert.equal(resolveSettingsSection('general', true), 'general')
   })
 

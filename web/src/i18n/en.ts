@@ -185,6 +185,7 @@ export const en = {
   'agentEnv.upgraded': 'Agent environment upgraded.',
   'agentEnv.restarted': 'Agent environment rebuilt.',
   'agentEnv.created': 'Agent environment created.',
+  'agentEnv.done': 'Upgrade finished.',
   'agentEnv.failed': 'Upgrade failed.',
   'agentEnv.loadFailed': 'Failed to load environment.',
 } as const

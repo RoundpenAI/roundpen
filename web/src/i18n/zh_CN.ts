@@ -183,6 +183,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'agentEnv.upgraded': 'Agent 环境已升级。',
   'agentEnv.restarted': 'Agent 环境已重建。',
   'agentEnv.created': 'Agent 环境已创建。',
+  'agentEnv.done': '升级已完成。',
   'agentEnv.failed': '升级失败。',
   'agentEnv.loadFailed': '加载环境失败。',
 }

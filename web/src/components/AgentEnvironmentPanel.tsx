@@ -24,7 +24,6 @@ export function AgentEnvironmentPanel() {
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
-    setError(null)
     try {
       const res = await environments.list()
       setView((res.environments ?? []).find((v) => v.slot === 'agent') ?? null)
@@ -44,10 +43,11 @@ export function AgentEnvironmentPanel() {
       setError(null)
       try {
         const res = await environments.upgradeAgent(force)
-        setNotice(t(STATUS_KEYS[res.status] ?? 'agentEnv.upgraded'))
+        setNotice(t(STATUS_KEYS[res.status] ?? 'agentEnv.done'))
         await load()
       } catch (e) {
         setError(e instanceof Error ? e.message : t('agentEnv.failed'))
+        await load()
       } finally {
         setBusy(false)
       }
@@ -60,6 +60,7 @@ export function AgentEnvironmentPanel() {
       Modal.confirm({
         title: t('agentEnv.title'),
         content: force ? t('agentEnv.confirmForce') : t('agentEnv.confirmUpgrade'),
+        okButtonProps: force ? { type: 'danger' as const } : undefined,
         onOk: () => upgrade(force),
       })
     },
@@ -68,15 +69,27 @@ export function AgentEnvironmentPanel() {
 
   return (
     <div style={sectionGap}>
+      <Typography.Title heading={5}>{t('agentEnv.title')}</Typography.Title>
       <Typography.Text type="tertiary">{t('agentEnv.hint')}</Typography.Text>
-      {error && <Banner type="danger" description={error} closeIcon={null} />}
-      {notice && <Banner type="success" description={notice} closeIcon={null} />}
-      <div>
-        <Typography.Text strong>{t('agentEnv.status')}: </Typography.Text>
-        <Typography.Text>{view?.status ?? 'absent'}</Typography.Text>
-        {'  '}
-        <Typography.Text strong>{t('agentEnv.image')}: </Typography.Text>
-        <Typography.Text>{view?.image ?? '—'}</Typography.Text>
+      {error && (
+        <div role="alert">
+          <Banner type="danger" description={error} closeIcon={null} />
+        </div>
+      )}
+      {notice && (
+        <div role="status">
+          <Banner type="success" description={notice} closeIcon={null} />
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+        <span>
+          <Typography.Text strong>{t('agentEnv.status')}: </Typography.Text>
+          <Typography.Text>{view?.status ?? 'absent'}</Typography.Text>
+        </span>
+        <span>
+          <Typography.Text strong>{t('agentEnv.image')}: </Typography.Text>
+          <Typography.Text>{view?.image ?? '—'}</Typography.Text>
+        </span>
       </div>
       <div style={{ display: 'flex', gap: 12 }}>
         <Button theme="solid" loading={busy} onClick={() => confirmUpgrade(false)}>
