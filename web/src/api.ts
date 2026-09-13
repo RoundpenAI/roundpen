@@ -443,6 +443,7 @@ export type EnvironmentView = {
   templateId?: string
   status: string
   name?: string
+  image?: string
 }
 
 export type DesktopLink = {
@@ -464,6 +465,11 @@ export const environments = {
     api<{ slot: string; sandboxId: string; status: string; name: string }>(
       '/v1/me/environments/agent/ensure',
       { method: 'POST', body: '{}' },
+    ),
+  upgradeAgent: (force = false) =>
+    api<{ status: string; image: string; digest: string; environment: EnvironmentView }>(
+      '/v1/me/environments/agent/upgrade',
+      { method: 'POST', body: JSON.stringify({ force }) },
     ),
   browserDesktop: () =>
     api<DesktopLink>('/v1/me/environments/browser/desktop'),

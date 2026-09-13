@@ -200,6 +200,11 @@ type stubBackend struct {
 	startErr  error
 	execRes   *backend.ExecResult
 	execErr   error
+
+	refreshRef     string
+	refreshChanged bool
+	refreshDigest  string
+	refreshErr     error
 }
 
 func newStubBackend(name string) *stubBackend {
@@ -263,6 +268,16 @@ func (b *stubBackend) Running(_ context.Context, sandboxID string) (bool, error)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.running[sandboxID], nil
+}
+
+func (b *stubBackend) RefreshImage(_ context.Context, ref string) (bool, string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refreshRef = ref
+	if b.refreshErr != nil {
+		return false, "", b.refreshErr
+	}
+	return b.refreshChanged, b.refreshDigest, nil
 }
 
 func (b *stubBackend) Dial(_ context.Context, _ string, _ int) (net.Conn, error) {
@@ -644,6 +659,31 @@ func TestService_DeleteKeepsPersistentWorkspace(t *testing.T) {
 	if _, err := fs.Get(ctx, "shared-ws"); err != nil {
 		t.Fatalf("persistent workspace removed: %v", err)
 	}
+}
+
+func TestService_CreateConflictKeepsPersistentWorkspace(t *testing.T) {
+	root := t.TempDir()
+	fs := local.New(root)
+	store := newMemStore()
+	svc := sandbox.NewService(store, newStubBackend("docker"), fs, "host", time.Minute, nil)
+	ctx := adminCtx()
+
+	if _, err := svc.Create(ctx, sandbox.CreateRequest{Name: "dup", WorkspaceID: "user-ws"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Write(ctx, "user-ws", "keep.txt", strings.NewReader("data")); err != nil {
+		t.Fatal(err)
+	}
+	// Second create with the same name fails; its cleanup must not remove the
+	// persistent workspace.
+	if _, err := svc.Create(ctx, sandbox.CreateRequest{Name: "dup", WorkspaceID: "user-ws"}); !errors.Is(err, sandbox.ErrConflict) {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+	rc, err := fs.Open(ctx, "user-ws", "keep.txt")
+	if err != nil {
+		t.Fatalf("persistent workspace was removed: %v", err)
+	}
+	_ = rc.Close()
 }
 
 func TestService_AttachAndResizeTerminal(t *testing.T) {

@@ -18,6 +18,7 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
 
 export type SettingsSectionKey =
   | 'git'
+  | 'agent'
   | 'general'
   | 'preview'
   | 'builds'
@@ -33,6 +34,7 @@ export type SettingsSection = {
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'git', labelKey: 'settings.section.git' },
+  { key: 'agent', labelKey: 'settings.section.agent' },
   { key: 'general', labelKey: 'settings.section.general', admin: true },
   { key: 'preview', labelKey: 'settings.section.preview', admin: true },
   { key: 'builds', labelKey: 'settings.section.builds', admin: true },

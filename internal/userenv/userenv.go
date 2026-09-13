@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
@@ -149,6 +150,8 @@ type Service struct {
 	Git       *gitcred.Store
 	Probe     *runtime.Probe
 	Config    Config
+
+	upgradeMu sync.Mutex // serializes agent upgrades per service
 }
 
 func (s *Service) browserTemplate() string {
@@ -197,6 +200,7 @@ type EnvView struct {
 	TemplateID string `json:"templateId,omitempty"`
 	Status     string `json:"status"`
 	Name       string `json:"name,omitempty"`
+	Image      string `json:"image,omitempty"`
 }
 
 // List returns agent/browser(+mobile placeholder) views for the user.
@@ -227,6 +231,7 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 			} else {
 				v.Status = string(sb.Status)
 				v.Name = sb.Name
+				v.Image = sb.Image
 			}
 		}
 		if (v.Status == "absent" || v.Status == "missing") && s.Sandboxes != nil {
@@ -234,6 +239,7 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 				v.SandboxID = sb.ID
 				v.Status = string(sb.Status)
 				v.Name = sb.Name
+				v.Image = sb.Image
 				if v.TemplateID == "" && sb.Metadata != nil {
 					v.TemplateID = sb.Metadata["templateID"]
 				}
@@ -386,6 +392,94 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 		create.WorkspaceID = workspace.UserWorkspaceID(userID)
 	}
 	return s.Sandboxes.Create(ctx, create)
+}
+
+// UpgradeResult reports what a manual agent upgrade did.
+type UpgradeResult struct {
+	Status      string
+	Image       string
+	Digest      string
+	Environment EnvView
+}
+
+// UpgradeAgent refreshes the agent template image and rebuilds the user's
+// Agent environment when the image changed (or force is set).
+func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (*UpgradeResult, error) {
+	if s.Sandboxes == nil {
+		return nil, fmt.Errorf("sandboxes not configured")
+	}
+	s.upgradeMu.Lock()
+	defer s.upgradeMu.Unlock()
+
+	templateID := "code-agent"
+	if t := strings.TrimSpace(s.Config.AgentTemplate); t != "" {
+		templateID = t
+	}
+	image, changed, digest, err := s.Sandboxes.RefreshTemplateImage(ctx, templateID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !changed && !force {
+		views, err := s.List(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		view := EnvView{Slot: SlotAgent, Status: "absent", TemplateID: templateID, Image: image}
+		for _, v := range views {
+			if v.Slot == SlotAgent {
+				view = v
+			}
+		}
+		return &UpgradeResult{Status: "up_to_date", Image: image, Digest: digest, Environment: view}, nil
+	}
+
+	existingID := ""
+	if m, err := s.Store.Get(ctx, userID, SlotAgent); err != nil {
+		return nil, err
+	} else if m != nil && m.SandboxID != "" {
+		existingID = m.SandboxID
+	}
+	if existingID == "" {
+		// The mapping can be missing while the sandbox it names is still live
+		// (lost Upsert, manual cleanup); fall back to the stable slot name,
+		// mirroring List's discovery path.
+		if sb, err := s.Sandboxes.Resolve(ctx, sandbox.ResolveRequest{Name: slotSandboxName(SlotAgent, userID)}); err == nil && sb != nil {
+			existingID = sb.ID
+		}
+	}
+	existed := false
+	if existingID != "" {
+		switch err := s.Sandboxes.Delete(ctx, existingID); {
+		case err == nil:
+			existed = true
+		case errors.Is(err, sandbox.ErrNotFound):
+			// Already gone: the rebuild below still creates a fresh sandbox.
+		default:
+			return nil, err
+		}
+	}
+
+	sb, err := s.EnsureAgent(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	status := "upgraded"
+	switch {
+	case !existed:
+		status = "created"
+	case force && !changed:
+		status = "restarted"
+	}
+	return &UpgradeResult{
+		Status: status,
+		Image:  sb.Image,
+		Digest: digest,
+		Environment: EnvView{
+			Slot: SlotAgent, SandboxID: sb.ID, TemplateID: templateID,
+			Status: string(sb.Status), Name: sb.Name, Image: sb.Image,
+		},
+	}, nil
 }
 
 func slotSandboxName(slot, userID string) string {

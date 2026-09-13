@@ -71,6 +71,9 @@ type Backend interface {
 	// answer (stopped, exited, or removed); an error means liveness is unknown.
 	Running(ctx context.Context, sandboxID string) (bool, error)
 
+	// RefreshImage pulls ref and reports whether the local image changed.
+	RefreshImage(ctx context.Context, ref string) (changed bool, digest string, err error)
+
 	// Dial opens a TCP connection to destPort inside the sandbox network.
 	Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error)
 

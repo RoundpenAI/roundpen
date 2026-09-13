@@ -50,7 +50,8 @@ Body（可选）: {"force": false}
 |------|------|--------|
 | force=false，digest 未变化 | 不重建 | `up_to_date` |
 | force=false，digest 变化 | 删旧容器 → 重建 | `upgraded` |
-| force=true | 不比对，直接重建 | `restarted` |
+| force=true，digest 变化 | 不比对，直接重建 | `upgraded` |
+| force=true，digest 未变化 | 不比对，直接重建 | `restarted` |
 | agent 沙盒不存在 | 直接创建（等价 ensure） | `created` |
 
 约定：
@@ -95,7 +96,7 @@ func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (
 
 ### 3. UI（设置页「Agent 环境」区块）
 
-- 显示：槽位状态（running / stopped / absent）、当前镜像 ref（`EnvView` 增加 `image` 字段；absent 时展示将要使用的模板镜像）、最近一次升级结果。
+- 显示：槽位状态（running / stopped / absent）、当前镜像 ref（`EnvView` 增加 `image` 字段；环境列表仅在沙箱存在时才带 `image`，absent 时显示 `—`，仅升级响应的 `image` 字段给出升级尝试解析出的镜像）、最近一次升级结果。
 - 操作：
   - 主按钮「检查并升级」→ `{"force": false}`；
   - 次按钮「强制重建」→ `{"force": true}`；

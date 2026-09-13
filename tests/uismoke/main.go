@@ -300,6 +300,15 @@ func (s *slotEnvs) EnsureAgent(_ context.Context, _ string) (*sandbox.Sandbox, e
 	return nil, fmt.Errorf("agent slot not used in uismoke")
 }
 
+// UpgradeAgent keeps the fake satisfying envapi.Environments; the settings-page
+// upgrade button gets a benign answer instead of an error.
+func (s *slotEnvs) UpgradeAgent(_ context.Context, _ string, _ bool) (*userenv.UpgradeResult, error) {
+	return &userenv.UpgradeResult{
+		Status: "up_to_date", Image: "uismoke-agent", Digest: "sha256:uismoke",
+		Environment: userenv.EnvView{Slot: userenv.SlotAgent, Status: "running", Image: "uismoke-agent"},
+	}, nil
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)

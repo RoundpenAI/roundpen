@@ -49,6 +49,9 @@ func (noopMgr) Update(context.Context, string, sandbox.UpdateRequest) (*sandbox.
 func (noopMgr) Exec(context.Context, string, sandbox.ExecRequest) (*sandbox.ExecResult, error) {
 	return nil, nil
 }
+func (noopMgr) RefreshTemplateImage(context.Context, string) (string, bool, string, error) {
+	return "", false, "", nil
+}
 func (noopMgr) ListFiles(context.Context, string, string) ([]workspace.DirEntry, error) {
 	return nil, nil
 }
