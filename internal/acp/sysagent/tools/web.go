@@ -98,6 +98,9 @@ func parseWebURL(raw string) (*url.URL, error) {
 	if u.Host == "" {
 		return nil, fmt.Errorf("invalid url")
 	}
+	if u.User != nil {
+		return nil, fmt.Errorf("url must not contain credentials")
+	}
 	return u, nil
 }
 
@@ -119,9 +122,12 @@ func (b *WebBinder) get(ctx context.Context, u *url.URL) ([]byte, string, error)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, "", fmt.Errorf("fetch failed: HTTP %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxWebBodyBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxWebBodyBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch failed: %w", err)
+	}
+	if len(body) > maxWebBodyBytes {
+		return nil, "", fmt.Errorf("fetch failed: response exceeds 10MB")
 	}
 	return body, resp.Header.Get("Content-Type"), nil
 }

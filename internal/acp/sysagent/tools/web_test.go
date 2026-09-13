@@ -53,18 +53,34 @@ func htmlServer(t *testing.T, contentType, body string) *httptest.Server {
 }
 
 func TestWebFetchConvertsHTML(t *testing.T) {
-	srv := htmlServer(t, "text/html; charset=utf-8",
-		`<html><body><h1>Hello</h1><p>World <a href="/docs">docs</a></p><script>var x=1</script></body></html>`)
+	var gotAccept, gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body><h1>Hello</h1><p>World <a href="/docs">docs</a> and <a href="https://example.com/secure">secure</a></p><script>var x=1</script></body></html>`))
+	}))
+	defer srv.Close()
+
 	reg := newWebRegistry(nil)
 	out, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL + "/page"})
 	if err != nil {
 		t.Fatalf("WebFetch: %v", err)
+	}
+	if gotAccept != "text/markdown, text/html, */*" {
+		t.Fatalf("Accept = %q", gotAccept)
+	}
+	if gotUA != "Roundpen-WebFetch/0.1" {
+		t.Fatalf("User-Agent = %q", gotUA)
 	}
 	if !strings.Contains(out, "# Hello") {
 		t.Fatalf("missing markdown heading: %q", out)
 	}
 	if !strings.Contains(out, srv.URL+"/docs") {
 		t.Fatalf("relative link not absolutized: %q", out)
+	}
+	if !strings.Contains(out, "https://example.com/secure") {
+		t.Fatalf("absolute https link not preserved: %q", out)
 	}
 	if strings.Contains(out, "var x=1") {
 		t.Fatalf("script content leaked: %q", out)
@@ -129,6 +145,29 @@ func TestWebFetchTruncatesLongContent(t *testing.T) {
 	}
 	if len(out) > (32<<10)+8 {
 		t.Fatalf("result too long: %d bytes", len(out))
+	}
+	if !strings.HasPrefix(out, "xxx") {
+		t.Fatalf("truncated output must keep the start of the page: %q", out[:min(20, len(out))])
+	}
+	if !strings.HasSuffix(out, "…") {
+		t.Fatalf("truncated output must end with the ellipsis marker: %q", out[len(out)-min(20, len(out)):])
+	}
+}
+
+func TestWebFetchRejectsOversizeBody(t *testing.T) {
+	srv := htmlServer(t, "text/plain", strings.Repeat("x", (10<<20)+1))
+	reg := newWebRegistry(nil)
+	_, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL})
+	if err == nil || !strings.Contains(err.Error(), "10MB") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWebFetchRejectsCredentialURL(t *testing.T) {
+	reg := newWebRegistry(nil)
+	_, err := callTool(t, reg, "WebFetch", map[string]any{"url": "http://user:pass@example.com/"})
+	if err == nil || !strings.Contains(err.Error(), "credentials") {
+		t.Fatalf("err = %v", err)
 	}
 }
 
