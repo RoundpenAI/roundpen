@@ -1597,7 +1597,7 @@ git commit -m "docs(agent): surface WebFetch/WebSearch in prompt, tests, and too
 **Files:**
 - Create: `internal/acp/sysagent/tools/web_live_test.go`
 
-- [ ] **Step 1: 写 env-gated 实网测试**
+- [x] **Step 1: 写 env-gated 实网测试**
 
 创建 `internal/acp/sysagent/tools/web_live_test.go`（未设置环境变量时自动 skip，CI 保持离线）：
 
@@ -1643,7 +1643,7 @@ func TestWebSearchLive(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 运行实网测试（需 Key，仅本地执行）**
+- [x] **Step 2: 运行实网测试（需 Key，仅本地执行）**
 
 Run:
 ```bash
@@ -1652,19 +1652,19 @@ go test ./internal/acp/sysagent/tools/ -run 'TestWebFetchLive|TestWebSearchLive'
 ```
 Expected: 两个测试 PASS（WebFetch 抓 go.dev；WebSearch 返回 3 条结果）。Key 只经环境变量注入，不得写入任何提交文件。
 
-- [ ] **Step 3: 全量回归**
+- [x] **Step 3: 全量回归**
 
 Run: `go vet ./... && go test ./... -count=1`
 Expected: 全部 PASS（无 env 的测试自动 skip）
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add internal/acp/sysagent/tools/web_live_test.go
 git commit -m "test(tools): add env-gated live checks for web tools"
 ```
 
-- [ ] **Step 5: 端到端手测（daemon + UI）**
+- [x] **Step 5: 端到端手测（daemon + UI）**
 
 ```bash
 # 在 .env 追加（.env 已被 gitignore，不会入库）
@@ -1682,6 +1682,9 @@ make dev
 Expected: 1-2 正常返回；3 被拦截；4 无权限询问。
 
 ---
+
+
+> 执行记录：`TestWebFetchLive` 真实抓取 https://go.dev/ 通过（生产防护 client）；`TestWebSearchLive` 已由主会话注入 `ROUNDPEN_WEB_SEARCH_API_KEY` 实跑 Tavily 通过；`go test ./... -count=1` 全绿（既有 env-gated skip 不变）。另修掉 `llm.go` 一处先于本工作的 gofmt 偏差（`09482bd`）。
 
 ## 完成标准（对照 spec）
 
