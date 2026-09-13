@@ -1,6 +1,6 @@
 # Web 工具设置（Tavily endpoint + Key，live 生效）Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 把 WebSearch 的 Tavily 配置从 env-only 搬进设置页（管理员「Web 工具」区块），保存后新开的 Agent 会话即带 `WebSearch`，无需重启 daemon；env 作为初始值/兜底。
 
@@ -21,7 +21,7 @@
 - Modify: `internal/settings/decode.go`
 - Test: `internal/settings/websearch_test.go`（新建）
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `internal/settings/websearch_test.go`（package `settings`）：
 
@@ -114,12 +114,12 @@ func TestDecodeAppSettingsKeepsWebSearchFallback(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `go test ./internal/settings/ -run 'TestWebSearch|TestDecodeAppSettingsKeepsWebSearchFallback' -count=1`
 Expected: FAIL（`s.WebSearchEndpoint undefined` 等编译错误）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `internal/settings/settings.go` 四处修改：
 
@@ -184,12 +184,12 @@ Expected: FAIL（`s.WebSearchEndpoint undefined` 等编译错误）
 
 > 终审修正（已实现）：`WebSearchApiKey` 的合并语义是**掩码 = 保留、空串 = 清除**（不走 `ResolveSecret`），否则设置页清空输入框无法删除已存 Key、与「两项都留空则关闭 WebSearch」的文案矛盾；缺省字段仍在解码阶段回填，不受影响。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `go test ./internal/settings/ -count=1`
 Expected: 全部 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add internal/settings/settings.go internal/settings/decode.go internal/settings/websearch_test.go
@@ -203,7 +203,7 @@ git commit -m "feat(settings): store web search endpoint and key with masking"
 **Files:**
 - Test: `internal/settings/http_test.go`（扩展 `TestAdminSettingsHTTP`）
 
-- [ ] **Step 1: 扩展测试**
+- [x] **Step 1: 扩展测试**
 
 在 `TestAdminSettingsHTTP` 里，把 PUT 的 body 换成带新字段的版本：
 
@@ -263,13 +263,13 @@ PUT 之后（现有 `if cfg.DefaultImage != "python"` 断言之后）加：
 
 注意：GET 响应的外层信封键名以 `internal/settings/http.go` 的实际 JSON tag 为准（应为 `"settings"`）；如果实现里不是该键名，按实际调整后同步本测试。
 
-- [ ] **Step 2: 运行测试**
+- [x] **Step 2: 运行测试**
 
 Run: `go test ./internal/settings/ -run TestAdminSettingsHTTP -count=1 -v`
 Expected: 无 `DATABASE_URL`/`ROUNDPEN_TEST_DATABASE_URL` 时 SKIP（`testDB` helper 的门禁）；本机有 pg0 时应 PASS。若环境可用，用：
 `ROUNDPEN_TEST_DATABASE_URL="postgres://roundpen:roundpen@127.0.0.1:5432/roundpen_test?sslmode=disable" go test ./internal/settings/ -run TestAdminSettingsHTTP -count=1 -v`
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add internal/settings/http_test.go
@@ -285,7 +285,7 @@ git commit -m "test(settings): cover web search key masking round-trip"
 - Modify: `cmd/roundpend/main.go`（getter 接线 + 启动日志）
 - Test: `internal/acp/manager/manager_test.go`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 在 `internal/acp/manager/manager_test.go` 末尾追加（`sync/atomic` 已在 import 中）：
 
@@ -323,12 +323,12 @@ func TestStartReadsWebSearchGetter(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `go test ./internal/acp/manager/ -run TestStartReadsWebSearchGetter -count=1`
 Expected: FAIL（`unknown field WebSearch`）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `internal/acp/manager/manager.go`：
 
@@ -415,12 +415,12 @@ Expected: FAIL（`unknown field WebSearch`）
 		},
 ```
 
-- [ ] **Step 4: 运行测试与构建**
+- [x] **Step 4: 运行测试与构建**
 
 Run: `go build ./... && go test ./internal/acp/... -count=1`
 Expected: 构建通过；manager 测试（含新用例）与 sysagent/tools 全部 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add internal/acp/manager/manager.go internal/acp/manager/manager_test.go cmd/roundpend/main.go
@@ -438,7 +438,7 @@ git commit -m "feat(agent): read web search config live from settings"
 - Modify: `web/src/i18n/en.ts`
 - Modify: `web/src/i18n/zh_CN.ts`
 
-- [ ] **Step 1: appNav（类型联合 + 区块数组）**
+- [x] **Step 1: appNav（类型联合 + 区块数组）**
 
 `web/src/lib/appNav.ts`：
 
@@ -461,7 +461,7 @@ export type SettingsSectionKey =
   { key: 'webtools', labelKey: 'settings.section.webtools', admin: true },
 ```
 
-- [ ] **Step 2: api.ts 类型**
+- [x] **Step 2: api.ts 类型**
 
 `web/src/api.ts` 的 `AppSettings` 中，`llmgwVirtualKeys: string` 之后加：
 
@@ -470,7 +470,7 @@ export type SettingsSectionKey =
   webSearchApiKey: string
 ```
 
-- [ ] **Step 3: SettingsPage（默认值 + 区块 JSX）**
+- [x] **Step 3: SettingsPage（默认值 + 区块 JSX）**
 
 `web/src/pages/SettingsPage.tsx`：
 
@@ -537,7 +537,7 @@ export type SettingsSectionKey =
 
 （若 `Typography` 在该文件中未导入，按 llmgw 区块已有用法无需新增导入；`Field`、`Input`、`Form`、`Loading`、`sectionGap`、`patch`、`t` 均为文件内既有符号。）
 
-- [ ] **Step 4: i18n（en + zh_CN 键必须成对）**
+- [x] **Step 4: i18n（en + zh_CN 键必须成对）**
 
 `web/src/i18n/en.ts`：在 `'settings.section.llmgw': 'LLM gateway',` 之后加
 
@@ -577,12 +577,12 @@ export type SettingsSectionKey =
     '保存后对新开的 Agent 会话生效——重开会话即可看到 WebSearch 工具。两项都留空则关闭 WebSearch。',
 ```
 
-- [ ] **Step 5: 类型检查与构建**
+- [x] **Step 5: 类型检查与构建**
 
 Run: `cd web && npm run build`
 Expected: `tsc` 与 vite 构建通过（i18n 键缺一即类型错误）
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add web/src/lib/appNav.ts web/src/api.ts web/src/pages/SettingsPage.tsx web/src/i18n/en.ts web/src/i18n/zh_CN.ts
@@ -598,7 +598,7 @@ git commit -m "feat(web): add Web tools settings section"
 
 问题：`Sider` 恒为 220px 宽且无断点，窄屏（<768px）下侧栏占掉大部分宽度。沿用仓库既有惯例（`AppShell.tsx:209-217` / `AssistantLayout.tsx:384-389`：768px 断点 + class + `<style>` 块）：移动端隐藏侧栏，改为顶部横向可滚动的区块切换条。
 
-- [ ] **Step 1: 重写 SettingsLayout 的布局结构**
+- [x] **Step 1: 重写 SettingsLayout 的布局结构**
 
 把 `return (` 起的整段 JSX 替换为：
 
@@ -697,12 +697,12 @@ git commit -m "feat(web): add Web tools settings section"
   )
 ```
 
-- [ ] **Step 2: 构建校验**
+- [x] **Step 2: 构建校验**
 
 Run: `cd web && npm run build`
 Expected: 类型检查与构建通过
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add web/src/pages/SettingsLayout.tsx
@@ -718,7 +718,7 @@ git commit -m "fix(web): collapse settings sidebar into tabs on mobile"
 - Modify: `docs/superpowers/specs/2026-09-13-webfetch-websearch-tools-design.md`（§5 补一句配置来源变更）
 - Modify: `docs/architecture/acp-agent-ui.md`（工具表 WebSearch 行的配置说明）
 
-- [ ] **Step 1: 文档**
+- [x] **Step 1: 文档**
 
 `.env.example` 中的 Web tools 注释块替换为：
 
@@ -742,12 +742,12 @@ git commit -m "fix(web): collapse settings sidebar into tabs on mobile"
 | `WebSearch` | 联网搜索（Tavily，只读；Settings → Web tools 配置，未配置则不注册） |
 ```
 
-- [ ] **Step 2: 全量回归**
+- [x] **Step 2: 全量回归**
 
 Run: `go vet ./... && go test ./... -count=1`
 Expected: 全部 ok（既有 env-gated skip 不变）
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add .env.example docs/superpowers/specs/2026-09-13-webfetch-websearch-tools-design.md docs/architecture/acp-agent-ui.md
