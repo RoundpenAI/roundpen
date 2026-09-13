@@ -149,12 +149,12 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Exec:  m.sandboxes,
 			Files: m.sandboxes,
 		}
+		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{})
 		tools.RegisterShell(reg, binder)
 		tools.RegisterFiles(reg, binder)
 		tools.RegisterSearch(reg, binder)
 		tools.RegisterInteractive(reg)
-		tools.RegisterSkill(reg, tools.NewSkillCatalog(tools.DefaultSkills()...))
-		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{})
+		tools.RegisterSkill(reg, binder, webClient)
 		tools.RegisterWebFetch(reg, &tools.WebBinder{HTTP: webClient, Model: llmCfg})
 		webSearchEndpoint, webSearchAPIKey := "", ""
 		if m.sys.WebSearch != nil {

@@ -21,6 +21,9 @@ import (
 // keepLastToolResults is how many recent tool payloads stay verbatim in-context.
 const keepLastToolResults = 6
 
+// maxSkillInvocationsPerTurn bounds Skill nesting within one reply.
+const maxSkillInvocationsPerTurn = 3
+
 type session struct {
 	cancel     context.CancelFunc
 	allowAll   bool
@@ -134,6 +137,10 @@ func (a *Agent) Prompt(_ context.Context, params acp.PromptRequest) (acp.PromptR
 func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 	messages := a.buildPromptMessages(ctx, userText)
 	openaiTools := a.deps.Tools.OpenAITools()
+	// Bound skill nesting: injected skill instructions may drive further Skill
+	// calls, and an unfettered instruction chain can loop forever. Skill is
+	// non-mutating, so a per-turn cap is the practical nesting guard.
+	skillInvocations := 0
 
 	var watch loopWatch
 	for {
@@ -207,6 +214,7 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 			// Plan mode blocks side-effecting tool calls until the plan is approved
 			// (ExitPlanMode itself only toggles the session mode).
 			blockedByPlanMode := ok && tool.Mutating && name != "ExitPlanMode" && a.inPlanMode(sid)
+			skillBlocked := name == "Skill" && skillInvocations >= maxSkillInvocationsPerTurn
 
 			allowed := true
 			if !blockedByPlanMode && ok && tool.Mutating {
@@ -248,12 +256,20 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 				result = fmt.Sprintf("Blocked: %s is unavailable while in plan mode. "+
 					"You must only explore and design; call ExitPlanMode to present the plan for approval and start implementing.", name)
 				status = acp.ToolCallStatusFailed
+			} else if skillBlocked {
+				result = fmt.Sprintf("Blocked: Skill was invoked %d times in this reply (nesting limit). "+
+					"Finish the current skill's steps with the tools already available; "+
+					"if more skills are genuinely needed, end this reply so the user can send a follow-up message.", maxSkillInvocationsPerTurn)
+				status = acp.ToolCallStatusFailed
 			} else if !allowed {
 				result = "Permission rejected by user."
 				status = acp.ToolCallStatusFailed
 			} else {
 				toolCtx := tools.WithInteractor(ctx, a.interactor(sid))
 				result, callErr = a.deps.Tools.Call(toolCtx, a.deps.Actor, name, args)
+				if name == "Skill" {
+					skillInvocations++
+				}
 				if callErr != nil {
 					status = acp.ToolCallStatusFailed
 					if strings.TrimSpace(result) == "" {

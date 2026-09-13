@@ -34,7 +34,7 @@ Browser tools (browser_*): Chrome only — cannot run git or shell.
 Web tools: WebFetch reads one URL and answers your question about the page (no browser session or cookies, so login-walled pages fail).
 Interactive tools: AskUserQuestion prompts the user with choices; use it for decisions that genuinely need input.
 EnterPlanMode / ExitPlanMode: for complex tasks, enter plan mode to explore and design before editing; ExitPlanMode presents the plan for approval. While in plan mode, mutating tools are blocked.
-Skill: invokes a curated workflow by name (e.g. commit, review, fix, summarize) and returns its instructions to follow.
+Skill: runs a curated workflow by name (built-ins: commit, review, fix, summarize; users can install their own into /workspace/.roundpen/skills). Actions: invoke (default) runs a skill and returns instructions to follow; list shows available skills; install fetches a skill from a url or inline content (overwriting an existing skill asks the user first); remove deletes an installed skill. Skills just shape how you work - they do not add capabilities. Skill calls are capped at 3 per reply; to use more, finish and ask the user for a follow-up.
 
 If ListEnvironments shows agent status=absent, the Agent workspace is simply not started yet.
 Call Bash or a file tool; the environment starts as needed. Do not stop after listing.
