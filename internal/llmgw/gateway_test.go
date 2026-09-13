@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
@@ -224,9 +225,27 @@ func TestRelayOpenAIForward(t *testing.T) {
 		t.Fatalf("status=%s body=%s", resp.Status, body)
 	}
 
-	logs, err := gw.Store().ListTransactions(ctx, llmgw.ListOptions{VirtualKey: "vk-relay", Limit: 1})
-	if err != nil || len(logs) == 0 || logs[0].StatusCode != 200 {
-		t.Fatalf("logs: err=%v logs=%#v", err, logs)
+	// The relay logs the transaction after the response is written, so poll
+	// briefly instead of assuming the row lands before this query. Virtual
+	// keys are stored hashed, and transactions reference the stored value.
+	vk, err := gw.Store().GetVirtualKey(ctx, "vk-relay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs []llmgw.Transaction
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		logs, err = gw.Store().ListTransactions(ctx, llmgw.ListOptions{VirtualKey: vk.Key, Limit: 1})
+		if err == nil && len(logs) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("logs: err=%v logs=%#v", err, logs)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if logs[0].StatusCode != 200 {
+		t.Fatalf("status=%d, want 200", logs[0].StatusCode)
 	}
 }
 
