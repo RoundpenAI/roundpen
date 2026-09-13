@@ -80,6 +80,10 @@ run-daemon: build
 browser-image:
 	./images/browser-qemu/build.sh
 
+# Playwright driver (no browsers: the browser runs in the Browser env container).
+browser-driver:
+	go run ./cmd/browserdriver
+
 # Deprecated: Agent runs on Docker now. Kept only for the experimental QEMU agent recipe.
 agent-image:
 	./images/agent-qemu/build.sh
