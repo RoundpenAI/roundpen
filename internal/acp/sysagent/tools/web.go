@@ -160,7 +160,24 @@ func webContentToText(u *url.URL, contentType string, body []byte) (string, erro
 	}
 }
 
-// extract 在 Task 3 实现；此处先返回未配置错误，保证 Task 2 的测试可编译。
 func (b *WebBinder) extract(ctx context.Context, prompt, content string) (string, error) {
-	return "", fmt.Errorf("web fetch extraction is not configured")
+	if b.Model == nil {
+		return "", fmt.Errorf("web fetch extraction is not configured")
+	}
+	if len(content) > maxWebMarkdown {
+		content = truncateRunes(content, maxWebMarkdown) + "\n\n[Content truncated due to length]"
+	}
+	ctx, cancel := context.WithTimeout(ctx, webModelTimeout)
+	defer cancel()
+	user := "Web page content:\n---\n" + content + "\n---\n\n" + prompt +
+		"\n\nProvide a concise response based only on the content above. Include relevant details and code examples as needed."
+	out, err := b.Model.Run(ctx, "", user)
+	if err != nil {
+		return "", fmt.Errorf("web fetch extraction failed: %w", err)
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return "No response from model", nil
+	}
+	return truncateRunes(out, maxWebResult), nil
 }

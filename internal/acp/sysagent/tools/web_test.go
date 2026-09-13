@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -176,6 +177,66 @@ func TestWebFetchErrorsWhenPromptGivenWithoutModel(t *testing.T) {
 	reg := newWebRegistry(nil)
 	_, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL, "prompt": "what?"})
 	if err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWebFetchUsesModelWhenPromptGiven(t *testing.T) {
+	srv := htmlServer(t, "text/html", "<p>the page says blue</p>")
+	m := &stubModel{reply: "The answer is blue."}
+	reg := newWebRegistry(m)
+	out, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL, "prompt": "What color?"})
+	if err != nil {
+		t.Fatalf("WebFetch: %v", err)
+	}
+	if out != "The answer is blue." {
+		t.Fatalf("out = %q", out)
+	}
+	if !strings.Contains(m.gotUser, "the page says blue") {
+		t.Fatalf("model did not receive page content: %q", m.gotUser)
+	}
+	if !strings.Contains(m.gotUser, "What color?") {
+		t.Fatalf("model did not receive prompt: %q", m.gotUser)
+	}
+}
+
+func TestWebFetchWithoutPromptSkipsModel(t *testing.T) {
+	srv := htmlServer(t, "text/html", "<p>plain page</p>")
+	m := &stubModel{reply: "should not be used"}
+	reg := newWebRegistry(m)
+	out, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL})
+	if err != nil {
+		t.Fatalf("WebFetch: %v", err)
+	}
+	if !strings.Contains(out, "plain page") {
+		t.Fatalf("out = %q", out)
+	}
+	if m.gotUser != "" {
+		t.Fatalf("model must not be called without prompt, got %q", m.gotUser)
+	}
+}
+
+func TestWebFetchTruncatesModelInput(t *testing.T) {
+	srv := htmlServer(t, "text/plain", strings.Repeat("y", 150_000))
+	m := &stubModel{reply: "ok"}
+	reg := newWebRegistry(m)
+	if _, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL, "prompt": "summarize"}); err != nil {
+		t.Fatalf("WebFetch: %v", err)
+	}
+	if !strings.Contains(m.gotUser, "[Content truncated due to length]") {
+		t.Fatalf("model input not truncated: %d bytes", len(m.gotUser))
+	}
+	if len(m.gotUser) > 200_000 {
+		t.Fatalf("model input too large: %d bytes", len(m.gotUser))
+	}
+}
+
+func TestWebFetchModelErrorPropagates(t *testing.T) {
+	srv := htmlServer(t, "text/html", "<p>hi</p>")
+	m := &stubModel{err: errors.New("boom")}
+	reg := newWebRegistry(m)
+	_, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL, "prompt": "what?"})
+	if err == nil || !strings.Contains(err.Error(), "extraction failed") {
 		t.Fatalf("err = %v", err)
 	}
 }
