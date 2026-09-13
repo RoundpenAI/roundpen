@@ -4,24 +4,23 @@ package envapi
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
-	"time"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
-	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
-// VNCSockLookup resolves a sandbox id to a QEMU VNC unix socket path.
-type VNCSockLookup interface {
-	VNCSock(sandboxID string) (string, error)
+// SandboxDialer opens a TCP connection to a port inside a sandbox.
+type SandboxDialer interface {
+	Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error)
 }
 
 // Environments is the userenv surface used by environment HTTP handlers.
@@ -33,15 +32,9 @@ type Environments interface {
 
 // Handler serves /v1/me/environments*.
 type Handler struct {
-	Envs      Environments
-	Tokens    *preview.Store
-	PublicURL string
-	VNC       VNCSockLookup
-}
-
-var desktopUpgrader = websocket.Upgrader{
-	CheckOrigin:  func(r *http.Request) bool { return true },
-	Subprotocols: []string{"binary"},
+	Envs Environments
+	Cfg  *config.Config
+	Dial SandboxDialer
 }
 
 // Mount registers environment routes.
@@ -49,8 +42,11 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/me/environments", h.list)
 	mux.HandleFunc("POST /v1/me/environments/browser/ensure", h.ensureBrowser)
 	mux.HandleFunc("POST /v1/me/environments/agent/ensure", h.ensureAgent)
-	mux.HandleFunc("GET /v1/me/environments/browser/desktop", h.desktopLink)
-	mux.HandleFunc("GET /v1/me/environments/browser/desktop/ws", h.desktopWS)
+	mux.HandleFunc("GET /v1/me/environments/browser/live-link", h.liveLink)
+	mux.HandleFunc("GET /v1/me/environments/browser/live", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/v1/me/environments/browser/live/", http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("/v1/me/environments/browser/live/", h.live)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -127,14 +123,17 @@ func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) desktopLink(w http.ResponseWriter, r *http.Request) {
+// liveLink reports how the browser slot can be viewed right now: the managed
+// browserless debugger proxied through the control plane, a direct remote
+// debugger URL, or nothing for host Chrome.
+func (h *Handler) liveLink(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if h.Envs == nil || h.Tokens == nil {
-		writeErr(w, http.StatusServiceUnavailable, "desktop not configured")
+	if h.Envs == nil {
+		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
 	}
 	target, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
@@ -145,104 +144,157 @@ func (h *Handler) desktopLink(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if target.Sandbox == nil {
-		writeErr(w, http.StatusConflict, "live view requires the managed browser container")
-		return
-	}
-	sb := target.Sandbox
-	token, exp, err := h.Tokens.Issue(sb.ID, 0, user.Username) // port 0 = desktop/VNC
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	base := strings.TrimRight(h.PublicURL, "/")
-	if base == "" {
-		base = "http://" + r.Host
-	}
-	wsURL := fmt.Sprintf("%s/v1/me/environments/browser/desktop/ws?token=%s", httpToWS(base), token)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"sandboxId": sb.ID,
-		"wsUrl":     wsURL,
-		"token":     token,
-		"expiresAt": exp.UTC().Format(time.RFC3339),
-	})
-}
-
-func httpToWS(u string) string {
-	u = strings.TrimSpace(u)
-	switch {
-	case strings.HasPrefix(u, "https://"):
-		return "wss://" + strings.TrimPrefix(u, "https://")
-	case strings.HasPrefix(u, "http://"):
-		return "ws://" + strings.TrimPrefix(u, "http://")
-	default:
-		return u
-	}
-}
-
-func (h *Handler) desktopWS(w http.ResponseWriter, r *http.Request) {
-	if h.Tokens == nil || h.VNC == nil {
-		http.Error(w, "desktop not configured", http.StatusServiceUnavailable)
-		return
-	}
-	token := r.URL.Query().Get("token")
-	sandboxID, _, _, ok := h.Tokens.Lookup(token)
-	if !ok || sandboxID == "" {
-		http.Error(w, "invalid or expired token", http.StatusUnauthorized)
-		return
-	}
-	sock, err := h.VNC.VNCSock(sandboxID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	unixConn, err := net.DialTimeout("unix", sock, 5*time.Second)
-	if err != nil {
-		http.Error(w, "vnc dial: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-	ws, err := desktopUpgrader.Upgrade(w, r, nil)
-	if err != nil {
-		_ = unixConn.Close()
-		return
-	}
-	defer ws.Close()
-	defer unixConn.Close()
-
-	errCh := make(chan error, 2)
-	go func() {
-		buf := make([]byte, 32*1024)
-		for {
-			n, err := unixConn.Read(buf)
-			if n > 0 {
-				if werr := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); werr != nil {
-					errCh <- werr
-					return
-				}
-			}
-			if err != nil {
-				errCh <- err
-				return
-			}
+	switch target.Provider {
+	case config.CDPProviderDocker:
+		writeJSON(w, http.StatusOK, map[string]any{"mode": "managed", "url": "/v1/me/environments/browser/live/"})
+	case config.CDPProviderRemote, config.CDPProviderCloud:
+		endpoint, token := "", ""
+		if h.Cfg != nil {
+			endpoint, token = h.Cfg.CDP.Endpoint, h.Cfg.CDP.Token
 		}
+		u := strings.TrimRight(strings.TrimSpace(endpoint), "/")
+		if u == "" {
+			writeJSON(w, http.StatusOK, map[string]any{"mode": target.Provider, "url": ""})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"mode": target.Provider, "url": debuggerURL(u, token)})
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{
+			"mode": "host", "url": "",
+			"hint": "host Chrome has no live view; use the screenshot takeover panel",
+		})
+	}
+}
+
+// debuggerURL turns a browserless origin into its debugger page URL.
+func debuggerURL(endpoint, token string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "ws":
+		u.Scheme = "http"
+	case "wss":
+		u.Scheme = "https"
+	}
+	u.Path = "/debugger/"
+	u.RawQuery = ""
+	if token != "" {
+		q := u.Query()
+		q.Set("token", token)
+		u.RawQuery = q.Encode()
+	}
+	return u.String()
+}
+
+// live reverse-proxies the managed browserless debugger under
+// /v1/me/environments/browser/live/ so the console can embed it in an iframe.
+// The debugger's assets are relative, so a path-prefix proxy suffices.
+func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if h.Envs == nil || h.Dial == nil {
+		http.Error(w, "live view not configured", http.StatusServiceUnavailable)
+		return
+	}
+	target, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
+	if err != nil || target == nil || !target.Managed || target.Sandbox == nil {
+		http.Error(w, "live view requires the managed browser container", http.StatusConflict)
+		return
+	}
+	sandboxID := target.Sandbox.ID
+	token := ""
+	if target.Sandbox.Metadata != nil {
+		token = target.Sandbox.Metadata["browserToken"]
+	}
+	conn, err := h.Dial.Dial(r.Context(), sandboxID, config.DefaultCDPPort)
+	if err != nil {
+		http.Error(w, "browser dial: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/v1/me/environments/browser/live")
+	if rest == "" {
+		rest = "/"
+	}
+	upstreamPath := "/debugger" + rest
+
+	if isWebSocket(r) {
+		h.proxyLiveWS(w, r, conn, upstreamPath, token)
+		return
+	}
+	defer conn.Close()
+	q := r.URL.Query()
+	if token != "" {
+		q.Set("token", token)
+	}
+	director := func(req *http.Request) {
+		req.URL = &url.URL{Scheme: "http", Host: "127.0.0.1", Path: upstreamPath, RawQuery: q.Encode()}
+		req.Host = "127.0.0.1"
+		req.RequestURI = ""
+	}
+	proxy := &httputil.ReverseProxy{
+		Director: director,
+		Transport: &http.Transport{
+			DialContext:       func(ctx context.Context, network, addr string) (net.Conn, error) { return conn, nil },
+			DisableKeepAlives: true,
+		},
+		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
+			http.Error(rw, "live proxy error: "+err.Error(), http.StatusBadGateway)
+		},
+	}
+	proxy.ServeHTTP(w, r)
+}
+
+func isWebSocket(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+}
+
+func (h *Handler) proxyLiveWS(w http.ResponseWriter, r *http.Request, conn net.Conn, upstreamPath, token string) {
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		_ = conn.Close()
+		http.Error(w, "hijack not supported", http.StatusInternalServerError)
+		return
+	}
+	client, bufrw, err := hj.Hijack()
+	if err != nil {
+		_ = conn.Close()
+		return
+	}
+	q := r.URL.Query()
+	if token != "" {
+		q.Set("token", token)
+	}
+	req := r.Clone(r.Context())
+	req.URL.Scheme = "http"
+	req.URL.Host = "127.0.0.1"
+	req.URL.Path = upstreamPath
+	req.URL.RawQuery = q.Encode()
+	req.RequestURI = ""
+	req.Header.Set("Host", "127.0.0.1")
+	if err := req.Write(conn); err != nil {
+		_ = conn.Close()
+		_ = client.Close()
+		return
+	}
+	_ = bufrw.Flush()
+
+	errCh := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(conn, client)
+		errCh <- struct{}{}
 	}()
 	go func() {
-		for {
-			mt, data, err := ws.ReadMessage()
-			if err != nil {
-				errCh <- err
-				return
-			}
-			if mt != websocket.BinaryMessage && mt != websocket.TextMessage {
-				continue
-			}
-			if _, err := unixConn.Write(data); err != nil {
-				errCh <- err
-				return
-			}
-		}
+		_, _ = io.Copy(client, conn)
+		errCh <- struct{}{}
 	}()
 	<-errCh
+	_ = conn.Close()
+	_ = client.Close()
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

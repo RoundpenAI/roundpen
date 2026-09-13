@@ -234,15 +234,10 @@ func main() {
 			AgentTemplate:   cfg.DefaultAgentTemplate,
 		},
 	}
-	publicBase := cfg.PreviewPublicURL
-	if publicBase == "" {
-		publicBase = cfg.LLMGW.PublicURL
-	}
 	(&envapi.Handler{
-		Envs:      envSvc,
-		Tokens:    previewHandler.Tokens,
-		PublicURL: publicBase,
-		VNC:       eng,
+		Envs: envSvc,
+		Cfg:  cfg,
+		Dial: sbSvc,
 	}).Mount(mux)
 	(&workspaceapi.Handler{
 		Envs:  envSvc,

@@ -7,16 +7,19 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
-	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/rfbtest"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
@@ -54,14 +57,20 @@ func main() {
 	}
 	sessions := storage.NewMemorySessionStore()
 
+	// Stub upstream for the browser live view: the proxy dials this instead of
+	// a sandbox's browserless debugger port.
+	liveUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>browserless debugger</title><div id="debugger-ui">uismoke live stub</div>`)
+	}))
+	defer liveUpstream.Close()
+
 	envs := &slotEnvs{}
 	mux := http.NewServeMux()
 	auth.Mount(mux, users, sessions, func() bool { return false })
 	(&envapi.Handler{
-		Envs:      envs,
-		Tokens:    preview.NewStore(0),
-		PublicURL: *public,
-		VNC:       vncSock(sock),
+		Envs: envs,
+		Dial: liveDialer(strings.TrimPrefix(liveUpstream.URL, "http://")),
 	}).Mount(mux)
 	mux.HandleFunc("GET /v1/ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -169,7 +178,7 @@ func main() {
 		writeJSON(w, map[string]any{"ok": true})
 	})
 
-	log.Printf("uismoke-api %s public=%s vnc=%s", *listen, *public, sock)
+	log.Printf("uismoke-api %s public=%s live=%s vnc=%s", *listen, *public, liveUpstream.URL, sock)
 	if err := http.ListenAndServe(*listen, auth.Middleware(users, sessions)(mux)); err != nil {
 		log.Fatal(err)
 	}
@@ -238,6 +247,13 @@ func (s *assistantStore) create(name, bio, identityMode string) map[string]any {
 type vncSock string
 
 func (s vncSock) VNCSock(string) (string, error) { return string(s), nil }
+
+// liveDialer dials a fixed TCP address regardless of sandbox id / port.
+type liveDialer string
+
+func (d liveDialer) Dial(ctx context.Context, _ string, _ int) (net.Conn, error) {
+	return (&net.Dialer{}).DialContext(ctx, "tcp", string(d))
+}
 
 type slotEnvs struct {
 	mu        sync.Mutex
