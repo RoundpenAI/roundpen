@@ -245,8 +245,11 @@ func TestUseVirtioWorkspace(t *testing.T) {
 	if !useVirtioWorkspace(backend.CreateOpts{Slot: "agent"}) {
 		t.Fatal("agent")
 	}
-	if useVirtioWorkspace(backend.CreateOpts{Slot: "browser"}) {
-		t.Fatal("browser keeps 9p")
+	if !useVirtioWorkspace(backend.CreateOpts{Slot: "browser"}) {
+		t.Fatal("browser no longer runs on qemu")
+	}
+	if useVirtioWorkspace(backend.CreateOpts{Slot: "mobile"}) {
+		t.Fatal("mobile keeps 9p")
 	}
 }
 

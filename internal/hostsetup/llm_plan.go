@@ -14,7 +14,6 @@ import (
 // Reconcile drops unknown actions, skips already-satisfied facts, and fills
 // title/command/sensitive/privilege from the whitelist catalog.
 func Reconcile(raw Plan, f HostFacts, priv Privilege, w WizardContext) Plan {
-	needBrowser := w.Preset == "code_browser"
 	var out []PlannedAction
 	seen := map[string]bool{}
 	for _, a := range raw.Actions {
@@ -25,14 +24,6 @@ func Reconcile(raw Plan, f HostFacts, priv Privilege, w WizardContext) Plan {
 		switch a.ID {
 		case ActionInstallDocker:
 			if f.DockerReady {
-				continue
-			}
-		case ActionInstallQEMU:
-			if f.BinariesOK {
-				continue
-			}
-		case ActionBuildBrowserImage:
-			if !needBrowser || f.BrowserImageOK {
 				continue
 			}
 		}
@@ -80,11 +71,11 @@ func (p *LLMPlanner) Plan(ctx context.Context, w WizardContext, f HostFacts) (Pl
 	}
 	sys := `你是 Roundpen 工位准备规划器。只输出 JSON，不要 markdown。
 格式: {"summary":"中文短句","actions":[{"id":"...","title":"...","reason":"..."}]}
-id 只能是: install_docker, install_qemu, build_browser_image。
+id 只能是: install_docker。
 不要输出 shell 命令。已就绪的项不要列入。`
 	user := fmt.Sprintf(
-		"wizard=%s preset=%s bio=%q\nfacts dockerReady=%v binariesOK=%v browserImageOK=%v",
-		w.Name, w.Preset, w.Bio, f.DockerReady, f.BinariesOK, f.BrowserImageOK,
+		"wizard=%s preset=%s bio=%q\nfacts dockerReady=%v",
+		w.Name, w.Preset, w.Bio, f.DockerReady,
 	)
 	body := map[string]any{
 		"model": p.Model,

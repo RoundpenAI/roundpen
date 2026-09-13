@@ -6,11 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/RoundpenAI/roundpen/internal/backend/qemu"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 )
@@ -79,14 +77,6 @@ func defaultFacts(p *runtime.Probe) HostFacts {
 			f.DockerReady = p.DockerCheck()
 		}
 	}
-	f.BinariesOK = qemu.BinariesAvailable() == nil
-	browserImg := "images/browser-qemu/out/browser.qcow2"
-	if p != nil && p.Cfg != nil {
-		if v := strings.TrimSpace(p.Cfg.BrowserImage); v != "" {
-			browserImg = v
-		}
-	}
-	f.BrowserImageOK = qemu.ValidateImage(browserImg) == nil
 	return f
 }
 
@@ -215,10 +205,6 @@ func (s *Service) Recheck(user, id, actionID string) (*PlanRecord, error) {
 		switch a.ActionID {
 		case ActionInstallDocker:
 			ok = f.DockerReady
-		case ActionInstallQEMU:
-			ok = f.BinariesOK
-		case ActionBuildBrowserImage:
-			ok = f.BrowserImageOK
 		}
 		if ok {
 			a.Status = StatusSucceeded

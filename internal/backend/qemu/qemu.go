@@ -1,14 +1,14 @@
 // Package qemu runs sandboxes as QEMU virtual machines.
 //
-// Browser and agent slot VMs use a qcow2 disk and are kernel-booted
-// (vmlinuz + initrd sidecars from images/browser-qemu or images/agent-qemu).
+// Agent slot VMs use a qcow2 disk and are kernel-booted
+// (vmlinuz + initrd sidecars from images/agent-qemu).
 // They are not BIOS/GRUB disks.
 //
 // Networking is QEMU user-mode slirp: the host is 10.0.2.2 from the guest.
 // CreateOpts.Env is written to fw_cfg opt/roundpen/env (loopback URLs rewritten
 // to 10.0.2.2) so Claude Code / guest agents talk to Roundpen llmgw.
 // Chrome CDP (:9222) and SSH (:22) are hostfwd'd to 127.0.0.1 on the host.
-// The guest desktop (browser images) is QEMU native VNC on a Unix socket.
+// The guest desktop is QEMU native VNC on a Unix socket.
 package qemu
 
 import (
@@ -212,7 +212,7 @@ func resolveImage(img string) (string, error) {
 		img = abs
 	}
 	if _, err := os.Stat(img); err != nil {
-		return "", fmt.Errorf("qemu: image %q: %w (build with images/browser-qemu/build.sh or images/agent-qemu/build.sh)", img, err)
+		return "", fmt.Errorf("qemu: image %q: %w (build with images/agent-qemu/build.sh)", img, err)
 	}
 	return img, nil
 }
@@ -220,7 +220,7 @@ func resolveImage(img string) (string, error) {
 func checkImage(img string) error {
 	dir := filepath.Dir(img)
 	if _, err := os.Stat(filepath.Join(dir, "BUILD_INCOMPLETE.txt")); err == nil {
-		return fmt.Errorf("qemu: %s is a placeholder; run images/browser-qemu/build.sh or images/agent-qemu/build.sh", img)
+		return fmt.Errorf("qemu: %s is a placeholder; run images/agent-qemu/build.sh", img)
 	}
 	st, err := os.Stat(img)
 	if err != nil {
@@ -525,7 +525,7 @@ func useVirtioWorkspace(opts backend.CreateOpts) bool {
 	if slot == "" {
 		slot = strings.ToLower(strings.TrimSpace(opts.Env["ROUNDPEN_SLOT"]))
 	}
-	return slot != "browser" && slot != "mobile"
+	return slot != "mobile"
 }
 
 func ensureWorkspaceDisk(path string) error {

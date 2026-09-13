@@ -76,10 +76,6 @@ tidy:
 run-daemon: build
 	./bin/roundpend
 
-# Bootable Browser qcow2 + kernel sidecars (needs Docker).
-browser-image:
-	./images/browser-qemu/build.sh
-
 # Playwright driver (no browsers: the browser runs in the Browser env container).
 browser-driver:
 	go run ./cmd/browserdriver

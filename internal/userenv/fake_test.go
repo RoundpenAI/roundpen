@@ -134,7 +134,7 @@ func (f *fakeSandboxes) Create(_ context.Context, req sandbox.CreateRequest) (*s
 		case "docker":
 			sb.Image = "roundpen-code-agent:local"
 		case "qemu":
-			sb.Image = "images/browser-qemu/out/browser.qcow2"
+			sb.Image = "images/agent-qemu/out/agent.qcow2"
 		}
 	}
 	f.put(sb)

@@ -27,9 +27,7 @@ type Plan struct {
 
 // HostFacts is the probe outcome used by planners.
 type HostFacts struct {
-	DockerReady    bool
-	BinariesOK     bool // QEMU binaries for the Browser slot
-	BrowserImageOK bool
+	DockerReady bool
 }
 
 // DeterministicPlan builds a plan from host facts (no LLM).
@@ -37,34 +35,20 @@ func DeterministicPlan(ctx WizardContext, f HostFacts, priv Privilege) Plan {
 	return PlanFromFacts(ctx, f, priv)
 }
 
-// PlanFromFacts maps host gaps + wizard preset to whitelist actions.
-func PlanFromFacts(ctx WizardContext, f HostFacts, priv Privilege) Plan {
-	needBrowser := ctx.Preset == "code_browser"
+// PlanFromFacts maps host gaps to whitelist actions.
+func PlanFromFacts(_ WizardContext, f HostFacts, priv Privilege) Plan {
 	var actions []PlannedAction
 
 	if !f.DockerReady {
 		actions = append(actions, planned(ActionInstallDocker, "当前环境缺少 Docker（Agent 槽位需要）", priv))
 	}
-	if needBrowser && !f.BinariesOK {
-		actions = append(actions, planned(ActionInstallQEMU, "当前环境缺少 qemu-system-x86_64 / qemu-img", priv))
-	}
-	if needBrowser && !f.BrowserImageOK {
-		actions = append(actions, planned(ActionBuildBrowserImage, "浏览器画面环境尚未准备", priv))
-	}
 
 	summary := "工位已就绪"
-	switch {
-	case len(actions) == 0:
+	switch len(actions) {
+	case 0:
 		// keep
-	case len(actions) == 1:
+	case 1:
 		summary = "需要：" + actions[0].Title
-	default:
-		summary = "需要准备 Docker 与浏览器环境"
-		if !needBrowser {
-			summary = "需要准备本机 Docker 环境"
-		} else if f.DockerReady && !f.BinariesOK && !f.BrowserImageOK {
-			summary = "需要本机虚拟机组件和浏览器画面环境"
-		}
 	}
 
 	return Plan{Summary: summary, Actions: actions}

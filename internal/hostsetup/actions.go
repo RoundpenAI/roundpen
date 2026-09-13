@@ -3,9 +3,7 @@ package hostsetup
 import "os"
 
 const (
-	ActionInstallDocker     = "install_docker"
-	ActionInstallQEMU       = "install_qemu"
-	ActionBuildBrowserImage = "build_browser_image"
+	ActionInstallDocker = "install_docker"
 )
 
 // ActionDef is a whitelist setup action. Commands are never model-supplied.
@@ -26,25 +24,6 @@ var catalog = map[string]ActionDef{
 				return "apt-get install -y docker.io && systemctl enable --now docker"
 			}
 			return "sudo apt-get install -y docker.io && sudo systemctl enable --now docker"
-		},
-	},
-	ActionInstallQEMU: {
-		ID:        ActionInstallQEMU,
-		Title:     "安装本机虚拟机组件",
-		Sensitive: true,
-		CommandHint: func(isRoot bool) string {
-			if isRoot {
-				return "apt-get install -y qemu-system-x86 qemu-utils"
-			}
-			return "sudo apt-get install -y qemu-system-x86 qemu-utils"
-		},
-	},
-	ActionBuildBrowserImage: {
-		ID:        ActionBuildBrowserImage,
-		Title:     "准备浏览器画面环境",
-		Sensitive: false,
-		CommandHint: func(bool) string {
-			return "make browser-image"
 		},
 	},
 }
