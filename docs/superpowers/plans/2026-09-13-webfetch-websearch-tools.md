@@ -724,7 +724,7 @@ git commit -m "feat(tools): extract WebFetch pages via model prompt"
 - Create: `internal/acp/sysagent/tools/websearch.go`
 - Test: `internal/acp/sysagent/tools/websearch_test.go`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `internal/acp/sysagent/tools/websearch_test.go`（package `tools_test`，复用 Task 2 的 `callTool`）：
 
@@ -899,14 +899,77 @@ func TestWebSearchReportsHTTPError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestWebSearchTransportErrorHidesEndpoint(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	srv.Close() // 关闭监听后请求必然传输失败
+	reg := newSearchRegistry(t, srv.URL, "k")
+	_, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"})
+	if err == nil || !strings.Contains(err.Error(), "web search failed") {
+		t.Fatalf("err = %v", err)
+	}
+	if strings.Contains(err.Error(), srv.URL) {
+		t.Fatalf("error must not echo the endpoint URL: %v", err)
+	}
+}
+
+func TestWebSearchRejectsOversizeBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Repeat("x", (10<<20)+1)))
+	}))
+	defer srv.Close()
+	reg := newSearchRegistry(t, srv.URL, "k")
+	_, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"})
+	if err == nil || !strings.Contains(err.Error(), "10MB") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWebSearchKeepsSourcesReminderAfterTruncation(t *testing.T) {
+	big := strings.Repeat("s", 5000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		results := make([]map[string]any, 0, 20)
+		for i := 0; i < 20; i++ {
+			results = append(results, map[string]any{
+				"title": "T", "url": "https://example.com/x", "content": big,
+			})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": results})
+	}))
+	defer srv.Close()
+	reg := newSearchRegistry(t, srv.URL, "k")
+	out, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"})
+	if err != nil {
+		t.Fatalf("WebSearch: %v", err)
+	}
+	if !strings.HasSuffix(out, "Include the sources above in your response as markdown links.") {
+		t.Fatalf("sources reminder lost after truncation, tail = %q", out[len(out)-60:])
+	}
+}
+
+func TestWebSearchOmitsAuthHeaderWithoutKey(t *testing.T) {
+	authSet := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, authSet = r.Header["Authorization"]
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{}})
+	}))
+	defer srv.Close()
+	reg := newSearchRegistry(t, srv.URL, "")
+	if _, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"}); err != nil {
+		t.Fatalf("WebSearch: %v", err)
+	}
+	if authSet {
+		t.Fatal("Authorization header must be absent when no API key is configured")
+	}
+}
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `go test ./internal/acp/sysagent/tools/ -run TestWebSearch -count=1`
 Expected: FAIL（`undefined: tools.WebSearchBinder`、`undefined: tools.RegisterWebSearch`）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 创建 `internal/acp/sysagent/tools/websearch.go`：
 
@@ -917,9 +980,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -1030,6 +1095,10 @@ func (b *WebSearchBinder) search(ctx context.Context, query string, allowed, blo
 	}
 	resp, err := b.HTTP.Do(req)
 	if err != nil {
+		var uerr *url.Error
+		if errors.As(err, &uerr) {
+			err = uerr.Err
+		}
 		return "", fmt.Errorf("web search failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -1041,10 +1110,17 @@ func (b *WebSearchBinder) search(ctx context.Context, query string, allowed, blo
 		}
 		return "", fmt.Errorf("web search failed: HTTP %d: %s", resp.StatusCode, truncateRunes(msg, 500))
 	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxWebBodyBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("web search failed: %w", err)
+	}
+	if len(body) > maxWebBodyBytes {
+		return "", fmt.Errorf("web search failed: response exceeds 10MB")
+	}
 	var out struct {
 		Results []tavilyHit `json:"results"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxWebBodyBytes)).Decode(&out); err != nil {
+	if err := json.Unmarshal(body, &out); err != nil {
 		return "", fmt.Errorf("web search failed: %w", err)
 	}
 	return formatWebSearchResults(query, out.Results), nil
@@ -1054,27 +1130,28 @@ func formatWebSearchResults(query string, hits []tavilyHit) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Web search results for query: %q\n\n", query)
 	if len(hits) == 0 {
-		sb.WriteString("No search results found.")
-		return sb.String()
+		return sb.String() + "No search results found."
 	}
 	for _, h := range hits {
-		fmt.Fprintf(&sb, "- [%s](%s)", strings.TrimSpace(h.Title), strings.TrimSpace(h.URL))
+		fmt.Fprintf(&sb, "- [%s](%s)",
+			strings.Join(strings.Fields(h.Title), " "),
+			strings.Join(strings.Fields(h.URL), " "))
 		if snippet := strings.Join(strings.Fields(h.Content), " "); snippet != "" {
 			fmt.Fprintf(&sb, ": %s", snippet)
 		}
 		sb.WriteString("\n")
 	}
-	sb.WriteString("\nInclude the sources above in your response as markdown links.")
-	return truncateRunes(sb.String(), maxWebResult)
+	// 提醒放在截断之外：结果很长时引用来源的指令不能被挤掉。
+	return truncateRunes(sb.String(), maxWebResult) + "\nInclude the sources above in your response as markdown links."
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `go test ./internal/acp/sysagent/tools/ -count=1`
 Expected: 全部 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add internal/acp/sysagent/tools/websearch.go internal/acp/sysagent/tools/websearch_test.go
@@ -1082,6 +1159,9 @@ git commit -m "feat(tools): add Tavily-backed WebSearch tool"
 ```
 
 ---
+
+
+> 评审补充（已实现）：传输错误解包 `*url.Error`，不回显 endpoint；响应体超 10MB 报错（与 WebFetch 对齐）；来源提醒置于 32KB 截断之外；标题/URL 折叠空白。追加 4 个测试覆盖以上行为。
 
 ### Task 5: Tavily 配置（env）
 
