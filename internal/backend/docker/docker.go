@@ -135,6 +135,11 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		cfg.Cmd = []string{"sleep", "infinity"}
 	}
 
+	// Capabilities are dropped, so root cannot write a foreign-owned mount:
+	// the manager asks for the workspace owner identity instead (see
+	// CreateOpts.User) to keep host-side and in-container ownership aligned.
+	cfg.User = opts.User
+
 	name := containerName(opts.SandboxID)
 	resp, err := b.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, name)
 	if err != nil {
