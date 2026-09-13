@@ -216,6 +216,14 @@ func TestWebSearchKeepsSourcesReminderAfterTruncation(t *testing.T) {
 	}
 }
 
+func TestWebSearchInvalidEndpoint(t *testing.T) {
+	reg := newSearchRegistry(t, "://bad", "k")
+	_, err := callTool(t, reg, "WebSearch", map[string]any{"query": "golang"})
+	if err == nil || !strings.Contains(err.Error(), "endpoint is invalid") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestWebSearchOmitsAuthHeaderWithoutKey(t *testing.T) {
 	authSet := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

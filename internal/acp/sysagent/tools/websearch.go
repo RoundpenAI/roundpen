@@ -110,7 +110,7 @@ func (b *WebSearchBinder) search(ctx context.Context, query string, allowed, blo
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return "", fmt.Errorf("web search is not configured")
+		return "", fmt.Errorf("web search endpoint is invalid")
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", webUserAgent)
