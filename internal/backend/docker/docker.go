@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
@@ -194,6 +195,8 @@ func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
 }
 
 // refreshChanged reports whether a pulled image differs from the local copy.
+// A missing or unreadable digest on either side reports true (treated as
+// changed), so the caller rebuilds rather than stranding the old image.
 func refreshChanged(local, pulled string, hadLocal bool) bool {
 	if !hadLocal || local == "" || pulled == "" {
 		return true
@@ -202,6 +205,8 @@ func refreshChanged(local, pulled string, hadLocal bool) bool {
 }
 
 // RefreshImage pulls ref and reports whether the local image digest changed.
+// The returned digest is the post-pull digest; an empty digest means the
+// local image is unknown.
 func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, error) {
 	if strings.TrimSpace(ref) == "" {
 		return false, "", fmt.Errorf("image ref is empty")
@@ -212,7 +217,12 @@ func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, e
 		return false, "", fmt.Errorf("image pull %s: %w", ref, err)
 	}
 	defer rc.Close()
-	_, _ = io.Copy(io.Discard, rc)
+	// pull failures mid-stream (failed layer download/registration, auth
+	// errors) arrive as JSON messages with HTTP 200, so the drain must
+	// surface them instead of discarding the stream.
+	if err := jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil); err != nil {
+		return false, "", fmt.Errorf("image pull %s: %w", ref, err)
+	}
 	pulled, _ := b.imageDigest(ctx, ref)
 	return refreshChanged(local, pulled, hadLocal), pulled, nil
 }
