@@ -116,6 +116,11 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 		rest = "/"
 	}
 	upstreamPath := path.Clean(debuggerPrefix + rest)
+	if strings.HasSuffix(rest, "/") && !strings.HasSuffix(upstreamPath, "/") {
+		// browserless redirects the slashless root with an absolute Location,
+		// which would push the browser off the proxy prefix; keep the slash.
+		upstreamPath += "/"
+	}
 	if upstreamPath != debuggerPrefix && !strings.HasPrefix(upstreamPath, debuggerPrefix+"/") {
 		http.Error(w, "invalid live view path", http.StatusForbidden)
 		return
@@ -245,6 +250,10 @@ func (h *Handler) proxyLiveWS(w http.ResponseWriter, r *http.Request, conn net.C
 	req.RequestURI = ""
 	// Request.Write ignores the Host header; the field is what goes on the wire.
 	req.Host = "127.0.0.1"
+	// The container authenticates with the injected ?token=; the console
+	// session must not leak into the sandbox.
+	req.Header.Del("Cookie")
+	req.Header.Del("Authorization")
 	if err := req.Write(conn); err != nil {
 		_ = conn.Close()
 		_ = client.Close()

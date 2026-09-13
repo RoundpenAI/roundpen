@@ -275,6 +275,34 @@ func TestLiveMuxRoutes(t *testing.T) {
 		}
 	})
 
+	t.Run("root keeps the trailing slash", func(t *testing.T) {
+		resp, err := follow.Get(srv.URL + "/v1/me/environments/browser/live/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		if !up.sawPath("/debugger/") {
+			t.Fatalf("upstream paths = %v, want the debugger root with its trailing slash", up.paths)
+		}
+	})
+
+	t.Run("asset resolves under the prefix", func(t *testing.T) {
+		resp, err := follow.Get(srv.URL + "/v1/me/environments/browser/live/app.bundle.js")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		}
+		if !up.sawPath("/debugger/app.bundle.js") {
+			t.Fatalf("upstream paths = %v, want /debugger/app.bundle.js", up.paths)
+		}
+	})
+
 	t.Run("encoded traversal is rejected", func(t *testing.T) {
 		resp, err := noFollow.Get(srv.URL + "/v1/me/environments/browser/live/%2e%2e%2fjson%2fversion")
 		if err != nil {
@@ -373,6 +401,80 @@ func TestLiveWebSocketForwardsBufferedBytes(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("upstream never received the bytes buffered past the request line")
+	}
+}
+
+// TestLiveWebSocketStripsClientCredentials asserts on the handshake bytes the
+// upstream reads: the console session must not ride the websocket leg into the
+// sandbox.
+func TestLiveWebSocketStripsClientCredentials(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	got := make(chan []string, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		br := bufio.NewReader(c)
+		var lines []string
+		for {
+			line, err := br.ReadString('\n')
+			if err != nil {
+				break
+			}
+			lines = append(lines, line)
+			if line == "\r\n" {
+				break
+			}
+		}
+		got <- lines
+	}()
+
+	h := &Handler{
+		Envs: &fakeEnvs{target: managedTarget()},
+		Dial: fakeDialer(func(context.Context, string, int) (net.Conn, error) {
+			return net.Dial("tcp", ln.Addr().String())
+		}),
+	}
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, r.WithContext(authCtx(r.Context(), "alice")))
+	}))
+	defer srv.Close()
+
+	client, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	upgrade := "GET /v1/me/environments/browser/live/ws HTTP/1.1\r\n" +
+		"Host: control-plane\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n" +
+		"Cookie: roundpen_session=console-secret\r\n" +
+		"Authorization: Bearer rp-api-key\r\n\r\n"
+	if _, err := client.Write([]byte(upgrade)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case lines := <-got:
+		if len(lines) == 0 {
+			t.Fatal("upstream saw an empty handshake")
+		}
+		for _, line := range lines {
+			lower := strings.ToLower(line)
+			if strings.HasPrefix(lower, "cookie:") || strings.HasPrefix(lower, "authorization:") {
+				t.Fatalf("handshake leaked console credentials upstream: %q", strings.TrimSpace(line))
+			}
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream never received the handshake")
 	}
 }
 
