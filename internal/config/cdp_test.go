@@ -63,3 +63,16 @@ func TestNormalizeCDPRemoteRequiresEndpoint(t *testing.T) {
 		t.Fatalf("port default: %d", cfg.Port)
 	}
 }
+
+func TestDefaultCDPPortIsBrowserless(t *testing.T) {
+	if config.DefaultCDPPort != 3000 {
+		t.Fatalf("DefaultCDPPort = %d, want 3000 (browserless)", config.DefaultCDPPort)
+	}
+	cfg := config.CDPConfig{Provider: config.CDPProviderAuto}
+	if err := config.NormalizeCDP(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Port != 3000 {
+		t.Fatalf("normalized port = %d, want 3000", cfg.Port)
+	}
+}
