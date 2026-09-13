@@ -41,6 +41,10 @@ func (b *Backend) Logs(ctx context.Context, sandboxID string) (io.ReadCloser, er
 	return nil, fmt.Errorf("k8s.Logs: not implemented (phase 4)")
 }
 
+func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
+	return false, fmt.Errorf("k8s.Running: not implemented (phase 4)")
+}
+
 func (b *Backend) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {
 	return nil, fmt.Errorf("k8s.Dial: not implemented (phase 4)")
 }

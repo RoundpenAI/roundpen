@@ -66,6 +66,10 @@ type Backend interface {
 	Exec(ctx context.Context, sandboxID string, opts ExecOpts) (*ExecResult, error)
 	Logs(ctx context.Context, sandboxID string) (io.ReadCloser, error)
 
+	// Running reports whether the sandbox engine is up. false is a definitive
+	// answer (stopped, exited, or removed); an error means liveness is unknown.
+	Running(ctx context.Context, sandboxID string) (bool, error)
+
 	// Dial opens a TCP connection to destPort inside the sandbox network.
 	Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error)
 
