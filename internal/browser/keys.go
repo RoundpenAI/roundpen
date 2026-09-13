@@ -27,6 +27,9 @@ var keyAliases = map[string]string{
 
 // normalizeKey resolves a caller-supplied key string to a Playwright key name.
 func normalizeKey(key string) string {
+	if key == " " {
+		return " " // literal space: keep it, TrimSpace would erase it
+	}
 	k := strings.TrimSpace(key)
 	if mapped, ok := keyAliases[strings.ToLower(k)]; ok {
 		return mapped

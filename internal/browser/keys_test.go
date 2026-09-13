@@ -36,6 +36,9 @@ func TestNormalizeKey(t *testing.T) {
 		// Surrounding whitespace is trimmed before lookup.
 		{"  Enter  ", "Enter"},
 		{"  Control+a  ", "Control+a"},
+		// A literal single space is the space-bar key and must survive
+		// trimming (the old chromedp engine supported it explicitly).
+		{" ", " "},
 	}
 	for _, c := range cases {
 		if got := normalizeKey(c.in); got != c.want {
