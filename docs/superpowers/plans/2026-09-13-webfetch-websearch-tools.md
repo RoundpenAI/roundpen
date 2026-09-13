@@ -208,7 +208,7 @@ git commit -m "feat(tools): add SSRF-guarded outbound HTTP client"
 - Test: `internal/acp/sysagent/tools/web_test.go`
 - Modify: `go.mod` / `go.sum`（新增 html-to-markdown 依赖）
 
-- [ ] **Step 1: 引入依赖**
+- [x] **Step 1: 引入依赖**
 
 ```bash
 go get github.com/JohannesKaufmann/html-to-markdown@v1.6.0
@@ -216,7 +216,7 @@ go mod tidy
 ```
 Expected: `go.mod` 的 require 块新增 `github.com/JohannesKaufmann/html-to-markdown v1.6.0`（GOPROXY=goproxy.cn 已实测可拉取）。
 
-- [ ] **Step 2: 写失败测试**
+- [x] **Step 2: 写失败测试**
 
 创建 `internal/acp/sysagent/tools/web_test.go`（package `tools_test`；`callTool` / `stubModel` 定义在本文件，Task 4 复用）：
 
@@ -276,18 +276,34 @@ func htmlServer(t *testing.T, contentType, body string) *httptest.Server {
 }
 
 func TestWebFetchConvertsHTML(t *testing.T) {
-	srv := htmlServer(t, "text/html; charset=utf-8",
-		`<html><body><h1>Hello</h1><p>World <a href="/docs">docs</a></p><script>var x=1</script></body></html>`)
+	var gotAccept, gotUA string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(`<html><body><h1>Hello</h1><p>World <a href="/docs">docs</a> and <a href="https://example.com/secure">secure</a></p><script>var x=1</script></body></html>`))
+	}))
+	defer srv.Close()
+
 	reg := newWebRegistry(nil)
 	out, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL + "/page"})
 	if err != nil {
 		t.Fatalf("WebFetch: %v", err)
+	}
+	if gotAccept != "text/markdown, text/html, */*" {
+		t.Fatalf("Accept = %q", gotAccept)
+	}
+	if gotUA != "Roundpen-WebFetch/0.1" {
+		t.Fatalf("User-Agent = %q", gotUA)
 	}
 	if !strings.Contains(out, "# Hello") {
 		t.Fatalf("missing markdown heading: %q", out)
 	}
 	if !strings.Contains(out, srv.URL+"/docs") {
 		t.Fatalf("relative link not absolutized: %q", out)
+	}
+	if !strings.Contains(out, "https://example.com/secure") {
+		t.Fatalf("absolute https link not preserved: %q", out)
 	}
 	if strings.Contains(out, "var x=1") {
 		t.Fatalf("script content leaked: %q", out)
@@ -353,6 +369,29 @@ func TestWebFetchTruncatesLongContent(t *testing.T) {
 	if len(out) > (32<<10)+8 {
 		t.Fatalf("result too long: %d bytes", len(out))
 	}
+	if !strings.HasPrefix(out, "xxx") {
+		t.Fatalf("truncated output must keep the start of the page: %q", out[:min(20, len(out))])
+	}
+	if !strings.HasSuffix(out, "…") {
+		t.Fatalf("truncated output must end with the ellipsis marker: %q", out[len(out)-min(20, len(out)):])
+	}
+}
+
+func TestWebFetchRejectsOversizeBody(t *testing.T) {
+	srv := htmlServer(t, "text/plain", strings.Repeat("x", (10<<20)+1))
+	reg := newWebRegistry(nil)
+	_, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL})
+	if err == nil || !strings.Contains(err.Error(), "10MB") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWebFetchRejectsCredentialURL(t *testing.T) {
+	reg := newWebRegistry(nil)
+	_, err := callTool(t, reg, "WebFetch", map[string]any{"url": "http://user:pass@example.com/"})
+	if err == nil || !strings.Contains(err.Error(), "credentials") {
+		t.Fatalf("err = %v", err)
+	}
 }
 
 func TestWebFetchErrorsWhenPromptGivenWithoutModel(t *testing.T) {
@@ -365,12 +404,12 @@ func TestWebFetchErrorsWhenPromptGivenWithoutModel(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: 运行测试确认失败**
+- [x] **Step 3: 运行测试确认失败**
 
 Run: `go test ./internal/acp/sysagent/tools/ -run TestWebFetch -count=1`
 Expected: FAIL（`undefined: tools.RegisterWebFetch`、`undefined: tools.WebBinder`）
 
-- [ ] **Step 4: 实现抓取管线**
+- [x] **Step 4: 实现抓取管线**
 
 创建 `internal/acp/sysagent/tools/web.go`：
 
@@ -475,6 +514,9 @@ func parseWebURL(raw string) (*url.URL, error) {
 	if u.Host == "" {
 		return nil, fmt.Errorf("invalid url")
 	}
+	if u.User != nil {
+		return nil, fmt.Errorf("url must not contain credentials")
+	}
 	return u, nil
 }
 
@@ -496,9 +538,12 @@ func (b *WebBinder) get(ctx context.Context, u *url.URL) ([]byte, string, error)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return nil, "", fmt.Errorf("fetch failed: HTTP %d", resp.StatusCode)
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxWebBodyBytes))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxWebBodyBytes+1))
 	if err != nil {
 		return nil, "", fmt.Errorf("fetch failed: %w", err)
+	}
+	if len(body) > maxWebBodyBytes {
+		return nil, "", fmt.Errorf("fetch failed: response exceeds 10MB")
 	}
 	return body, resp.Header.Get("Content-Type"), nil
 }
@@ -537,12 +582,12 @@ func (b *WebBinder) extract(ctx context.Context, prompt, content string) (string
 }
 ```
 
-- [ ] **Step 5: 运行测试确认通过**
+- [x] **Step 5: 运行测试确认通过**
 
 Run: `go test ./internal/acp/sysagent/tools/ -run TestWebFetch -count=1 -v`
 Expected: 全部 PASS（含 `TestWebFetchErrorsWhenPromptGivenWithoutModel`）
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add go.mod go.sum internal/acp/sysagent/tools/web.go internal/acp/sysagent/tools/web_test.go
