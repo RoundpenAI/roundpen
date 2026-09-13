@@ -286,8 +286,28 @@ func (s *Service) load(ctx context.Context, id string) (*Sandbox, error) {
 	if err := authorize(ctx, sb); err != nil {
 		return nil, err
 	}
+	s.reconcile(ctx, sb)
 	fillDefaultName(sb)
 	return sb, nil
+}
+
+// reconcile records engine truth for a sandbox the store still calls running
+// after its container/VM died out of band (host reboot, daemon restart).
+func (s *Service) reconcile(ctx context.Context, sb *Sandbox) {
+	if s.backend == nil || sb.Status != StatusRunning {
+		return
+	}
+	running, err := s.backend.Running(ctx, sb.ID)
+	if err != nil || running {
+		return
+	}
+	sb.Status = StatusStopped
+	sb.UpdatedAt = time.Now().UTC()
+	if err := s.store.Update(ctx, sb); err != nil {
+		s.logger.Warn("reconcile sandbox status", slog.String("id", sb.ID), slog.Any("err", err))
+		return
+	}
+	s.logger.Info("sandbox status reconciled to stopped", slog.String("id", sb.ID), slog.String("engine", s.backend.Name()))
 }
 
 func authorize(ctx context.Context, sb *Sandbox) error {
@@ -335,6 +355,7 @@ func (s *Service) List(ctx context.Context, filter ListFilter) ([]*Sandbox, erro
 		if !admin && sb.Owner != owner {
 			continue
 		}
+		s.reconcile(ctx, sb)
 		fillDefaultName(sb)
 		out = append(out, sb)
 	}

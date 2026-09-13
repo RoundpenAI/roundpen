@@ -700,6 +700,18 @@ func (b *Backend) Start(ctx context.Context, sandboxID string) error {
 	return nil
 }
 
+// Running reports whether the sandbox VM process is alive.
+func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
+	_ = ctx
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	v := b.vms[sandboxID]
+	if v == nil {
+		return false, nil
+	}
+	return v.PID > 0 && processAlive(v.PID), nil
+}
+
 func (b *Backend) Stop(ctx context.Context, sandboxID string) error {
 	_ = ctx
 	b.mu.Lock()

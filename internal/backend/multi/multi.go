@@ -203,6 +203,9 @@ func (u unavailableBackend) Exec(context.Context, string, backend.ExecOpts) (*ba
 func (u unavailableBackend) Logs(context.Context, string) (io.ReadCloser, error) {
 	return nil, u.err
 }
+func (u unavailableBackend) Running(context.Context, string) (bool, error) {
+	return false, u.err
+}
 func (u unavailableBackend) Dial(context.Context, string, int) (net.Conn, error) {
 	return nil, u.err
 }
@@ -252,6 +255,10 @@ func (b *Backend) Exec(ctx context.Context, sandboxID string, opts backend.ExecO
 
 func (b *Backend) Logs(ctx context.Context, sandboxID string) (io.ReadCloser, error) {
 	return b.engine(sandboxID).Logs(ctx, sandboxID)
+}
+
+func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
+	return b.engine(sandboxID).Running(ctx, sandboxID)
 }
 
 func (b *Backend) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {

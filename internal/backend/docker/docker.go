@@ -176,6 +176,18 @@ func (b *Backend) Start(ctx context.Context, sandboxID string) error {
 	return b.cli.ContainerStart(ctx, containerName(sandboxID), container.StartOptions{})
 }
 
+// Running reports whether the sandbox container is up.
+func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
+	info, err := b.cli.ContainerInspect(ctx, containerName(sandboxID))
+	if err != nil {
+		if client.IsErrNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return info.State != nil && info.State.Running, nil
+}
+
 func (b *Backend) Stop(ctx context.Context, sandboxID string) error {
 	timeout := 10
 	return b.cli.ContainerStop(ctx, containerName(sandboxID), container.StopOptions{Timeout: &timeout})

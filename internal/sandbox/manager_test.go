@@ -257,6 +257,12 @@ func (b *stubBackend) Logs(_ context.Context, _ string) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader("")), nil
 }
 
+func (b *stubBackend) Running(_ context.Context, sandboxID string) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.running[sandboxID], nil
+}
+
 func (b *stubBackend) Dial(_ context.Context, _ string, _ int) (net.Conn, error) {
 	return nil, errors.New("dial not implemented")
 }
