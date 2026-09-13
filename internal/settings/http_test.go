@@ -100,6 +100,8 @@ func TestAdminSettingsHTTP(t *testing.T) {
 		DefaultTtlSeconds:      3600,
 		PreviewTokenTtlSeconds: 900,
 		TemplateBuilder:        "docker",
+		WebSearchEndpoint:      "https://search.internal.example",
+		WebSearchApiKey:        "tvly-db",
 	})
 	req = httptest.NewRequest(http.MethodPut, "/v1/admin/settings", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", "rp-admin")
@@ -110,6 +112,40 @@ func TestAdminSettingsHTTP(t *testing.T) {
 	}
 	if cfg.DefaultImage != "python" {
 		t.Fatalf("cfg not updated: %q", cfg.DefaultImage)
+	}
+	if cfg.WebTools.SearchEndpoint != "https://search.internal.example" || cfg.WebTools.SearchAPIKey != "tvly-db" {
+		t.Fatalf("cfg.WebTools = %+v", cfg.WebTools)
+	}
+
+	// GET 返回掩码后的 Key。
+	req = httptest.NewRequest(http.MethodGet, "/v1/admin/settings", nil)
+	req.Header.Set("X-API-Key", "rp-admin")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var envelope struct {
+		Settings settings.AppSettings `json:"settings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode GET: %v", err)
+	}
+	if envelope.Settings.WebSearchApiKey != settings.SecretMask {
+		t.Fatalf("GET must mask the stored key, got %q", envelope.Settings.WebSearchApiKey)
+	}
+
+	// 掩码值原样 PUT 回来不得覆盖已存 Key。
+	body, _ = json.Marshal(envelope.Settings)
+	req = httptest.NewRequest(http.MethodPut, "/v1/admin/settings", bytes.NewReader(body))
+	req.Header.Set("X-API-Key", "rp-admin")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("masked PUT status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if cfg.WebTools.SearchAPIKey != "tvly-db" {
+		t.Fatalf("masked PUT must keep the stored key, got %q", cfg.WebTools.SearchAPIKey)
 	}
 }
 
