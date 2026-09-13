@@ -76,6 +76,14 @@ type fakeSandboxes struct {
 	byID       map[string]*sandbox.Sandbox
 	connectErr error
 	creates    int
+
+	refreshImage   string
+	refreshChanged bool
+	refreshDigest  string
+	refreshErr     error
+	refreshes      int
+	refreshRef     string
+	deletes        int
 }
 
 func (f *fakeSandboxes) put(sb *sandbox.Sandbox) {
@@ -131,6 +139,11 @@ func (f *fakeSandboxes) Create(_ context.Context, req sandbox.CreateRequest) (*s
 		switch req.Metadata["engine"] {
 		case "docker":
 			sb.Image = "roundpen-code-agent:local"
+			// A docker sandbox is created from its template's current
+			// image; after a refresh that is the freshly pulled one.
+			if f.refreshImage != "" {
+				sb.Image = f.refreshImage
+			}
 		case "qemu":
 			sb.Image = "images/browser-qemu/out/browser.qcow2"
 		}
@@ -185,6 +198,7 @@ func (f *fakeSandboxes) Connect(_ context.Context, id string) (*sandbox.Sandbox,
 func (f *fakeSandboxes) Delete(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.deletes++
 	delete(f.byID, id)
 	return nil
 }
@@ -208,8 +222,19 @@ func (f *fakeSandboxes) Update(context.Context, string, sandbox.UpdateRequest) (
 func (f *fakeSandboxes) Exec(context.Context, string, sandbox.ExecRequest) (*sandbox.ExecResult, error) {
 	return nil, fmt.Errorf("unused")
 }
-func (f *fakeSandboxes) RefreshTemplateImage(context.Context, string) (string, bool, string, error) {
-	return "", false, "", fmt.Errorf("unused")
+func (f *fakeSandboxes) RefreshTemplateImage(_ context.Context, templateRef string) (string, bool, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refreshes++
+	f.refreshRef = templateRef
+	if f.refreshErr != nil {
+		return "", false, "", f.refreshErr
+	}
+	image := f.refreshImage
+	if image == "" {
+		image = templateRef
+	}
+	return image, f.refreshChanged, f.refreshDigest, nil
 }
 func (f *fakeSandboxes) ListFiles(context.Context, string, string) ([]workspace.DirEntry, error) {
 	return nil, fmt.Errorf("unused")

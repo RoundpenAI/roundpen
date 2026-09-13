@@ -1,6 +1,7 @@
 package sandbox_test
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -29,6 +30,20 @@ func TestService_RefreshTemplateImagePassthrough(t *testing.T) {
 	be.mu.Unlock()
 	if ref != "python:3.12-slim" {
 		t.Fatalf("backend ref=%q", ref)
+	}
+}
+
+func TestService_RefreshTemplateImageBackendError(t *testing.T) {
+	be := newStubBackend("docker")
+	be.refreshErr = errors.New("daemon unreachable")
+	svc, _, _ := newTestService(t, be)
+
+	image, _, _, err := svc.RefreshTemplateImage(adminCtx(), "python:3.12-slim")
+	if err == nil {
+		t.Fatal("expected refresh error")
+	}
+	if image != "python:3.12-slim" {
+		t.Fatalf("image=%q", image)
 	}
 }
 
