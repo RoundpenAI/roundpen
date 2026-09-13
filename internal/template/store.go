@@ -351,7 +351,7 @@ func scanRecord(row rowScanner) (Record, error) {
 func builtinEntries(backend, defaultImage string) []seedEntry {
 	// Official Agent image: overridable for offline/private registries.
 	agentArtifact := getenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0")
-	browserArtifact := getenv("ROUNDPEN_BROWSER_IMAGE", "images/browser-qemu/out/browser.qcow2")
+	browserArtifact := getenv("ROUNDPEN_BROWSER_IMAGE", "ghcr.io/browserless/chrome:v2.56.7")
 	return []seedEntry{
 		{
 			Namespace: DefaultNamespace, Name: "base",
@@ -379,11 +379,11 @@ func builtinEntries(backend, defaultImage string) []seedEntry {
 			CPUCount: 2, MemoryMB: 2048, DiskSizeMB: 10240, Public: true,
 		},
 		{
-			Namespace: DefaultNamespace, Name: "browser-desktop",
-			Description: "XFCE + Chrome browser VM (QEMU qcow2; CDP :9222)",
+			Namespace: DefaultNamespace, Name: "browser",
+			Description: "Browserless Chrome container (CDP :3000, live debugger)",
 			Profile:     "browser", Slot: "browser",
 			ArtifactRef: browserArtifact, BaseImage: browserArtifact,
-			CPUCount: 2, MemoryMB: 4096, DiskSizeMB: 20480, Public: true,
+			CPUCount: 2, MemoryMB: 2048, DiskSizeMB: 5120, Public: true,
 		},
 	}
 }

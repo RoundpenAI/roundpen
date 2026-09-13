@@ -18,7 +18,7 @@ func TestStore_SeedBuiltin_idempotent(t *testing.T) {
 	var count int
 	if err := sqlDB.QueryRowContext(ctx, `
 		SELECT count(*) FROM templates
-		WHERE namespace=$1 AND name IN ('base','python','node','code-agent','browser-desktop')`, DefaultNamespace).Scan(&count); err != nil {
+		WHERE namespace=$1 AND name IN ('base','python','node','code-agent','browser')`, DefaultNamespace).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 5 {
@@ -28,7 +28,7 @@ func TestStore_SeedBuiltin_idempotent(t *testing.T) {
 		SELECT count(*) FROM template_builds b
 		JOIN template_tags tg ON tg.build_id=b.id AND tg.tag='default'
 		JOIN templates t ON t.id=tg.template_id
-		WHERE t.namespace=$1 AND t.name IN ('base','python','node','code-agent','browser-desktop')`, DefaultNamespace).Scan(&count); err != nil {
+		WHERE t.namespace=$1 AND t.name IN ('base','python','node','code-agent','browser')`, DefaultNamespace).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 5 {
