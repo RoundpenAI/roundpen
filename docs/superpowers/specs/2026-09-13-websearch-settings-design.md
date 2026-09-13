@@ -38,7 +38,7 @@ WebSearchApiKey   string `json:"webSearchApiKey"`
 
 - `FromConfig`：从 `cfg.WebTools.SearchEndpoint/SearchAPIKey` 播种。
 - `SanitizeForResponse`：`WebSearchApiKey` 非空 → `MaskSecret`（`●●●●●●●●`）。
-- `MergeSecrets`：提交为空或掩码值时保留旧值（`ResolveSecret`）。
+- `MergeSecrets`：提交为空或掩码值时保留旧值（`ResolveSecret`）。**`WebSearchApiKey` 是有意例外**：提交掩码 = 保留原值，提交空串 = 显式清除（设置页清空输入框即可关闭 WebSearch，与 UI 文案一致）；JSON 中缺省的字段在 `DecodeAppSettings` 阶段已回填当前值，不会被误清空。
 - `Validate`：`WebSearchEndpoint` 非空时必须能被解析为 **http/https** URL，否则报错（`webSearchEndpoint must be an http(s) URL`）；Key 不联网校验。
 - `ApplyToConfig`：写回 `cfg.WebTools.SearchEndpoint/SearchAPIKey`（保持 boot/apply 路径一致）。
 - `DecodeAppSettings`：两个新字段加入 fallback 表（旧行缺 key 时取 fallback，与 `llmgw*` 同）。

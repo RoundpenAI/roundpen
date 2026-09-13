@@ -182,6 +182,8 @@ Expected: FAIL（`s.WebSearchEndpoint undefined` 等编译错误）
 
 （两个字段必须各自判断 key 是否存在：共用一个判断会把"行里只存了 key、没存 endpoint"的已存 Key 覆盖成 env 兜底值。）
 
+> 终审修正（已实现）：`WebSearchApiKey` 的合并语义是**掩码 = 保留、空串 = 清除**（不走 `ResolveSecret`），否则设置页清空输入框无法删除已存 Key、与「两项都留空则关闭 WebSearch」的文案矛盾；缺省字段仍在解码阶段回填，不受影响。
+
 - [ ] **Step 4: 运行测试确认通过**
 
 Run: `go test ./internal/settings/ -count=1`
