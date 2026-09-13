@@ -45,6 +45,10 @@ func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
 	return false, fmt.Errorf("k8s.Running: not implemented (phase 4)")
 }
 
+func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, error) {
+	return false, "", fmt.Errorf("k8s.RefreshImage: not implemented (phase 4)")
+}
+
 func (b *Backend) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {
 	return nil, fmt.Errorf("k8s.Dial: not implemented (phase 4)")
 }

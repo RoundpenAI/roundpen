@@ -200,6 +200,11 @@ type stubBackend struct {
 	startErr  error
 	execRes   *backend.ExecResult
 	execErr   error
+
+	refreshRef     string
+	refreshChanged bool
+	refreshDigest  string
+	refreshErr     error
 }
 
 func newStubBackend(name string) *stubBackend {
@@ -263,6 +268,16 @@ func (b *stubBackend) Running(_ context.Context, sandboxID string) (bool, error)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.running[sandboxID], nil
+}
+
+func (b *stubBackend) RefreshImage(_ context.Context, ref string) (bool, string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refreshRef = ref
+	if b.refreshErr != nil {
+		return false, "", b.refreshErr
+	}
+	return b.refreshChanged, b.refreshDigest, nil
 }
 
 func (b *stubBackend) Dial(_ context.Context, _ string, _ int) (net.Conn, error) {

@@ -193,6 +193,42 @@ func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
 	return info.State != nil && info.State.Running, nil
 }
 
+// refreshChanged reports whether a pulled image differs from the local copy.
+func refreshChanged(local, pulled string, hadLocal bool) bool {
+	if !hadLocal || local == "" || pulled == "" {
+		return true
+	}
+	return local != pulled
+}
+
+// RefreshImage pulls ref and reports whether the local image digest changed.
+func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, error) {
+	if strings.TrimSpace(ref) == "" {
+		return false, "", fmt.Errorf("image ref is empty")
+	}
+	local, hadLocal := b.imageDigest(ctx, ref)
+	rc, err := b.cli.ImagePull(ctx, ref, types.ImagePullOptions{})
+	if err != nil {
+		return false, "", fmt.Errorf("image pull %s: %w", ref, err)
+	}
+	defer rc.Close()
+	_, _ = io.Copy(io.Discard, rc)
+	pulled, _ := b.imageDigest(ctx, ref)
+	return refreshChanged(local, pulled, hadLocal), pulled, nil
+}
+
+// imageDigest returns the repo digest of a local image, falling back to its ID.
+func (b *Backend) imageDigest(ctx context.Context, ref string) (string, bool) {
+	info, _, err := b.cli.ImageInspectWithRaw(ctx, ref)
+	if err != nil {
+		return "", false
+	}
+	if len(info.RepoDigests) > 0 {
+		return info.RepoDigests[0], true
+	}
+	return info.ID, true
+}
+
 func (b *Backend) Stop(ctx context.Context, sandboxID string) error {
 	timeout := 10
 	return b.cli.ContainerStop(ctx, containerName(sandboxID), container.StopOptions{Timeout: &timeout})
