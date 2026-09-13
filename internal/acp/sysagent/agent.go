@@ -26,6 +26,7 @@ type session struct {
 	allowAll   bool
 	allowTools map[string]bool
 	denyTools  map[string]bool
+	planMode   bool
 }
 
 // Deps wires LLM + tools for one agent instance.
@@ -203,8 +204,12 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 				return err
 			}
 
+			// Plan mode blocks side-effecting tool calls until the plan is approved
+			// (ExitPlanMode itself only toggles the session mode).
+			blockedByPlanMode := ok && tool.Mutating && name != "ExitPlanMode" && a.inPlanMode(sid)
+
 			allowed := true
-			if ok && tool.Mutating {
+			if !blockedByPlanMode && ok && tool.Mutating {
 				if decided, ok := a.toolPermCached(sid, name); ok {
 					allowed = decided
 				} else {
@@ -239,11 +244,16 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 			var result string
 			var callErr error
 			status := acp.ToolCallStatusCompleted
-			if !allowed {
+			if blockedByPlanMode {
+				result = fmt.Sprintf("Blocked: %s is unavailable while in plan mode. "+
+					"You must only explore and design; call ExitPlanMode to present the plan for approval and start implementing.", name)
+				status = acp.ToolCallStatusFailed
+			} else if !allowed {
 				result = "Permission rejected by user."
 				status = acp.ToolCallStatusFailed
 			} else {
-				result, callErr = a.deps.Tools.Call(ctx, a.deps.Actor, name, args)
+				toolCtx := tools.WithInteractor(ctx, a.interactor(sid))
+				result, callErr = a.deps.Tools.Call(toolCtx, a.deps.Actor, name, args)
 				if callErr != nil {
 					status = acp.ToolCallStatusFailed
 					if strings.TrimSpace(result) == "" {
@@ -392,6 +402,92 @@ func (a *Agent) Logout(ctx context.Context, params acp.LogoutRequest) (acp.Logou
 func (a *Agent) CloseSession(ctx context.Context, params acp.CloseSessionRequest) (acp.CloseSessionResponse, error) {
 	return acp.CloseSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionClose)
 }
+
+// inPlanMode reports whether the session is currently in plan mode.
+func (a *Agent) inPlanMode(sid string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.sessions[sid]
+	return s != nil && s.planMode
+}
+
+// setPlanMode toggles plan mode for the session.
+func (a *Agent) setPlanMode(sid string, on bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.sessions[sid]; s != nil {
+		s.planMode = on
+	}
+}
+
+// interactor builds the tools.Interactor surface for the given session, used to
+// back AskUserQuestion / EnterPlanMode / ExitPlanMode during tool dispatch.
+func (a *Agent) interactor(sid string) *tools.Interactor {
+	return &tools.Interactor{
+		AskUser:     func(ctx context.Context, q tools.AskQuestion) (string, error) { return a.askUser(ctx, sid, q) },
+		InPlanMode:  func() bool { return a.inPlanMode(sid) },
+		SetPlanMode: func(on bool) { a.setPlanMode(sid, on) },
+	}
+}
+
+// askUser presents a multiple-choice question to the user through the ACP
+// permission dialog (the web console renders the option buttons) and returns
+// the chosen option label.
+func (a *Agent) askUser(ctx context.Context, sid string, q tools.AskQuestion) (string, error) {
+	if a.conn == nil {
+		return "", fmt.Errorf("agent connection not ready")
+	}
+	if len(q.Options) < tools.AskUserQuestionMin() {
+		return "", fmt.Errorf("at least 2 options are required")
+	}
+	opts := make([]acp.PermissionOption, 0, len(q.Options)+1)
+	for _, o := range q.Options {
+		if strings.TrimSpace(o.Label) == "" {
+			continue
+		}
+		opts = append(opts, acp.PermissionOption{
+			OptionId: acp.PermissionOptionId(o.Label),
+			Name:     o.Label,
+			Kind:     acp.PermissionOptionKindAllowOnce,
+		})
+	}
+	if len(opts) < tools.AskUserQuestionMax() {
+		opts = append(opts, acp.PermissionOption{
+			OptionId: acp.PermissionOptionId("other"),
+			Name:     "Other …",
+			Kind:     acp.PermissionOptionKindAllowOnce,
+		})
+	}
+
+	title := strings.TrimSpace(q.Header) + " · " + strings.TrimSpace(q.Question)
+	title = strings.Trim(title, " ·")
+	if title == "" {
+		title = strings.TrimSpace(q.Question)
+	}
+	resp, err := a.conn.RequestPermission(ctx, acp.RequestPermissionRequest{
+		SessionId: acp.SessionId(sid),
+		ToolCall: acp.ToolCallUpdate{
+			ToolCallId: acp.ToolCallId("ask-" + randomID()),
+			Title:      &title,
+		},
+		Options: opts,
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp.Outcome.Cancelled != nil {
+		return "", fmt.Errorf("user cancelled the question")
+	}
+	if resp.Outcome.Selected == nil || strings.TrimSpace(string(resp.Outcome.Selected.OptionId)) == "" {
+		return "", fmt.Errorf("no answer provided")
+	}
+	label := string(resp.Outcome.Selected.OptionId)
+	if label == "other" {
+		label = "Other (see user reply)"
+	}
+	return label, nil
+}
+
 func (a *Agent) ListSessions(ctx context.Context, params acp.ListSessionsRequest) (acp.ListSessionsResponse, error) {
 	return acp.ListSessionsResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionList)
 }
