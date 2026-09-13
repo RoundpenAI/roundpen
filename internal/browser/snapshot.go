@@ -1,5 +1,10 @@
 package browser
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Shared page-side scripts and UA used by every engine implementation.
 
 const snapshotJS = `(() => {
@@ -83,3 +88,22 @@ const stealthInitJS = `(() => {
     }
   } catch (e) {}
 })()`
+
+// snapshotText renders a compact text view of a snapshot (same shape the
+// chromedp engine produced; mcp.go returns this text to tool callers).
+func snapshotText(s Snapshot) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "- Page: %s\n- URL: %s\n", s.Title, s.URL)
+	for _, n := range s.Nodes {
+		name := n.Name
+		if name == "" {
+			name = n.Tag
+		}
+		fmt.Fprintf(&b, "- %s %q [ref=%s]", n.Role, name, n.Ref)
+		if n.Value != "" && n.Role == "textbox" {
+			fmt.Fprintf(&b, " value=%q", n.Value)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}

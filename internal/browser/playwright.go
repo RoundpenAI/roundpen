@@ -196,8 +196,13 @@ func (e *PlaywrightEngine) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	e.mu.Lock()
-	e.url = out.URL
+	if out.URL != "" {
+		e.url = out.URL
+	}
+	out.Width = e.width
+	out.Height = e.height
 	e.mu.Unlock()
+	out.Text = snapshotText(out)
 	return out, nil
 }
 
