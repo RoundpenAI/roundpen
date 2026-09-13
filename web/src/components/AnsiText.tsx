@@ -59,7 +59,7 @@ function styleToCSS(style: AnsiStyle): CSSProperties | undefined {
   }
 }
 
-/** Render text that may contain ANSI SGR sequences (e.g. kaniko/logrus). */
+/** Render text that may contain ANSI SGR sequences (e.g. build logs). */
 export function AnsiText({ text }: { text: string }) {
   const nodes: ReactNode[] = []
   let style: AnsiStyle = {}

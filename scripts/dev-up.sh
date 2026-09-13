@@ -24,10 +24,6 @@ PG0_PASS=roundpen
 PG0_DB=roundpen
 DSN_DEFAULT="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/${PG0_DB}?sslmode=disable"
 TEST_DSN_DEFAULT="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/roundpen_test?sslmode=disable"
-GITEA_REGISTRY_HOST="${ROUNDPEN_GITEA_REGISTRY_HOST:-git.eaxi.com}"
-GITEA_REGISTRY_REPO="${ROUNDPEN_GITEA_REGISTRY_REPO:-sandbox/roundpen}"
-GITEA_KANIKO_DEST="${GITEA_REGISTRY_HOST}/${GITEA_REGISTRY_REPO}"
-
 need_cmd() { command -v "$1" >/dev/null 2>&1; }
 
 fail=0
@@ -90,35 +86,6 @@ if ! need_cmd docker; then
 	echo "      Install Docker Engine, or Browser slots only will be available."
 fi
 
-if ! need_cmd bwrap; then
-	echo "note: bubblewrap (bwrap) is not installed; kaniko template builds need it for an isolated rootfs."
-	echo "      Debian/Ubuntu: sudo apt install bubblewrap"
-fi
-
-if [[ "$CHECK_ONLY" -eq 0 ]]; then
-	# Optional: template image builds only. Failure must not block make dev.
-	if ! ./scripts/install-kaniko.sh; then
-		echo "note: Kaniko download/install failed; continuing without local template builds."
-		echo "      Configure Template builds in Settings (local Kaniko / Docker / remote CI) when needed."
-		echo "      Or retry: ./scripts/install-kaniko.sh"
-	fi
-fi
-
-if ! need_cmd executor; then
-	echo "note: Kaniko executor not on PATH — local Kaniko builds unavailable until installed."
-	echo "      make dev does not require it; set Template build engine in Settings when ready."
-	# Avoid roundpend soft-warn spam when .env still says kaniko from older defaults.
-	if [[ "${ROUNDPEN_TEMPLATE_BUILDER:-}" == "kaniko" ]] || grep -qE '^ROUNDPEN_TEMPLATE_BUILDER=kaniko$' .env 2>/dev/null; then
-		echo "note: clearing ROUNDPEN_TEMPLATE_BUILDER=kaniko for this session (executor missing)."
-		export ROUNDPEN_TEMPLATE_BUILDER=""
-		if [[ -f .env ]]; then
-			grep -v '^ROUNDPEN_TEMPLATE_BUILDER=' .env > .env.devtmp
-			echo "ROUNDPEN_TEMPLATE_BUILDER=" >> .env.devtmp
-			mv .env.devtmp .env
-		fi
-	fi
-fi
-
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
 	echo "make dev: tools ok (go $(go env GOVERSION), node $(node -v), pg0 present)"
 	exit 0
@@ -156,13 +123,6 @@ ensure_env_key ROUNDPEN_DATA_ROOT "./data"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
 ensure_env_key ROUNDPEN_TEMPLATE_BUILDER ""
-# Destination is still useful when the user later enables Kaniko in Settings.
-ensure_env_key ROUNDPEN_KANIKO_DESTINATION "$GITEA_KANIKO_DEST"
-ensure_env_key ROUNDPEN_KANIKO_INSECURE "false"
-ensure_env_key ROUNDPEN_KANIKO_SKIP_TLS_VERIFY "false"
-ensure_env_key ROUNDPEN_KANIKO_REGISTRY_MIRROR "https://docker.1ms.run"
-ensure_env_key ROUNDPEN_GITEA_REGISTRY_HOST "$GITEA_REGISTRY_HOST"
-ensure_env_key ROUNDPEN_GITEA_REGISTRY_USER "sandbox"
 
 # Agent is Docker-only now. Migrate legacy kern/qemu settings left in .env.
 if grep -qE '^ROUNDPEN_BACKEND=(kern|qemu)$' .env; then
@@ -187,23 +147,12 @@ if grep -qE '^ROUNDPEN_DEFAULT_AGENT_TEMPLATE=(agent-claude|host)$' .env; then
 	mv .env.devtmp .env
 fi
 
-if grep -qE '^ROUNDPEN_KANIKO_DESTINATION=127\.0\.0\.1:5000/roundpen$' .env; then
-	echo "note: migrating kaniko destination to Gitea (${GITEA_KANIKO_DEST})"
-	grep -v '^ROUNDPEN_KANIKO_DESTINATION=' .env > .env.devtmp
-	echo "ROUNDPEN_KANIKO_DESTINATION=${GITEA_KANIKO_DEST}" >> .env.devtmp
+# Kaniko was removed; drop its stale keys (harmless but confusing in .env).
+if grep -qE '^ROUNDPEN_KANIKO_' .env; then
+	echo "note: removing legacy ROUNDPEN_KANIKO_* keys from .env (kaniko removed)"
+	grep -vE '^ROUNDPEN_KANIKO_' .env > .env.devtmp
 	mv .env.devtmp .env
 fi
-if grep -qE '^ROUNDPEN_KANIKO_INSECURE=true$' .env; then
-	grep -v '^ROUNDPEN_KANIKO_INSECURE=' .env > .env.devtmp
-	echo "ROUNDPEN_KANIKO_INSECURE=false" >> .env.devtmp
-	mv .env.devtmp .env
-fi
-if grep -qE '^ROUNDPEN_KANIKO_SKIP_TLS_VERIFY=true$' .env; then
-	grep -v '^ROUNDPEN_KANIKO_SKIP_TLS_VERIFY=' .env > .env.devtmp
-	echo "ROUNDPEN_KANIKO_SKIP_TLS_VERIFY=false" >> .env.devtmp
-	mv .env.devtmp .env
-fi
-
 # Vite proxies UI :19000 → API :19001; bump away from :9527 if left from docs.
 if grep -qE '^ROUNDPEN_HTTP_ADDR=:9527$' .env; then
 	echo "note: Vite proxies UI :${UI_PORT} → API :${API_PORT}; setting ROUNDPEN_HTTP_ADDR=:${API_PORT}"
@@ -230,7 +179,6 @@ export ROUNDPEN_DATA_ROOT="${ROUNDPEN_DATA_ROOT:-./data}"
 export ROUNDPEN_HTTP_ADDR="${ROUNDPEN_HTTP_ADDR:-0.0.0.0:${API_PORT}}"
 export ROUNDPEN_PREVIEW_PUBLIC_URL="${ROUNDPEN_PREVIEW_PUBLIC_URL:-http://${LAN_IP}:${API_PORT}}"
 export DOCKER_CONFIG="${DOCKER_CONFIG:-$ROOT/.docker}"
-./scripts/gitea-registry-auth.sh
 
 if [[ "${ROUNDPEN_BACKEND}" == "docker" ]] && need_cmd docker; then
 	if ! docker image inspect roundpen-code-agent:local >/dev/null 2>&1; then
@@ -367,47 +315,27 @@ ensure_test_db() {
 	pg_exec "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
 }
 
-ensure_kaniko_db_settings() {
-	# Only seed registry destination / TLS flags for when the user later enables
-	# Kaniko in Settings. Never force templateBuilder=kaniko — that blocked make
-	# dev when the executor binary was missing.
-	local dest="${ROUNDPEN_KANIKO_DESTINATION:-$GITEA_KANIKO_DEST}"
-	local builder="${ROUNDPEN_TEMPLATE_BUILDER:-}"
-	local insecure="${ROUNDPEN_KANIKO_INSECURE:-false}"
-	local skip_tls="${ROUNDPEN_KANIKO_SKIP_TLS_VERIFY:-false}"
-	echo "pg0: ensuring template-build registry defaults in app_settings..."
-	if [[ -n "$builder" ]]; then
-		pg_exec "" -v ON_ERROR_STOP=1 -c "
+migrate_legacy_state() {
+	# Older make dev seeded kaniko fields; drop them and map a stale kaniko
+	# engine to docker (the only local builder).
+	echo "pg0: clearing legacy kaniko settings in app_settings..."
+	pg_exec "" -v ON_ERROR_STOP=1 -c "
 UPDATE app_settings
-SET payload = payload
-  || jsonb_build_object(
-       'templateBuilder', '${builder}',
-       'kanikoDestination', '${dest}',
-       'kanikoInsecure', ${insecure},
-       'kanikoSkipTlsVerify', ${skip_tls}
-     ),
-    updated_at = now()
-WHERE id = 'global';
-" >/dev/null 2>&1 || true
-	else
-		# Keep destination handy, but clear a stale kaniko engine left by older make dev.
-		pg_exec "" -v ON_ERROR_STOP=1 -c "
-UPDATE app_settings
-SET payload = payload
-  || jsonb_build_object(
-       'kanikoDestination', '${dest}',
-       'kanikoInsecure', ${insecure},
-       'kanikoSkipTlsVerify', ${skip_tls}
-     )
+SET payload = (
+      payload
+      - 'kanikoDestination' - 'kanikoExecutor' - 'kanikoRegistryMirrors'
+      - 'kanikoInsecure' - 'kanikoSkipTlsVerify' - 'kanikoExtraArgs'
+    )
   || CASE
        WHEN COALESCE(payload->>'templateBuilder', '') = 'kaniko'
-         THEN jsonb_build_object('templateBuilder', '')
+         THEN jsonb_build_object('templateBuilder', 'docker')
        ELSE '{}'::jsonb
      END,
     updated_at = now()
 WHERE id = 'global';
 " >/dev/null 2>&1 || true
-	fi
+	# user_runtime only held the removed per-user agent engine picker.
+	pg_exec "" -v ON_ERROR_STOP=1 -c "DROP TABLE IF EXISTS user_runtime;" >/dev/null 2>&1 || true
 }
 
 case "$dsn_host" in
@@ -415,7 +343,7 @@ case "$dsn_host" in
 	start_pg0
 	ensure_extensions
 	ensure_test_db
-	ensure_kaniko_db_settings
+	migrate_legacy_state
 	;;
 *)
 	echo "note: DATABASE_URL host is '${dsn_host}', not starting local pg0"

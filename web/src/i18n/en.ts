@@ -50,18 +50,11 @@ export const en = {
   'settings.preview.tokenTtl': 'Preview token TTL',
 
   'settings.builds.engine': 'Template build engine',
-  'settings.builds.kanikoDest': 'Kaniko destination prefix',
-  'settings.builds.kanikoExecutor': 'Kaniko executor binary',
-  'settings.builds.kanikoMirrors': 'Kaniko registry mirrors',
-  'settings.builds.kanikoInsecure': 'Kaniko insecure registry',
-  'settings.builds.kanikoSkipTls': 'Kaniko skip TLS verify',
-  'settings.builds.kanikoExtra': 'Kaniko extra args',
 
   'settings.builder.disabled': 'Disabled (no local builds)',
-  'settings.builder.kaniko': 'Local Kaniko',
   'settings.builder.docker': 'Local Docker',
   'settings.builder.ci': 'Remote CI (build elsewhere)',
-  'settings.builder.auto': 'Auto (detect from backend / Kaniko config)',
+  'settings.builder.auto': 'Auto (detect from backend)',
 
   'settings.cdp.auto':
     'Auto (Docker engine → Docker Chrome; else host Chrome if present)',

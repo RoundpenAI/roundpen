@@ -560,12 +560,6 @@ export type AppSettings = {
   previewPublicUrl: string
   previewTokenTtlSeconds: number
   templateBuilder: string
-  kanikoDestination: string
-  kanikoExecutor: string
-  kanikoRegistryMirrors: string
-  kanikoInsecure: boolean
-  kanikoSkipTlsVerify: boolean
-  kanikoExtraArgs: string
   llmgwEnabled: boolean
   llmgwPublicUrl: string
   llmgwLogBodyMaxBytes: number

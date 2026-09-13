@@ -21,12 +21,6 @@ type AppSettings struct {
 	PreviewPublicURL        string `json:"previewPublicUrl"`
 	PreviewTokenTtlSeconds  int    `json:"previewTokenTtlSeconds"`
 	TemplateBuilder         string `json:"templateBuilder"`
-	KanikoDestination       string `json:"kanikoDestination"`
-	KanikoExecutor          string `json:"kanikoExecutor"`
-	KanikoRegistryMirrors   string `json:"kanikoRegistryMirrors"`
-	KanikoInsecure          bool   `json:"kanikoInsecure"`
-	KanikoSkipTLSVerify     bool   `json:"kanikoSkipTlsVerify"`
-	KanikoExtraArgs         string `json:"kanikoExtraArgs"`
 	LlmgwEnabled            bool   `json:"llmgwEnabled"`
 	LlmgwPublicURL          string `json:"llmgwPublicUrl"`
 	LlmgwLogBodyMaxBytes    int    `json:"llmgwLogBodyMaxBytes"`
@@ -67,12 +61,6 @@ func FromConfig(cfg *config.Config) AppSettings {
 		PreviewPublicURL:        cfg.PreviewPublicURL,
 		PreviewTokenTtlSeconds:  int(cfg.PreviewTokenTTL / time.Second),
 		TemplateBuilder:         cfg.TemplateBuilder,
-		KanikoDestination:       cfg.KanikoDestination,
-		KanikoExecutor:          cfg.KanikoExecutor,
-		KanikoRegistryMirrors:   strings.Join(cfg.KanikoRegistryMirrors, " "),
-		KanikoInsecure:          cfg.KanikoInsecure,
-		KanikoSkipTLSVerify:     cfg.KanikoSkipTLSVerify,
-		KanikoExtraArgs:         strings.Join(cfg.KanikoExtraArgs, " "),
 		LlmgwEnabled:            cfg.LLMGW.Enabled,
 		LlmgwPublicURL:          cfg.LLMGW.PublicURL,
 		LlmgwLogBodyMaxBytes:    cfg.LLMGW.LogBodyMaxBytes,
@@ -127,20 +115,6 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.PreviewPublicURL = strings.TrimSpace(s.PreviewPublicURL)
 	cfg.PreviewTokenTTL = time.Duration(s.PreviewTokenTtlSeconds) * time.Second
 	cfg.TemplateBuilder = strings.ToLower(strings.TrimSpace(s.TemplateBuilder))
-	cfg.KanikoDestination = strings.TrimSpace(s.KanikoDestination)
-	cfg.KanikoExecutor = strings.TrimSpace(s.KanikoExecutor)
-	if cfg.KanikoExecutor == "" {
-		cfg.KanikoExecutor = "executor"
-	}
-	cfg.KanikoRegistryMirrors = config.SplitKanikoMirrors(s.KanikoRegistryMirrors)
-	cfg.KanikoInsecure = s.KanikoInsecure
-	cfg.KanikoSkipTLSVerify = s.KanikoSkipTLSVerify
-	args := strings.TrimSpace(s.KanikoExtraArgs)
-	if args == "" {
-		cfg.KanikoExtraArgs = nil
-	} else {
-		cfg.KanikoExtraArgs = strings.Fields(args)
-	}
 	if err := config.ApplyLLMGWSettings(
 		&cfg.LLMGW,
 		s.LlmgwEnabled,
@@ -177,9 +151,9 @@ func (s AppSettings) Validate() error {
 		return fmt.Errorf("previewTokenTtlSeconds must be positive")
 	}
 	switch strings.ToLower(strings.TrimSpace(s.TemplateBuilder)) {
-	case "", "auto", "docker", "kaniko", "ci", "disabled":
+	case "", "auto", "docker", "ci", "disabled":
 	default:
-		return fmt.Errorf("templateBuilder must be auto, docker, kaniko, ci, disabled, or empty")
+		return fmt.Errorf("templateBuilder must be auto, docker, ci, disabled, or empty")
 	}
 	if s.LlmgwLogBodyMaxBytes < -1 {
 		return fmt.Errorf("llmgwLogBodyMaxBytes must be >= -1")
