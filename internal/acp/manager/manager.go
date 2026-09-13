@@ -36,7 +36,7 @@ type SysDeps struct {
 	BrowserSlots tools.BrowserSlot
 	AgentSlots   tools.AgentSlot
 
-	WebSearch func() (endpoint, key string) // nil 或返回空表示未配置 → 不注册 WebSearch
+	WebSearch func() (endpoint, key string) // nil，或 endpoint 与 key 均为空 → 不注册 WebSearch
 
 	History sysagent.MessageSource
 }
