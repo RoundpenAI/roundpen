@@ -2,10 +2,12 @@ package settings
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/audit"
+	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -139,4 +141,61 @@ func (s *Service) Response() (AppSettings, SystemInfo) {
 // System returns read-only infrastructure metadata.
 func (s *Service) System() SystemInfo {
 	return SystemFromConfig(s.cfg, s.deps.LlmgwMounted)
+}
+
+// BrowserTestResult is the /v1/admin/settings/browser/test payload.
+type BrowserTestResult struct {
+	Provider   string   `json:"provider"`
+	Endpoint   string   `json:"endpoint,omitempty"`
+	Path       string   `json:"path,omitempty"`
+	Version    string   `json:"version,omitempty"`
+	Playwright []string `json:"playwright,omitempty"`
+	ChromePath string   `json:"chromePath,omitempty"`
+	ChromeOK   bool     `json:"chromeOk,omitempty"`
+}
+
+// TestBrowser probes the configured browser source.
+func (s *Service) TestBrowser(ctx context.Context) (BrowserTestResult, error) {
+	cfg := s.browserCfg()
+	res := BrowserTestResult{Provider: config.ResolveCDPProvider(cfg, browser.ChromeOnPATH())}
+	switch res.Provider {
+	case config.CDPProviderHost:
+		res.ChromePath = browser.ChromePath()
+		res.ChromeOK = res.ChromePath != ""
+		if !res.ChromeOK {
+			return res, fmt.Errorf("no Chrome binary found on this host")
+		}
+		return res, nil
+	case config.CDPProviderRemote, config.CDPProviderCloud:
+		res.Endpoint = cfg.CDP.Endpoint
+		probe, err := browser.ProbeCDP(ctx, cfg.CDP.Endpoint, cfg.CDP.Token)
+		if probe != nil {
+			res.Path = probe.Path
+			res.Version = probe.Version
+			res.Playwright = probe.Playwright
+		}
+		return res, err
+	default: // docker / auto — the container is created per user on demand
+		port := cfg.CDP.Port
+		if port <= 0 {
+			port = config.DefaultCDPPort
+		}
+		res.Endpoint = fmt.Sprintf("roundpen-managed container, CDP port %d", port)
+		return res, nil
+	}
+}
+
+// browserCfg returns the live process config (settings hot-applied on PUT);
+// it falls back to the stored snapshot when the service has no config.
+func (s *Service) browserCfg() *config.Config {
+	if s.cfg != nil {
+		return s.cfg
+	}
+	cur := s.Current()
+	return &config.Config{CDP: config.CDPConfig{
+		Provider: cur.CDPProvider,
+		Endpoint: cur.CDPEndpoint,
+		Token:    cur.CDPToken,
+		Port:     cur.CDPPort,
+	}}
 }

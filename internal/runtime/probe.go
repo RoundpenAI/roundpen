@@ -2,9 +2,10 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
-	"github.com/RoundpenAI/roundpen/internal/backend/qemu"
+	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
@@ -55,7 +56,20 @@ func (p *Probe) browserImage() string {
 	if v := strings.TrimSpace(p.cfg().BrowserImage); v != "" {
 		return v
 	}
-	return "images/browser-qemu/out/browser.qcow2"
+	return "ghcr.io/browserless/chrome:v2.56.7"
+}
+
+// ValidateImageRef reports an error when ref is set but not present locally.
+// A nil HasImage or empty ref means "cannot tell" and is treated as ready.
+func (p *Probe) ValidateImageRef(ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || p == nil || p.HasImage == nil {
+		return nil
+	}
+	if p.HasImage(context.Background(), ref) {
+		return nil
+	}
+	return fmt.Errorf("image %s is not present locally", ref)
 }
 
 // Snapshot builds a live Agent (Docker) readiness report.
@@ -118,34 +132,55 @@ func (p *Probe) RequireAgent(engine string) error {
 	}
 }
 
-// RequireBrowser returns NotReady when QEMU cannot run the Browser slot.
+// RequireBrowser returns NotReady when the configured browser source cannot run.
 func (p *Probe) RequireBrowser() error {
-	var missing []string
-	var setup []SetupStep
-	if err := qemu.BinariesAvailable(); err != nil {
-		missing = append(missing, "QEMU binaries (qemu-system-x86_64, qemu-img)")
-		setup = append(setup, SetupStep{
-			Title:   "Install QEMU",
-			Detail:  err.Error(),
-			Command: "sudo apt install qemu-system-x86 qemu-utils",
-		})
-	}
-	if err := qemu.ValidateImage(p.browserImage()); err != nil {
-		missing = append(missing, "browser qcow2 image")
-		setup = append(setup, SetupStep{
-			Title:   "Build the Browser VM image",
-			Detail:  err.Error(),
-			Command: "make browser-image",
-		})
-	}
-	if len(missing) == 0 {
+	provider := config.ResolveCDPProvider(p.cfg(), false)
+	switch provider {
+	case config.CDPProviderRemote, config.CDPProviderCloud:
+		if strings.TrimSpace(p.cfg().CDP.Endpoint) == "" {
+			return &NotReady{
+				Engine:  provider,
+				Message: fmt.Sprintf("browser provider %s needs a CDP endpoint", provider),
+				Setup: []SetupStep{{
+					Title:  "Configure the browser endpoint",
+					Detail: "Settings → Browser → CDP endpoint (ws://… or http://… of a browserless deployment).",
+				}},
+			}
+		}
 		return nil
+
+	case config.CDPProviderHost:
+		if browser.ChromeOnPATH() {
+			return nil
+		}
+		return &NotReady{
+			Engine:  provider,
+			Message: "host browser provider needs Chrome on this machine",
+			Setup: []SetupStep{{
+				Title:   "Install Google Chrome",
+				Detail:  "Host Chrome runs on the roundpend host with no live view; prefer the managed container.",
+				Command: "sudo apt install google-chrome-stable",
+			}},
+		}
 	}
-	return &NotReady{
-		Engine:  EngineQEMU,
-		Message: "QEMU needs setup: " + strings.Join(missing, "; "),
-		Setup:   setup,
+
+	// docker — managed browserless container.
+	snap := p.Snapshot()
+	if !snap.DockerReady {
+		return &NotReady{Engine: EngineDocker, Message: missingMessage(snap.Missing), Setup: snap.Setup}
 	}
+	if err := p.ValidateImageRef(p.browserImage()); err != nil {
+		return &NotReady{
+			Engine:  EngineDocker,
+			Message: "browser image is not available locally",
+			Setup: []SetupStep{{
+				Title:   "Pull the browser image",
+				Detail:  err.Error(),
+				Command: "docker pull " + p.browserImage(),
+			}},
+		}
+	}
+	return nil
 }
 
 func missingMessage(missing []string) string {

@@ -9,6 +9,8 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
 func (h *Handler) mountBrowser(mux *http.ServeMux) {
@@ -52,6 +54,12 @@ func (h *Handler) hubKey(r *http.Request, sess *agentsession.Session) string {
 		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {
 			return id
 		}
+		// No managed container mapped: external providers address the hub with
+		// the same key EnsureBrowser hands out, so status polls and takeover
+		// land on one session.
+		if h.Envs.Provider() != config.CDPProviderDocker {
+			return userenv.BrowserKey(userID)
+		}
 	}
 	return browser.AgentBrowserID(sess.ID)
 }
@@ -64,7 +72,7 @@ func (h *Handler) ensureHubKey(r *http.Request, sess *agentsession.Session) stri
 		if user := auth.GetUser(r.Context()); user != nil {
 			userID = user.Username
 		}
-		if target, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && target != nil && target.Key != "" {
+		if target, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && target != nil {
 			return target.Key
 		}
 		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {

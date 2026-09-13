@@ -211,6 +211,57 @@ func TestListDiscoversUnmappedBrowser(t *testing.T) {
 	}
 }
 
+func TestListBrowserExternalIgnoresStaleMapping(t *testing.T) {
+	ctx := context.Background()
+	boxes := &fakeSandboxes{byID: map[string]*sandbox.Sandbox{
+		"stale": {ID: "stale", Name: "browser-alice", Status: sandbox.StatusRunning},
+	}}
+	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}
+	svc.Cfg = &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderRemote, Endpoint: "ws://10.10.1.3:3000/chrome"}}
+	if err := svc.Store.Upsert(ctx, "alice", SlotBrowser, "stale", "browser"); err != nil {
+		t.Fatal(err)
+	}
+
+	browser := browserView(t, svc, "alice")
+	if browser.Status != "external" {
+		t.Fatalf("status = %q, want external: %+v", browser.Status, browser)
+	}
+	if browser.SandboxID != "" {
+		t.Fatalf("stale container must not be reported: %+v", browser)
+	}
+	if browser.Provider != config.CDPProviderRemote {
+		t.Fatalf("provider = %q", browser.Provider)
+	}
+}
+
+func TestListBrowserDockerNoMappingAbsent(t *testing.T) {
+	svc := &Service{Store: &memSlots{}, Sandboxes: &fakeSandboxes{}}
+	svc.Cfg = &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderDocker}}
+
+	browser := browserView(t, svc, "alice")
+	if browser.Status != "absent" {
+		t.Fatalf("status = %q, want absent: %+v", browser.Status, browser)
+	}
+	if browser.Provider != config.CDPProviderDocker {
+		t.Fatalf("provider = %q", browser.Provider)
+	}
+}
+
+func browserView(t *testing.T, svc *Service, userID string) EnvView {
+	t.Helper()
+	list, err := svc.List(context.Background(), userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range list {
+		if v.Slot == SlotBrowser {
+			return v
+		}
+	}
+	t.Fatal("browser slot missing from list")
+	return EnvView{}
+}
+
 func TestEnsureAgentRecreatesNonDockerImage(t *testing.T) {
 	ctx := context.Background()
 	boxes := &fakeSandboxes{byID: map[string]*sandbox.Sandbox{

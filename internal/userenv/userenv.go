@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
-	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
@@ -162,6 +161,18 @@ type Service struct {
 	Cfg       *config.Config
 }
 
+// cdpProvider returns the effective browser provider for this process.
+func (s *Service) cdpProvider() string {
+	// ResolveCDPProvider ignores the hostChromeFound hint today; skip the PATH scan.
+	return config.ResolveCDPProvider(s.Cfg, false)
+}
+
+// Provider returns the effective browser provider (docker|remote|cloud|host).
+func (s *Service) Provider() string { return s.cdpProvider() }
+
+// BrowserKey is the hub session key for an externally provided browser.
+func BrowserKey(userID string) string { return "browser-" + sanitizeUser(userID) }
+
 func (s *Service) browserTemplate() string {
 	t := strings.TrimSpace(s.Config.BrowserTemplate)
 	if t == "" {
@@ -173,15 +184,14 @@ func (s *Service) browserTemplate() string {
 // EnsureBrowser resolves the user's browser source. Managed (default) starts or
 // resumes the Roundpen browserless container; external providers need no sandbox.
 func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTarget, error) {
-	provider := config.ResolveCDPProvider(s.Cfg, browser.ChromeOnPATH())
+	provider := s.cdpProvider()
 	if provider != config.CDPProviderDocker {
-		switch provider {
-		case config.CDPProviderRemote, config.CDPProviderCloud:
+		if provider == config.CDPProviderRemote || provider == config.CDPProviderCloud {
 			if s.Cfg == nil || strings.TrimSpace(s.Cfg.CDP.Endpoint) == "" {
 				return nil, fmt.Errorf("cdp provider %s requires an endpoint", provider)
 			}
 		}
-		return &BrowserTarget{Key: "browser-" + sanitizeUser(userID), Provider: provider}, nil
+		return &BrowserTarget{Key: BrowserKey(userID), Provider: provider}, nil
 	}
 	if s.Probe != nil {
 		if err := s.Probe.RequireBrowser(); err != nil {
@@ -246,7 +256,15 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 			continue
 		}
 		if slot == SlotBrowser {
-			v.Provider = config.ResolveCDPProvider(s.Cfg, browser.ChromeOnPATH())
+			v.Provider = s.cdpProvider()
+			// External providers own the browser: a container left from a
+			// previous provider must not be presented as the current source.
+			if v.Provider != config.CDPProviderDocker {
+				v.Status = "external"
+				v.SandboxID = ""
+				out = append(out, v)
+				continue
+			}
 		}
 		if m, ok := bySlot[slot]; ok {
 			v.SandboxID = m.SandboxID
@@ -268,9 +286,6 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 					v.TemplateID = sb.Metadata["templateID"]
 				}
 			}
-		}
-		if slot == SlotBrowser && v.Provider != config.CDPProviderDocker && v.SandboxID == "" {
-			v.Status = "external"
 		}
 		out = append(out, v)
 	}

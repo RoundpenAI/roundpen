@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,6 +15,47 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
+
+func TestAdminBrowserTestHTTP(t *testing.T) {
+	cfg := &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderDocker, Port: 3000}}
+	svc := settings.NewService(nil, cfg, settings.RuntimeDeps{}, settings.FromConfig(cfg))
+
+	users := storage.NewMemoryUserStore()
+	sessions := storage.NewMemorySessionStore()
+	if err := users.Upsert(context.Background(), storage.User{
+		Username: "root", APIKey: "rp-admin", Role: storage.RoleAdmin,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	(&settings.Handler{Svc: svc}).Mount(mux)
+	handler := auth.Middleware(users, sessions)(mux)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/settings/browser/test", nil)
+	req.Header.Set("X-API-Key", "rp-admin")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		OK     bool                       `json:"ok"`
+		Error  string                     `json:"error"`
+		Result settings.BrowserTestResult `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body=%s err=%v", rec.Body.String(), err)
+	}
+	if !got.OK || got.Error != "" {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+	if got.Result.Provider != config.CDPProviderDocker {
+		t.Fatalf("provider=%q", got.Result.Provider)
+	}
+	if !strings.Contains(got.Result.Endpoint, "3000") {
+		t.Fatalf("endpoint=%q", got.Result.Endpoint)
+	}
+}
 
 func TestAdminSettingsHTTP(t *testing.T) {
 	ctx := context.Background()
