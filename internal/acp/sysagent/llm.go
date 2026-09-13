@@ -72,6 +72,21 @@ func (c LLMConfig) chat(ctx context.Context, messages []chatMessage, tools []map
 	return c.chatStream(ctx, messages, tools, nil)
 }
 
+// Run executes a tool-less chat completion and returns the assistant text.
+// It satisfies tools.ModelRunner for WebFetch page extraction.
+func (c LLMConfig) Run(ctx context.Context, system, user string) (string, error) {
+	msgs := make([]chatMessage, 0, 2)
+	if strings.TrimSpace(system) != "" {
+		msgs = append(msgs, chatMessage{Role: "system", Content: system})
+	}
+	msgs = append(msgs, chatMessage{Role: "user", Content: user})
+	msg, _, err := c.chat(ctx, msgs, nil)
+	if err != nil {
+		return "", err
+	}
+	return msg.Content, nil
+}
+
 // chatStream calls OpenAI-compatible chat completions with stream=true.
 // onContent receives each text delta (may be nil to accumulate silently).
 func (c LLMConfig) chatStream(ctx context.Context, messages []chatMessage, tools []map[string]any, onContent func(string) error) (chatMessage, string, error) {
