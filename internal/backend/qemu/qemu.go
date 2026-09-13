@@ -712,6 +712,11 @@ func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
 	return v.PID > 0 && processAlive(v.PID), nil
 }
 
+func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, error) {
+	_ = ctx
+	return false, "", fmt.Errorf("image refresh is not supported for qemu images")
+}
+
 func (b *Backend) Stop(ctx context.Context, sandboxID string) error {
 	_ = ctx
 	b.mu.Lock()

@@ -3,6 +3,7 @@ package sandbox_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -68,6 +69,7 @@ func (m *memStore) Insert(_ context.Context, sb *sandbox.Sandbox) error {
 		}
 	}
 	m.byID[sb.ID] = m.clone(sb)
+	delete(m.deleted, sb.ID)
 	return nil
 }
 
@@ -198,6 +200,11 @@ type stubBackend struct {
 	startErr  error
 	execRes   *backend.ExecResult
 	execErr   error
+
+	refreshRef     string
+	refreshChanged bool
+	refreshDigest  string
+	refreshErr     error
 }
 
 func newStubBackend(name string) *stubBackend {
@@ -261,6 +268,16 @@ func (b *stubBackend) Running(_ context.Context, sandboxID string) (bool, error)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.running[sandboxID], nil
+}
+
+func (b *stubBackend) RefreshImage(_ context.Context, ref string) (bool, string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refreshRef = ref
+	if b.refreshErr != nil {
+		return false, "", b.refreshErr
+	}
+	return b.refreshChanged, b.refreshDigest, nil
 }
 
 func (b *stubBackend) Dial(_ context.Context, _ string, _ int) (net.Conn, error) {
@@ -598,6 +615,54 @@ func TestService_GetAuthzContext(t *testing.T) {
 	}
 }
 
+func TestService_RunsPersistentWorkspaceAsOwner(t *testing.T) {
+	be := newStubBackend("docker")
+	svc, _, _ := newTestService(t, be)
+	ctx := adminCtx()
+
+	persistent, err := svc.Create(ctx, sandbox.CreateRequest{Name: "agent", WorkspaceID: "user-admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ephemeral, err := svc.Create(ctx, sandbox.CreateRequest{Name: "scratch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	want := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	if got := be.created[persistent.ID].User; got != want {
+		t.Fatalf("persistent workspace user = %q, want %q", got, want)
+	}
+	if got := be.created[ephemeral.ID].User; got != "" {
+		t.Fatalf("ephemeral workspace user = %q, want empty", got)
+	}
+}
+
+func TestService_RecreateDeletedStableID(t *testing.T) {
+	be := newStubBackend("docker")
+	svc, _, _ := newTestService(t, be)
+	ctx := adminCtx()
+
+	req := sandbox.CreateRequest{ID: "admin", Name: "agent-admin", WorkspaceID: "user-admin"}
+	sb, err := svc.Create(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Delete(ctx, sb.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := svc.Create(ctx, req)
+	if err != nil {
+		t.Fatalf("recreate after delete: %v", err)
+	}
+	if again.ID != "admin" || again.Status != sandbox.StatusRunning {
+		t.Fatalf("got %#v", again)
+	}
+}
+
 func TestService_DeleteKeepsPersistentWorkspace(t *testing.T) {
 	root := t.TempDir()
 	fs := local.New(root)
@@ -615,6 +680,31 @@ func TestService_DeleteKeepsPersistentWorkspace(t *testing.T) {
 	if _, err := fs.Get(ctx, "shared-ws"); err != nil {
 		t.Fatalf("persistent workspace removed: %v", err)
 	}
+}
+
+func TestService_CreateConflictKeepsPersistentWorkspace(t *testing.T) {
+	root := t.TempDir()
+	fs := local.New(root)
+	store := newMemStore()
+	svc := sandbox.NewService(store, newStubBackend("docker"), fs, "host", time.Minute, nil)
+	ctx := adminCtx()
+
+	if _, err := svc.Create(ctx, sandbox.CreateRequest{Name: "dup", WorkspaceID: "user-ws"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.Write(ctx, "user-ws", "keep.txt", strings.NewReader("data")); err != nil {
+		t.Fatal(err)
+	}
+	// Second create with the same name fails; its cleanup must not remove the
+	// persistent workspace.
+	if _, err := svc.Create(ctx, sandbox.CreateRequest{Name: "dup", WorkspaceID: "user-ws"}); !errors.Is(err, sandbox.ErrConflict) {
+		t.Fatalf("expected conflict, got %v", err)
+	}
+	rc, err := fs.Open(ctx, "user-ws", "keep.txt")
+	if err != nil {
+		t.Fatalf("persistent workspace was removed: %v", err)
+	}
+	_ = rc.Close()
 }
 
 func TestService_AttachAndResizeTerminal(t *testing.T) {

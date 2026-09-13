@@ -23,6 +23,7 @@ import {
 import { useAuth } from '../auth'
 import { useT, type MessageKey } from '../i18n'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
+import { AgentEnvironmentPanel } from '../components/AgentEnvironmentPanel'
 import { Loading } from '../components/Loading'
 import { resolveSettingsSection } from '../lib/appNav'
 
@@ -436,6 +437,8 @@ export function SettingsPage() {
         )}
 
         {section === 'git' && <GitCredentialsPanel />}
+
+        {section === 'agent' && <AgentEnvironmentPanel />}
 
         {section === 'general' && (
           isAdmin && loading ? (

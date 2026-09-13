@@ -26,6 +26,7 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'settings.title': '设置',
   'settings.section.git': 'Git 个人令牌',
+  'settings.section.agent': 'Agent 环境',
   'settings.section.general': '通用',
   'settings.section.preview': '预览',
   'settings.section.builds': '构建',
@@ -170,4 +171,20 @@ export const zh_CN: Record<MessageKey, string> = {
   'git.provider.github': 'GitHub',
   'git.provider.gitlab': 'GitLab',
   'git.provider.generic': '其他 Git 主机',
+
+  'agentEnv.title': 'Agent 环境',
+  'agentEnv.hint': '升级会用当前模板镜像重建 Agent 容器；工作区保留，运行中的命令会中断。',
+  'agentEnv.status': '状态',
+  'agentEnv.image': '镜像',
+  'agentEnv.upgrade': '检查并升级',
+  'agentEnv.force': '强制重建',
+  'agentEnv.confirmUpgrade': '拉取最新镜像，若有变化才重建？',
+  'agentEnv.confirmForce': '立即重建 Agent 容器？运行中的命令会中断。',
+  'agentEnv.upToDate': '已是最新。',
+  'agentEnv.upgraded': 'Agent 环境已升级。',
+  'agentEnv.restarted': 'Agent 环境已重建。',
+  'agentEnv.created': 'Agent 环境已创建。',
+  'agentEnv.done': '升级已完成。',
+  'agentEnv.failed': '升级失败。',
+  'agentEnv.loadFailed': '加载环境失败。',
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
@@ -139,6 +140,11 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		cfg.WorkingDir = "/workspace"
 	}
 
+	// Capabilities are dropped, so root cannot write a foreign-owned mount:
+	// the manager asks for the workspace owner identity instead (see
+	// CreateOpts.User) to keep host-side and in-container ownership aligned.
+	cfg.User = opts.User
+
 	name := containerName(opts.SandboxID)
 	resp, err := b.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, name)
 	if err != nil {
@@ -190,6 +196,51 @@ func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
 		return false, err
 	}
 	return info.State != nil && info.State.Running, nil
+}
+
+// refreshChanged reports whether a pulled image differs from the local copy.
+// A missing or unreadable digest on either side reports true (treated as
+// changed), so the caller rebuilds rather than stranding the old image.
+func refreshChanged(local, pulled string, hadLocal bool) bool {
+	if !hadLocal || local == "" || pulled == "" {
+		return true
+	}
+	return local != pulled
+}
+
+// RefreshImage pulls ref and reports whether the local image digest changed.
+// The returned digest is the post-pull digest; an empty digest means the
+// local image is unknown.
+func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, error) {
+	if strings.TrimSpace(ref) == "" {
+		return false, "", fmt.Errorf("image ref is empty")
+	}
+	local, hadLocal := b.imageDigest(ctx, ref)
+	rc, err := b.cli.ImagePull(ctx, ref, types.ImagePullOptions{})
+	if err != nil {
+		return false, "", fmt.Errorf("image pull %s: %w", ref, err)
+	}
+	defer rc.Close()
+	// pull failures mid-stream (failed layer download/registration, auth
+	// errors) arrive as JSON messages with HTTP 200, so the drain must
+	// surface them instead of discarding the stream.
+	if err := jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil); err != nil {
+		return false, "", fmt.Errorf("image pull %s: %w", ref, err)
+	}
+	pulled, _ := b.imageDigest(ctx, ref)
+	return refreshChanged(local, pulled, hadLocal), pulled, nil
+}
+
+// imageDigest returns the repo digest of a local image, falling back to its ID.
+func (b *Backend) imageDigest(ctx context.Context, ref string) (string, bool) {
+	info, _, err := b.cli.ImageInspectWithRaw(ctx, ref)
+	if err != nil {
+		return "", false
+	}
+	if len(info.RepoDigests) > 0 {
+		return info.RepoDigests[0], true
+	}
+	return info.ID, true
 }
 
 func (b *Backend) Stop(ctx context.Context, sandboxID string) error {
@@ -244,10 +295,18 @@ func (b *Backend) Exec(ctx context.Context, sandboxID string, opts backend.ExecO
 		return nil, fmt.Errorf("exec attach: %w", err)
 	}
 	defer attach.Close()
+	// The hijacked connection is not tied to execCtx; close it on cancellation
+	// so a stopped command stops blocking StdCopy. The in-container process
+	// keeps running — the exec API cannot signal it.
+	stopOnCancel := context.AfterFunc(execCtx, func() { attach.Close() })
+	defer stopOnCancel()
 
 	var stdout, stderr strings.Builder
 	_, err = stdcopy.StdCopy(&stdout, &stderr, attach.Reader)
-	if err != nil && execCtx.Err() == nil {
+	if err != nil {
+		if execCtx.Err() != nil {
+			return nil, fmt.Errorf("exec canceled: %w", execCtx.Err())
+		}
 		return nil, fmt.Errorf("exec copy: %w", err)
 	}
 

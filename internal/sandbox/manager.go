@@ -7,8 +7,10 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -175,7 +177,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	}
 	if isDefault {
 		if err := s.store.ClearDefaultInCategory(ctx, category, id, actor.Username); err != nil {
-			_ = s.fs.Remove(ctx, wsID)
+			if ephemeral {
+				_ = s.fs.Remove(ctx, wsID)
+			}
 			return nil, err
 		}
 	}
@@ -208,7 +212,9 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	}
 
 	if err := s.store.Insert(ctx, sb); err != nil {
-		_ = s.fs.Remove(ctx, wsID)
+		if ephemeral {
+			_ = s.fs.Remove(ctx, wsID)
+		}
 		if errors.Is(err, ErrConflict) {
 			return nil, fmt.Errorf("%w: sandbox name already exists", ErrConflict)
 		}
@@ -229,6 +235,13 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		createEnv["ROUNDPEN_SLOT"] = slot
 	}
 
+	engineUser := ""
+	if !ephemeral {
+		// Persistent user workspaces must run as their owner: engines drop
+		// capabilities, so a default-user root process cannot write a
+		// foreign-owned bind mount.
+		engineUser = hostPathOwner(hostPath)
+	}
 	engineID, err := s.backend.Create(ctx, backend.CreateOpts{
 		SandboxID:   id,
 		Name:        name,
@@ -240,6 +253,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 		UseImageCmd: useImageCmd,
 		Slot:        sb.Metadata["slot"],
 		Engine:      sb.Metadata["engine"],
+		User:        engineUser,
 	})
 	if err != nil {
 		sb.Status = StatusFailed
@@ -622,6 +636,45 @@ func defaultName(id string) string {
 		short = short[:8]
 	}
 	return "sandbox-" + short
+}
+
+// hostPathOwner returns "uid:gid" for a host path, or "" when it cannot
+// stat the path (e.g. a remote Docker host).
+func hostPathOwner(p string) string {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return ""
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", st.Uid, st.Gid)
+}
+
+// RefreshTemplateImage resolves templateRef to an image and refreshes it.
+func (s *Service) RefreshTemplateImage(ctx context.Context, templateRef string) (string, bool, string, error) {
+	if s.backend == nil {
+		return "", false, "", fmt.Errorf("backend not configured")
+	}
+	image := strings.TrimSpace(templateRef)
+	if s.templates != nil {
+		resolved, err := s.templates.Resolve(ctx, templateRef)
+		if err != nil {
+			return "", false, "", fmt.Errorf("template: %w", err)
+		}
+		if resolved.Image != "" {
+			image = resolved.Image
+		}
+	}
+	if image == "" {
+		image = s.defaultImage
+	}
+	changed, digest, err := s.backend.RefreshImage(ctx, image)
+	if err != nil {
+		return image, false, "", err
+	}
+	return image, changed, digest, nil
 }
 
 func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecResult, error) {

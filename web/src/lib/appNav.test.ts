@@ -21,10 +21,10 @@ describe('visiblePrimaryMenus', () => {
 })
 
 describe('visibleSettingsSections', () => {
-  it('non-admin only git', () => {
+  it('non-admin gets git and agent', () => {
     assert.deepEqual(
       visibleSettingsSections(false).map((s) => s.key),
-      ['git'],
+      ['git', 'agent'],
     )
   })
 
@@ -44,6 +44,7 @@ describe('resolveSettingsSection', () => {
 
   it('accepts known visible section', () => {
     assert.equal(resolveSettingsSection('git', false), 'git')
+    assert.equal(resolveSettingsSection('agent', false), 'agent')
     assert.equal(resolveSettingsSection('general', true), 'general')
   })
 

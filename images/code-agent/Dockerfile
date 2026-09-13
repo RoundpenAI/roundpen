@@ -30,5 +30,9 @@ RUN set -eux; \
     git --version; \
     ssh -V 2>&1 | head -1
 
+# Matches the bind-mount owner uid on typical Linux hosts, so the container
+# user can write /workspace with all capabilities dropped.
+RUN useradd -m -u 1000 -s /bin/bash roundpen
+
 WORKDIR /workspace
 CMD ["sleep", "infinity"]

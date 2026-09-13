@@ -20,6 +20,7 @@ type CreateOpts struct {
 	UseImageCmd bool   // keep image ENTRYPOINT/CMD (template snapshots)
 	Slot        string // agent | browser | mobile — selects engine when using a multi backend
 	Engine      string // qemu | docker — slot preference (Agent is Docker-only)
+	User        string // uid:gid to run sandbox processes as; empty keeps the image default
 }
 
 // ExecOpts configures a command run inside the engine sandbox.
@@ -69,6 +70,9 @@ type Backend interface {
 	// Running reports whether the sandbox engine is up. false is a definitive
 	// answer (stopped, exited, or removed); an error means liveness is unknown.
 	Running(ctx context.Context, sandboxID string) (bool, error)
+
+	// RefreshImage pulls ref and reports whether the local image changed.
+	RefreshImage(ctx context.Context, ref string) (changed bool, digest string, err error)
 
 	// Dial opens a TCP connection to destPort inside the sandbox network.
 	Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error)

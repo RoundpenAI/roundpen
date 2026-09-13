@@ -22,21 +22,6 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
-type fakeEnvs struct {
-	target *userenv.BrowserTarget
-	err    error
-	calls  int
-}
-
-func (f *fakeEnvs) List(context.Context, string) ([]userenv.EnvView, error) { return nil, nil }
-
-func (f *fakeEnvs) EnsureBrowser(context.Context, string) (*userenv.BrowserTarget, error) {
-	f.calls++
-	return f.target, f.err
-}
-
-func (f *fakeEnvs) EnsureAgent(context.Context, string) (*sandbox.Sandbox, error) { return nil, nil }
-
 type fakeDialer func(ctx context.Context, sandboxID string, destPort int) (net.Conn, error)
 
 func (f fakeDialer) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {

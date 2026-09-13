@@ -444,6 +444,7 @@ export type EnvironmentView = {
   status: string
   name?: string
   provider?: string
+  image?: string
 }
 
 export type LiveLink = {
@@ -470,6 +471,11 @@ export const environments = {
     ),
   browserLive: () =>
     api<LiveLink>('/v1/me/environments/browser/live-link'),
+  upgradeAgent: (force = false) =>
+    api<{ status: string; image: string; digest: string; environment: EnvironmentView }>(
+      '/v1/me/environments/agent/upgrade',
+      { method: 'POST', body: JSON.stringify({ force }) },
+    ),
 }
 
 export type SetupPrivilege = 'auto' | 'manual'

@@ -4,6 +4,8 @@ package envapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"sync"
@@ -25,6 +27,7 @@ type Environments interface {
 	List(ctx context.Context, userID string) ([]userenv.EnvView, error)
 	EnsureBrowser(ctx context.Context, userID string) (*userenv.BrowserTarget, error)
 	EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error)
+	UpgradeAgent(ctx context.Context, userID string, force bool) (*userenv.UpgradeResult, error)
 }
 
 // Handler serves /v1/me/environments*.
@@ -42,6 +45,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/me/environments", h.list)
 	mux.HandleFunc("POST /v1/me/environments/browser/ensure", h.ensureBrowser)
 	mux.HandleFunc("POST /v1/me/environments/agent/ensure", h.ensureAgent)
+	mux.HandleFunc("POST /v1/me/environments/agent/upgrade", h.upgradeAgent)
 	mux.HandleFunc("GET /v1/me/environments/browser/live-link", h.liveLink)
 	// The subtree pattern also redirects /live to /live/ (query preserved).
 	mux.HandleFunc(liveRoutePrefix+"/", h.live)
@@ -118,6 +122,39 @@ func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
 		"sandboxId": sb.ID,
 		"status":    sb.Status,
 		"name":      sb.Name,
+	})
+}
+
+func (h *Handler) upgradeAgent(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if h.Envs == nil {
+		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
+		return
+	}
+	var body struct {
+		Force bool `json:"force"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	res, err := h.Envs.UpgradeAgent(r.Context(), user.Username, body.Force)
+	if err != nil {
+		if runtime.WriteNotReady(w, err) {
+			return
+		}
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":      res.Status,
+		"image":       res.Image,
+		"digest":      res.Digest,
+		"environment": res.Environment,
 	})
 }
 

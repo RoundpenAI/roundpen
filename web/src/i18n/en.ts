@@ -25,6 +25,7 @@ export const en = {
 
   'settings.title': 'Settings',
   'settings.section.git': 'Git personal tokens',
+  'settings.section.agent': 'Agent environment',
   'settings.section.general': 'General',
   'settings.section.preview': 'Preview',
   'settings.section.builds': 'Builds',
@@ -171,6 +172,23 @@ export const en = {
   'git.provider.github': 'GitHub',
   'git.provider.gitlab': 'GitLab',
   'git.provider.generic': 'Other git host',
+
+  'agentEnv.title': 'Agent environment',
+  'agentEnv.hint':
+    'Upgrade rebuilds the Agent container from the current template image. The workspace is kept; running commands are interrupted.',
+  'agentEnv.status': 'Status',
+  'agentEnv.image': 'Image',
+  'agentEnv.upgrade': 'Check & upgrade',
+  'agentEnv.force': 'Force rebuild',
+  'agentEnv.confirmUpgrade': 'Pull the latest image and rebuild only if it changed?',
+  'agentEnv.confirmForce': 'Rebuild the Agent container now? Running commands will be interrupted.',
+  'agentEnv.upToDate': 'Already up to date.',
+  'agentEnv.upgraded': 'Agent environment upgraded.',
+  'agentEnv.restarted': 'Agent environment rebuilt.',
+  'agentEnv.created': 'Agent environment created.',
+  'agentEnv.done': 'Upgrade finished.',
+  'agentEnv.failed': 'Upgrade failed.',
+  'agentEnv.loadFailed': 'Failed to load environment.',
 } as const
 
 export type MessageKey = keyof typeof en

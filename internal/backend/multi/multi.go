@@ -218,6 +218,9 @@ func (u unavailableBackend) ResizePTY(context.Context, string, string, uint16, u
 func (u unavailableBackend) AttachExec(context.Context, string, backend.AttachExecOpts, io.Reader, io.Writer, io.Writer) error {
 	return u.err
 }
+func (u unavailableBackend) RefreshImage(context.Context, string) (bool, string, error) {
+	return false, "", u.err
+}
 
 func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, error) {
 	eng, err := b.pickCreate(opts)
@@ -259,6 +262,17 @@ func (b *Backend) Logs(ctx context.Context, sandboxID string) (io.ReadCloser, er
 
 func (b *Backend) Running(ctx context.Context, sandboxID string) (bool, error) {
 	return b.engine(sandboxID).Running(ctx, sandboxID)
+}
+
+func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, error) {
+	if isQcow2(ref) {
+		return false, "", fmt.Errorf("image refresh is not supported for qemu images")
+	}
+	eng, err := b.dockerEngine()
+	if err != nil {
+		return false, "", err
+	}
+	return eng.RefreshImage(ctx, ref)
 }
 
 func (b *Backend) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {
