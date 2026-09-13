@@ -108,6 +108,46 @@ ensure_env_key() {
 	fi
 }
 
+# Force-set a key in .env (ensure_env_key only fills missing/empty ones).
+set_env_value() {
+	local key="$1" val="$2" cur
+	if [[ ! -f .env ]]; then
+		return 1
+	fi
+	if grep -q "^${key}=" .env; then
+		grep -v "^${key}=" .env > .env.devtmp
+		echo "${key}=${val}" >> .env.devtmp
+		mv .env.devtmp .env
+	else
+		echo "${key}=${val}" >> .env
+	fi
+}
+
+# pg0 can come back on a different port than .env recorded (instance metadata
+# wins on restart). The readiness check only trusts DATABASE_URL, so align both
+# the session DSNs and .env with the instance port before starting.
+align_pg0_port() {
+	local meta="$HOME/.pg0/instances/${PG0_NAME}/instance.json"
+	[[ -f "$meta" ]] || return 0
+	local iport old_port
+	iport="$(grep -o '"port": *[0-9]\+' "$meta" | grep -o '[0-9]\+' | head -1)"
+	[[ -n "$iport" ]] || return 0
+	if [[ "$DATABASE_URL" == *":${iport}/"* ]]; then
+		return 0
+	fi
+	old_port="$(printf '%s' "$DATABASE_URL" | grep -oE ':[0-9]+/' | head -1 | tr -d ':/' || true)"
+	if [[ -z "$old_port" || "$old_port" == "$iport" ]]; then
+		return 0
+	fi
+	echo "pg0: instance port is :${iport}; aligning DATABASE_URL (was :${old_port})"
+	DATABASE_URL="$(printf '%s' "$DATABASE_URL" | sed "s#:${old_port}/#:${iport}/#")"
+	TEST_DSN_DEFAULT="$(printf '%s' "$TEST_DSN_DEFAULT" | sed "s#:${old_port}/#:${iport}/#")"
+	PG0_PORT="$iport"
+	export DATABASE_URL
+	set_env_value DATABASE_URL "$DATABASE_URL"
+	set_env_value ROUNDPEN_TEST_DATABASE_URL "$TEST_DSN_DEFAULT"
+}
+
 if [[ ! -f .env ]]; then
 	echo "Creating .env from .env.example..."
 	cp .env.example .env
@@ -340,6 +380,7 @@ WHERE id = 'global';
 
 case "$dsn_host" in
 127.0.0.1|localhost|"")
+	align_pg0_port
 	start_pg0
 	ensure_extensions
 	ensure_test_db
