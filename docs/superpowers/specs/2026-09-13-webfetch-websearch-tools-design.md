@@ -43,7 +43,7 @@
    - `text/html` / `application/xhtml+xml` → 用 `github.com/JohannesKaufmann/html-to-markdown` 转换为 Markdown；
    - `text/*`、`application/json`、`application/xml`、`text/markdown` 等文本类型 → 原文使用；
    - 其余（PDF、图片、二进制）→ 返回明确错误，不落盘（非目标）。
-4. **截断**：Markdown 正文截到 100K 字符（对齐参考实现 `MAX_MARKDOWN_LENGTH`），附截断提示。
+4. **截断**：Markdown 正文截到 100K 字节（对齐参考实现 `MAX_MARKDOWN_LENGTH`；按 rune 边界回退，见 `truncateRunes`），附截断提示。无 prompt 路径的 32KB 结果截断同样附 `[Content truncated due to length]` 提示。
 5. **提炼**：`prompt` 提供时，构造「正文 + prompt + 简洁作答要求」的输入，经 `ModelRunner`（llmgw 默认模型，60s 超时）返回模型输出（截断到 32KB）；`prompt` 未提供时直接返回正文（同样截断到 32KB，与 Bash 结果同量级）。HTTP 非 2xx、内容类型不支持、二次模型失败都返回工具错误。
 
 ### 3. WebSearch（Tavily）
@@ -83,7 +83,7 @@ Include the sources above in your response as markdown links.
 
 ### 5. 配置与接线
 
-- `internal/config`：新增 `WebToolsConfig{SearchEndpoint, SearchAPIKey}`，环境变量 `ROUNDPEN_WEB_SEARCH_ENDPOINT`（默认 `https://api.tavily.com`）、`ROUNDPEN_WEB_SEARCH_API_KEY`。二者任一显式设置即启用（支持无 Key 的内网 Tavily 兼容代理，此时不带 `Authorization` 头）；都未设置则不注册 `WebSearch`。
+- `internal/config`：新增 `WebToolsConfig{SearchEndpoint, SearchAPIKey}`，环境变量 `ROUNDPEN_WEB_SEARCH_ENDPOINT`（默认 `https://api.tavily.com`）、`ROUNDPEN_WEB_SEARCH_API_KEY`。二者任一显式设置即启用（支持无 Key 的内网 Tavily 兼容代理，此时不带 `Authorization` 头）；都未设置则不注册 `WebSearch`。注意：搜索 endpoint 与 WebFetch 共用同一出站防护 client，**环回地址（127.0.0.1）恒被拨号守卫拒绝**——同机 sidecar 需绑定内网地址而非 localhost。
 - `manager.SysDeps` 增加 `WebSearchEndpoint` / `WebSearchAPIKey` 两个字符串字段（避免 manager 依赖 config 包），`cmd/roundpend/main.go` 从 `WebToolsConfig` 传入。启用状态在 daemon 启动时打一条 info 日志（endpoint + 是否带 Key），便于发现"只配了一半"的部署（如只设 endpoint 导致请求无鉴权）。
 - tools 包不能 import sysagent（sysagent 已 import tools），因此 `ModelRunner` 接口定义在 tools 包：
 
