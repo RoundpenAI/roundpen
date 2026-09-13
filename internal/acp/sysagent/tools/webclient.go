@@ -25,6 +25,7 @@ func NewWebHTTPClient(opts WebClientOptions) *http.Client {
 	}
 	return &http.Client{
 		Transport: &http.Transport{
+			ForceAttemptHTTP2:     true,
 			DialContext:           dialer.DialContext,
 			MaxIdleConns:          8,
 			IdleConnTimeout:       30 * time.Second,

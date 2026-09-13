@@ -8,10 +8,16 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
 )
 
-func TestWebFetchLive(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short mode")
+// 实网测试需显式开启：ROUNDPEN_WEB_LIVE_TESTS=1（CI/内网默认离线）。
+func webLiveEnabled(t *testing.T) {
+	t.Helper()
+	if os.Getenv("ROUNDPEN_WEB_LIVE_TESTS") != "1" {
+		t.Skip("ROUNDPEN_WEB_LIVE_TESTS=1 not set")
 	}
+}
+
+func TestWebFetchLive(t *testing.T) {
+	webLiveEnabled(t)
 	reg := tools.NewRegistry()
 	tools.RegisterWebFetch(reg, &tools.WebBinder{HTTP: tools.NewWebHTTPClient(tools.WebClientOptions{})})
 	out, err := callTool(t, reg, "WebFetch", map[string]any{"url": "https://go.dev/"})
@@ -24,6 +30,7 @@ func TestWebFetchLive(t *testing.T) {
 }
 
 func TestWebSearchLive(t *testing.T) {
+	webLiveEnabled(t)
 	key := os.Getenv("ROUNDPEN_WEB_SEARCH_API_KEY")
 	if key == "" {
 		t.Skip("ROUNDPEN_WEB_SEARCH_API_KEY not set")

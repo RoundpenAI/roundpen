@@ -81,3 +81,17 @@ func TestWebHTTPClientAllowsLoopbackForTests(t *testing.T) {
 		t.Fatalf("body = %q", body)
 	}
 }
+
+func TestWebHTTPClientBlocksRedirectToMetadata(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	defer srv.Close()
+
+	client := NewWebHTTPClient(WebClientOptions{AllowLoopback: true})
+	resp, err := client.Get(srv.URL)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("redirect to a metadata address must be blocked")
+	}
+}

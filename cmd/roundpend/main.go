@@ -322,8 +322,12 @@ func main() {
 	agentStore := &agentsession.Store{DB: db.SQL}
 	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
 	if cfg.WebTools.SearchEndpoint != "" || cfg.WebTools.SearchAPIKey != "" {
+		endpoint := cfg.WebTools.SearchEndpoint
+		if endpoint == "" {
+			endpoint = "(default)"
+		}
 		logger.Info("web search enabled",
-			"endpoint", cfg.WebTools.SearchEndpoint,
+			"endpoint", endpoint,
 			"api_key_set", cfg.WebTools.SearchAPIKey != "")
 	}
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{

@@ -78,7 +78,11 @@ func (b *WebBinder) fetch(ctx context.Context, rawURL, prompt string) (string, e
 		return "", err
 	}
 	if strings.TrimSpace(prompt) == "" {
-		return truncateRunes(strings.TrimSpace(content), maxWebResult), nil
+		text := strings.TrimSpace(content)
+		if len(text) > maxWebResult {
+			text = truncateRunes(text, maxWebResult) + "\n\n[Content truncated due to length]"
+		}
+		return text, nil
 	}
 	return b.extract(ctx, prompt, content)
 }

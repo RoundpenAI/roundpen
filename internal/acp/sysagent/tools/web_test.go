@@ -144,14 +144,17 @@ func TestWebFetchTruncatesLongContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WebFetch: %v", err)
 	}
-	if len(out) > (32<<10)+8 {
+	if len(out) > (32<<10)+len("…")+len("\n\n[Content truncated due to length]") {
 		t.Fatalf("result too long: %d bytes", len(out))
 	}
 	if !strings.HasPrefix(out, "xxx") {
 		t.Fatalf("truncated output must keep the start of the page: %q", out[:min(20, len(out))])
 	}
-	if !strings.HasSuffix(out, "…") {
-		t.Fatalf("truncated output must end with the ellipsis marker: %q", out[len(out)-min(20, len(out)):])
+	if !strings.Contains(out, "…") {
+		t.Fatalf("truncated output must keep the ellipsis marker: %q", out[:min(20, len(out))])
+	}
+	if !strings.Contains(out, "[Content truncated due to length]") {
+		t.Fatal("truncated output must carry an explicit marker")
 	}
 }
 
@@ -267,5 +270,17 @@ func TestWebFetchModelErrorPropagates(t *testing.T) {
 	_, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL, "prompt": "what?"})
 	if err == nil || !strings.Contains(err.Error(), "extraction failed") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWebFetchMarksLongResultTruncation(t *testing.T) {
+	srv := htmlServer(t, "text/plain", strings.Repeat("x", 200_000))
+	reg := newWebRegistry(nil)
+	out, err := callTool(t, reg, "WebFetch", map[string]any{"url": srv.URL})
+	if err != nil {
+		t.Fatalf("WebFetch: %v", err)
+	}
+	if !strings.Contains(out, "[Content truncated due to length]") {
+		t.Fatal("truncated result must carry an explicit marker")
 	}
 }

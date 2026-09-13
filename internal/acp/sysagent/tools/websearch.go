@@ -19,6 +19,7 @@ const (
 	webSearchDefaultResults  = 8
 	webSearchMaxResults      = 20
 	maxWebSearchErrorBody    = 1 << 20
+	webSearchUserAgent       = "Roundpen-WebSearch/0.1"
 )
 
 // WebSearchBinder calls a Tavily-compatible search API.
@@ -113,7 +114,7 @@ func (b *WebSearchBinder) search(ctx context.Context, query string, allowed, blo
 		return "", fmt.Errorf("web search endpoint is invalid")
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", webUserAgent)
+	req.Header.Set("User-Agent", webSearchUserAgent)
 	if key := strings.TrimSpace(b.APIKey); key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
