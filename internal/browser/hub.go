@@ -317,23 +317,22 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 	driver := h.driver
 	h.mu.Unlock()
 
-	token := h.browserToken(id)
 	if driver == nil {
 		driver = &pwDriver{}
 	}
 
 	width, height := 1280, 800
 	provider := config.ResolveCDPProvider(cfg, ChromeOnPATH())
-	att := pwAttach{Width: width, Height: height, Token: token}
+	// att starts token-less: host/remote/cloud may only pass the endpoint token
+	// from config; only the docker provider reads the sandbox's own token.
+	att := pwAttach{Width: width, Height: height}
 
 	switch provider {
 	case config.CDPProviderHost:
 		if cfg != nil && strings.TrimSpace(cfg.CDP.Endpoint) != "" {
 			att.Endpoint = cfg.CDP.Endpoint
-			if cfg != nil && cfg.CDP.Token != "" {
+			if cfg.CDP.Token != "" {
 				att.Token = cfg.CDP.Token
-			} else {
-				att.Token = token
 			}
 			eng, err := newPlaywrightEngine(driver, att)
 			if err != nil {
@@ -356,13 +355,9 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		endpoint := ""
 		if cfg != nil {
 			endpoint = cfg.CDP.Endpoint
+			att.Token = cfg.CDP.Token
 		}
 		att.Endpoint = endpoint
-		if cfg != nil && cfg.CDP.Token != "" {
-			att.Token = cfg.CDP.Token
-		} else {
-			att.Token = token
-		}
 		eng, err := newPlaywrightEngine(driver, att)
 		if err != nil {
 			return nil, fmt.Errorf("%s cdp: %w", provider, err)
@@ -382,6 +377,7 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 			return nil, fmt.Errorf("env cdp: %w", err)
 		}
 		att.Endpoint = localURL
+		att.Token = h.browserToken(id)
 		eng, err := newPlaywrightEngine(driver, att)
 		if err != nil {
 			stop()

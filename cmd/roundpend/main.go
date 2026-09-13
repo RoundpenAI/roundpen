@@ -27,6 +27,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/workspaceapi"
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
@@ -196,7 +197,10 @@ func main() {
 	logger.Info("using multi backend", slog.String("default_agent_engine", cfg.Backend))
 	browserHub.SetDialer(sbSvc)
 	browserHub.SetTokenLookup(func(sandboxID string) string {
-		sb, err := sbSvc.Get(context.Background(), sandboxID)
+		// The hub runs inside the control plane: sandbox.Service.Get authorizes
+		// via authz, so pass an internal admin actor for this metadata read.
+		ctx := authz.WithActor(context.Background(), authz.Actor{Username: "roundpend", Admin: true})
+		sb, err := sbSvc.Get(ctx, sandboxID)
 		if err != nil || sb == nil || sb.Metadata == nil {
 			return ""
 		}
