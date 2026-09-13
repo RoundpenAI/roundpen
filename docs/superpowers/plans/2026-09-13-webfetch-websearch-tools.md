@@ -388,6 +388,7 @@ import (
 	"time"
 
 	md "github.com/JohannesKaufmann/html-to-markdown"
+	"github.com/PuerkitoBio/goquery"
 )
 
 const (
@@ -506,7 +507,18 @@ func webContentToText(u *url.URL, contentType string, body []byte) (string, erro
 	ct := strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
 	switch {
 	case ct == "text/html", ct == "application/xhtml+xml":
-		conv := md.NewConverter(u.Scheme+"://"+u.Host, true, nil)
+		// 库的 domain 参数只接受主机名：DefaultGetAbsoluteURL 直接把它赋给 u.Host，
+		// 且对相对链接把 scheme 兜底成 http。因此这里传空 domain，改用 GetAbsoluteURL
+		// 以抓取到的页面 URL 为基准解析相对链接，保留原 scheme（https 页面不被降级）。
+		conv := md.NewConverter("", true, &md.Options{
+			GetAbsoluteURL: func(_ *goquery.Selection, rawURL string, _ string) string {
+				ref, err := url.Parse(rawURL)
+				if err != nil {
+					return rawURL
+				}
+				return u.ResolveReference(ref).String()
+			},
+		})
 		out, err := conv.ConvertString(string(body))
 		if err != nil {
 			return "", fmt.Errorf("convert page: %w", err)
