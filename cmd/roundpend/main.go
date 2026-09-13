@@ -288,6 +288,7 @@ func main() {
 		PreviewHandler:   previewHandler,
 		Sandbox:          sbSvc,
 		Templates:        tplSvc,
+		Probe:            probe,
 		ReattachBuilder:  reattachBuilder,
 		ReconfigureLLMGW: reconfigureLLMGW,
 		LlmgwMounted:     true,

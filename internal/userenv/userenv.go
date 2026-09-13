@@ -188,7 +188,7 @@ func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTar
 	if provider != config.CDPProviderDocker {
 		if provider == config.CDPProviderRemote || provider == config.CDPProviderCloud {
 			if s.Cfg == nil || strings.TrimSpace(s.Cfg.CDP.Endpoint) == "" {
-				return nil, fmt.Errorf("cdp provider %s requires an endpoint", provider)
+				return nil, fmt.Errorf("browser provider %s needs a CDP endpoint", provider)
 			}
 		}
 		return &BrowserTarget{Key: BrowserKey(userID), Provider: provider}, nil

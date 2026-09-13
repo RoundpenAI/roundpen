@@ -51,14 +51,13 @@ func (h *Handler) hubKey(r *http.Request, sess *agentsession.Session) string {
 		if user := auth.GetUser(r.Context()); user != nil {
 			userID = user.Username
 		}
-		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {
-			return id
-		}
-		// No managed container mapped: external providers address the hub with
-		// the same key EnsureBrowser hands out, so status polls and takeover
-		// land on one session.
+		// Ask the provider first: a stale sandbox mapping must not shadow the
+		// key EnsureBrowser hands out for external providers.
 		if h.Envs.Provider() != config.CDPProviderDocker {
 			return userenv.BrowserKey(userID)
+		}
+		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {
+			return id
 		}
 	}
 	return browser.AgentBrowserID(sess.ID)
@@ -74,6 +73,11 @@ func (h *Handler) ensureHubKey(r *http.Request, sess *agentsession.Session) stri
 		}
 		if target, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && target != nil {
 			return target.Key
+		}
+		// EnsureBrowser failed: only the docker provider has a managed container
+		// to fall back to. External providers keep their stable user key.
+		if h.Envs.Provider() != config.CDPProviderDocker {
+			return userenv.BrowserKey(userID)
 		}
 		if id, err := h.Envs.BrowserSandboxID(r.Context(), userID); err == nil && id != "" {
 			return id

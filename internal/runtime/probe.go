@@ -27,7 +27,8 @@ type Snapshot struct {
 	Setup       []SetupStep `json:"setup,omitempty"`
 }
 
-// Probe inspects the host for Docker (Agent) and QEMU (Browser) readiness.
+// Probe inspects the host for Docker (Agent) and provider-based Browser
+// readiness: managed container, remote/cloud CDP endpoint, or host Chrome.
 type Probe struct {
 	Cfg         *config.Config
 	DockerReady bool

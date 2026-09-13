@@ -10,6 +10,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/template"
 )
@@ -21,6 +22,7 @@ type RuntimeDeps struct {
 	PreviewHandler   *preview.Handler
 	Sandbox          *sandbox.Service
 	Templates        *template.Service
+	Probe            *runtime.Probe
 	ReattachBuilder  func() error
 	ReconfigureLLMGW func(context.Context) error
 	LlmgwMounted     bool
@@ -175,7 +177,12 @@ func (s *Service) TestBrowser(ctx context.Context) (BrowserTestResult, error) {
 			res.Playwright = probe.Playwright
 		}
 		return res, err
-	default: // docker / auto — the container is created per user on demand
+	default: // docker / auto — Roundpen-managed container
+		if s.deps.Probe != nil {
+			if err := s.deps.Probe.RequireBrowser(); err != nil {
+				return res, err
+			}
+		}
 		port := cfg.CDP.Port
 		if port <= 0 {
 			port = config.DefaultCDPPort

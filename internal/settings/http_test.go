@@ -12,6 +12,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -109,5 +110,32 @@ func TestAdminSettingsHTTP(t *testing.T) {
 	}
 	if cfg.DefaultImage != "python" {
 		t.Fatalf("cfg not updated: %q", cfg.DefaultImage)
+	}
+}
+
+func TestBrowserTestManagedUsesProbe(t *testing.T) {
+	cfg := &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderDocker, Port: 3000}}
+	ctx := context.Background()
+
+	// Ready host: the managed branch reports the container endpoint.
+	svc := settings.NewService(nil, cfg,
+		settings.RuntimeDeps{Probe: &runtime.Probe{Cfg: cfg, DockerReady: true}},
+		settings.FromConfig(cfg))
+	res, err := svc.TestBrowser(ctx)
+	if err != nil {
+		t.Fatalf("ready probe: err=%v", err)
+	}
+	if res.Provider != config.CDPProviderDocker || !strings.Contains(res.Endpoint, "3000") {
+		t.Fatalf("result=%+v", res)
+	}
+
+	// Broken host: the button must surface the probe reason, not ok:true.
+	svc = settings.NewService(nil, cfg,
+		settings.RuntimeDeps{Probe: &runtime.Probe{Cfg: cfg}},
+		settings.FromConfig(cfg))
+	if _, err := svc.TestBrowser(ctx); err == nil {
+		t.Fatal("docker down: expected error")
+	} else if !strings.Contains(err.Error(), "Docker") {
+		t.Fatalf("err=%v", err)
 	}
 }
