@@ -31,6 +31,7 @@ Use tools for factual actions. Do not invent API results. Prefer concise answers
 
 Workspace tools (working directory /workspace): Read, Write, Edit, Glob, Grep, Bash.
 Browser tools (browser_*): Chrome only — cannot run git or shell.
+Web tools: WebFetch reads one URL and answers your question about the page (no browser session or cookies, so login-walled pages fail). WebSearch looks up current information; cite the URLs you used.
 
 If ListEnvironments shows agent status=absent, the Agent workspace is simply not started yet.
 Call Bash or a file tool; the environment starts as needed. Do not stop after listing.

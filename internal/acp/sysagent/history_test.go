@@ -1,6 +1,7 @@
 package sysagent
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -116,5 +117,18 @@ func TestCompactHistory_DropsOldestTurns(t *testing.T) {
 	}
 	if historyChars(got) > 80+len(omittedNotice) {
 		t.Fatalf("still too big: %d", historyChars(got))
+	}
+}
+
+func TestSystemPromptMentionsWebTools(t *testing.T) {
+	a := New(Deps{})
+	msgs := a.buildPromptMessages(context.Background(), "hi")
+	if len(msgs) == 0 || msgs[0].Role != "system" {
+		t.Fatalf("unexpected messages: %+v", msgs)
+	}
+	for _, want := range []string{"WebFetch", "WebSearch"} {
+		if !strings.Contains(msgs[0].Content, want) {
+			t.Fatalf("system prompt missing %q", want)
+		}
 	}
 }

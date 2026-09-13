@@ -46,3 +46,40 @@ func TestWorkspaceToolSurface(t *testing.T) {
 		t.Fatalf("missing from list: %q", name)
 	}
 }
+
+func TestWebToolSurface(t *testing.T) {
+	reg := tools.NewRegistry()
+	tools.RegisterWebFetch(reg, &tools.WebBinder{
+		HTTP: tools.NewWebHTTPClient(tools.WebClientOptions{AllowLoopback: true}),
+	})
+	tools.RegisterWebSearch(reg, &tools.WebSearchBinder{}) // 未配置 → 不注册
+
+	if _, ok := reg.Get("WebFetch"); !ok {
+		t.Fatal("missing WebFetch")
+	}
+	if _, ok := reg.Get("WebSearch"); ok {
+		t.Fatal("WebSearch must not register without endpoint/key")
+	}
+
+	for _, tool := range reg.List() {
+		lower := strings.ToLower(tool.Description)
+		for _, bad := range []string{"sandbox", "guest", "qemu"} {
+			if strings.Contains(lower, bad) {
+				t.Fatalf("%s description mentions %q", tool.Name, bad)
+			}
+		}
+		if tool.Mutating {
+			t.Fatalf("%s must be read-only", tool.Name)
+		}
+	}
+
+	reg2 := tools.NewRegistry()
+	tools.RegisterWebSearch(reg2, &tools.WebSearchBinder{APIKey: "tvly-test"})
+	search, ok := reg2.Get("WebSearch")
+	if !ok {
+		t.Fatal("missing WebSearch when configured")
+	}
+	if search.Mutating {
+		t.Fatal("WebSearch must be read-only")
+	}
+}
