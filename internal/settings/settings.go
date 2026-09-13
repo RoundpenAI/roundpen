@@ -3,6 +3,7 @@ package settings
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -35,6 +36,8 @@ type AppSettings struct {
 	CDPEndpoint             string `json:"cdpEndpoint"`
 	CDPToken                string `json:"cdpToken"`
 	CDPPort                 int    `json:"cdpPort"`
+	WebSearchEndpoint       string `json:"webSearchEndpoint"`
+	WebSearchApiKey         string `json:"webSearchApiKey"`
 }
 
 // SystemInfo is read-only infrastructure metadata for the settings UI.
@@ -75,6 +78,8 @@ func FromConfig(cfg *config.Config) AppSettings {
 		CDPEndpoint:             cfg.CDP.Endpoint,
 		CDPToken:                cfg.CDP.Token,
 		CDPPort:                 cfg.CDP.Port,
+		WebSearchEndpoint:       cfg.WebTools.SearchEndpoint,
+		WebSearchApiKey:         cfg.WebTools.SearchAPIKey,
 	}
 	out.normalizeCDP()
 	return out
@@ -96,6 +101,7 @@ func (s AppSettings) SanitizeForResponse() AppSettings {
 	out.LlmgwAnthropicAPIKey = MaskSecret(s.LlmgwAnthropicAPIKey)
 	out.LlmgwVirtualKeys = MaskVirtualKeysSetting(s.LlmgwVirtualKeys)
 	out.CDPToken = MaskSecret(s.CDPToken)
+	out.WebSearchApiKey = MaskSecret(s.WebSearchApiKey)
 	return out
 }
 
@@ -105,6 +111,7 @@ func (s *AppSettings) MergeSecrets(previous AppSettings) {
 	s.LlmgwAnthropicAPIKey = ResolveSecret(s.LlmgwAnthropicAPIKey, previous.LlmgwAnthropicAPIKey)
 	s.LlmgwVirtualKeys = ResolveVirtualKeysSetting(s.LlmgwVirtualKeys, previous.LlmgwVirtualKeys)
 	s.CDPToken = ResolveSecret(s.CDPToken, previous.CDPToken)
+	s.WebSearchApiKey = ResolveSecret(s.WebSearchApiKey, previous.WebSearchApiKey)
 }
 
 // ApplyToConfig writes settings into the in-memory process config.
@@ -129,6 +136,10 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 		s.LlmgwVirtualKeys,
 	); err != nil {
 		return err
+	}
+	cfg.WebTools = config.WebToolsConfig{
+		SearchEndpoint: strings.TrimSpace(s.WebSearchEndpoint),
+		SearchAPIKey:   strings.TrimSpace(s.WebSearchApiKey),
 	}
 	cfg.CDP = config.CDPConfig{
 		Provider: s.CDPProvider,
@@ -170,6 +181,12 @@ func (s AppSettings) Validate() error {
 	if anthropicBase != "" || anthropicKey != "" {
 		if anthropicBase == "" || anthropicKey == "" {
 			return fmt.Errorf("llmgwAnthropicBaseUrl and llmgwAnthropicApiKey must both be set")
+		}
+	}
+	if ep := strings.TrimSpace(s.WebSearchEndpoint); ep != "" {
+		u, err := url.Parse(ep)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("webSearchEndpoint must be an http(s) URL")
 		}
 	}
 	if _, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys); err != nil {

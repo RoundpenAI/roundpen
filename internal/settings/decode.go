@@ -43,6 +43,12 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 		out.CDPToken = fallback.CDPToken
 		out.CDPPort = fallback.CDPPort
 	}
+	if _, ok := keys["webSearchEndpoint"]; !ok {
+		out.WebSearchEndpoint = fallback.WebSearchEndpoint
+	}
+	if _, ok := keys["webSearchApiKey"]; !ok {
+		out.WebSearchApiKey = fallback.WebSearchApiKey
+	}
 	return normalizeLegacy(out), nil
 }
 
