@@ -30,7 +30,7 @@ git branch --show-current   # 期望 feat/agent-upgrade
 - Create: `internal/acp/sysagent/tools/webclient.go`
 - Test: `internal/acp/sysagent/tools/webclient_test.go`
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 创建 `internal/acp/sysagent/tools/webclient_test.go`（package `tools`，可测未导出函数）：
 
@@ -59,6 +59,8 @@ func TestBlockedDialAddr(t *testing.T) {
 		{"[::]:80", true},
 		{"224.0.0.1:80", true},
 		{"[ff02::1]:80", true},
+		{"example.com:443", true},
+		{"[fe80::1%eth0]:80", true},
 		{"10.1.2.3:80", false},
 		{"172.16.9.9:80", false},
 		{"192.168.1.10:443", false},
@@ -118,12 +120,12 @@ func TestWebHTTPClientAllowsLoopbackForTests(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `go test ./internal/acp/sysagent/tools/ -run 'TestBlockedDialAddr|TestWebHTTPClient' -count=1`
 Expected: FAIL（`undefined: blockedDialAddr`、`undefined: NewWebHTTPClient`）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 创建 `internal/acp/sysagent/tools/webclient.go`：
 
@@ -155,7 +157,6 @@ func NewWebHTTPClient(opts WebClientOptions) *http.Client {
 	}
 	return &http.Client{
 		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
 			DialContext:           dialer.DialContext,
 			MaxIdleConns:          8,
 			IdleConnTimeout:       30 * time.Second,
@@ -186,12 +187,12 @@ func blockedDialAddr(address string, allowLoopback bool) error {
 }
 ```
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `go test ./internal/acp/sysagent/tools/ -run 'TestBlockedDialAddr|TestWebHTTPClient' -count=1 -v`
 Expected: 4 个测试全部 PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add internal/acp/sysagent/tools/webclient.go internal/acp/sysagent/tools/webclient_test.go
