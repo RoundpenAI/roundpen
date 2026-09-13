@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	acp "github.com/coder/acp-go-sdk"
 
@@ -214,6 +215,8 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 						Options: opts,
 					})
 					if err != nil {
+						// Cancelled while waiting on the dialog: still resolve the call.
+						_ = a.finishToolCall(ctx, sid, tc.ID, acp.ToolCallStatusFailed, "Tool call cancelled.")
 						return err
 					}
 					opt := ""
@@ -239,22 +242,7 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 					}
 				}
 			}
-			var outObj any = result
-			var parsed any
-			if err := json.Unmarshal([]byte(result), &parsed); err == nil {
-				outObj = parsed
-			}
-			if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
-				SessionId: acp.SessionId(sid),
-				Update: acp.UpdateToolCall(
-					acp.ToolCallId(tc.ID),
-					acp.WithUpdateStatus(status),
-					acp.WithUpdateRawOutput(outObj),
-					acp.WithUpdateContent([]acp.ToolCallContent{
-						acp.ToolContent(acp.TextBlock(result)),
-					}),
-				),
-			}); err != nil {
+			if err := a.finishToolCall(ctx, sid, tc.ID, status, result); err != nil {
 				return err
 			}
 			messages = append(messages, chatMessage{
@@ -284,6 +272,30 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 			messages = append(messages, chatMessage{Role: "user", Content: watch.nudgeText()})
 		}
 	}
+}
+
+// finishToolCall sends a terminal tool-call state. The notification context is
+// detached from turn cancellation: SendNotification refuses on a cancelled ctx,
+// which would otherwise leave the call spinning in the UI forever.
+func (a *Agent) finishToolCall(ctx context.Context, sid, callID string, status acp.ToolCallStatus, result string) error {
+	var outObj any = result
+	var parsed any
+	if err := json.Unmarshal([]byte(result), &parsed); err == nil {
+		outObj = parsed
+	}
+	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return a.conn.SessionUpdate(updateCtx, acp.SessionNotification{
+		SessionId: acp.SessionId(sid),
+		Update: acp.UpdateToolCall(
+			acp.ToolCallId(callID),
+			acp.WithUpdateStatus(status),
+			acp.WithUpdateRawOutput(outObj),
+			acp.WithUpdateContent([]acp.ToolCallContent{
+				acp.ToolContent(acp.TextBlock(result)),
+			}),
+		),
+	})
 }
 
 func (a *Agent) emitText(ctx context.Context, sid, text string) error {

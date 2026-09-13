@@ -20,6 +20,7 @@ type CreateOpts struct {
 	UseImageCmd bool   // keep image ENTRYPOINT/CMD (template snapshots)
 	Slot        string // agent | browser | mobile — selects engine when using a multi backend
 	Engine      string // qemu | docker — slot preference (Agent is Docker-only)
+	User        string // uid:gid to run sandbox processes as; empty keeps the image default
 }
 
 // ExecOpts configures a command run inside the engine sandbox.
