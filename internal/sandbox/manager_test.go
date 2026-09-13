@@ -594,6 +594,27 @@ func TestService_OwnerIsolation(t *testing.T) {
 	}
 }
 
+// TestService_GetAuthzContext pins the contract the browser hub relies on:
+// an admin actor can Get another user's sandbox (CanAccess bypass), while a
+// context with no actor is rejected before the ownership check.
+func TestService_GetAuthzContext(t *testing.T) {
+	svc, _, _ := newTestService(t, newStubBackend("stub"))
+
+	sb, err := svc.Create(userCtx("alice"), sandbox.CreateRequest{Name: "alice-box"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.Get(adminCtx(), sb.ID)
+	if err != nil || got.ID != sb.ID || got.Owner != "alice" {
+		t.Fatalf("admin get: err=%v sandbox=%+v", err, got)
+	}
+
+	if _, err := svc.Get(context.Background(), sb.ID); !errors.Is(err, sandbox.ErrUnauthorized) {
+		t.Fatalf("no actor get: %v", err)
+	}
+}
+
 func TestService_RunsPersistentWorkspaceAsOwner(t *testing.T) {
 	be := newStubBackend("docker")
 	svc, _, _ := newTestService(t, be)

@@ -9,7 +9,7 @@ import (
 func TestCreatePlanEmptyWhenReady(t *testing.T) {
 	svc := &Service{
 		Facts: func() HostFacts {
-			return HostFacts{DockerReady: true, BinariesOK: true, BrowserImageOK: true}
+			return HostFacts{DockerReady: true}
 		},
 	}
 	rec, err := svc.CreatePlan(context.Background(), "u", WizardContext{Preset: "code"})

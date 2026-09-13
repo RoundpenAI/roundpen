@@ -13,7 +13,7 @@ const (
 	CDPProviderHost   = "host"
 	CDPProviderRemote = "remote"
 	CDPProviderCloud  = "cloud"
-	DefaultCDPPort    = 9222
+	DefaultCDPPort    = 3000
 )
 
 // CDPConfig is the instance-wide DevTools endpoint policy.
@@ -24,7 +24,7 @@ type CDPConfig struct {
 	Endpoint string
 	// Token is an optional bearer/query secret for remote/cloud.
 	Token string
-	// Port is the guest CDP port for the docker provider (default 9222).
+	// Port is the guest CDP port for the docker provider (default 3000).
 	Port int
 }
 
@@ -81,7 +81,7 @@ func NormalizeCDP(c *CDPConfig) error {
 
 // ResolveCDPProvider picks the effective provider. hostChromeFound is true when
 // a Chrome/Chromium binary exists on the API process (laptop only).
-// Auto prefers dialing the Browser environment (docker/qemu Dial) over host Chrome.
+// Auto resolves to the Roundpen-managed browser container; host Chrome is opt-in.
 func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
 	_ = hostChromeFound
 	if cfg == nil {
@@ -94,7 +94,7 @@ func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
 	if p != CDPProviderAuto {
 		return p
 	}
-	// Auto always dials guest CDP (Docker sandbox or QEMU Browser). Host Chrome is opt-in only.
+	// Auto always uses the managed browserless container; host Chrome is opt-in only.
 	return CDPProviderDocker
 }
 
@@ -103,14 +103,14 @@ func CDPHint(cfg *Config, hostChromeFound bool) string {
 	resolved := ResolveCDPProvider(cfg, hostChromeFound)
 	switch resolved {
 	case CDPProviderDocker:
-		return "Connects to Chrome inside the Browser environment via Dial on the CDP port (Docker or QEMU hostfwd)."
+		return "Runs a Roundpen-managed browserless/chrome container per user; the control plane dials its CDP port."
 	case CDPProviderHost:
 		if !hostChromeFound {
 			return "Host Chrome was selected but no chrome/chromium binary is on this process PATH (typical on NAS compose)."
 		}
-		return "Uses Chrome on the machine running roundpend. Laptop/debug only — prefer Browser environment CDP."
+		return "Launches Chrome installed on the roundpend host (no live view; screenshot takeover only)."
 	case CDPProviderRemote:
-		return "Attaches to the configured CDP URL (Browserless or self-hosted Chrome)."
+		return "Attaches to a self-hosted browserless endpoint (LAN) via CDP."
 	case CDPProviderCloud:
 		return "Attaches to a cloud browser CDP websocket (paste the session URL)."
 	default:

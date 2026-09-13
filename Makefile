@@ -56,7 +56,7 @@ test-integration:
 test-e2e:
 	go test ./tests/integration/ -run TestE2E_CodingAgentWorkflow -count=1 -v
 
-# Console UI smoke (Playwright + uismoke-api RFB). First run: cd web && npx playwright install chromium
+# Console UI smoke (Playwright + uismoke-api). First run: cd web && npx playwright install chromium
 test-ui:
 	cd web && npm run test:e2e
 
@@ -76,9 +76,9 @@ tidy:
 run-daemon: build
 	./bin/roundpend
 
-# Bootable Browser qcow2 + kernel sidecars (needs Docker).
-browser-image:
-	./images/browser-qemu/build.sh
+# Playwright driver (no browsers: the browser runs in the Browser env container).
+browser-driver:
+	go run ./cmd/browserdriver
 
 # Deprecated: Agent runs on Docker now. Kept only for the experimental QEMU agent recipe.
 agent-image:

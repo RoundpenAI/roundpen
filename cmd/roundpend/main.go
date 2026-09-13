@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -27,6 +28,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/workspaceapi"
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
@@ -194,7 +196,19 @@ func main() {
 	sbSvc = sandbox.NewService(store, eng, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
 	mgr = sbSvc
 	logger.Info("using multi backend", slog.String("default_agent_engine", cfg.Backend))
-	browserHub.SetDialer(sbSvc)
+	// The hub dials the user's browser container from the control plane:
+	// sandbox.Service.Dial authorizes via authz, so pass an internal actor.
+	browserHub.SetDialer(internalDialer{sandbox: sbSvc})
+	browserHub.SetTokenLookup(func(sandboxID string) string {
+		// The hub runs inside the control plane: sandbox.Service.Get authorizes
+		// via authz, so pass an internal admin actor for this metadata read.
+		ctx := authz.WithActor(context.Background(), authz.Actor{Username: "roundpend", Admin: true})
+		sb, err := sbSvc.Get(ctx, sandboxID)
+		if err != nil || sb == nil || sb.Metadata == nil {
+			return ""
+		}
+		return sb.Metadata["browserToken"]
+	})
 
 	mux := http.NewServeMux()
 	auth.Mount(mux, userStore, sessionStore, allowRegistration)
@@ -217,20 +231,16 @@ func main() {
 		Sandboxes: mgr,
 		Git:       gitStore,
 		Probe:     probe,
+		Cfg:       cfg,
 		Config: userenv.Config{
 			BrowserTemplate: cfg.DefaultBrowserTemplate,
 			AgentTemplate:   cfg.DefaultAgentTemplate,
 		},
 	}
-	publicBase := cfg.PreviewPublicURL
-	if publicBase == "" {
-		publicBase = cfg.LLMGW.PublicURL
-	}
 	(&envapi.Handler{
-		Envs:      envSvc,
-		Tokens:    previewHandler.Tokens,
-		PublicURL: publicBase,
-		VNC:       eng,
+		Envs: envSvc,
+		Cfg:  cfg,
+		Dial: sbSvc,
 	}).Mount(mux)
 	(&workspaceapi.Handler{
 		Envs:  envSvc,
@@ -287,6 +297,7 @@ func main() {
 		PreviewHandler:   previewHandler,
 		Sandbox:          sbSvc,
 		Templates:        tplSvc,
+		Probe:            probe,
 		ReattachBuilder:  reattachBuilder,
 		ReconfigureLLMGW: reconfigureLLMGW,
 		LlmgwMounted:     true,
@@ -407,6 +418,18 @@ func newWorkspaceFS(cfg *config.Config, dataRoot string, logger *slog.Logger) (w
 		return nil, err
 	}
 	return local.New(dataRoot), nil
+}
+
+// internalDialer adapts sandbox.Service for the browser hub: the hub dials
+// sandboxes from inside the control plane, so it carries an internal admin
+// actor (sandbox.Service.Dial authorizes via authz).
+type internalDialer struct {
+	sandbox *sandbox.Service
+}
+
+func (d internalDialer) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {
+	ctx = authz.WithActor(ctx, authz.Actor{Username: "roundpend", Admin: true})
+	return d.sandbox.Dial(ctx, sandboxID, destPort)
 }
 
 func firstNonEmpty(vals ...string) string {

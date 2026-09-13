@@ -1,5 +1,6 @@
-// Command uismoke serves a real envapi + RFB desktop for Playwright UI smoke.
-// It uses the production desktop WebSocket proxy (token → Unix RFB), not a fake URL.
+// Command uismoke serves a real envapi plus a stub browserless debugger
+// upstream for Playwright UI smoke. The live view goes through the production
+// proxy (token → sandbox debugger port), not a fake URL.
 package main
 
 import (
@@ -7,17 +8,17 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"net"
 	"net/http"
-	"os"
-	"path/filepath"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
-	"github.com/RoundpenAI/roundpen/internal/preview"
-	"github.com/RoundpenAI/roundpen/internal/rfbtest"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
@@ -25,16 +26,7 @@ import (
 
 func main() {
 	listen := flag.String("listen", "127.0.0.1:19021", "HTTP listen address")
-	public := flag.String("public", "http://127.0.0.1:4173", "UI origin used in desktop wsUrl")
 	flag.Parse()
-
-	sock := filepath.Join(os.TempDir(), "roundpen-uismoke-vnc.sock")
-	ln, err := rfbtest.ListenUnix(sock)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer ln.Close()
-	defer os.Remove(sock)
 
 	hash, err := auth.HashPassword("adminadmin")
 	if err != nil {
@@ -54,14 +46,36 @@ func main() {
 	}
 	sessions := storage.NewMemorySessionStore()
 
+	// Stub upstream for the browser live view: the proxy dials this instead of
+	// a sandbox's browserless debugger port. A WebSocket upgrade gets an
+	// immediate 426: replying with a body would leave the live proxy's
+	// bidirectional copy blocked on an idle keep-alive connection.
+	liveUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				http.Error(w, "no websocket here", http.StatusUpgradeRequired)
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			_, _ = io.WriteString(conn, "HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+			_ = conn.Close()
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>browserless debugger</title><div id="debugger-ui">uismoke live stub</div>`)
+	}))
+	defer liveUpstream.Close()
+
 	envs := &slotEnvs{}
 	mux := http.NewServeMux()
 	auth.Mount(mux, users, sessions, func() bool { return false })
 	(&envapi.Handler{
-		Envs:      envs,
-		Tokens:    preview.NewStore(0),
-		PublicURL: *public,
-		VNC:       vncSock(sock),
+		Envs: envs,
+		Dial: liveDialer(strings.TrimPrefix(liveUpstream.URL, "http://")),
 	}).Mount(mux)
 	mux.HandleFunc("GET /v1/ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -85,7 +99,7 @@ func main() {
 			"templateID": "tpl-browser", "buildID": "b1",
 			"cpuCount": 2, "memoryMB": 2048, "diskSizeMB": 8192,
 			"public": true, "profile": "browser", "slot": "browser",
-			"names": []string{"browser-desktop"}, "aliases": []string{"browser-desktop"},
+			"names": []string{"browser"}, "aliases": []string{"browser"},
 			"buildStatus": "ready", "envdVersion": "",
 			"createdAt": "2026-01-01T00:00:00Z",
 		}})
@@ -169,7 +183,7 @@ func main() {
 		writeJSON(w, map[string]any{"ok": true})
 	})
 
-	log.Printf("uismoke-api %s public=%s vnc=%s", *listen, *public, sock)
+	log.Printf("uismoke-api %s live=%s", *listen, liveUpstream.URL)
 	if err := http.ListenAndServe(*listen, auth.Middleware(users, sessions)(mux)); err != nil {
 		log.Fatal(err)
 	}
@@ -235,9 +249,12 @@ func (s *assistantStore) create(name, bio, identityMode string) map[string]any {
 	return a
 }
 
-type vncSock string
+// liveDialer dials a fixed TCP address regardless of sandbox id / port.
+type liveDialer string
 
-func (s vncSock) VNCSock(string) (string, error) { return string(s), nil }
+func (d liveDialer) Dial(ctx context.Context, _ string, _ int) (net.Conn, error) {
+	return (&net.Dialer{}).DialContext(ctx, "tcp", string(d))
+}
 
 type slotEnvs struct {
 	mu        sync.Mutex
@@ -265,7 +282,7 @@ func (s *slotEnvs) reset() {
 func (s *slotEnvs) List(_ context.Context, _ string) ([]userenv.EnvView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	browser := userenv.EnvView{Slot: userenv.SlotBrowser, Status: "absent", TemplateID: "browser-desktop"}
+	browser := userenv.EnvView{Slot: userenv.SlotBrowser, Status: "absent", TemplateID: "browser"}
 	if s.browser != nil {
 		browser.SandboxID = s.browser.ID
 		browser.Status = string(s.browser.Status)
@@ -278,7 +295,7 @@ func (s *slotEnvs) List(_ context.Context, _ string) ([]userenv.EnvView, error) 
 	}, nil
 }
 
-func (s *slotEnvs) EnsureBrowser(_ context.Context, _ string) (*sandbox.Sandbox, error) {
+func (s *slotEnvs) EnsureBrowser(_ context.Context, _ string) (*userenv.BrowserTarget, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.ensureErr != nil {
@@ -293,7 +310,7 @@ func (s *slotEnvs) EnsureBrowser(_ context.Context, _ string) (*sandbox.Sandbox,
 			Status: sandbox.StatusRunning,
 		}
 	}
-	return s.browser, nil
+	return &userenv.BrowserTarget{Key: s.browser.ID, Provider: "docker", Managed: true, Sandbox: s.browser}, nil
 }
 
 func (s *slotEnvs) EnsureAgent(_ context.Context, _ string) (*sandbox.Sandbox, error) {

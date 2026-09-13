@@ -77,7 +77,7 @@ tar-in $TAR /
 EOF
 }
 
-# Host mkfs + privileged Docker (same path as images/browser-qemu).
+# Host mkfs + privileged Docker (no guestfish / virt-make-fs on the host).
 pack_with_host_tools() {
   local mkfs=""
   if command -v mkfs.ext4 >/dev/null 2>&1; then

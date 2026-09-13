@@ -8,12 +8,12 @@ import (
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/browser"
-	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
 // BrowserSlot starts the user's Browser environment (Chrome / CDP).
 type BrowserSlot interface {
-	EnsureBrowser(ctx context.Context, userID string) (*sandbox.Sandbox, error)
+	EnsureBrowser(ctx context.Context, userID string) (*userenv.BrowserTarget, error)
 }
 
 // BrowserBinder attaches a browser Engine for System Agent sessions.
@@ -25,14 +25,14 @@ type BrowserBinder struct {
 
 func (b *BrowserBinder) resolveID(ctx context.Context, userID string) (string, error) {
 	if b != nil && b.Slots != nil && strings.TrimSpace(userID) != "" {
-		sb, err := b.Slots.EnsureBrowser(ctx, userID)
+		target, err := b.Slots.EnsureBrowser(ctx, userID)
 		if err != nil {
 			return "", fmt.Errorf("ensure browser environment: %w", err)
 		}
-		if sb == nil || sb.ID == "" {
+		if target == nil || target.Key == "" {
 			return "", fmt.Errorf("browser is not available")
 		}
-		return sb.ID, nil
+		return target.Key, nil
 	}
 	if b == nil {
 		return browser.AgentBrowserID(""), nil

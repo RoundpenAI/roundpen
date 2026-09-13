@@ -43,22 +43,9 @@ test('browser start surfaces {error} from the API', async ({ page }) => {
   await page.request.put('/v1/test/ensure-error', { data: { error: '' } })
 })
 
-test('open desktop connects RFB over the product WebSocket', async ({ page }) => {
+test('browser page exposes the live view entry', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
-  const ensure = await page.request.post('/v1/me/environments/browser/ensure')
-  if (!ensure.ok()) {
-    throw new Error(`ensure: ${ensure.status()} ${await ensure.text()}`)
-  }
   await page.goto('/browser')
-
-  const popupPromise = page.waitForEvent('popup')
-  await page.getByRole('button', { name: 'Open desktop' }).click()
-  const popup = await popupPromise
-  await popup.waitForLoadState('domcontentloaded')
-  await expect(popup.locator('#status')).toHaveAttribute('data-rfb', 'ready')
-  await expect(popup.locator('#status')).toHaveText('Connected', {
-    timeout: live ? 60_000 : 15_000,
-  })
-  await expect(popup.locator('#screen canvas')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open live view' })).toBeVisible()
 })

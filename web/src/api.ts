@@ -443,36 +443,39 @@ export type EnvironmentView = {
   templateId?: string
   status: string
   name?: string
+  provider?: string
   image?: string
 }
 
-export type DesktopLink = {
-  sandboxId: string
-  wsUrl: string
-  token: string
-  expiresAt: string
+export type LiveLink = {
+  mode: 'managed' | 'remote' | 'cloud' | 'host'
+  url: string
+  hint?: string
 }
 
 export const environments = {
   list: () =>
     api<{ environments: EnvironmentView[] }>('/v1/me/environments'),
   ensureBrowser: () =>
-    api<{ slot: string; sandboxId: string; status: string; name: string }>(
-      '/v1/me/environments/browser/ensure',
-      { method: 'POST' },
-    ),
+    api<{
+      slot: string
+      provider?: string
+      managed?: boolean
+      sandboxId?: string
+      status?: string
+    }>('/v1/me/environments/browser/ensure', { method: 'POST' }),
   ensureAgent: () =>
     api<{ slot: string; sandboxId: string; status: string; name: string }>(
       '/v1/me/environments/agent/ensure',
       { method: 'POST', body: '{}' },
     ),
+  browserLive: () =>
+    api<LiveLink>('/v1/me/environments/browser/live-link'),
   upgradeAgent: (force = false) =>
     api<{ status: string; image: string; digest: string; environment: EnvironmentView }>(
       '/v1/me/environments/agent/upgrade',
       { method: 'POST', body: JSON.stringify({ force }) },
     ),
-  browserDesktop: () =>
-    api<DesktopLink>('/v1/me/environments/browser/desktop'),
 }
 
 export type SetupPrivilege = 'auto' | 'manual'
@@ -601,6 +604,16 @@ export type SettingsResponse = {
   system: SystemInfo
 }
 
+export type BrowserTestResult = {
+  provider: string
+  endpoint?: string
+  path?: string
+  version?: string
+  playwright?: string[]
+  chromePath?: string
+  chromeOk?: boolean
+}
+
 export const adminSettings = {
   get: () => api<SettingsResponse>('/v1/admin/settings'),
   update: (settings: AppSettings) =>
@@ -608,6 +621,11 @@ export const adminSettings = {
       method: 'PUT',
       body: JSON.stringify(settings),
     }),
+  browserTest: () =>
+    api<{ ok: boolean; error?: string; result?: BrowserTestResult }>(
+      '/v1/admin/settings/browser/test',
+      { method: 'POST' },
+    ),
 }
 
 export type AgentProvider = {

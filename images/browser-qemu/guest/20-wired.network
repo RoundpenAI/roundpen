@@ -1,7 +1,0 @@
-[Match]
-Name=en* eth*
-
-[Network]
-DHCP=yes
-LLMNR=no
-MulticastDNS=no

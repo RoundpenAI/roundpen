@@ -9,9 +9,10 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 ## 特性
 
 - **轻量自托管**：单二进制控制面，面向 NAS、笔记本与单机服务器
-- **固定环境槽位**：登录即可用 **Cloud Agent**、**Browser**（及后续 Mobile），一槽位一机器；不是多开沙箱 SDK
-- **后端钉死**：Agent 槽位固定 **Docker**（官方 OCI 镜像 pull / 离线 load）；Browser / Desktop / Mobile 固定 **QEMU**（qcow2 + CDP hostfwd + VNC unix sock）
-- **可定制镜像**：Templates = 槽位镜像配方（`slot=agent|browser`）；Agent→OCI，Browser→qcow2
+- **固定环境槽位**：登录即可用 **Cloud Agent**、**Browser**（及后续 Mobile），一槽位一环境；不是多开沙箱 SDK
+- **后端钉死**：Agent 与 Browser 固定 **Docker**（官方 OCI 镜像 pull / 离线 load）；Desktop / Mobile 预留 **QEMU**
+- **可定制镜像**：Templates = 槽位镜像配方（`slot=agent|browser`）；均为 OCI 镜像
+- **来源可配**：Browser 默认用 Roundpen 托管的 browserless 容器，也可指向局域网 / 商业云 / 本机 Chrome（Playwright 引擎）
 - **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）
 - **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key（入库为哈希）；沙箱/记忆按属主隔离
 - **开源核心**：Apache 2.0；企业能力走 Open Core
@@ -21,24 +22,24 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 | 槽位 | 本期 | 形态 |
 |------|------|------|
 | Cloud Agent | Docker | coding / stdio ACP；官方 `code-agent` OCI 镜像 |
-| Browser | QEMU | XFCE + Chrome；CDP + 主机 VNC→WebSocket |
+| Browser | Docker | browserless/chrome 容器；CDP + 自带 debugger 实时视图（来源可配：托管/局域网/云/本机） |
 | Mobile | 预留 | 后续独立 VM（QEMU） |
 
 ## 架构（摘要）
 
 ```
-User → Agent env (OCI) + Browser env (qcow2/QEMU)
-Browser: Chrome CDP :9222 via hostfwd；桌面 = QEMU -vnc unix:…/vnc.sock → /v1/me/environments/browser/desktop
+User → Agent env (OCI) + Browser env (browserless/chrome 容器)
+Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless debugger 经 /v1/me/environments/browser/live/ 反代
 ```
 
 | 层级 | 说明 |
 |------|------|
 | 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、`/v1/me/environments`。`policy` / `toolgw` 仍是空包 |
 | 环境抽象 | Sandbox Manager + 用户槽位映射（`user_environments`） |
-| 后端 | **Agent → Docker**；**Browser/Desktop/Mobile → QEMU**；`multi` 按 slot 路由 |
-| 镜像 | `internal/template`（slot）+ `images/code-agent/`（官方 OCI）+ `images/browser-qemu/` |
+| 后端 | **Agent / Browser → Docker**；**Desktop / Mobile 预留 QEMU**；`multi` 按 slot 路由 |
+| 镜像 | `internal/template`（slot）+ `images/code-agent/`（官方 OCI）+ `ghcr.io/browserless/chrome`（Browser，pull） |
 
-仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。QEMU Browser 部署见 [docs/architecture/qemu-browser.md](docs/architecture/qemu-browser.md)。Agent 安全见 [docs/security.md](docs/security.md)。
+仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。Browser 环境见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。Agent 安全见 [docs/security.md](docs/security.md)。
 
 ## 核心能力
 
@@ -53,13 +54,13 @@ Browser: Chrome CDP :9222 via hostfwd；桌面 = QEMU -vnc unix:…/vnc.sock →
 
 ## 快速开始
 
-见下文 Docker Compose / `make dev`。构建 Browser 盘：
+见下文 Docker Compose / `make dev`。Browser 环境是一个 Docker 容器（browserless/chrome），首次使用自动 pull；引擎的 Playwright driver 已烘焙在官方镜像内（`/opt/playwright`），首次使用无需下载：
 
 ```bash
-./images/browser-qemu/build.sh   # docker；打包盘可用 virt-make-fs 或 privileged docker
+make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver（只装 driver，不下载浏览器）
 ```
 
-环境变量示例见 `.env.example`（`ROUNDPEN_QEMU_ENABLED`、`ROUNDPEN_BROWSER_IMAGE`）。
+环境变量示例见 `.env.example`（`ROUNDPEN_CDP_PROVIDER`、`ROUNDPEN_BROWSER_IMAGE`）。
 
 ## 部署方式
 
@@ -80,7 +81,7 @@ docker compose up -d --build
 # 首次启动：docker compose logs roundpend | head   # admin 密码与 API Key 各打印一次
 ```
 
-Browser 槽位需要宿主机 `qemu-system-x86_64`、`qemu-img`，以及 `make browser-image` 产出的 `out/browser.qcow2` + `vmlinuz`/`initrd.img`（见 [docs/architecture/qemu-browser.md](docs/architecture/qemu-browser.md)）。
+Browser 槽位需要 Docker，首次使用会拉取 `ghcr.io/browserless/chrome:v2.56.7`（可用 `ROUNDPEN_BROWSER_IMAGE` 覆盖）；官方镜像已内置 Playwright driver，裸机 / 开发机首次跑引擎会自动安装（`make browser-driver`）。来源可切到局域网 / 商业云 browserless 或本机 Chrome，见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。
 
 ### 安装面（Agent 镜像）
 
@@ -113,13 +114,13 @@ make dev            # pg0 → roundpend :19001 + UI :19000
 | 语言 | Go（跨平台单二进制） |
 | API | 原生 REST（`/v1/...`） |
 | Agent 后端 | Docker（官方 `code-agent` OCI 镜像） |
-| Browser 后端 | QEMU（qcow2 + VNC unix + CDP hostfwd） |
+| Browser 后端 | Docker（browserless/chrome 容器；Playwright 引擎，来源可配） |
 | 记忆 | PostgreSQL + `pgvector` |
 | 文件 | 本地目录或 SSH 远端（`WorkspaceFS`） |
 
 ## 路线图
 
-- **近期**：固定环境模型 + Browser QEMU；删除多开沙箱 / E2B 兼容；删除 Kern 与 Agent-QEMU 默认路径
+- **近期**：固定环境模型 + Browser 迁 Docker / Playwright（多来源：托管/局域网/云/本机）；删除多开沙箱 / E2B 兼容；删除 Kern 与 Agent-QEMU 默认路径
 - **中期**：镜像可视化定制加深；Agent 容器工作区增强
 - **远期**：Mobile 槽位、集群扩展与企业能力
 

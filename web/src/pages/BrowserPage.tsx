@@ -87,16 +87,18 @@ export function BrowserPage() {
     }
   }
 
-  async function openDesktop() {
+  async function openLive() {
     setBusy(true)
     setError(null)
     try {
-      const link = await environments.browserDesktop()
-      const desktop = `/vnc.html?url=${encodeURIComponent(link.wsUrl)}`
-      window.open(desktop, '_blank', 'noopener,noreferrer')
-      await load()
+      const link = await environments.browserLive()
+      if (!link.url) {
+        setError(link.hint || 'No live view for this browser source')
+        return
+      }
+      window.open(link.url, '_blank', 'noopener,noreferrer')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'desktop link failed')
+      setError(e instanceof Error ? e.message : 'live view link failed')
     } finally {
       setBusy(false)
     }
@@ -149,8 +151,9 @@ export function BrowserPage() {
             Browser
           </Typography.Title>
           <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginTop: 4 }}>
-            One fixed desktop per user: XFCE + Chrome in QEMU. Agents control Chrome
-            over CDP; you can take over the display via VNC.
+            One fixed browser per user: a Roundpen-managed browserless Chrome
+            container (or the configured LAN/cloud source). Agents drive Chrome
+            over CDP; open the live view to watch or take over.
           </Typography.Text>
         </div>
 
@@ -176,6 +179,23 @@ export function BrowserPage() {
                 <Typography.Text strong component="dd" style={{ margin: 0 }}>
                   {browser?.status || 'absent'}
                 </Typography.Text>
+                {browser?.provider && (
+                  <>
+                    <Typography.Text type="tertiary" component="dt">
+                      Provider
+                    </Typography.Text>
+                    <Typography.Text
+                      component="dd"
+                      style={{
+                        margin: 0,
+                        fontFamily: 'var(--semi-font-family-code)',
+                        fontSize: 12,
+                      }}
+                    >
+                      {browser.provider}
+                    </Typography.Text>
+                  </>
+                )}
                 <Typography.Text type="tertiary" component="dt">
                   Sandbox
                 </Typography.Text>
@@ -193,7 +213,7 @@ export function BrowserPage() {
                   Template
                 </Typography.Text>
                 <Typography.Text component="dd" style={{ margin: 0 }}>
-                  {browser?.templateId || 'browser-desktop'}
+                  {browser?.templateId || 'browser'}
                 </Typography.Text>
               </dl>
               <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -210,9 +230,9 @@ export function BrowserPage() {
                   type="tertiary"
                   size="small"
                   disabled={busy}
-                  onClick={() => void openDesktop()}
+                  onClick={() => void openLive()}
                 >
-                  Open desktop
+                  Open live view
                 </Button>
               </div>
             </>
@@ -353,12 +373,10 @@ export function BrowserPage() {
         </div>
 
         <Typography.Text type="tertiary" size="small">
-          Build the guest disk with{' '}
-          <code style={{ fontFamily: 'var(--semi-font-family-code)' }}>
-            images/browser-qemu/build.sh
-          </code>{' '}
-          before first start. Desktop uses QEMU VNC over a Unix socket proxied as
-          WebSocket (no guest noVNC).
+          Managed mode starts the browserless Chrome image seeded as the{' '}
+          <code style={{ fontFamily: 'var(--semi-font-family-code)' }}>browser</code>{' '}
+          template. Configure LAN / cloud CDP sources in Settings → Browser.
+          The live view proxies the container debugger through this console.
         </Typography.Text>
       </section>
     </PageShell>

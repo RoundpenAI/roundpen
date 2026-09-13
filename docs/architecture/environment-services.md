@@ -192,7 +192,7 @@ ResizePTY(ctx context.Context, engineID, sessionKey string, rows, cols uint16) e
 | Backend | P0 实现 |
 |---------|---------|
 | Docker | `docker exec -it` + resize API（Agent 槽位） |
-| QEMU | guest SSH `AttachPTY`（Browser/Desktop 槽位） |
+| QEMU | guest SSH `AttachPTY`（Desktop/Mobile 槽位；Browser 已迁 Docker） |
 
 **不**在 P0 引入 in-sandbox ConnectRPC daemon。
 
@@ -257,7 +257,7 @@ RemovePath(ctx context.Context, id, relPath string) error
 |---------|------|
 | `shell` | Workspace + Terminal |
 | `dev` | shell + Ports |
-| `browser` | dev + Browser Use（CDP sidecar，依赖 Dial） |
+| `browser` | dev + Browser（browserless/chrome 容器 + Playwright 引擎，依赖 Dial） |
 | `desktop` | Computer Use |
 | `android` | Mobile Use |
 

@@ -2,12 +2,12 @@ package hostsetup
 
 import "testing"
 
-func TestDeterministicPlanDockerAndBrowser(t *testing.T) {
+func TestDeterministicPlanBrowserNeedsDockerOnly(t *testing.T) {
 	ctx := WizardContext{Preset: "code_browser"}
-	f := HostFacts{DockerReady: false, BinariesOK: false, BrowserImageOK: false}
+	f := HostFacts{DockerReady: false}
 	p := DeterministicPlan(ctx, f, PrivilegeManual)
 	ids := actionIDs(p)
-	if !contains(ids, ActionInstallDocker) || !contains(ids, ActionInstallQEMU) || !contains(ids, ActionBuildBrowserImage) {
+	if len(ids) != 1 || !contains(ids, ActionInstallDocker) {
 		t.Fatalf("ids=%v", ids)
 	}
 	for _, a := range p.Actions {

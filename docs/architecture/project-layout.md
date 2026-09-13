@@ -1,6 +1,6 @@
 # Roundpen 项目结构
 
-单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 槽位固定 Docker**（官方 `code-agent` OCI 镜像），**Browser / Desktop / Mobile 槽位固定 QEMU**。`policy` / `toolgw` 仍是空包。
+单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 与 Browser 槽位固定 Docker**（官方 `code-agent` OCI 镜像 / `browserless/chrome` 容器），**Desktop / Mobile 槽位预留 QEMU**。`policy` / `toolgw` 仍是空包。
 
 ## 目录树
 
@@ -8,7 +8,7 @@
 roundpen/
 ├── cmd/roundpend/             # 控制面守护进程（嵌入 UI）
 ├── web/                       # 控制台 SPA（Chats / Browser / Images）
-├── images/browser-qemu/       # 默认 Browser qcow2 配方
+├── images/                    # 镜像配方：code-agent（OCI）；Browser 用上游 browserless/chrome
 ├── internal/
 │   ├── api/
 │   │   ├── platform/          # /v1/sandboxes + /v1/templates（内部生命周期）
@@ -22,16 +22,16 @@ roundpen/
 │   ├── template/              # 槽位镜像（slot=agent|browser|mobile）
 │   ├── sandbox/               # 环境生命周期 Manager（按属主隔离）
 │   ├── backend/
-│   │   ├── docker/            # Agent OCI
-│   │   ├── qemu/              # Browser/Desktop VM（通用）
-│   │   └── multi/             # 按 slot 路由（agent→docker，browser→qemu）
-│   ├── browser/               # CDP Hub（Dial 进 Browser env）
+│   │   ├── docker/            # Agent / Browser 容器
+│   │   ├── qemu/              # Desktop/Mobile VM 落点（Browser 已迁 Docker）
+│   │   └── multi/             # 按 slot 路由（agent/browser→docker，mobile→qemu）
+│   ├── browser/               # Playwright 引擎 + CDP Hub（托管容器 / 外部来源）
 │   ├── acp/                   # ACP / sysagent
 │   ├── audit/                 # 最小 slog 审计
 │   └── …
 ├── migrations/
 └── docs/architecture/
-    ├── qemu-browser.md
+    ├── browser-env.md
     └── …
 ```
 
@@ -40,12 +40,12 @@ roundpen/
 | 包 | 职责 |
 |----|------|
 | `api/platform` | 内部沙箱/模板 HTTP（非对外多开 SDK）；模板写操作需 admin |
-| `api/envapi` | 固定环境 Ensure + 桌面 WS |
+| `api/envapi` | 固定环境 Ensure + Browser 实时视图反代 |
 | `authz` / `httpx` | 属主上下文；可信代理下的 IP / HTTPS 判定 |
 | `userenv` | PG `user_environments` |
 | `template` | slot 镜像配方与构建产物 |
-| `backend/qemu` | qcow2 生命周期、CDP hostfwd、VNC unix sock |
-| `backend/multi` | agent→docker，browser→qemu |
+| `backend/qemu` | qcow2 生命周期、CDP hostfwd、VNC unix sock（Desktop/Mobile 落点） |
+| `backend/multi` | agent/browser→docker，mobile→qemu |
 
 ## 装配
 
@@ -53,5 +53,5 @@ roundpen/
 
 ## 演进
 
-- 本期：删除 E2B 兼容；Browser QEMU；Agent 固定 Docker；删除 Kern 与 Agent-QEMU 默认路径
-- 二期：Browser 窄共享工作区；Mobile 槽位
+- 本期：删除 E2B 兼容；Browser 迁 Docker（browserless/chrome + Playwright）；Agent 固定 Docker；删除 Kern 与 Agent-QEMU 默认路径
+- 二期：Browser 实时视图增强；Mobile 槽位（QEMU）

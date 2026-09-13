@@ -1,7 +1,7 @@
 // Package multi routes Create/lifecycle calls to qemu or docker.
 //
-// Browser/mobile slots and .qcow2 images always use QEMU. Agent sandboxes
-// always use Docker. There is no per-user engine picker anymore.
+// Mobile slots and .qcow2 images use QEMU. Agent sandboxes and the managed
+// browser container always use Docker. There is no per-user engine picker anymore.
 package multi
 
 import (
@@ -134,7 +134,7 @@ func (b *Backend) pickCreate(opts backend.CreateOpts) (backend.Backend, error) {
 
 func routeKind(slot, image string) string {
 	slot = strings.ToLower(strings.TrimSpace(slot))
-	if slot == "browser" || slot == "mobile" || isQcow2(image) {
+	if slot == "mobile" || isQcow2(image) {
 		return "qemu"
 	}
 	return "docker"

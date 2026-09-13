@@ -3,7 +3,9 @@ package userenv
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
+	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -100,9 +103,17 @@ type slotStore interface {
 
 var errSlotFailed = errors.New("sandbox is failed")
 
+// BrowserTarget is the resolved browser source for one user.
+type BrowserTarget struct {
+	Key      string           // hub session key: sandbox id (managed) or browser-<user>
+	Provider string           // resolved provider (docker|remote|cloud|host)
+	Managed  bool             // true when Roundpen runs the container
+	Sandbox  *sandbox.Sandbox // non-nil when Managed
+}
+
 // Config controls Ensure* defaults.
 type Config struct {
-	BrowserTemplate string // default "browser-desktop"
+	BrowserTemplate string // default "browser"
 	AgentTemplate   string // default "code-agent"
 	PublicURL       string // control-plane / llmgw base, e.g. http://127.0.0.1:9527
 	VirtualKey      string // llmgw virtual key (not an upstream key)
@@ -150,26 +161,56 @@ type Service struct {
 	Git       *gitcred.Store
 	Probe     *runtime.Probe
 	Config    Config
+	Cfg       *config.Config
 
 	upgradeMu sync.Mutex // serializes agent upgrades per service
 }
 
+// cdpProvider returns the effective browser provider for this process.
+func (s *Service) cdpProvider() string {
+	// ResolveCDPProvider ignores the hostChromeFound hint today; skip the PATH scan.
+	return config.ResolveCDPProvider(s.Cfg, false)
+}
+
+// Provider returns the effective browser provider (docker|remote|cloud|host).
+func (s *Service) Provider() string { return s.cdpProvider() }
+
+// BrowserKey is the hub session key for an externally provided browser.
+func BrowserKey(userID string) string { return "browser-" + sanitizeUser(userID) }
+
 func (s *Service) browserTemplate() string {
 	t := strings.TrimSpace(s.Config.BrowserTemplate)
 	if t == "" {
-		return "browser-desktop"
+		return "browser"
 	}
 	return t
 }
 
-// EnsureBrowser starts or resumes the user's Browser QEMU environment.
-func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*sandbox.Sandbox, error) {
+// EnsureBrowser resolves the user's browser source. Managed (default) starts or
+// resumes the Roundpen browserless container; external providers need no sandbox.
+func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTarget, error) {
+	// Probe before branching: RequireBrowser is provider-aware and rejects a
+	// remote/cloud endpoint that is missing and a host with no Chrome, not just
+	// a Docker-less managed provider.
 	if s.Probe != nil {
 		if err := s.Probe.RequireBrowser(); err != nil {
 			return nil, err
 		}
 	}
-	return s.ensure(ctx, userID, SlotBrowser, s.browserTemplate(), "Browser", runtime.EngineQEMU)
+	provider := s.cdpProvider()
+	if provider != config.CDPProviderDocker {
+		if provider == config.CDPProviderRemote || provider == config.CDPProviderCloud {
+			if s.Cfg == nil || strings.TrimSpace(s.Cfg.CDP.Endpoint) == "" {
+				return nil, fmt.Errorf("browser provider %s needs a CDP endpoint", provider)
+			}
+		}
+		return &BrowserTarget{Key: BrowserKey(userID), Provider: provider}, nil
+	}
+	sb, err := s.ensure(ctx, userID, SlotBrowser, s.browserTemplate(), "Browser", runtime.EngineDocker)
+	if err != nil {
+		return nil, err
+	}
+	return &BrowserTarget{Key: sb.ID, Provider: provider, Managed: true, Sandbox: sb}, nil
 }
 
 // EnsureAgent starts or resumes the user's Cloud Agent environment.
@@ -200,6 +241,7 @@ type EnvView struct {
 	TemplateID string `json:"templateId,omitempty"`
 	Status     string `json:"status"`
 	Name       string `json:"name,omitempty"`
+	Provider   string `json:"provider,omitempty"`
 	Image      string `json:"image,omitempty"`
 }
 
@@ -221,6 +263,17 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 			v.Status = "reserved"
 			out = append(out, v)
 			continue
+		}
+		if slot == SlotBrowser {
+			v.Provider = s.cdpProvider()
+			// External providers own the browser: a container left from a
+			// previous provider must not be presented as the current source.
+			if v.Provider != config.CDPProviderDocker {
+				v.Status = "external"
+				v.SandboxID = ""
+				out = append(out, v)
+				continue
+			}
 		}
 		if m, ok := bySlot[slot]; ok {
 			v.SandboxID = m.SandboxID
@@ -378,6 +431,18 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 	if engine != "" {
 		meta["engine"] = engine
 	}
+	if slot == SlotBrowser {
+		token, err := randomToken()
+		if err != nil {
+			return nil, err
+		}
+		env["TOKEN"] = token
+		env["MAX_CONCURRENT_SESSIONS"] = "3"
+		env["CONNECTION_TIMEOUT"] = "600000"
+		env["ENABLE_DEBUGGER"] = "true"
+		env["DEFAULT_LAUNCH_ARGS"] = `["--window-size=1280,800","--hide-scrollbars","--mute-audio","--disable-dev-shm-usage"]`
+		meta["browserToken"] = token
+	}
 	create := sandbox.CreateRequest{
 		TemplateID: templateID,
 		Name:       name,
@@ -480,6 +545,15 @@ func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (
 			Status: string(sb.Status), Name: sb.Name, Image: sb.Image,
 		},
 	}, nil
+}
+
+// randomToken returns a 32-char hex token for the browserless container.
+func randomToken() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
 }
 
 func slotSandboxName(slot, userID string) string {

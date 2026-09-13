@@ -23,6 +23,10 @@ type Hub struct {
 	logger   *slog.Logger
 	cfg      *config.Config
 	dial     PortDialer
+	driver   *pwDriver
+	// tokenLookup resolves a sandbox id to its stored browser token
+	// (sandbox.Metadata["browserToken"]); wired in cmd/roundpend.
+	tokenLookup func(sandboxID string) string
 
 	newEngine func(userDataDir string, width, height int) (Engine, error)
 }
@@ -37,7 +41,8 @@ type Session struct {
 	release   func()
 }
 
-// NewHub returns a session hub. dataDir holds Chrome user-data dirs for host provider.
+// NewHub returns a session hub. dataDir holds per-session scratch dirs for the
+// injected test engine; production providers keep their state elsewhere.
 func NewHub(dataDir string, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.Default()
@@ -46,6 +51,7 @@ func NewHub(dataDir string, logger *slog.Logger) *Hub {
 		sessions: map[string]*Session{},
 		dataDir:  dataDir,
 		logger:   logger,
+		driver:   &pwDriver{},
 	}
 }
 
@@ -57,6 +63,33 @@ func (h *Hub) SetConfig(cfg *config.Config) {
 	h.mu.Lock()
 	h.cfg = cfg
 	h.mu.Unlock()
+}
+
+// SetTokenLookup supplies sandbox metadata lookup for the browserless token.
+// The callback runs outside the hub lock, so it is safe for it to touch
+// sandbox or hub state.
+func (h *Hub) SetTokenLookup(f func(sandboxID string) string) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.tokenLookup = f
+	h.mu.Unlock()
+}
+
+// browserToken returns the browserless token stored for a sandbox; the lookup
+// runs outside h.mu so it cannot deadlock against other Hub methods.
+func (h *Hub) browserToken(sandboxID string) string {
+	if h == nil {
+		return ""
+	}
+	h.mu.Lock()
+	lookup := h.tokenLookup
+	h.mu.Unlock()
+	if lookup == nil {
+		return ""
+	}
+	return lookup(sandboxID)
 }
 
 // SetDialer supplies sandbox port dialing for the docker provider.
@@ -100,6 +133,7 @@ func (h *Hub) Close() {
 	for _, id := range ids {
 		h.CloseSandbox(id)
 	}
+	h.driver.stop()
 }
 
 // Status reports whether a session is attached, without starting a browser.
@@ -245,17 +279,27 @@ func cdpRetryable(err error) bool {
 	if strings.Contains(s, "requires a sandbox dialer") {
 		return false
 	}
-	return strings.Contains(s, "nothing listening") ||
-		strings.Contains(s, "not serving devtools") ||
-		strings.Contains(s, "cdp attach") ||
-		strings.Contains(s, "connection reset") ||
-		strings.Contains(s, "connection refused") ||
-		strings.Contains(s, "empty reply") ||
-		strings.Contains(s, "eof")
+	for _, needle := range []string{
+		"cdp attach",
+		"econnrefused",
+		"connection refused",
+		"connection reset",
+		"websocket was closed before the connection was established",
+		"socket hang up",
+		"timeout",
+		"timed out",
+		"empty reply",
+		"eof",
+	} {
+		if strings.Contains(s, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
-	if h.newEngine != nil {
+	if h.newEngine != nil { // test injection, unchanged
 		dir := filepath.Join(h.dataDir, "browser", id)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, err
@@ -270,24 +314,38 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 	h.mu.Lock()
 	cfg := h.cfg
 	dial := h.dial
+	driver := h.driver
 	h.mu.Unlock()
 
-	provider := config.ResolveCDPProvider(cfg, ChromeOnPATH())
+	if driver == nil {
+		driver = &pwDriver{}
+	}
+
 	width, height := 1280, 800
+	provider := config.ResolveCDPProvider(cfg, ChromeOnPATH())
+	// att starts token-less: host/remote/cloud may only pass the endpoint token
+	// from config; only the docker provider reads the sandbox's own token.
+	att := pwAttach{Width: width, Height: height}
+
 	switch provider {
 	case config.CDPProviderHost:
 		if cfg != nil && strings.TrimSpace(cfg.CDP.Endpoint) != "" {
-			eng, err := newRemoteEngine(cfg.CDP.Endpoint, width, height)
+			att.Endpoint = cfg.CDP.Endpoint
+			if cfg.CDP.Token != "" {
+				att.Token = cfg.CDP.Token
+			}
+			eng, err := newPlaywrightEngine(driver, att)
 			if err != nil {
 				return nil, fmt.Errorf("host cdp: %w", err)
 			}
 			return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
 		}
-		dir := filepath.Join(h.dataDir, "browser", id)
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, err
+		bin := lookupChrome()
+		if bin == "" {
+			return nil, fmt.Errorf("host chrome not found (set CHROME_PATH)")
 		}
-		eng, err := newChromeEngine(dir, width, height)
+		att.LaunchPath = bin
+		eng, err := newPlaywrightEngine(driver, att)
 		if err != nil {
 			return nil, fmt.Errorf("host chrome: %w", err)
 		}
@@ -297,8 +355,10 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		endpoint := ""
 		if cfg != nil {
 			endpoint = cfg.CDP.Endpoint
+			att.Token = cfg.CDP.Token
 		}
-		eng, err := newRemoteEngine(endpoint, width, height)
+		att.Endpoint = endpoint
+		eng, err := newPlaywrightEngine(driver, att)
 		if err != nil {
 			return nil, fmt.Errorf("%s cdp: %w", provider, err)
 		}
@@ -309,21 +369,22 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		if cfg != nil && cfg.CDP.Port > 0 {
 			port = cfg.CDP.Port
 		}
-		if err := probeGuestCDP(ctx, dial, id, port); err != nil {
-			return nil, err
+		if dial == nil {
+			return nil, fmt.Errorf("docker cdp requires a sandbox dialer")
 		}
 		localURL, stop, err := startCDPProxy(dial, id, port)
 		if err != nil {
 			return nil, fmt.Errorf("env cdp: %w", err)
 		}
-		eng, err := newRemoteEngine(localURL, width, height)
+		att.Endpoint = localURL
+		att.Token = h.browserToken(id)
+		eng, err := newPlaywrightEngine(driver, att)
 		if err != nil {
 			stop()
-			return nil, fmt.Errorf("env cdp (nothing listening on guest :%d): %w", port, err)
+			return nil, fmt.Errorf("env cdp (Browser env :%d not serving CDP): %w", port, err)
 		}
 		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height, release: stop}, nil
 	default:
-		_ = ctx
 		return nil, fmt.Errorf("unknown cdp provider %q", provider)
 	}
 }

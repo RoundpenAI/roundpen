@@ -21,11 +21,13 @@ type fakeEnvs struct {
 	user   string
 	result *userenv.UpgradeResult
 	err    error
+	target *userenv.BrowserTarget
 }
 
 func (f *fakeEnvs) List(context.Context, string) ([]userenv.EnvView, error) { return nil, nil }
-func (f *fakeEnvs) EnsureBrowser(context.Context, string) (*sandbox.Sandbox, error) {
-	return &sandbox.Sandbox{ID: "browser-1", Status: sandbox.StatusRunning}, nil
+func (f *fakeEnvs) EnsureBrowser(context.Context, string) (*userenv.BrowserTarget, error) {
+	f.calls++
+	return f.target, f.err
 }
 func (f *fakeEnvs) EnsureAgent(context.Context, string) (*sandbox.Sandbox, error) {
 	return &sandbox.Sandbox{ID: "agent-1", Status: sandbox.StatusRunning}, nil

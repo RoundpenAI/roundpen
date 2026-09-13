@@ -5,7 +5,7 @@ test('images registry lists templates', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   await page.goto('/registry')
-  await expect(page.getByRole('grid').getByText('browser-desktop')).toBeVisible()
+  await expect(page.getByRole('grid').getByText('browser', { exact: true })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
