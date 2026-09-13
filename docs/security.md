@@ -43,7 +43,7 @@ Environment Services   ← 终端、工作区、端口预览（及后续 Browser
       │
 Sandbox Manager        ← 生命周期、执行、超时
       │
-Backend                ← Agent: Docker；Browser/Desktop/Mobile: QEMU（规划：Kubernetes）
+Backend                ← Agent / Browser: Docker；Desktop/Mobile: QEMU（规划：Kubernetes）
       │
 OCI Runtime            ← runc / gVisor / Kata 等（Agent 容器按部署选择）
 ```
@@ -53,7 +53,7 @@ OCI Runtime            ← runc / gVisor / Kata 等（Agent 容器按部署选�
 | 控制面 | 鉴权、策略、审计、记忆、LLM 与工具网关 |
 | Environment Services | Agent 操作面：文件、终端、预览等 |
 | Sandbox 抽象 | 统一生命周期与 exec，不绑定具体引擎 |
-| Backend | 槽位固定后端：**Agent → Docker**；**Browser / Desktop / Mobile → QEMU**（规划：Kubernetes） |
+| Backend | 槽位固定后端：**Agent / Browser → Docker**；**Desktop / Mobile → QEMU**（规划：Kubernetes） |
 | OCI Runtime | Agent 容器由后端选用 runc / gVisor / Kata 等 |
 
 控制面与执行面职责分离：安全策略集中在控制面执行，更换后端引擎时不必重写规则。
@@ -65,7 +65,8 @@ OCI Runtime            ← runc / gVisor / Kata 等（Agent 容器按部署选�
 用户不应被要求选择运行时。Roundpen 按槽位固定后端，减少错误配置面：
 
 - **Agent → Docker**：容器默认丢弃特权（`CapDrop: ALL`）、禁止提权（`no-new-privileges`），可按需选用 `runc`、`crun`、`gVisor`、`Kata` 等 OCI 运行时。镜像从官方注册表 pull 或离线 load。
-- **Browser / Desktop / Mobile → QEMU**：qemu 虚拟机提供画面与 CDP；与 Agent 容器隔离。
+- **Browser → Docker**：browserless/chrome 容器提供 CDP 与实时调试画面（不发布端口，控制面经容器网络拨入；容器内开鉴权 token）；与 Agent 容器同为 Docker 引擎、按属主隔离。
+- **Desktop / Mobile → QEMU**（预留）：qemu 虚拟机提供画面。
 - **Kubernetes**（规划中）：面向集群扩展，预留 Backend 接口。
 
 同一套 API、按槽位固定后端——不再提供 QEMU/Kern/Docker 三选一。
@@ -110,7 +111,7 @@ Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 A
 
 | 能力 | 说明 |
 |------|------|
-| 沙箱隔离与生命周期 | 创建、执行、停止、超时；按属主隔离；Agent 用 Docker、Browser 用 QEMU |
+| 沙箱隔离与生命周期 | 创建、执行、停止、超时；按属主隔离；Agent / Browser 用 Docker（Desktop / Mobile 预留 QEMU） |
 | 工作区与文件 API | 路径与 symlink 边界校验；Agent 工作区经容器读写（与 Agent 同身份） |
 | 终端与端口预览 | 认证终端 WebSocket（同源 Origin）；预览须短时令牌 |
 | 用户体系 | 密码登录 + 每用户 API Key；登录限流 |
@@ -133,7 +134,7 @@ Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 A
 | 加固运行时 | gVisor、Kata 等的生产级配置与文档 | 部分可配置，文档与默认方案完善中 |
 | Kubernetes 后端（`backend/k8s`） | 集群环境下的沙箱调度 | 架构预留 |
 | 企业能力 | 多租户、SSO、合规级审计 | Open Core / 远期 |
-| 更多环境形态 | Browser、Desktop、Mobile 等 Agent 操作面 | Environment Services 扩展 |
+| 更多环境形态 | Desktop、Mobile 等 Agent 操作面（Browser 已交付） | Environment Services 扩展 |
 
 路线图阶段划分见仓库 [README.md](../README.md#路线图)。
 

@@ -1,6 +1,6 @@
 # QEMU Agent 固定环境（历史 / 已降级）
 
-> **状态：已降级为历史路径。** Agent 槽位现在固定使用 **Docker**（官方 `code-agent` OCI 镜像）；QEMU 仅用于 Browser / Desktop / Mobile 槽位。
+> **状态：已降级为历史路径。** Agent 槽位现在固定使用 **Docker**（官方 `code-agent` OCI 镜像）；QEMU 仅用于 Desktop / Mobile 槽位（Browser 已迁 Docker，见 [browser-env.md](./browser-env.md)）。
 > 本文描述的是旧的 Agent-on-QEMU（`agent-claude` qcow2）方案，保留供参考，**不再是默认或受支持路径**。新部署请见 [README 安装面](../../README.md) 与 [specs/2026-09-12-agent-docker-workspace-design.md](../superpowers/specs/2026-09-12-agent-docker-workspace-design.md)。
 
 Agent 槽位曾是一台无桌面 QEMU VM（template `agent-claude`）。Guest 预装 git、OpenSSH 和 Claude Code。LLM 只走 Roundpen **llmgw**（virtual key）。运行时 **不依赖 Docker/Kata**。
@@ -41,7 +41,7 @@ Guest 从 Docker 导出时 `/etc/resolv.conf` 经常是空文件。后端在 SSH
 新建助手向导会先检查 LLM gateway，再自动探测本机是否缺少 QEMU 或 `agent.qcow2`：
 
 - 缺二进制：若进程用户为 root 或 `sudo -n` 可用，确认后由平台安装；否则展示可复制的 `apt` 命令，装完点「重新检测」。
-- 缺镜像：自动跑 `images/agent-qemu/build.sh`（浏览器能力还会构建 browser 镜像）。
+- 缺镜像：自动跑 `images/agent-qemu/build.sh`。
 
 也可仍手动执行：
 
