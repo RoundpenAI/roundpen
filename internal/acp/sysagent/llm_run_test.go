@@ -3,6 +3,7 @@ package sysagent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -69,5 +70,46 @@ func TestLLMConfigRunWithoutSystem(t *testing.T) {
 	c := LLMConfig{BaseURL: srv.URL, APIKey: "k", Model: "m"}
 	if _, err := c.Run(context.Background(), "  ", "hi"); err != nil {
 		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestExtractReasoning(t *testing.T) {
+	cases := []struct {
+		name    string
+		content any
+		reason  any
+		want    string
+	}{
+		{"none", nil, nil, ""},
+		{"deepseek string", "思考中", nil, "思考中"},
+		{"openai string", nil, "step1", "step1"},
+		{"openai array", nil, []any{"a", "b"}, "ab"},
+		{"openai blob array", nil, []any{map[string]any{".": "x"}, "y"}, "xy"},
+		{"both", "r1", []any{"r2"}, "r1r2"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := extractReasoning(tc.content, tc.reason); got != tc.want {
+				t.Fatalf("extractReasoning = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsTransientLLMError(t *testing.T) {
+	if !isTransientLLMError(fmt.Errorf("upstream stream terminated")) {
+		t.Fatal("mid-stream interruption should be transient")
+	}
+	if isTransientLLMError(&httpStatusError{code: 401}) {
+		t.Fatal("4xx should not be retried")
+	}
+	if !isTransientLLMError(&httpStatusError{code: 502}) {
+		t.Fatal("5xx should be retried")
+	}
+	if isTransientLLMError(nil) {
+		t.Fatal("nil should not be transient")
+	}
+	if isTransientLLMError(context.Canceled) {
+		t.Fatal("cancellation should not be retried")
 	}
 }

@@ -18,6 +18,7 @@ import {
   ApiError,
 } from '../api'
 import { AgentBrowserPanel } from '../components/AgentBrowserPanel'
+import { SessionTabs } from '../components/SessionTabs'
 import {
   agentMessagesToSemi,
   type SemiChatMessage,
@@ -270,7 +271,10 @@ function clearPendingPrompt(sessionId: string) {
 }
 
 export function ChatSessionPage() {
-  const { id = '' } = useParams()
+  const { id = '', assistantId: assistantIdParam } = useParams<{
+    id?: string
+    assistantId?: string
+  }>()
   const location = useLocation()
   const navigate = useNavigate()
   const [session, setSession] = useState<AgentSession | null>(null)
@@ -293,6 +297,10 @@ export function ChatSessionPage() {
   const [autoMode, setAutoMode] = useState(readAutoMode)
   const [composerFocused, setComposerFocused] = useState(false)
   const [composerHasText, setComposerHasText] = useState(false)
+  const busyRef = useRef(false)
+  useEffect(() => {
+    busyRef.current = busy
+  }, [busy])
   const composerIdle = !composerHasText && !busy
   const showComposerSend = busy || composerHasText
 
@@ -320,7 +328,11 @@ export function ChatSessionPage() {
         ])
         if (cancelled) return
         setSession(sess)
-        setMessages(hist.messages ?? [])
+        // If a turn is already streaming, don't clobber it with persisted
+        // history; the runner snapshot and done/error refetch reconcile later.
+        if (!busyRef.current) {
+          setMessages(hist.messages ?? [])
+        }
         setHistReady(true)
       } catch (e) {
         if (!cancelled) setError(e instanceof ApiError ? e.message : String(e))
@@ -381,9 +393,11 @@ export function ChatSessionPage() {
     const scheduleReconnect = (detail: string) => {
       setWsStatus('error')
       setWsDetail(detail)
-      setBusy(false)
-      const waiting = outboxWaitingHint(outboxRef.current.length)
-      setStatusHint(waiting)
+      // Do NOT clear busy here: an in-flight turn on the server keeps running
+      // while this tab reconnects; the status snapshot will reconcile it.
+      if (!busyRef.current) {
+        setStatusHint(outboxWaitingHint(outboxRef.current.length))
+      }
       const delay = wsReconnectDelayMs(attempt)
       attempt += 1
       if (retryTimer != null) {
@@ -403,6 +417,56 @@ export function ChatSessionPage() {
       }
     }
 
+    const refetchMessages = () => {
+      agents
+        .messages(id)
+        .then((res) => {
+          if (disposed || !wsRef.current) return
+          setMessages(res.messages ?? [])
+        })
+        .catch(() => undefined)
+    }
+
+    // Re-seed the live assistant bubble from the server's authoritative
+    // snapshot after a reconnect, so a partial reply is never doubled.
+    const restoreStreamingReply = (reply: string) => {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1]
+        const lastTyp = last?.meta?.type
+        const isLiveAssistant =
+          last &&
+          last.role === 'assistant' &&
+          !last.meta?.toolId &&
+          isStreamingMessage(last) &&
+          (lastTyp === 'agent_message' || !lastTyp)
+        if (isLiveAssistant) {
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...last,
+              content: reply,
+              meta: {
+                ...last.meta,
+                type: 'agent_message',
+                status: 'in_progress',
+              },
+            },
+          ]
+        }
+        return [
+          ...prev,
+          {
+            id: `stream-${Date.now()}`,
+            sessionId: id,
+            role: 'assistant',
+            content: reply,
+            meta: { type: 'agent_message', status: 'in_progress' },
+            createdAt: nowIso(),
+          },
+        ]
+      })
+    }
+
     const bind = (socket: WebSocket) => {
       socket.onmessage = (ev) => {
         // Any server frame means the upgrade completed — sync UI even if
@@ -415,7 +479,6 @@ export function ChatSessionPage() {
           } catch {
             /* ignore */
           }
-          flushOutbox(socket)
         }
         try {
           const msg = JSON.parse(String(ev.data)) as {
@@ -435,8 +498,47 @@ export function ChatSessionPage() {
             requestId?: string
             title?: string
             options?: { optionId: string; name: string; kind?: string }[]
+            busy?: boolean
+            reply?: string
+            thought?: string
+            perm?: {
+              requestId?: string
+              title?: string
+              options?: { optionId: string; name: string; kind?: string }[]
+              ticketId?: string
+            }
           }
           if (msg.type === 'hello') {
+            return
+          }
+          // Server snapshot of the runner: reconcile busy/reply/thought/perm
+          // so a reconnect into an in-flight turn is seamless.
+          if (msg.type === 'status') {
+            if (msg.busy) {
+              setBusy(true)
+              setError(null)
+              setStatusHint(msg.thought || '工作中')
+              if (msg.reply) {
+                restoreStreamingReply(msg.reply)
+              }
+              if (msg.perm) {
+                setPerm({
+                  requestId: msg.perm.requestId ?? '',
+                  title: msg.perm.title ?? 'Permission',
+                  options: msg.perm.options ?? [],
+                  ticketId: msg.perm.ticketId,
+                })
+              } else {
+                setPerm(null)
+              }
+            } else {
+              setBusy(false)
+              setStatusHint(null)
+              setPerm(null)
+              setMessages((prev) => clearStreaming(prev))
+              refetchMessages()
+              flushOutbox(socket)
+            }
             return
           }
           if (msg.type === 'event' && msg.event) {
@@ -550,10 +652,18 @@ export function ChatSessionPage() {
               options,
               ticketId: (msg as { ticketId?: string }).ticketId,
             })
+          } else if (msg.type === 'permission_resolved') {
+            setPerm((cur) =>
+              cur && cur.requestId === msg.requestId ? null : cur,
+            )
+            return
           } else if (msg.type === 'done') {
             setBusy(false)
             setStatusHint(null)
+            setPerm(null)
             setMessages((prev) => clearStreaming(prev))
+            refetchMessages()
+            flushOutbox(socket)
           } else if (msg.type === 'error') {
             setBusy(false)
             setStatusHint(null)
@@ -562,6 +672,7 @@ export function ChatSessionPage() {
             setError(msgText)
             setWsStatus('error')
             setWsDetail(msgText)
+            refetchMessages()
           }
         } catch {
           /* ignore */
@@ -613,7 +724,6 @@ export function ChatSessionPage() {
         } catch {
           /* ignore */
         }
-        flushOutbox(socket)
       }
 
       socket.onopen = onBecameOpen
@@ -789,7 +899,7 @@ export function ChatSessionPage() {
   useEffect(() => {
     const pending = readPendingPrompt(id).trim()
     const ws = wsRef.current
-    if (!pending || sentPending.has(id) || !histReady) {
+    if (!pending || sentPending.has(id) || !histReady || busy) {
       return
     }
     sentPending.add(id)
@@ -801,7 +911,7 @@ export function ChatSessionPage() {
     appendLocalUser(pending)
     outboxRef.current = enqueueOutbox(outboxRef.current, pending)
     setStatusHint(outboxWaitingHint(outboxRef.current.length))
-  }, [histReady, wsOpen, id])
+  }, [histReady, wsOpen, id, busy])
 
   const answerPerm = (optionId: string) => {
     if (!perm || !wsRef.current) return
@@ -856,6 +966,10 @@ export function ChatSessionPage() {
 
   return (
     <div className="chat-thread">
+      <SessionTabs
+        assistantId={assistantIdParam || session?.assistantId || ''}
+        currentId={id}
+      />
       <div
         style={{
           display: 'flex',
@@ -940,7 +1054,7 @@ export function ChatSessionPage() {
                   type="tertiary"
                   style={{ display: 'block', textAlign: 'center', padding: 64 }}
                 >
-                  Waiting for the agent…
+                  打个招呼，开启对话…
                 </Typography.Text>
               )}
               {chats.length > 0 && (

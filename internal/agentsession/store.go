@@ -213,6 +213,22 @@ func (s *Store) MarkStopped(ctx context.Context, id string) error {
 	return err
 }
 
+// Rename updates the session title.
+func (s *Store) Rename(ctx context.Context, id, title string) error {
+	res, err := s.DB.ExecContext(ctx, `UPDATE agent_sessions SET title=$2, updated_at=$3 WHERE id=$1`, id, title, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Delete removes a session and cascaded messages.
 func (s *Store) Delete(ctx context.Context, id string) error {
 	res, err := s.DB.ExecContext(ctx, `DELETE FROM agent_sessions WHERE id=$1`, id)

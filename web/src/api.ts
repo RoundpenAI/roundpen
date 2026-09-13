@@ -845,12 +845,21 @@ export type AgentBrowserStatus = {
 export const agents = {
   list: () => api<{ agents: AgentProvider[] }>('/v1/agents'),
   sessions: () => api<{ sessions: AgentSession[] }>('/v1/agent-sessions'),
-  createSession: (body: { title?: string; providerId?: string }) =>
+  createSession: (body: {
+    title?: string
+    providerId?: string
+    assistantId?: string
+  }) =>
     api<AgentSession>('/v1/agent-sessions', {
       method: 'POST',
       body: JSON.stringify(body),
     }),
   getSession: (id: string) => api<AgentSession>(`/v1/agent-sessions/${id}`),
+  renameSession: (id: string, title: string) =>
+    api<AgentSession>(`/v1/agent-sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
   deleteSession: (id: string) =>
     api<void>(`/v1/agent-sessions/${id}`, { method: 'DELETE' }),
   messages: (id: string) =>

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -133,11 +134,6 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 	messages := a.buildPromptMessages(ctx, userText)
 	openaiTools := a.deps.Tools.OpenAITools()
 
-	_ = a.conn.SessionUpdate(ctx, acp.SessionNotification{
-		SessionId: acp.SessionId(sid),
-		Update:    acp.UpdateAgentThoughtText("Working…"),
-	})
-
 	var watch loopWatch
 	for {
 		if err := ctx.Err(); err != nil {
@@ -147,10 +143,23 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 			messages = shrinkOldToolResults(messages, keepLastToolResults)
 		}
 		var streamed bool
-		msg, finish, err := a.deps.LLM.chatStream(ctx, messages, openaiTools, func(chunk string) error {
-			streamed = true
-			return a.emitText(ctx, sid, chunk)
-		})
+		streamOnce := func() (chatMessage, string, error) {
+			return a.deps.LLM.chatStream(ctx, messages, openaiTools,
+				func(chunk string) error {
+					streamed = true
+					return a.emitText(ctx, sid, chunk)
+				},
+				func(chunk string) error {
+					return a.emitThought(ctx, sid, chunk)
+				},
+			)
+		}
+		msg, finish, err := streamOnce()
+		if err != nil && !streamed && ctx.Err() == nil && isTransientLLMError(err) {
+			// Upstream cut the SSE stream before emitting anything visible;
+			// one silent retry masks transient interruptions.
+			msg, finish, err = streamOnce()
+		}
 		if err != nil {
 			_ = a.emitText(ctx, sid, "LLM error: "+err.Error())
 			return err
@@ -303,6 +312,34 @@ func (a *Agent) emitText(ctx context.Context, sid, text string) error {
 		SessionId: acp.SessionId(sid),
 		Update:    acp.UpdateAgentMessageText(text),
 	})
+}
+
+// emitThought surfaces genuine model reasoning (reasoning_content deltas) as
+// ACP ability_thought events. Whitespace-only deltas are dropped.
+func (a *Agent) emitThought(ctx context.Context, sid, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return a.conn.SessionUpdate(ctx, acp.SessionNotification{
+		SessionId: acp.SessionId(sid),
+		Update:    acp.UpdateAgentThoughtText(text),
+	})
+}
+
+// isTransientLLMError reports whether an LLM stream failure is worth one retry:
+// context cancellation is not retried, 4xx are client errors, but 5xx and any
+// mid-stream interruption (provider cut the SSE body) may succeed on retry.
+func isTransientLLMError(err error) bool {
+	if err == nil ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var he *httpStatusError
+	if errors.As(err, &he) {
+		return he.code >= 500
+	}
+	return true
 }
 
 // toolPermCached returns a prior session decision for a mutating tool, if any.

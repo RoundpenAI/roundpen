@@ -11,10 +11,8 @@ import (
 	"sync"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
 	"github.com/gorilla/websocket"
 
-	acpclient "github.com/RoundpenAI/roundpen/internal/acp/client"
 	"github.com/RoundpenAI/roundpen/internal/acp/manager"
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
@@ -48,6 +46,9 @@ type Handler struct {
 	Tasks       *browsetask.Store
 	Tickets     *assistticket.Store
 	DestroySbx  bool // delete sandbox on session delete
+
+	runnersMu sync.RWMutex
+	runners   map[string]*runner
 }
 
 // Mount registers routes.
@@ -56,6 +57,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/agent-sessions", h.listSessions)
 	mux.HandleFunc("POST /v1/agent-sessions", h.createSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}", h.getSession)
+	mux.HandleFunc("PATCH /v1/agent-sessions/{id}", h.renameSession)
 	mux.HandleFunc("DELETE /v1/agent-sessions/{id}", h.deleteSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", h.listMessages)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/ws", h.sessionWS)
@@ -246,6 +248,7 @@ func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
+	h.deleteRunner(id)
 	if h.ACP != nil {
 		h.ACP.Stop(id)
 	}
@@ -257,6 +260,43 @@ func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
 		_ = h.Sandboxes.Delete(r.Context(), sess.SandboxID)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) renameSession(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id := r.PathValue("id")
+	sess, err := h.Store.Get(r.Context(), id)
+	if errors.Is(err, agentsession.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if sess.UserID != user.Username && user.Role != "admin" {
+		writeErr(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	var req struct {
+		Title string `json:"title"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	req.Title = strings.TrimSpace(req.Title)
+	if req.Title == "" {
+		writeErr(w, http.StatusBadRequest, "title required")
+		return
+	}
+	if err := h.Store.Rename(r.Context(), id, req.Title); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	sess.Title = req.Title
+	writeJSON(w, http.StatusOK, sess)
 }
 
 func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
@@ -304,6 +344,40 @@ type wsOut struct {
 	TicketID   string `json:"ticketId,omitempty"`
 }
 
+// wsClient wraps a browser WebSocket so the runner can fan out to many
+// connections without sharing one write mutex.
+type wsClient struct {
+	mu     sync.Mutex
+	conn   *websocket.Conn
+	closed bool
+}
+
+func (c *wsClient) write(v any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
+	_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := c.conn.WriteJSON(v); err != nil {
+		c.closed = true
+		_ = c.conn.Close()
+	}
+}
+
+func (c *wsClient) ping() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
+	_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+		c.closed = true
+		_ = c.conn.Close()
+	}
+}
+
 func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
@@ -321,9 +395,9 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rt, ok := h.ACP.Get(id)
-	needsStart := !ok
-	if needsStart {
+	// Fail fast with a clear 4xx before upgrading when the runtime can't be
+	// restarted (unknown provider / missing sandbox).
+	if _, ok := h.ACP.Get(id); !ok {
 		provMeta, found := providers.ByID(h.ACP.Providers(), sess.ProviderID)
 		if !found {
 			writeErr(w, http.StatusConflict, "unknown provider")
@@ -335,51 +409,36 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Upgrade before Start so the browser leaves CONNECTING quickly.
-	// A slow/hanging ACP Start used to block the handshake entirely.
+	// Upgrade before Start so the browser leaves CONNECTING quickly.  A
+	// slow/hanging ACP Start used to block the handshake entirely.
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
-	defer conn.Close()
-
-	var writeMu sync.Mutex
-	write := func(v any) {
-		writeMu.Lock()
-		defer writeMu.Unlock()
-		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		_ = conn.WriteJSON(v)
-	}
+	client := &wsClient{conn: conn}
 
 	// Push a frame immediately so reverse proxies flush the 101 upgrade
 	// before ACP Start (which can take seconds) runs on this goroutine.
-	write(wsOut{Type: "hello", Message: "ok"})
+	client.write(wsOut{Type: "hello", Message: "ok"})
 
-	if needsStart {
-		actor := manager.Actor{
-			Username: user.Username,
-			Role:     string(user.Role),
-			APIKey:   user.APIKey,
-		}
-		// Detach from the HTTP request context: the browser already has an
-		// open socket; canceling Start when the request ctx flaps (proxy /
-		// Strict Mode reconnect) leaves the UI stuck on 「连接中」.
-		var startErr error
-		rt, startErr = h.ACP.Start(context.Background(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{Actor: actor, AutoApprove: true})
-		if startErr != nil {
-			// Concurrent WS may have started the runtime between Get and Start.
-			if existing, ok := h.ACP.Get(id); ok {
-				rt = existing
-			} else {
-				write(wsOut{Type: "error", Message: "restart agent: " + startErr.Error()})
-				return
-			}
-		}
-	}
-	if rt == nil {
-		write(wsOut{Type: "error", Message: "agent runtime not available"})
+	// The runner owns the turn lifecycle independent of this connection: a
+	// dropped or closed browser tab must not stop generation.  Attaching just
+	// mirrors its stream.
+	run, runErr := h.runnerFor(sess, user)
+	if runErr != nil {
+		client.write(wsOut{Type: "error", Message: "restart agent: " + runErr.Error()})
+		_ = conn.Close()
 		return
 	}
+
+	// Send the in-progress snapshot BEFORE subscribing so a late broadcast
+	// cannot interleave ahead of it; the client rebuilds its UI from it.
+	client.write(run.snapshot())
+	run.subscribe(client)
+	defer func() {
+		run.unsubscribe(client)
+		_ = conn.Close()
+	}()
 
 	const (
 		wsPongWait  = 60 * time.Second
@@ -400,203 +459,10 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 			case <-pingDone:
 				return
 			case <-t.C:
-				writeMu.Lock()
-				_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				err := conn.WriteMessage(websocket.PingMessage, nil)
-				writeMu.Unlock()
-				if err != nil {
-					_ = conn.Close()
-					return
-				}
+				client.ping()
 			}
 		}
 	}()
-
-	permCh := make(map[string]chan string)
-	var permMu sync.Mutex
-	autoMu := sync.Mutex{}
-	autoMode := true
-	rt.SetAutoApprove(true)
-
-	var turnMu sync.Mutex
-	var replyBuf strings.Builder
-	var thoughtBuf strings.Builder
-	var thoughtStart time.Time
-
-	persist := func(role, content string, meta any) {
-		_, _ = h.Store.AddMessage(context.Background(), sess.ID, role, content, meta)
-	}
-	flushThought := func() {
-		turnMu.Lock()
-		text := strings.TrimSpace(thoughtBuf.String())
-		thoughtBuf.Reset()
-		var dur int64
-		if !thoughtStart.IsZero() {
-			dur = time.Since(thoughtStart).Milliseconds()
-			thoughtStart = time.Time{}
-		}
-		turnMu.Unlock()
-		if text == "" {
-			return
-		}
-		persist(agentsession.RoleThought, text, map[string]any{
-			"type":       "thought",
-			"durationMs": dur,
-		})
-	}
-	isAuto := func() bool {
-		autoMu.Lock()
-		defer autoMu.Unlock()
-		return autoMode
-	}
-
-	rt.SetEventHandler(func(ev acpclient.Event) {
-		write(wsOut{Type: "event", Event: ev})
-		switch ev.Type {
-		case "agent_message":
-			if ev.Text == "" {
-				return
-			}
-			flushThought()
-			turnMu.Lock()
-			replyBuf.WriteString(ev.Text)
-			turnMu.Unlock()
-		case "agent_thought":
-			if ev.Text == "" {
-				return
-			}
-			turnMu.Lock()
-			if thoughtBuf.Len() == 0 {
-				thoughtStart = time.Now()
-			}
-			thoughtBuf.WriteString(ev.Text)
-			turnMu.Unlock()
-		case "tool_call", "tool_call_update":
-			flushThought()
-			_, _ = h.Store.UpsertToolMessage(context.Background(), sess.ID, agentsession.ToolMeta{
-				Type:   "tool_call",
-				ToolID: ev.ToolID,
-				Title:  ev.Title,
-				Status: ev.Status,
-				Kind:   ev.Kind,
-				Input:  ev.Input,
-				Output: ev.Output,
-			})
-		case "plan":
-			flushThought()
-			text := strings.TrimSpace(ev.Text)
-			if text == "" {
-				text = "plan"
-			}
-			persist(agentsession.RoleEvent, text, map[string]string{"type": "plan"})
-		case "permission":
-			flushThought()
-			title := strings.TrimSpace(ev.Title)
-			if title == "" {
-				title = "tool"
-			}
-			outcome := ev.Status
-			if outcome == "" {
-				outcome = "auto"
-			}
-			persist(agentsession.RolePermission, title+" · "+ev.Text, agentsession.PermissionMeta{
-				Type:     "permission",
-				Title:    title,
-				OptionID: ev.Text,
-				Outcome:  outcome,
-				ToolID:   ev.ToolID,
-			})
-		}
-	})
-
-	rt.SetPermissionHandler(func(req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-		reqID := string(req.ToolCall.ToolCallId)
-		ch := make(chan string, 1)
-		permMu.Lock()
-		permCh[reqID] = ch
-		permMu.Unlock()
-		title := ""
-		if req.ToolCall.Title != nil {
-			title = *req.ToolCall.Title
-		}
-		flushThought()
-		if isAuto() {
-			if opt := acpclient.PickOrdinaryAllow(req.Options); opt != "" {
-				persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
-					Type:      "permission",
-					RequestID: reqID,
-					Title:     title,
-					OptionID:  opt,
-					Outcome:   "auto",
-					Options:   req.Options,
-					ToolID:    reqID,
-				})
-				return acp.RequestPermissionResponse{
-					Outcome: acp.RequestPermissionOutcome{
-						Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(opt)},
-					},
-				}, nil
-			}
-		}
-		persist(agentsession.RolePermission, title, agentsession.PermissionMeta{
-			Type:      "permission",
-			RequestID: reqID,
-			Title:     title,
-			Outcome:   "requested",
-			Options:   req.Options,
-			ToolID:    reqID,
-		})
-		ticketID := ""
-		if h.Tickets != nil && sess.AssistantID != "" {
-			t, err := h.Tickets.Create(r.Context(), sess.UserID, assistticket.CreateInput{
-				AssistantID:    sess.AssistantID,
-				SessionID:      sess.ID,
-				Kind:           assistticket.KindPermission,
-				Title:          "需要确认：" + title,
-				Reason:         "工具权限请求",
-				ContextSummary: title,
-				AskHuman:       "请选择允许一次、本会话记住，或拒绝",
-				Payload: map[string]any{
-					"requestId": reqID,
-					"options":   req.Options,
-					"toolTitle": title,
-				},
-			})
-			if err == nil {
-				ticketID = t.ID
-			}
-		}
-		write(wsOut{Type: "permission_request", RequestID: reqID, Title: title, Options: req.Options, TicketID: ticketID})
-		select {
-		case opt := <-ch:
-			persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
-				Type:      "permission",
-				RequestID: reqID,
-				Title:     title,
-				OptionID:  opt,
-				Outcome:   "selected",
-				Options:   req.Options,
-				ToolID:    reqID,
-			})
-			return acp.RequestPermissionResponse{
-				Outcome: acp.RequestPermissionOutcome{
-					Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(opt)},
-				},
-			}, nil
-		case <-r.Context().Done():
-			persist(agentsession.RolePermission, title+" · cancelled", agentsession.PermissionMeta{
-				Type:      "permission",
-				RequestID: reqID,
-				Title:     title,
-				Outcome:   "cancelled",
-				Options:   req.Options,
-				ToolID:    reqID,
-			})
-			return acp.RequestPermissionResponse{
-				Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},
-			}, r.Context().Err()
-		}
-	})
 
 	for {
 		var in wsIn
@@ -606,57 +472,13 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 		switch strings.ToLower(in.Type) {
 		case "prompt":
-			text := strings.TrimSpace(in.Text)
-			if text == "" {
-				continue
-			}
-			persist(agentsession.RoleUser, text, map[string]string{"type": "user"})
-			go func(t string) {
-				turnMu.Lock()
-				replyBuf.Reset()
-				thoughtBuf.Reset()
-				turnMu.Unlock()
-
-				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-				defer cancel()
-				stop, err := h.ACP.Prompt(ctx, sess.ID, t)
-				if err != nil {
-					flushThought()
-					persist(agentsession.RoleEvent, err.Error(), map[string]string{"type": "error"})
-					write(wsOut{Type: "error", Message: err.Error()})
-					return
-				}
-				flushThought()
-				turnMu.Lock()
-				assistant := strings.TrimSpace(replyBuf.String())
-				turnMu.Unlock()
-				if assistant == "" {
-					assistant = "(no response)"
-				}
-				persist(agentsession.RoleAssistant, assistant, map[string]string{
-					"type":       "assistant",
-					"stopReason": string(stop),
-				})
-				write(wsOut{Type: "done", StopReason: string(stop)})
-			}(text)
+			run.prompt(in.Text)
 		case "cancel":
-			_ = h.ACP.Cancel(r.Context(), sess.ID)
+			run.cancelTurn()
 		case "auto":
-			autoMu.Lock()
-			autoMode = in.Enabled
-			autoMu.Unlock()
-			rt.SetAutoApprove(in.Enabled)
+			run.setAuto(in.Enabled)
 		case "permission":
-			permMu.Lock()
-			ch := permCh[in.RequestID]
-			delete(permCh, in.RequestID)
-			permMu.Unlock()
-			if ch != nil {
-				select {
-				case ch <- in.OptionID:
-				default:
-				}
-			}
+			run.answerPermission(in.RequestID, in.OptionID)
 		}
 	}
 }

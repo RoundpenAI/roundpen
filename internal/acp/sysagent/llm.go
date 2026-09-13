@@ -47,16 +47,6 @@ type chatRequest struct {
 	Stream   bool             `json:"stream,omitempty"`
 }
 
-type chatResponse struct {
-	Choices []struct {
-		Message      chatMessage `json:"message"`
-		FinishReason string      `json:"finish_reason"`
-	} `json:"choices"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
-}
-
 func (c LLMConfig) model() string {
 	m := strings.TrimSpace(c.Model)
 	if m == "" && c.DefaultModel != nil {
@@ -69,7 +59,7 @@ func (c LLMConfig) model() string {
 }
 
 func (c LLMConfig) chat(ctx context.Context, messages []chatMessage, tools []map[string]any) (chatMessage, string, error) {
-	return c.chatStream(ctx, messages, tools, nil)
+	return c.chatStream(ctx, messages, tools, nil, nil)
 }
 
 // Run executes a tool-less chat completion and returns the assistant text.
@@ -89,7 +79,9 @@ func (c LLMConfig) Run(ctx context.Context, system, user string) (string, error)
 
 // chatStream calls OpenAI-compatible chat completions with stream=true.
 // onContent receives each text delta (may be nil to accumulate silently).
-func (c LLMConfig) chatStream(ctx context.Context, messages []chatMessage, tools []map[string]any, onContent func(string) error) (chatMessage, string, error) {
+// onReasoning receives reasoning deltas (reasoning_content / reasoning) if the
+// upstream model streams them; it is never treated as assistant content.
+func (c LLMConfig) chatStream(ctx context.Context, messages []chatMessage, tools []map[string]any, onContent, onReasoning func(string) error) (chatMessage, string, error) {
 	base := strings.TrimRight(c.BaseURL, "/")
 	body, err := json.Marshal(chatRequest{
 		Model:    c.model(),
@@ -104,7 +96,7 @@ func (c LLMConfig) chatStream(ctx context.Context, messages []chatMessage, tools
 	paths := []string{"/v1/chat/completions", "/chat/completions"}
 	var lastErr error
 	for _, path := range paths {
-		msg, finish, err := c.chatStreamOnce(ctx, base+path, body, onContent)
+		msg, finish, err := c.chatStreamOnce(ctx, base+path, body, onContent, onReasoning)
 		if err == nil {
 			return msg, finish, nil
 		}
@@ -130,7 +122,7 @@ func isHTTPStatus(err error, code int) bool {
 	return errors.As(err, &he) && he.code == code
 }
 
-func (c LLMConfig) chatStreamOnce(ctx context.Context, url string, body []byte, onContent func(string) error) (chatMessage, string, error) {
+func (c LLMConfig) chatStreamOnce(ctx context.Context, url string, body []byte, onContent, onReasoning func(string) error) (chatMessage, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return chatMessage{}, "", err
@@ -154,17 +146,29 @@ func (c LLMConfig) chatStreamOnce(ctx context.Context, url string, body []byte, 
 	trimmed := bytes.TrimSpace(peek)
 	// Some gateways ignore stream=true and return a full JSON object.
 	if len(trimmed) > 0 && trimmed[0] == '{' && !bytes.Contains(peek, []byte("data:")) {
-		return readChatJSON(br, onContent)
+		return readChatJSON(br, onContent, onReasoning)
 	}
-	return readChatSSE(ctx, br, onContent)
+	return readChatSSE(ctx, br, onContent, onReasoning)
 }
 
-func readChatJSON(r io.Reader, onContent func(string) error) (chatMessage, string, error) {
+func readChatJSON(r io.Reader, onContent, onReasoning func(string) error) (chatMessage, string, error) {
 	raw, err := io.ReadAll(io.LimitReader(r, 4<<20))
 	if err != nil {
 		return chatMessage{}, "", err
 	}
-	var out chatResponse
+	var out struct {
+		Choices []struct {
+			Message struct {
+				chatMessage
+				ReasoningContent any `json:"reasoning_content"`
+				Reasoning        any `json:"reasoning"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return chatMessage{}, "", fmt.Errorf("decode llm response: %w", err)
 	}
@@ -174,7 +178,12 @@ func readChatJSON(r io.Reader, onContent func(string) error) (chatMessage, strin
 	if len(out.Choices) == 0 {
 		return chatMessage{}, "", fmt.Errorf("llm returned no choices")
 	}
-	msg := out.Choices[0].Message
+	msg := out.Choices[0].Message.chatMessage
+	if text := extractReasoning(out.Choices[0].Message.ReasoningContent, out.Choices[0].Message.Reasoning); text != "" && onReasoning != nil {
+		if err := onReasoning(text); err != nil {
+			return chatMessage{}, "", err
+		}
+	}
 	if msg.Content != "" && onContent != nil {
 		if err := onContent(msg.Content); err != nil {
 			return chatMessage{}, "", err
@@ -194,9 +203,11 @@ func (c LLMConfig) streamClient() *http.Client {
 type streamDelta struct {
 	Choices []struct {
 		Delta struct {
-			Role      string `json:"role"`
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Role             string         `json:"role"`
+			Content          string         `json:"content"`
+			ReasoningContent any            `json:"reasoning_content"`
+			Reasoning        any            `json:"reasoning"`
+			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`
 				Type     string `json:"type"`
@@ -213,7 +224,32 @@ type streamDelta struct {
 	} `json:"error,omitempty"`
 }
 
-func readChatSSE(ctx context.Context, r io.Reader, onContent func(string) error) (chatMessage, string, error) {
+// extractReasoning normalizes provider-specific reasoning deltas into text.
+// Supports deepseek/dashscope-style `reasoning_content` strings and the
+// OpenAI `reasoning` array (string entries or {".": text} blobs).
+func extractReasoning(reasoningContent, reasoning any) string {
+	var b strings.Builder
+	for _, v := range []any{reasoningContent, reasoning} {
+		switch t := v.(type) {
+		case string:
+			b.WriteString(t)
+		case []any:
+			for _, item := range t {
+				switch e := item.(type) {
+				case string:
+					b.WriteString(e)
+				case map[string]any:
+					if s, ok := e["."].(string); ok {
+						b.WriteString(s)
+					}
+				}
+			}
+		}
+	}
+	return b.String()
+}
+
+func readChatSSE(ctx context.Context, r io.Reader, onContent, onReasoning func(string) error) (chatMessage, string, error) {
 	br := newLineReader(r)
 	var content strings.Builder
 	toolAcc := map[int]*toolCall{}
@@ -264,6 +300,13 @@ func readChatSSE(ctx context.Context, r io.Reader, onContent func(string) error)
 			content.WriteString(d.Content)
 			if onContent != nil {
 				if err := onContent(d.Content); err != nil {
+					return chatMessage{}, "", err
+				}
+			}
+		}
+		if text := extractReasoning(d.ReasoningContent, d.Reasoning); text != "" {
+			if onReasoning != nil {
+				if err := onReasoning(text); err != nil {
 					return chatMessage{}, "", err
 				}
 			}
