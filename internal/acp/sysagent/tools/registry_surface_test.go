@@ -60,8 +60,25 @@ func TestWebToolSurface(t *testing.T) {
 	if _, ok := reg.Get("WebSearch"); ok {
 		t.Fatal("WebSearch must not register without endpoint/key")
 	}
+	assertCleanReadOnly(t, reg)
 
+	reg2 := tools.NewRegistry()
+	tools.RegisterWebSearch(reg2, &tools.WebSearchBinder{APIKey: "tvly-test"})
+	if _, ok := reg2.Get("WebSearch"); !ok {
+		t.Fatal("missing WebSearch when configured")
+	}
+	assertCleanReadOnly(t, reg2)
+}
+
+func assertCleanReadOnly(t *testing.T, reg *tools.Registry) {
+	t.Helper()
+	if len(reg.List()) == 0 {
+		t.Fatal("registry is empty")
+	}
 	for _, tool := range reg.List() {
+		if strings.TrimSpace(tool.Description) == "" {
+			t.Fatalf("%s has an empty description", tool.Name)
+		}
 		lower := strings.ToLower(tool.Description)
 		for _, bad := range []string{"sandbox", "guest", "qemu"} {
 			if strings.Contains(lower, bad) {
@@ -71,15 +88,5 @@ func TestWebToolSurface(t *testing.T) {
 		if tool.Mutating {
 			t.Fatalf("%s must be read-only", tool.Name)
 		}
-	}
-
-	reg2 := tools.NewRegistry()
-	tools.RegisterWebSearch(reg2, &tools.WebSearchBinder{APIKey: "tvly-test"})
-	search, ok := reg2.Get("WebSearch")
-	if !ok {
-		t.Fatal("missing WebSearch when configured")
-	}
-	if search.Mutating {
-		t.Fatal("WebSearch must be read-only")
 	}
 }

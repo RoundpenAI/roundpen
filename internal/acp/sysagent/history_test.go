@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 )
 
@@ -121,7 +122,9 @@ func TestCompactHistory_DropsOldestTurns(t *testing.T) {
 }
 
 func TestSystemPromptMentionsWebTools(t *testing.T) {
-	a := New(Deps{})
+	reg := tools.NewRegistry()
+	tools.RegisterWebSearch(reg, &tools.WebSearchBinder{APIKey: "k"})
+	a := New(Deps{Tools: reg})
 	msgs := a.buildPromptMessages(context.Background(), "hi")
 	if len(msgs) == 0 || msgs[0].Role != "system" {
 		t.Fatalf("unexpected messages: %+v", msgs)
@@ -130,5 +133,19 @@ func TestSystemPromptMentionsWebTools(t *testing.T) {
 		if !strings.Contains(msgs[0].Content, want) {
 			t.Fatalf("system prompt missing %q", want)
 		}
+	}
+}
+
+func TestSystemPromptOmitsWebSearchWhenUnconfigured(t *testing.T) {
+	a := New(Deps{})
+	msgs := a.buildPromptMessages(context.Background(), "hi")
+	if len(msgs) == 0 || msgs[0].Role != "system" {
+		t.Fatalf("unexpected messages: %+v", msgs)
+	}
+	if !strings.Contains(msgs[0].Content, "WebFetch") {
+		t.Fatal("system prompt must still mention WebFetch")
+	}
+	if strings.Contains(msgs[0].Content, "WebSearch") {
+		t.Fatalf("system prompt must not promise WebSearch when it is not registered: %q", msgs[0].Content)
 	}
 }
