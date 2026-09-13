@@ -95,7 +95,7 @@ func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (
 
 ### 3. UI（设置页「Agent 环境」区块）
 
-- 显示：槽位状态（running / stopped / absent）、当前镜像 ref（`EnvView` 增加 `image` 字段；absent 时展示将要使用的模板镜像）、最近一次升级结果。
+- 显示：槽位状态（running / stopped / absent）、当前镜像 ref（`EnvView` 增加 `image` 字段；环境列表仅在沙箱存在时才带 `image`，absent 时显示 `—`，仅升级响应的 `image` 字段给出升级尝试解析出的镜像）、最近一次升级结果。
 - 操作：
   - 主按钮「检查并升级」→ `{"force": false}`；
   - 次按钮「强制重建」→ `{"force": true}`；
