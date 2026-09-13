@@ -95,6 +95,19 @@ func managedTarget() *userenv.BrowserTarget {
 	}
 }
 
+// noBrowserTokenTarget is a managed container whose metadata lacks the
+// debugger token: nothing may be injected, and a client-supplied token must be
+// dropped rather than forwarded.
+func noBrowserTokenTarget() *userenv.BrowserTarget {
+	return &userenv.BrowserTarget{
+		Key: "sb-browser", Provider: "docker", Managed: true,
+		Sandbox: &sandbox.Sandbox{
+			ID:       "sb-browser",
+			Metadata: map[string]string{},
+		},
+	}
+}
+
 func liveRequest(t *testing.T, username, target string) *http.Request {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, target, nil)
@@ -136,6 +149,7 @@ func TestLiveProxyStripsClientCredentials(t *testing.T) {
 	req := liveRequest(t, "alice", "/v1/me/environments/browser/live/app.bundle.js")
 	req.Header.Set("Cookie", "roundpen_session=console-secret")
 	req.Header.Set("Authorization", "Bearer rp-api-key")
+	req.Header.Set("X-API-Key", "rp-secret")
 	rec := httptest.NewRecorder()
 	h.live(rec, req)
 	if rec.Code != http.StatusOK {
@@ -146,6 +160,29 @@ func TestLiveProxyStripsClientCredentials(t *testing.T) {
 	}
 	if got := up.headers.Get("Authorization"); got != "" {
 		t.Fatalf("Authorization leaked upstream: %q", got)
+	}
+	if got := up.headers.Get("X-API-Key"); got != "" {
+		t.Fatalf("X-API-Key leaked upstream: %q", got)
+	}
+}
+
+// TestLiveProxyDropsClientTokenWithoutContainerToken asserts the client cannot
+// smuggle its own ?token= upstream when the container metadata has none.
+func TestLiveProxyDropsClientTokenWithoutContainerToken(t *testing.T) {
+	up := newLiveUpstream()
+	defer up.Close()
+	h := &Handler{Envs: &fakeEnvs{target: noBrowserTokenTarget()}, Dial: up.dialer()}
+
+	rec := httptest.NewRecorder()
+	h.live(rec, liveRequest(t, "alice", "/v1/me/environments/browser/live/app.bundle.js?token=attacker&x=1"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if up.query.Has("token") {
+		t.Fatalf("client token forwarded upstream: %q", up.query.Encode())
+	}
+	if up.query.Get("x") != "1" {
+		t.Fatalf("upstream query = %q, want preserved x=1", up.query.Encode())
 	}
 }
 
@@ -404,16 +441,16 @@ func TestLiveWebSocketForwardsBufferedBytes(t *testing.T) {
 	}
 }
 
-// TestLiveWebSocketStripsClientCredentials asserts on the handshake bytes the
-// upstream reads: the console session must not ride the websocket leg into the
-// sandbox.
-func TestLiveWebSocketStripsClientCredentials(t *testing.T) {
+// rawUpgradeThrough sends a raw websocket upgrade for path through the live
+// proxy and returns the handshake lines the upstream read.
+func rawUpgradeThrough(t *testing.T, target *userenv.BrowserTarget, path string, extraHeaders ...string) []string {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	got := make(chan []string, 1)
+	lines := make(chan []string, 1)
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
@@ -422,22 +459,22 @@ func TestLiveWebSocketStripsClientCredentials(t *testing.T) {
 		defer c.Close()
 		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
 		br := bufio.NewReader(c)
-		var lines []string
+		var got []string
 		for {
 			line, err := br.ReadString('\n')
 			if err != nil {
 				break
 			}
-			lines = append(lines, line)
+			got = append(got, line)
 			if line == "\r\n" {
 				break
 			}
 		}
-		got <- lines
+		lines <- got
 	}()
 
 	h := &Handler{
-		Envs: &fakeEnvs{target: managedTarget()},
+		Envs: &fakeEnvs{target: target},
 		Dial: fakeDialer(func(context.Context, string, int) (net.Conn, error) {
 			return net.Dial("tcp", ln.Addr().String())
 		}),
@@ -454,27 +491,50 @@ func TestLiveWebSocketStripsClientCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	upgrade := "GET /v1/me/environments/browser/live/ws HTTP/1.1\r\n" +
+	upgrade := "GET " + path + " HTTP/1.1\r\n" +
 		"Host: control-plane\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
-		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n" +
-		"Cookie: roundpen_session=console-secret\r\n" +
-		"Authorization: Bearer rp-api-key\r\n\r\n"
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
+	for _, extra := range extraHeaders {
+		upgrade += extra + "\r\n"
+	}
+	upgrade += "\r\n"
 	if _, err := client.Write([]byte(upgrade)); err != nil {
 		t.Fatal(err)
 	}
 	select {
-	case lines := <-got:
-		if len(lines) == 0 {
+	case got := <-lines:
+		if len(got) == 0 {
 			t.Fatal("upstream saw an empty handshake")
 		}
-		for _, line := range lines {
-			lower := strings.ToLower(line)
-			if strings.HasPrefix(lower, "cookie:") || strings.HasPrefix(lower, "authorization:") {
-				t.Fatalf("handshake leaked console credentials upstream: %q", strings.TrimSpace(line))
-			}
-		}
+		return got
 	case <-time.After(5 * time.Second):
 		t.Fatal("upstream never received the handshake")
+		return nil
+	}
+}
+
+// TestLiveWebSocketStripsClientCredentials asserts on the handshake bytes the
+// upstream reads: the console session must not ride the websocket leg into the
+// sandbox.
+func TestLiveWebSocketStripsClientCredentials(t *testing.T) {
+	lines := rawUpgradeThrough(t, managedTarget(), "/v1/me/environments/browser/live/ws",
+		"Cookie: roundpen_session=console-secret",
+		"Authorization: Bearer rp-api-key",
+		"X-API-Key: rp-secret")
+	for _, line := range lines {
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "cookie:") || strings.HasPrefix(lower, "authorization:") || strings.HasPrefix(lower, "x-api-key:") {
+			t.Fatalf("handshake leaked console credentials upstream: %q", strings.TrimSpace(line))
+		}
+	}
+}
+
+// TestLiveWebSocketDropsClientTokenWithoutContainerToken mirrors the http leg:
+// with no container token, a client-supplied ?token= must not reach upstream.
+func TestLiveWebSocketDropsClientTokenWithoutContainerToken(t *testing.T) {
+	lines := rawUpgradeThrough(t, noBrowserTokenTarget(), "/v1/me/environments/browser/live/ws?token=attacker")
+	if strings.Contains(strings.ToLower(lines[0]), "token") {
+		t.Fatalf("client token forwarded upstream: %q", strings.TrimSpace(lines[0]))
 	}
 }
 

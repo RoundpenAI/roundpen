@@ -165,6 +165,7 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 	q := r.URL.Query()
+	q.Del("token")
 	if token != "" {
 		q.Set("token", token)
 	}
@@ -173,9 +174,11 @@ func (h *Handler) live(w http.ResponseWriter, r *http.Request) {
 		req.Host = "127.0.0.1"
 		req.RequestURI = ""
 		// The container authenticates with the injected ?token=; the console
-		// session must not leak into the sandbox.
+		// session credentials (cookie, bearer key, or X-API-Key) must not leak
+		// into the sandbox.
 		req.Header.Del("Cookie")
 		req.Header.Del("Authorization")
+		req.Header.Del("X-API-Key")
 	}
 	proxy := &httputil.ReverseProxy{
 		Director: director,
@@ -239,6 +242,7 @@ func (h *Handler) proxyLiveWS(w http.ResponseWriter, r *http.Request, conn net.C
 		return
 	}
 	q := r.URL.Query()
+	q.Del("token")
 	if token != "" {
 		q.Set("token", token)
 	}
@@ -251,9 +255,11 @@ func (h *Handler) proxyLiveWS(w http.ResponseWriter, r *http.Request, conn net.C
 	// Request.Write ignores the Host header; the field is what goes on the wire.
 	req.Host = "127.0.0.1"
 	// The container authenticates with the injected ?token=; the console
-	// session must not leak into the sandbox.
+	// session credentials (cookie, bearer key, or X-API-Key) must not leak
+	// into the sandbox.
 	req.Header.Del("Cookie")
 	req.Header.Del("Authorization")
+	req.Header.Del("X-API-Key")
 	if err := req.Write(conn); err != nil {
 		_ = conn.Close()
 		_ = client.Close()
