@@ -174,9 +174,13 @@ Expected: FAIL（`s.WebSearchEndpoint undefined` 等编译错误）
 ```go
 	if _, ok := keys["webSearchEndpoint"]; !ok {
 		out.WebSearchEndpoint = fallback.WebSearchEndpoint
+	}
+	if _, ok := keys["webSearchApiKey"]; !ok {
 		out.WebSearchApiKey = fallback.WebSearchApiKey
 	}
 ```
+
+（两个字段必须各自判断 key 是否存在：共用一个判断会把"行里只存了 key、没存 endpoint"的已存 Key 覆盖成 env 兜底值。）
 
 - [ ] **Step 4: 运行测试确认通过**
 
@@ -585,7 +589,127 @@ git commit -m "feat(web): add Web tools settings section"
 
 ---
 
-### Task 5: 文档同步与全量回归
+### Task 5: 设置页移动端适配（侧栏自动隐藏）
+
+**Files:**
+- Modify: `web/src/pages/SettingsLayout.tsx`
+
+问题：`Sider` 恒为 220px 宽且无断点，窄屏（<768px）下侧栏占掉大部分宽度。沿用仓库既有惯例（`AppShell.tsx:209-217` / `AssistantLayout.tsx:384-389`：768px 断点 + class + `<style>` 块）：移动端隐藏侧栏，改为顶部横向可滚动的区块切换条。
+
+- [ ] **Step 1: 重写 SettingsLayout 的布局结构**
+
+把 `return (` 起的整段 JSX 替换为：
+
+```tsx
+  return (
+    <div
+      style={{
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--semi-color-bg-0)',
+      }}
+    >
+      <div
+        className="rp-settings-tabs-mobile"
+        style={{
+          display: 'none',
+          gap: 4,
+          overflowX: 'auto',
+          padding: 8,
+          flex: '0 0 auto',
+          background: 'var(--semi-color-bg-1)',
+          borderBottom: '1px solid var(--semi-color-border)',
+        }}
+      >
+        {sections.map((s) => (
+          <Button
+            key={s.key}
+            size="small"
+            theme={active === s.key ? 'light' : 'borderless'}
+            type={active === s.key ? 'primary' : 'tertiary'}
+            style={{ flex: '0 0 auto' }}
+            onClick={() => navigate(`/settings/${s.key}`)}
+          >
+            {t(s.labelKey)}
+          </Button>
+        ))}
+      </div>
+      <Layout style={{ flex: 1, minHeight: 0 }}>
+        <Sider
+          className="rp-settings-sider-desktop"
+          style={{
+            width: 220,
+            minWidth: 220,
+            maxWidth: 220,
+            background: 'var(--semi-color-bg-1)',
+            borderRight: '1px solid var(--semi-color-border)',
+            padding: 8,
+          }}
+        >
+          <Typography.Text
+            type="tertiary"
+            size="small"
+            style={{ display: 'block', padding: '8px 8px 4px' }}
+          >
+            {t('settings.title')}
+          </Typography.Text>
+          {sections.map((s) => (
+            <Button
+              key={s.key}
+              theme={active === s.key ? 'light' : 'borderless'}
+              type={active === s.key ? 'primary' : 'tertiary'}
+              style={{
+                justifyContent: 'flex-start',
+                width: '100%',
+                marginBottom: 2,
+              }}
+              onClick={() => navigate(`/settings/${s.key}`)}
+            >
+              {t(s.labelKey)}
+            </Button>
+          ))}
+        </Sider>
+        <Content
+          style={{
+            minWidth: 0,
+            minHeight: 0,
+            overflow: 'auto',
+            flex: 1,
+          }}
+        >
+          <Outlet />
+        </Content>
+      </Layout>
+      <style>{`
+        @media (min-width: 768px) {
+          .rp-settings-sider-desktop { display: block !important; }
+          .rp-settings-tabs-mobile { display: none !important; }
+        }
+        @media (max-width: 767px) {
+          .rp-settings-sider-desktop { display: none !important; }
+          .rp-settings-tabs-mobile { display: flex !important; }
+        }
+      `}</style>
+    </div>
+  )
+```
+
+- [ ] **Step 2: 构建校验**
+
+Run: `cd web && npm run build`
+Expected: 类型检查与构建通过
+
+- [ ] **Step 3: 提交**
+
+```bash
+git add web/src/pages/SettingsLayout.tsx
+git commit -m "fix(web): collapse settings sidebar into tabs on mobile"
+```
+
+---
+
+### Task 6: 文档同步与全量回归
 
 **Files:**
 - Modify: `.env.example`
