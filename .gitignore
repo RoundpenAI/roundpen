@@ -26,6 +26,9 @@ vendor/
 *.swp
 .DS_Store
 
+# Isolated worktrees
+/.worktrees/
+
 # pg0 / local postgres
 .pg0/
 
