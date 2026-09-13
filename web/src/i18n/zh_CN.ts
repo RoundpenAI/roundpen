@@ -58,7 +58,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.builder.auto': '自动（根据后端检测）',
 
   'settings.cdp.auto':
-    '自动（Docker 引擎 → Docker Chrome；否则使用本机 Chrome）',
+    '自动（使用 Roundpen 托管容器 browserless）',
   'settings.cdp.docker': 'Roundpen 托管容器（browserless/chrome）',
   'settings.cdp.host': 'roundpend 主机上的 Chrome',
   'settings.cdp.remote': '局域网 / 自建 browserless',

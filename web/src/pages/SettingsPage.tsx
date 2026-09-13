@@ -46,7 +46,7 @@ const emptySettings: AppSettings = {
   cdpProvider: 'auto',
   cdpEndpoint: '',
   cdpToken: '',
-  cdpPort: 9222,
+  cdpPort: 3000,
 }
 
 const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
@@ -600,9 +600,9 @@ export function SettingsPage() {
                   <Input
                     inputMode="numeric"
                     spellCheck={false}
-                    value={String(form.cdpPort || 9222)}
+                    value={String(form.cdpPort || 3000)}
                     onChange={(v) =>
-                      patch({ cdpPort: Number(v) || 9222 })
+                      patch({ cdpPort: Number(v) || 3000 })
                     }
                   />
                 </Field>

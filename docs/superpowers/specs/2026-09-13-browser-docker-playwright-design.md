@@ -1,7 +1,7 @@
 # Browser 环境迁移到 Docker + Playwright 引擎（多来源）设计
 
 日期：2026-09-13
-状态：待评审
+状态：已实现（含实现期修正：镜像懒拉取、托管 token 仅管理员下发）
 影响面：`internal/browser`、`internal/userenv`、`internal/backend/multi`、`internal/api/envapi`、`internal/runtime`、`internal/hostsetup`、`internal/template`、`web`、`images/browser-qemu`（删除）
 
 ## 1. 背景与目标

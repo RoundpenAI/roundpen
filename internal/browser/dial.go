@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
 // PortDialer opens a TCP connection to a port inside a sandbox (Backend.Dial).
@@ -17,7 +19,7 @@ func startCDPProxy(dial PortDialer, sandboxID string, port int) (localURL string
 		return "", nil, fmt.Errorf("docker CDP requires a sandbox dialer")
 	}
 	if port <= 0 {
-		port = 9222
+		port = config.DefaultCDPPort
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

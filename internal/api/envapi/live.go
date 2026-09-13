@@ -14,6 +14,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
 const (
@@ -66,6 +67,12 @@ func (h *Handler) liveLink(w http.ResponseWriter, r *http.Request) {
 		if u == "" {
 			writeJSON(w, http.StatusOK, map[string]any{"mode": target.Provider, "url": ""})
 			return
+		}
+		// The instance token authorizes every session on the endpoint, so only
+		// admins get it appended. Non-admins load the debugger without it and
+		// fall back to the upstream's own auth prompt when one is required.
+		if user.Role != storage.RoleAdmin {
+			token = ""
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"mode": target.Provider, "url": debuggerURL(u, token)})
 	default:

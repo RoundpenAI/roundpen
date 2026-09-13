@@ -81,7 +81,7 @@ func NormalizeCDP(c *CDPConfig) error {
 
 // ResolveCDPProvider picks the effective provider. hostChromeFound is true when
 // a Chrome/Chromium binary exists on the API process (laptop only).
-// Auto prefers dialing the Browser environment (docker/qemu Dial) over host Chrome.
+// Auto resolves to the Roundpen-managed browser container; host Chrome is opt-in.
 func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
 	_ = hostChromeFound
 	if cfg == nil {
@@ -94,7 +94,7 @@ func ResolveCDPProvider(cfg *Config, hostChromeFound bool) string {
 	if p != CDPProviderAuto {
 		return p
 	}
-	// Auto always dials guest CDP (Docker sandbox or QEMU Browser). Host Chrome is opt-in only.
+	// Auto always uses the managed browserless container; host Chrome is opt-in only.
 	return CDPProviderDocker
 }
 

@@ -57,7 +57,7 @@ export const en = {
   'settings.builder.auto': 'Auto (detect from backend)',
 
   'settings.cdp.auto':
-    'Auto (Docker engine → Docker Chrome; else host Chrome if present)',
+    'Auto (Roundpen-managed browserless container)',
   'settings.cdp.docker': 'Roundpen-managed container (browserless/chrome)',
   'settings.cdp.host': 'Chrome on the roundpend host',
   'settings.cdp.remote': 'LAN / self-hosted browserless',

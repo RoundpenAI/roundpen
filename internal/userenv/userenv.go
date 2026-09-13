@@ -186,6 +186,14 @@ func (s *Service) browserTemplate() string {
 // EnsureBrowser resolves the user's browser source. Managed (default) starts or
 // resumes the Roundpen browserless container; external providers need no sandbox.
 func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTarget, error) {
+	// Probe before branching: RequireBrowser is provider-aware and rejects a
+	// remote/cloud endpoint that is missing and a host with no Chrome, not just
+	// a Docker-less managed provider.
+	if s.Probe != nil {
+		if err := s.Probe.RequireBrowser(); err != nil {
+			return nil, err
+		}
+	}
 	provider := s.cdpProvider()
 	if provider != config.CDPProviderDocker {
 		if provider == config.CDPProviderRemote || provider == config.CDPProviderCloud {
@@ -194,11 +202,6 @@ func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTar
 			}
 		}
 		return &BrowserTarget{Key: BrowserKey(userID), Provider: provider}, nil
-	}
-	if s.Probe != nil {
-		if err := s.Probe.RequireBrowser(); err != nil {
-			return nil, err
-		}
 	}
 	sb, err := s.ensure(ctx, userID, SlotBrowser, s.browserTemplate(), "Browser", runtime.EngineDocker)
 	if err != nil {

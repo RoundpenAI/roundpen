@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,15 +12,26 @@ import (
 )
 
 type recDial struct {
+	mu sync.Mutex
 	n  int
 	id string
 }
 
 func (r *recDial) Dial(_ context.Context, sandboxID string, destPort int) (net.Conn, error) {
+	r.mu.Lock()
 	r.n++
 	r.id = sandboxID
+	r.mu.Unlock()
 	_ = destPort
 	return nil, fmt.Errorf("dialed")
+}
+
+// snapshot reads the recorder under its lock; the proxy dials from its own
+// goroutines while the test inspects them.
+func (r *recDial) snapshot() (int, string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.n, r.id
 }
 
 func TestHubAttachDockerWithoutDialer(t *testing.T) {
@@ -84,8 +96,9 @@ func TestHubDockerDialsGivenSandbox(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected CDP attach to fail without a guest")
 	}
-	if d.id != "sb-browser" {
-		t.Fatalf("dialed sandbox %q (n=%d) err=%v", d.id, d.n, err)
+	n, id := d.snapshot()
+	if id != "sb-browser" {
+		t.Fatalf("dialed sandbox %q (n=%d) err=%v", id, n, err)
 	}
 }
 

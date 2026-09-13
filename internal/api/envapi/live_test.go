@@ -645,6 +645,46 @@ func TestLiveLinkHost(t *testing.T) {
 	}
 }
 
+// TestLiveLinkRemoteTokenAdminsOnly asserts the instance-wide CDP token is
+// handed to admins only: a normal console user gets the same debugger URL
+// without it and falls back to the upstream's own auth prompt.
+func TestLiveLinkRemoteTokenAdminsOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		role storage.UserRole
+		want string
+	}{
+		{"admin gets the token", storage.RoleAdmin, "https://cdp.example.com/debugger/?token=instance-secret"},
+		{"user gets no token", storage.RoleUser, "https://cdp.example.com/debugger/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &Handler{
+				Envs: &fakeEnvs{target: &userenv.BrowserTarget{Key: "browser-alice", Provider: config.CDPProviderRemote}},
+				Cfg: &config.Config{CDP: config.CDPConfig{
+					Provider: config.CDPProviderRemote,
+					Endpoint: "wss://cdp.example.com",
+					Token:    "instance-secret",
+				}},
+			}
+			req := httptest.NewRequest(http.MethodGet, "/v1/me/environments/browser/live-link", nil)
+			req = req.WithContext(auth.WithUser(req.Context(), &storage.User{Username: "alice", Role: tc.role}))
+			rec := httptest.NewRecorder()
+			h.liveLink(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			var got map[string]any
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if got["url"] != tc.want {
+				t.Fatalf("url = %v, want %v", got["url"], tc.want)
+			}
+		})
+	}
+}
+
 func TestDebuggerURL(t *testing.T) {
 	cases := []struct {
 		in, token, want string

@@ -53,24 +53,13 @@ func (p *Probe) agentImage() string {
 	return "roundpen-code-agent:local"
 }
 
+// browserImage is the image the managed provider launches. The backend pulls
+// it lazily on create, so readiness does not depend on it being present.
 func (p *Probe) browserImage() string {
 	if v := strings.TrimSpace(p.cfg().BrowserImage); v != "" {
 		return v
 	}
 	return "ghcr.io/browserless/chrome:v2.56.7"
-}
-
-// ValidateImageRef reports an error when ref is set but not present locally.
-// A nil HasImage or empty ref means "cannot tell" and is treated as ready.
-func (p *Probe) ValidateImageRef(ref string) error {
-	ref = strings.TrimSpace(ref)
-	if ref == "" || p == nil || p.HasImage == nil {
-		return nil
-	}
-	if p.HasImage(context.Background(), ref) {
-		return nil
-	}
-	return fmt.Errorf("image %s is not present locally", ref)
 }
 
 // Snapshot builds a live Agent (Docker) readiness report.
@@ -165,21 +154,11 @@ func (p *Probe) RequireBrowser() error {
 		}
 	}
 
-	// docker — managed browserless container.
+	// docker — managed browserless container. The image itself is pulled
+	// lazily by the Docker backend on create, so presence is not required here.
 	snap := p.Snapshot()
 	if !snap.DockerReady {
 		return &NotReady{Engine: EngineDocker, Message: missingMessage(snap.Missing), Setup: snap.Setup}
-	}
-	if err := p.ValidateImageRef(p.browserImage()); err != nil {
-		return &NotReady{
-			Engine:  EngineDocker,
-			Message: "browser image is not available locally",
-			Setup: []SetupStep{{
-				Title:   "Pull the browser image",
-				Detail:  err.Error(),
-				Command: "docker pull " + p.browserImage(),
-			}},
-		}
 	}
 	return nil
 }

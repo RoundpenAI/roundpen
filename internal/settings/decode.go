@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
 // DecodeAppSettings unmarshals stored JSON on top of fallback so newly added
@@ -50,6 +52,16 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 func normalizeLegacy(s AppSettings) AppSettings {
 	if strings.EqualFold(strings.TrimSpace(s.TemplateBuilder), "kaniko") {
 		s.TemplateBuilder = "docker"
+	}
+	// Pre-browserless rows persist 9222, the old managed-container default. The
+	// container now serves browserless on config.DefaultCDPPort (3000), so a
+	// stale 9222 makes the hub dial a closed port. Migrate it for the providers
+	// that own the container; remote/cloud rows keep whatever they pinned.
+	switch strings.ToLower(strings.TrimSpace(s.CDPProvider)) {
+	case "", config.CDPProviderAuto, config.CDPProviderDocker:
+		if s.CDPPort == 9222 {
+			s.CDPPort = config.DefaultCDPPort
+		}
 	}
 	return s
 }
