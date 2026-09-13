@@ -144,3 +144,35 @@ func TestProviders_NeedsSandbox(t *testing.T) {
 		t.Fatalf("claude provider: %+v", claude)
 	}
 }
+
+func TestStartReadsWebSearchGetter(t *testing.T) {
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer llm.Close()
+
+	var calls atomic.Int32
+	m := manager.New(slog.Default(), noopMgr{}, providers.Default(), manager.SysDeps{
+		LoopbackBase: llm.URL,
+		LLMKey:       "vk-test",
+		DefaultModel: func() string { return "gpt-test" },
+		WebSearch: func() (string, string) {
+			calls.Add(1)
+			return "https://api.tavily.com", "tvly-test"
+		},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	if _, err := m.Start(ctx, "sess-web", "", "sysadmin", manager.StartOpts{
+		AutoApprove: true,
+		Actor:       manager.Actor{Username: "u", Role: "user", APIKey: "k"},
+	}); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer m.Stop("sess-web")
+
+	if calls.Load() == 0 {
+		t.Fatal("WebSearch getter must be read when a runtime starts")
+	}
+}

@@ -36,8 +36,7 @@ type SysDeps struct {
 	BrowserSlots tools.BrowserSlot
 	AgentSlots   tools.AgentSlot
 
-	WebSearchEndpoint string // Tavily 兼容搜索 endpoint（空 = 默认 https://api.tavily.com）
-	WebSearchAPIKey   string // 二者任一非空即注册 WebSearch 工具
+	WebSearch func() (endpoint, key string) // nil 或返回空表示未配置 → 不注册 WebSearch
 
 	History sysagent.MessageSource
 }
@@ -155,9 +154,13 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		tools.RegisterSearch(reg, binder)
 		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{})
 		tools.RegisterWebFetch(reg, &tools.WebBinder{HTTP: webClient, Model: llmCfg})
+		webSearchEndpoint, webSearchAPIKey := "", ""
+		if m.sys.WebSearch != nil {
+			webSearchEndpoint, webSearchAPIKey = m.sys.WebSearch()
+		}
 		tools.RegisterWebSearch(reg, &tools.WebSearchBinder{
-			Endpoint: m.sys.WebSearchEndpoint,
-			APIKey:   m.sys.WebSearchAPIKey,
+			Endpoint: webSearchEndpoint,
+			APIKey:   webSearchAPIKey,
 			HTTP:     webClient,
 		})
 		agent := sysagent.New(sysagent.Deps{
