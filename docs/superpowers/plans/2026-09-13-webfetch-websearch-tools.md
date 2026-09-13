@@ -1391,7 +1391,7 @@ git commit -m "feat(sysagent): add tool-less LLMConfig.Run for web fetch extract
 - Modify: `internal/acp/manager/manager.go`（SysDeps 字段 + Start 注册）
 - Modify: `cmd/roundpend/main.go:324-332`（透传配置）
 
-- [ ] **Step 1: SysDeps 增加字段**
+- [x] **Step 1: SysDeps 增加字段**
 
 在 `internal/acp/manager/manager.go` 的 `SysDeps` 结构体中，`AgentSlots tools.AgentSlot` 之后加入：
 
@@ -1400,7 +1400,7 @@ git commit -m "feat(sysagent): add tool-less LLMConfig.Run for web fetch extract
 	WebSearchAPIKey   string // 二者任一非空即注册 WebSearch 工具
 ```
 
-- [ ] **Step 2: Start 中注册 web 工具**
+- [x] **Step 2: Start 中注册 web 工具**
 
 把 `manager.go` 中 `case "sysadmin", "mock", "":` 分支的开头（`reg := tools.NewRegistry()` 之前）改成先构造 `llmCfg`，并在 `tools.RegisterSearch(reg, binder)` 之后注册 web 工具，最后把 `sysagent.New` 的 `LLM` 换成 `llmCfg`。改完后该段为：
 
@@ -1443,11 +1443,16 @@ git commit -m "feat(sysagent): add tool-less LLMConfig.Run for web fetch extract
 
 （`LLMConfig` 的 `chat`/`chatStream` 是值接收者方法，`llmCfg` 值同时满足 `sysagent.Deps.LLM` 与 `tools.ModelRunner`。）
 
-- [ ] **Step 3: main.go 透传**
+- [x] **Step 3: main.go 透传**
 
 在 `cmd/roundpend/main.go` 的 `manager.New(...)` 调用里追加两个字段：
 
 ```go
+	if cfg.WebTools.SearchEndpoint != "" || cfg.WebTools.SearchAPIKey != "" {
+		logger.Info("web search enabled",
+			"endpoint", cfg.WebTools.SearchEndpoint,
+			"api_key_set", cfg.WebTools.SearchAPIKey != "")
+	}
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
 		LoopbackBase: loopback,
 		LLMKey:       llmgw.InternalVirtualKey,
@@ -1462,12 +1467,12 @@ git commit -m "feat(sysagent): add tool-less LLMConfig.Run for web fetch extract
 	})
 ```
 
-- [ ] **Step 4: 构建与既有测试**
+- [x] **Step 4: 构建与既有测试**
 
 Run: `go build ./... && go vet ./internal/acp/... && go test ./internal/acp/... -count=1`
 Expected: 构建通过；`internal/acp/manager` 与 `internal/acp/sysagent` 既有测试全部 PASS（`SysDeps` 新增零值字段不影响既有构造）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add internal/acp/manager/manager.go cmd/roundpend/main.go
@@ -1475,6 +1480,9 @@ git commit -m "feat(agent): wire WebFetch and WebSearch into the System Agent"
 ```
 
 ---
+
+
+> 评审补充（已实现）：WebSearch 启用状态在 daemon 启动时打 info 日志（endpoint + 是否带 Key），避免"只配了一半"的部署静默无鉴权；非法 endpoint 的错误文案改为 `web search endpoint is invalid`（附测试）。另 spec 已同步：SysDeps 用两个字符串字段而非单个 `WebTools`，避免 manager 依赖 config 包。
 
 ### Task 8: 工具面测试 + 系统提示 + 文档
 
