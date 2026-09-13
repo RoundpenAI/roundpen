@@ -22,6 +22,8 @@ func TestBlockedDialAddr(t *testing.T) {
 		{"[::]:80", true},
 		{"224.0.0.1:80", true},
 		{"[ff02::1]:80", true},
+		{"example.com:443", true},
+		{"[fe80::1%eth0]:80", true},
 		{"10.1.2.3:80", false},
 		{"172.16.9.9:80", false},
 		{"192.168.1.10:443", false},
