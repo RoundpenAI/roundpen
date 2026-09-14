@@ -88,9 +88,6 @@ func main() {
 			}},
 		})
 	})
-	mux.HandleFunc("GET /v1/agent-sessions", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"sessions": []any{}})
-	})
 	mux.HandleFunc("GET /v1/browser-tasks", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"tasks": []any{}})
 	})
@@ -120,6 +117,16 @@ func main() {
 	mux.HandleFunc("GET /v1/assistants", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"assistants": assistants.list()})
 	})
+	mux.HandleFunc("GET /v1/assistants/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		for _, a := range assistants.list() {
+			if a["id"] == id {
+				writeJSON(w, a)
+				return
+			}
+		}
+		http.NotFound(w, r)
+	})
 	mux.HandleFunc("POST /v1/assistants", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Name         string `json:"name"`
@@ -131,6 +138,30 @@ func main() {
 	})
 	mux.HandleFunc("POST /v1/assistants/{id}/ensure-session", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"sessionId": "sess-" + r.PathValue("id")})
+	})
+
+	seed := newSeedSession()
+	mux.HandleFunc("GET /v1/agent-sessions", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"sessions": []map[string]any{seed.session}})
+	})
+	mux.HandleFunc("GET /v1/agent-sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") == seed.sessionID() {
+			writeJSON(w, seed.session)
+			return
+		}
+		http.NotFound(w, r)
+	})
+	mux.HandleFunc("POST /v1/agent-sessions", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Title       string `json:"title"`
+			ProviderID  string `json:"providerId"`
+			AssistantID string `json:"assistantId"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		writeJSON(w, seed.create(body.Title, body.ProviderID, body.AssistantID))
+	})
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"messages": seed.messages})
 	})
 
 	mux.HandleFunc("GET /v1/admin/settings", func(w http.ResponseWriter, _ *http.Request) {
@@ -329,4 +360,77 @@ func (s *slotEnvs) UpgradeAgent(_ context.Context, _ string, _ bool) (*userenv.U
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// seedSession fabricates a chat session with a long assistant reply so UI
+// smoke can exercise bubble rendering (including narrow mobile viewports)
+// without a live agent.
+type seedSession struct {
+	session  map[string]any
+	messages []map[string]any
+}
+
+func (s *seedSession) sessionID() string {
+	if s == nil {
+		return ""
+	}
+	_ = s.session
+	if id, ok := s.session["id"].(string); ok {
+		return id
+	}
+	return ""
+}
+
+func (s *seedSession) create(title, providerID, assistantID string) map[string]any {
+	s.session["title"] = title
+	if providerID != "" {
+		s.session["providerId"] = providerID
+	}
+	if assistantID != "" {
+		s.session["assistantId"] = assistantID
+	}
+	return s.session
+}
+
+func newSeedSession() *seedSession {
+	long := "supercalifragilisticexpialidocious "
+	long += "pneumonoultramicroscopicsilicovolcanoconiosis "
+	long += "antidisestablishmentarianism"
+	now := time.Now().UTC().Format(time.RFC3339)
+	sess := map[string]any{
+		"id":          "sess-seed",
+		"userId":      "admin",
+		"title":       "排查生产 502",
+		"providerId":  "sysadmin",
+		"sandboxId":   "sb-seed",
+		"assistantId": "as-seed",
+		"status":      "idle",
+		"createdAt":   now,
+		"updatedAt":   now,
+	}
+	m := func(id, role, content string, meta map[string]any) map[string]any {
+		out := map[string]any{
+			"id": id, "sessionId": "sess-seed", "role": role,
+			"content": content, "createdAt": now,
+		}
+		if meta != nil {
+			out["meta"] = meta
+		}
+		return out
+	}
+	messages := []map[string]any{
+		m("m-user-1", "user", "帮我看看为什么发布到生产环境之后接口偶尔会 502，超时时间怎么设置才合理？这个超长的英文单词也要能折行：\n\n"+long, nil),
+		m("m-thought-1", "assistant", "先确认超时配置在哪里生效，再看看连接池和健康检查的指标。",
+			map[string]any{"type": "reasoning", "status": "completed"}),
+		m("m-tool-1", "assistant", "",
+			map[string]any{
+				"type": "function_call", "toolId": "tool-read-1", "title": "Read",
+				"status": "completed",
+				"input":  map[string]any{"path": "/workspace/nginx.conf"},
+				"output": "proxy_read_timeout 30s;\nproxy_connect_timeout 5s;",
+			}),
+		m("m-assist-1", "assistant", "原因通常有三个：一是网关默认读超时 30 秒，慢查询直接掐断导致客户端看到 502；二是后端连接池被打满，新请求排队超过阈值直接拒绝；三是健康检查失败后负载均衡器仍在转发。\n\n建议按下面的顺序排查：\n\n1. 先看网关日志里 `upstream_timed_out` 的次数，排除超时问题。\n2. 再检查连接池大小与活跃连接数，如果持续打满就该扩容。\n3. 最后确认健康检查 path 是否快速返回。\n\n长英文词条折行验证："+long, nil),
+		m("m-user-2", "user", "把超时改成 60 秒。", nil),
+	}
+	return &seedSession{session: sess, messages: messages}
 }

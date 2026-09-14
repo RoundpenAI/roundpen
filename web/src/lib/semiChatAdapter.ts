@@ -176,6 +176,7 @@ export function agentMessagesToSemi(messages: AgentMessage[]): SemiChatMessage[]
   let turnItems: SemiContentItem[] = []
   let turnId = ''
   let turnCreated: number | undefined
+  let turnStreaming = false
 
   const flushTurn = () => {
     if (turnItems.length === 0) return
@@ -184,12 +185,13 @@ export function agentMessagesToSemi(messages: AgentMessage[]): SemiChatMessage[]
       role: 'assistant',
       model: ACTIVITY_MODEL,
       createdAt: turnCreated,
-      status: activityStatus(turnItems),
+      status: turnStreaming ? 'in_progress' : activityStatus(turnItems),
       content: turnItems,
     })
     turnItems = []
     turnId = ''
     turnCreated = undefined
+    turnStreaming = false
   }
 
   for (const m of messages) {
@@ -197,6 +199,9 @@ export function agentMessagesToSemi(messages: AgentMessage[]): SemiChatMessage[]
       if (turnItems.length === 0) {
         turnId = `turn-${m.id}`
         turnCreated = createdAtMs(m.createdAt)
+      }
+      if (m.meta?.status === 'pending' || m.meta?.status === 'in_progress') {
+        turnStreaming = true
       }
       turnItems.push(isThought(m) ? thoughtItem(m) : toolItem(m))
       continue

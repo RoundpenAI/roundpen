@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Spin } from '@douyinfe/semi-ui-19'
 import { formatGroupStats } from '../lib/toolStats'
 
@@ -183,20 +183,50 @@ export function ToolCallGroup({ calls, alwaysStats = false }: GroupProps) {
   )
 }
 
-function formatThoughtSecs(sec: number, streaming?: boolean): string {
-  if (streaming && sec < 0.5) return 'Thought'
-  const n = Math.max(1, Math.round(sec || 1))
-  return `Thought ${n}s`
+const THOUGHT_PREVIEW_MAX = 44
+
+/** "当前在干嘛" one-liner: the reasoning after the last sentence break. */
+function thoughtPreview(text: string): string {
+  const t = (text ?? '').trim().replace(/\s+/g, ' ')
+  if (!t) return ''
+  const parts = t
+    .split(/[。.!?！？]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const tail = (parts.length ? parts[parts.length - 1] : '') || t
+  return tail.length > THOUGHT_PREVIEW_MAX
+    ? `${tail.slice(0, THOUGHT_PREVIEW_MAX)}…`
+    : tail
 }
 
 type ThoughtProps = {
   text: string
   streaming?: boolean
-  seconds?: number
+  startedAtMs?: number
 }
 
-export function ThoughtBlock({ text, streaming, seconds }: ThoughtProps) {
+export function ThoughtBlock({ text, streaming, startedAtMs }: ThoughtProps) {
   const [open, setOpen] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!streaming) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [streaming])
+
+  const streamingSince =
+    streaming && startedAtMs
+      ? Math.max(0, Math.round((now - startedAtMs) / 1000))
+      : null
+  const label =
+    streamingSince != null
+      ? streamingSince < 1
+        ? '思考中…'
+        : `思考 ${streamingSince}s`
+      : '思考'
+  const preview = thoughtPreview(text)
+
   return (
     <div className="chat-thought">
       <button
@@ -209,7 +239,12 @@ export function ThoughtBlock({ text, streaming, seconds }: ThoughtProps) {
           ▸
         </span>
         {streaming ? <Spin size="small" /> : null}
-        <span>{formatThoughtSecs(seconds ?? 0, streaming)}</span>
+        <span className="chat-thought-label">
+          {label}
+          {preview ? (
+            <span className="chat-thought-preview"> · {preview}</span>
+          ) : null}
+        </span>
       </button>
       {open && <div className="chat-thought-body">{text}</div>}
     </div>

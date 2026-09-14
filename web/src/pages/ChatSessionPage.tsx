@@ -517,7 +517,7 @@ export function ChatSessionPage() {
             if (msg.busy) {
               setBusy(true)
               setError(null)
-              setStatusHint(msg.thought || '工作中')
+              setStatusHint('工作中')
               if (msg.reply) {
                 restoreStreamingReply(msg.reply)
               }
@@ -575,7 +575,6 @@ export function ChatSessionPage() {
               return
             }
             if (e.type === 'agent_thought' && e.text) {
-              setStatusHint(e.text)
               setMessages((prev) => appendThoughtMessage(prev, id, e.text ?? ''))
               return
             }
@@ -1080,17 +1079,6 @@ export function ChatSessionPage() {
                   <Spin size="small" />
                   <Typography.Text ellipsis style={{ minWidth: 0 }}>
                     {statusHint ?? '工作中'}
-                    {session?.assistantId && (
-                      <>
-                        {' · '}
-                        <Link
-                          to={`/a/${session.assistantId}`}
-                          style={{ color: 'var(--semi-color-link)' }}
-                        >
-                          查看此刻
-                        </Link>
-                      </>
-                    )}
                   </Typography.Text>
                 </div>
               )}

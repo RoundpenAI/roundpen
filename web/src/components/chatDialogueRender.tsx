@@ -15,6 +15,7 @@ type DialogueMessage = {
   model?: string
   content?: unknown
   status?: string
+  createdAt?: number
 }
 
 type ContentProps = {
@@ -35,12 +36,17 @@ function parseArgs(raw: string | undefined): unknown {
 function activityFromMessage(message: DialogueMessage): {
   thoughts: { text: string; streaming?: boolean }[]
   tools: ToolCallData[]
+  startedAtMs?: number
 } {
   const items = Array.isArray(message.content)
     ? (message.content as SemiContentItem[])
     : []
   const thoughts: { text: string; streaming?: boolean }[] = []
   const tools: ToolCallData[] = []
+  const startedAtMs =
+    message.createdAt && Number.isFinite(message.createdAt)
+      ? message.createdAt
+      : undefined
   for (const item of items) {
     if (item.type === 'reasoning') {
       const text = item.summary?.map((s) => s.text).join('\n') || ''
@@ -58,17 +64,21 @@ function activityFromMessage(message: DialogueMessage): {
       })
     }
   }
-  return { thoughts, tools }
+  return { thoughts, tools, startedAtMs }
 }
 
 export function renderActivityContent(message: DialogueMessage): ReactNode {
-  const { thoughts, tools } = activityFromMessage(message)
+  const { thoughts, tools, startedAtMs } = activityFromMessage(message)
   const thoughtText = thoughts.map((t) => t.text).filter(Boolean).join('\n\n')
   const streaming = thoughts.some((t) => t.streaming)
   return (
     <div className="chat-activity">
       {thoughtText ? (
-        <ThoughtBlock text={thoughtText} streaming={streaming} />
+        <ThoughtBlock
+          text={thoughtText}
+          streaming={streaming}
+          startedAtMs={startedAtMs}
+        />
       ) : null}
       {tools.length > 0 ? <ToolCallGroup calls={tools} alwaysStats /> : null}
     </div>

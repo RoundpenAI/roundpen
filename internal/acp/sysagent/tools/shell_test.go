@@ -32,6 +32,7 @@ type stubExec struct {
 	workdir string
 	ws      string
 	res     *sandbox.ExecResult
+	queue   []*sandbox.ExecResult
 	fail    error
 }
 
@@ -41,6 +42,11 @@ func (s *stubExec) Exec(_ context.Context, id string, req sandbox.ExecRequest) (
 	s.workdir = req.WorkDir
 	if s.fail != nil {
 		return nil, s.fail
+	}
+	if len(s.queue) > 0 {
+		r := s.queue[0]
+		s.queue = s.queue[1:]
+		return r, nil
 	}
 	if s.res != nil {
 		return s.res, nil

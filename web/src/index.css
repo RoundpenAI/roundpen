@@ -318,6 +318,28 @@ button {
   max-width: 100%;
 }
 
+/* Let bubbles shrink below their min-content on narrow screens. Semi's flex
+   chain defaults to min-width:auto, so a long unbreakable token prevents the
+   whole row from shrinking and overflow-x:hidden clips the right edge. */
+.chat-pane-scroll .semi-ai-chat-dialogue-wrapper,
+.chat-pane-scroll .semi-ai-chat-dialogue-container,
+.chat-pane-scroll .semi-ai-chat-dialogue-inner,
+.chat-pane-scroll .semi-ai-chat-dialogue-content,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-inner,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-custom-renderer,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-item {
+  min-width: 0;
+}
+
+.chat-pane-scroll .semi-ai-chat-dialogue-content-bubble,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-userBubble,
+.chat-pane-scroll .semi-ai-chat-dialogue .semi-markdownRender,
+.chat-pane-scroll .chat-activity-wrap,
+.chat-pane-scroll .chat-activity {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .chat-activity-wrap,
 .chat-activity {
   display: flex;
@@ -410,6 +432,27 @@ button {
 .chat-tool-summary:hover,
 .chat-thought-summary:hover {
   color: var(--semi-color-text-1);
+}
+
+.chat-thought-summary {
+  gap: 0.45rem;
+}
+
+.chat-thought-label {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: baseline;
+  gap: 0.35rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.chat-thought-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
 }
 
 .chat-tool-group-list {

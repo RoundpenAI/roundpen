@@ -150,4 +150,34 @@ describe('agentMessagesToSemi', () => {
     assert.equal((out[1]?.content as unknown[]).length, 3)
     assert.equal(out[2]?.content, 'done')
   })
+
+  it('marks an activity turn in_progress while a thought streams', () => {
+    const rows: AgentMessage[] = [
+      {
+        id: 'th1',
+        sessionId: 's',
+        role: 'assistant',
+        content: 'checking git status',
+        meta: { type: 'thought', status: 'in_progress' },
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 't1',
+        sessionId: 's',
+        role: 'tool',
+        content: '',
+        meta: {
+          type: 'tool_call',
+          toolId: 'c1',
+          title: 'Bash',
+          status: 'completed',
+        },
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]
+    const out = agentMessagesToSemi(rows)
+    assert.equal(out.length, 1)
+    assert.equal(out[0]?.model, ACTIVITY_MODEL)
+    assert.equal(out[0]?.status, 'in_progress')
+  })
 })
