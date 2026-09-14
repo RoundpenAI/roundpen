@@ -330,7 +330,7 @@ CREATE TABLE IF NOT EXISTS browser_tasks (
 );
 CREATE INDEX IF NOT EXISTS browser_tasks_user_idx ON browser_tasks (user_id, created_at DESC);
 
--- Per-user git tokens (never baked into images). Injected into /workspace/.roundpen/git.
+-- Per-user git tokens (never baked into images). Injected into guest $HOME/.roundpen/git.
 CREATE TABLE IF NOT EXISTS user_git_credentials (
     id           TEXT PRIMARY KEY,
     user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,

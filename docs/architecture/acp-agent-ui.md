@@ -55,7 +55,7 @@ Agent 可见工具对齐 Claude Code 命名；沙箱 / ensure 是实现细节（
 
 `ListEnvironments` 里 agent `status=absent` 只表示还没启动——直接调用 `Bash` 或文件工具即可。
 
-Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 PostgreSQL → `EnsureAgent` 经 SSH 写入 guest `/workspace/.roundpen/git`（不写宿主机目录）。**禁止**把宿主机 `~/.ssh` 拷进镜像或沙箱。见 [git-credentials.md](../git-credentials.md)。`Bash` 内的 `git` 会自动使用已注入凭据。
+Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 PostgreSQL → `EnsureAgent` 经 guest exec 写入 `$HOME/.roundpen/git`（guest home，**不放 `/workspace`**，不写宿主机目录）。**禁止**把宿主机 `~/.ssh` 拷进镜像或沙箱。见 [git-credentials.md](../git-credentials.md)。`Bash` 内的 `git` 通过 `~/.gitconfig` include 自动使用已注入凭据。
 
 LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-roundpen-internal`；model 回落 settings Default Model。
 
@@ -70,7 +70,7 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 
 ## 沙箱注入表（stdio / coding）
 
-写入 `CreateRequest.Env`，并可选落盘 `/workspace/.roundpen/env`：
+写入 `CreateRequest.Env`；另把同一批 `export` 落到 guest **home** `~/.roundpen/env`（640），供 agent 源码式读取。**刻意不放** `/workspace`：项目树里绝不能出现 agent 自己的密钥。Git 凭据同理也不落 workspace 前缀——见上方第 58 行注记：
 
 | 变量 | 用途 |
 |------|------|
