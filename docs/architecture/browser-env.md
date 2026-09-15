@@ -2,7 +2,7 @@
 
 Browser 槽位是每个用户一个浏览器来源：默认由 Roundpen 托管一个 browserless Chrome 容器，也可切到局域网 / 商业云 / 本机 Chrome。控制面用 Playwright 引擎经 CDP 驱动，对上层（agent 工具、Browser 页、接管面板）呈现同一套会话模型。
 
-旧的每用户 QEMU 桌面（qcow2 + XFCE + VNC）已整体删除；历史见 `docs/architecture/qemu-agent.md` 与 git 记录。
+旧的每用户 QEMU 桌面（qcow2 + XFCE + VNC）已整体删除；历史见 git 记录。
 
 ## 来源（provider）
 
@@ -140,4 +140,4 @@ make browser-driver            # = go run ./cmd/browserdriver
 
 ## 二期
 
-Agent 槽位固定 Docker；Browser 已迁 Docker（见上）。`internal/backend/qemu` 保留，作为 **Desktop / Mobile 槽位**的落点（qcow2 + kernel sidecar + VNC unix sock 均保留）。旧的 Agent-on-QEMU 方案见 `docs/architecture/qemu-agent.md`（历史 / 已降级）。
+Agent 槽位固定 Docker；Browser 已迁 Docker（见上）。`internal/backend/qemu` 保留，作为 **Desktop / Mobile 槽位**的落点（qcow2 + kernel sidecar + VNC unix sock 均保留）。旧的 Agent-on-QEMU 方案及其镜像构建（`images/agent-qemu/`）已删除，历史见 git 记录。

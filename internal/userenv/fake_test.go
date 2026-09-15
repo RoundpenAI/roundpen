@@ -148,7 +148,7 @@ func (f *fakeSandboxes) Create(_ context.Context, req sandbox.CreateRequest) (*s
 				sb.Image = f.refreshImage
 			}
 		case "qemu":
-			sb.Image = "images/agent-qemu/out/agent.qcow2"
+			sb.Image = "images/legacy-agent.qcow2"
 		}
 	}
 	f.put(sb)

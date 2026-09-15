@@ -372,7 +372,7 @@ func TestEnsureAgentRecreatesNonDockerImage(t *testing.T) {
 			ID:     "old-qemu",
 			Name:   "agent-alice",
 			Status: sandbox.StatusRunning,
-			Image:  "images/agent-qemu/out/agent.qcow2",
+			Image:  "images/legacy-agent.qcow2",
 		},
 	}}
 	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}

@@ -1,7 +1,7 @@
 // Package qemu runs sandboxes as QEMU virtual machines.
 //
-// Agent slot VMs use a qcow2 disk and are kernel-booted
-// (vmlinuz + initrd sidecars from images/agent-qemu).
+// Desktop/Mobile slot VMs use a qcow2 disk and are kernel-booted
+// (vmlinuz + initrd sidecars next to the disk artifact).
 // They are not BIOS/GRUB disks.
 //
 // Networking is QEMU user-mode slirp: the host is 10.0.2.2 from the guest.
@@ -212,7 +212,7 @@ func resolveImage(img string) (string, error) {
 		img = abs
 	}
 	if _, err := os.Stat(img); err != nil {
-		return "", fmt.Errorf("qemu: image %q: %w (build with images/agent-qemu/build.sh)", img, err)
+		return "", fmt.Errorf("qemu: image %q: %w (build the qcow2 artifact first)", img, err)
 	}
 	return img, nil
 }
@@ -220,14 +220,14 @@ func resolveImage(img string) (string, error) {
 func checkImage(img string) error {
 	dir := filepath.Dir(img)
 	if _, err := os.Stat(filepath.Join(dir, "BUILD_INCOMPLETE.txt")); err == nil {
-		return fmt.Errorf("qemu: %s is a placeholder; run images/agent-qemu/build.sh", img)
+		return fmt.Errorf("qemu: %s is a placeholder; build the qcow2 artifact first", img)
 	}
 	st, err := os.Stat(img)
 	if err != nil {
 		return fmt.Errorf("qemu: image %q: %w", img, err)
 	}
 	if st.Size() < minImageBytes {
-		return fmt.Errorf("qemu: image %s is too small (%d bytes); rebuild with images/*/build.sh", img, st.Size())
+		return fmt.Errorf("qemu: image %s is too small (%d bytes); rebuild the qcow2 artifact", img, st.Size())
 	}
 	if _, err := loadBootConfig(img); err != nil {
 		return err
@@ -270,10 +270,10 @@ func loadBootConfig(img string) (*bootConfig, error) {
 		initrd = filepath.Join(dir, initrd)
 	}
 	if _, err := os.Stat(kernel); err != nil {
-		return nil, fmt.Errorf("qemu: kernel sidecar %s missing; rebuild with images/*/build.sh", kernel)
+		return nil, fmt.Errorf("qemu: kernel sidecar %s missing; rebuild the qcow2 artifact", kernel)
 	}
 	if _, err := os.Stat(initrd); err != nil {
-		return nil, fmt.Errorf("qemu: initrd sidecar %s missing; rebuild with images/*/build.sh", initrd)
+		return nil, fmt.Errorf("qemu: initrd sidecar %s missing; rebuild the qcow2 artifact", initrd)
 	}
 	cfg.Kernel = kernel
 	cfg.Initrd = initrd

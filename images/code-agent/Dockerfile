@@ -98,6 +98,17 @@ RUN mkdir -p /opt/cursor-agent \
     && ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/agent; \
     cursor-agent --version
 
+# GitHub CLI (gh): general-purpose tooling every coding workflow expects
+# (PRs, issues, releases, code search). Ships as a release tarball; same
+# /opt + symlink layout as cursor-agent so any sandbox uid can run it.
+ENV GH_VERSION=2.101.0
+
+RUN mkdir -p /opt/gh \
+    && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+         | tar -xz -C /opt/gh --strip-components=1 \
+    && ln -sf /opt/gh/bin/gh /usr/local/bin/gh \
+    && gh --version | head -1
+
 # Chinese coding agents: Qwen Code (Alibaba), CodeBuddy Code (Tencent) and
 # Kimi CLI (Moonshot, below). ACP stdio entrypoints: `qwen --acp`,
 # `codebuddy --acp` and `kimi acp`.
