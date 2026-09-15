@@ -211,13 +211,19 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 				return err
 			}
 
-			// Plan mode blocks side-effecting tool calls until the plan is approved
-			// (ExitPlanMode itself only toggles the session mode).
-			blockedByPlanMode := ok && tool.Mutating && name != "ExitPlanMode" && a.inPlanMode(sid)
+			// Skill mutates only on install/remove; invoke and list are read-only,
+			// so the mutating gates below are decided per action rather than by
+			// the tool's blanket Mutating flag.
+			mutating := ok && tool.Mutating
+			if name == "Skill" {
+				mutating = skillMutates(args)
+			}
+			// Plan mode blocks side-effecting tool calls until the plan is approved.
+			blockedByPlanMode := mutating && a.inPlanMode(sid)
 			skillBlocked := name == "Skill" && skillInvocations >= maxSkillInvocationsPerTurn
 
 			allowed := true
-			if !blockedByPlanMode && ok && tool.Mutating {
+			if !blockedByPlanMode && mutating {
 				if decided, ok := a.toolPermCached(sid, name); ok {
 					allowed = decided
 				} else {
@@ -346,10 +352,11 @@ func (a *Agent) emitThought(ctx context.Context, sid, text string) error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
-	return a.conn.SessionUpdate(ctx, acp.SessionNotification{
+	err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
 		SessionId: acp.SessionId(sid),
 		Update:    acp.UpdateAgentThoughtText(text),
 	})
+	return err
 }
 
 // isTransientLLMError reports whether an LLM stream failure is worth one retry:
@@ -412,6 +419,20 @@ func (a *Agent) applyToolPerm(sid, toolName, optionID string) bool {
 	}
 }
 
+// skillMutates reports whether a Skill tool call mutates the workspace
+// (install/remove); invoke and list only read.
+func skillMutates(args json.RawMessage) bool {
+	var in struct {
+		Action string `json:"action"`
+	}
+	_ = json.Unmarshal(args, &in)
+	switch strings.TrimSpace(in.Action) {
+	case "", "invoke", "list":
+		return false
+	}
+	return true
+}
+
 func (a *Agent) Logout(ctx context.Context, params acp.LogoutRequest) (acp.LogoutResponse, error) {
 	return acp.LogoutResponse{}, acp.NewMethodNotFound(acp.AgentMethodLogout)
 }
@@ -456,18 +477,23 @@ func (a *Agent) askUser(ctx context.Context, sid string, q tools.AskQuestion) (s
 	if len(q.Options) < tools.AskUserQuestionMin() {
 		return "", fmt.Errorf("at least 2 options are required")
 	}
+	// OptionIds are index-based, not label-based: labels may repeat or collide
+	// with the synthetic "other" id; the chosen id maps back to its label.
 	opts := make([]acp.PermissionOption, 0, len(q.Options)+1)
+	labels := make([]string, 0, len(q.Options)+1)
 	for _, o := range q.Options {
 		if strings.TrimSpace(o.Label) == "" {
 			continue
 		}
+		labels = append(labels, o.Label)
 		opts = append(opts, acp.PermissionOption{
-			OptionId: acp.PermissionOptionId(o.Label),
+			OptionId: acp.PermissionOptionId(fmt.Sprintf("opt-%d", len(labels)-1)),
 			Name:     o.Label,
 			Kind:     acp.PermissionOptionKindAllowOnce,
 		})
 	}
 	if len(opts) < tools.AskUserQuestionMax() {
+		labels = append(labels, "")
 		opts = append(opts, acp.PermissionOption{
 			OptionId: acp.PermissionOptionId("other"),
 			Name:     "Other …",
@@ -497,11 +523,15 @@ func (a *Agent) askUser(ctx context.Context, sid string, q tools.AskQuestion) (s
 	if resp.Outcome.Selected == nil || strings.TrimSpace(string(resp.Outcome.Selected.OptionId)) == "" {
 		return "", fmt.Errorf("no answer provided")
 	}
-	label := string(resp.Outcome.Selected.OptionId)
-	if label == "other" {
-		label = "Other (see user reply)"
+	id := string(resp.Outcome.Selected.OptionId)
+	if id == "other" {
+		return "Other (see user reply)", nil
 	}
-	return label, nil
+	var idx int
+	if _, err := fmt.Sscanf(id, "opt-%d", &idx); err != nil || idx < 0 || idx >= len(labels) || labels[idx] == "" {
+		return "", fmt.Errorf("unknown answer option %q", id)
+	}
+	return labels[idx], nil
 }
 
 func (a *Agent) ListSessions(ctx context.Context, params acp.ListSessionsRequest) (acp.ListSessionsResponse, error) {
