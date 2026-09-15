@@ -156,9 +156,9 @@ func TestStartReadsWebSearchGetter(t *testing.T) {
 		LoopbackBase: llm.URL,
 		LLMKey:       "vk-test",
 		DefaultModel: func() string { return "gpt-test" },
-		WebSearch: func() (string, string) {
+		WebSearch: func() (string, string, string) {
 			calls.Add(1)
-			return "https://api.tavily.com", "tvly-test"
+			return "https://api.tavily.com", "tvly-test", ""
 		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)

@@ -33,6 +33,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.section.browser': '浏览器',
   'settings.section.llmgw': 'LLM 网关',
   'settings.section.webtools': 'Web 工具',
+  'settings.section.proxy': '网络代理',
   'settings.section.system': '系统',
 
   'settings.loading': '加载中…',
@@ -198,4 +199,39 @@ export const zh_CN: Record<MessageKey, string> = {
   'agentEnv.done': '升级已完成。',
   'agentEnv.failed': '升级失败。',
   'agentEnv.loadFailed': '加载环境失败。',
+  'agentEnv.modelSource': '模型来源',
+  'agentEnv.modelSource.hint':
+    '平台网关开箱即用；选择"自己的账号"后不再注入网关环境变量，沙箱内的 Agent 使用你自行登录的厂商订阅 / 免费额度。',
+  'agentEnv.modelSource.gateway': '平台网关',
+  'agentEnv.modelSource.own': '自己的账号',
+  'agentEnv.modelSource.confirm': '切换模型来源？Agent 容器会重建，沙箱内的登录态会丢失。',
+  'agentEnv.modelSource.rebuilt': '模型来源已更新，Agent 环境已重建。',
+  'agentEnv.modelSource.absent': '模型来源已更新，将在创建 Agent 环境时生效。',
+  'agentEnv.modelSource.rebuildFailed': '模型来源已保存，但重建失败：',
+  'agentEnv.modelSource.failed': '更新模型来源失败。',
+  'agentEnv.proxy': '出口代理',
+  'agentEnv.proxy.hint':
+    '让沙箱网络走管理员配置的代理 profile；切换会重建 Agent 容器。',
+  'agentEnv.proxy.direct': '直连',
+  'agentEnv.proxy.confirm': '切换出口代理？Agent 容器会重建，沙箱内的登录态会丢失。',
+  'agentEnv.proxy.rebuilt': '代理已更新，Agent 环境已重建。',
+  'agentEnv.proxy.absent': '代理已更新，将在创建 Agent 环境时生效。',
+  'agentEnv.proxy.rebuildFailed': '代理已保存，但重建失败：',
+  'agentEnv.proxy.failed': '更新代理失败。',
+
+  'settings.proxy.intro':
+    '可命名的出口代理，用户按环境选择。URL 可带凭证（user:pass@host），普通用户只看得到 profile 名称。',
+  'settings.proxy.id': 'Profile ID',
+  'settings.proxy.idHint': '稳定标识，用户选择时引用。',
+  'settings.proxy.name': '显示名称',
+  'settings.proxy.url': '代理 URL',
+  'settings.proxy.urlHint': 'http / https / socks5 / socks5h。',
+  'settings.proxy.description': '描述',
+  'settings.proxy.add': '新增 profile',
+  'settings.proxy.remove': '删除',
+  'settings.proxy.note':
+    '与下方设置一起保存。Chrome 不支持代理 URL 里的凭证，Browser 槽位请用免认证代理。',
+  'settings.llmgw.openaiProxy': 'OpenAI 上游代理',
+  'settings.llmgw.anthropicProxy': 'Anthropic 上游代理',
+  'settings.webtools.proxy': 'Web 工具代理',
 }

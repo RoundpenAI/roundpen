@@ -17,6 +17,7 @@ import {
   templateDisplayName,
   templates,
   type AppSettings,
+  type ProxyProfile,
   type SettingsResponse,
   type Template,
 } from '../api'
@@ -41,11 +42,15 @@ const emptySettings: AppSettings = {
   llmgwDefaultModel: '',
   llmgwOpenaiBaseUrl: '',
   llmgwOpenaiApiKey: '',
+  llmgwOpenaiProxy: '',
   llmgwAnthropicBaseUrl: '',
   llmgwAnthropicApiKey: '',
+  llmgwAnthropicProxy: '',
   llmgwVirtualKeys: '',
   webSearchEndpoint: '',
   webSearchApiKey: '',
+  webSearchProxy: '',
+  proxies: [],
   cdpProvider: 'auto',
   cdpEndpoint: '',
   cdpToken: '',
@@ -360,6 +365,10 @@ export function SettingsPage() {
   function patch(partial: Partial<AppSettings>) {
     setForm((prev) => ({ ...prev, ...partial }))
     setDirty(true)
+  }
+
+  function patchProxy(index: number, next: Partial<ProxyProfile>) {
+    patch({ proxies: form.proxies.map((p, i) => (i === index ? { ...p, ...next } : p)) })
   }
 
   async function onSave() {
@@ -721,6 +730,28 @@ export function SettingsPage() {
                       onChange={(v) => patch({ llmgwAnthropicApiKey: v })}
                     />
                   </Field>
+                  <Field
+                    label={t('settings.llmgw.openaiProxy')}
+                    hint={t('settings.proxy.urlHint')}
+                  >
+                    <Input
+                      autoComplete="off"
+                      placeholder="socks5://10.0.0.9:1080"
+                      value={form.llmgwOpenaiProxy}
+                      onChange={(v) => patch({ llmgwOpenaiProxy: v })}
+                    />
+                  </Field>
+                  <Field
+                    label={t('settings.llmgw.anthropicProxy')}
+                    hint={t('settings.proxy.urlHint')}
+                  >
+                    <Input
+                      autoComplete="off"
+                      placeholder="http://10.0.0.8:8080"
+                      value={form.llmgwAnthropicProxy}
+                      onChange={(v) => patch({ llmgwAnthropicProxy: v })}
+                    />
+                  </Field>
                 </div>
               </div>
 
@@ -859,9 +890,96 @@ export function SettingsPage() {
                       onChange={(v) => patch({ webSearchApiKey: v })}
                     />
                   </Field>
+                  <Field
+                    label={t('settings.webtools.proxy')}
+                    hint={t('settings.proxy.urlHint')}
+                  >
+                    <Input
+                      autoComplete="off"
+                      placeholder="http://10.0.0.8:8080"
+                      value={form.webSearchProxy}
+                      onChange={(v) => patch({ webSearchProxy: v })}
+                    />
+                  </Field>
                 </div>
                 <Typography.Text type="tertiary" size="small">
                   {t('settings.webtools.note')}
+                </Typography.Text>
+              </div>
+            </Form>
+          ) : null
+        )}
+
+        {section === 'proxy' && (
+          isAdmin && loading ? (
+            <Loading tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+              <div style={{ ...sectionGap, paddingTop: 16 }}>
+                <Typography.Text type="tertiary">
+                  {t('settings.proxy.intro')}
+                </Typography.Text>
+                {form.proxies.map((p, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'grid',
+                      gap: 16,
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      alignItems: 'end',
+                      borderTop: '1px solid var(--semi-color-border)',
+                      paddingTop: 16,
+                    }}
+                  >
+                    <Field label={t('settings.proxy.id')} hint={t('settings.proxy.idHint')}>
+                      <Input
+                        autoComplete="off"
+                        placeholder="us-egress"
+                        value={p.id}
+                        onChange={(v) => patchProxy(i, { id: v })}
+                      />
+                    </Field>
+                    <Field label={t('settings.proxy.name')}>
+                      <Input
+                        autoComplete="off"
+                        value={p.name}
+                        onChange={(v) => patchProxy(i, { name: v })}
+                      />
+                    </Field>
+                    <Field label={t('settings.proxy.url')} hint={t('settings.proxy.urlHint')}>
+                      <Input
+                        autoComplete="off"
+                        placeholder="socks5://10.0.0.9:1080"
+                        value={p.url}
+                        onChange={(v) => patchProxy(i, { url: v })}
+                      />
+                    </Field>
+                    <Field label={t('settings.proxy.description')}>
+                      <Input
+                        autoComplete="off"
+                        value={p.description ?? ''}
+                        onChange={(v) => patchProxy(i, { description: v })}
+                      />
+                    </Field>
+                    <Button
+                      type="danger"
+                      onClick={() => patch({ proxies: form.proxies.filter((_, idx) => idx !== i) })}
+                    >
+                      {t('settings.proxy.remove')}
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  onClick={() =>
+                    patch({
+                      proxies: [...form.proxies, { id: '', name: '', url: '', description: '' }],
+                    })
+                  }
+                >
+                  {t('settings.proxy.add')}
+                </Button>
+                <Typography.Text type="tertiary" size="small">
+                  {t('settings.proxy.note')}
                 </Typography.Text>
               </div>
             </Form>

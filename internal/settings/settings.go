@@ -29,8 +29,10 @@ type AppSettings struct {
 	LlmgwDefaultModel       string `json:"llmgwDefaultModel"`
 	LlmgwOpenaiBaseURL      string `json:"llmgwOpenaiBaseUrl"`
 	LlmgwOpenaiAPIKey       string `json:"llmgwOpenaiApiKey"`
+	LlmgwOpenaiProxy        string `json:"llmgwOpenaiProxy"`
 	LlmgwAnthropicBaseURL   string `json:"llmgwAnthropicBaseUrl"`
 	LlmgwAnthropicAPIKey    string `json:"llmgwAnthropicApiKey"`
+	LlmgwAnthropicProxy     string `json:"llmgwAnthropicProxy"`
 	LlmgwVirtualKeys        string `json:"llmgwVirtualKeys"`
 	CDPProvider             string `json:"cdpProvider"`
 	CDPEndpoint             string `json:"cdpEndpoint"`
@@ -38,6 +40,31 @@ type AppSettings struct {
 	CDPPort                 int    `json:"cdpPort"`
 	WebSearchEndpoint       string `json:"webSearchEndpoint"`
 	WebSearchApiKey         string `json:"webSearchApiKey"`
+	WebSearchProxy          string `json:"webSearchProxy"`
+	// Proxies are admin-defined egress profiles users pick per sandbox slot.
+	Proxies []ProxyProfile `json:"proxies"`
+}
+
+// ProxyProfile is a named egress proxy users can select for a sandbox slot.
+type ProxyProfile struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Description string `json:"description,omitempty"`
+}
+
+// ProxyByID finds a profile by its stable id.
+func (s AppSettings) ProxyByID(id string) (ProxyProfile, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ProxyProfile{}, false
+	}
+	for _, p := range s.Proxies {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return ProxyProfile{}, false
 }
 
 // SystemInfo is read-only infrastructure metadata for the settings UI.
@@ -71,8 +98,10 @@ func FromConfig(cfg *config.Config) AppSettings {
 		LlmgwDefaultModel:       cfg.LLMGW.DefaultModel,
 		LlmgwOpenaiBaseURL:      llmgwUpstreamBase(cfg.LLMGW.OpenAI),
 		LlmgwOpenaiAPIKey:       llmgwUpstreamKey(cfg.LLMGW.OpenAI),
+		LlmgwOpenaiProxy:        llmgwUpstreamProxy(cfg.LLMGW.OpenAI),
 		LlmgwAnthropicBaseURL:   llmgwUpstreamBase(cfg.LLMGW.Anthropic),
 		LlmgwAnthropicAPIKey:    llmgwUpstreamKey(cfg.LLMGW.Anthropic),
+		LlmgwAnthropicProxy:     llmgwUpstreamProxy(cfg.LLMGW.Anthropic),
 		LlmgwVirtualKeys:        config.FormatVirtualKeys(cfg.LLMGW.VirtualKeys),
 		CDPProvider:             cfg.CDP.Provider,
 		CDPEndpoint:             cfg.CDP.Endpoint,
@@ -80,6 +109,7 @@ func FromConfig(cfg *config.Config) AppSettings {
 		CDPPort:                 cfg.CDP.Port,
 		WebSearchEndpoint:       cfg.WebTools.SearchEndpoint,
 		WebSearchApiKey:         cfg.WebTools.SearchAPIKey,
+		WebSearchProxy:          cfg.WebTools.SearchProxyURL,
 	}
 	out.normalizeCDP()
 	return out
@@ -136,8 +166,10 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 		s.LlmgwLogBodyMaxBytes,
 		s.LlmgwOpenaiBaseURL,
 		s.LlmgwOpenaiAPIKey,
+		s.LlmgwOpenaiProxy,
 		s.LlmgwAnthropicBaseURL,
 		s.LlmgwAnthropicAPIKey,
+		s.LlmgwAnthropicProxy,
 		s.LlmgwVirtualKeys,
 	); err != nil {
 		return err
@@ -145,6 +177,7 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.WebTools = config.WebToolsConfig{
 		SearchEndpoint: strings.TrimSpace(s.WebSearchEndpoint),
 		SearchAPIKey:   strings.TrimSpace(s.WebSearchApiKey),
+		SearchProxyURL: strings.TrimSpace(s.WebSearchProxy),
 	}
 	cfg.CDP = config.CDPConfig{
 		Provider: s.CDPProvider,
@@ -194,6 +227,39 @@ func (s AppSettings) Validate() error {
 			return fmt.Errorf("webSearchEndpoint must be an http(s) URL")
 		}
 	}
+	for field, raw := range map[string]string{
+		"llmgwOpenaiProxy":    s.LlmgwOpenaiProxy,
+		"llmgwAnthropicProxy": s.LlmgwAnthropicProxy,
+		"webSearchProxy":      s.WebSearchProxy,
+	} {
+		if err := ValidateProxyURL(raw); err != nil {
+			return fmt.Errorf("%s: %w", field, err)
+		}
+	}
+	seen := map[string]struct{}{}
+	for i := range s.Proxies {
+		p := &s.Proxies[i]
+		p.ID = strings.TrimSpace(p.ID)
+		p.Name = strings.TrimSpace(p.Name)
+		p.URL = strings.TrimSpace(p.URL)
+		p.Description = strings.TrimSpace(p.Description)
+		if p.ID == "" {
+			return fmt.Errorf("proxies[%d]: id is required", i)
+		}
+		if p.Name == "" {
+			return fmt.Errorf("proxies[%d]: name is required", i)
+		}
+		if err := ValidateProxyURL(p.URL); err != nil {
+			return fmt.Errorf("proxies[%d]: %w", i, err)
+		}
+		if p.URL == "" {
+			return fmt.Errorf("proxies[%d]: url is required", i)
+		}
+		if _, dup := seen[p.ID]; dup {
+			return fmt.Errorf("proxies[%d]: duplicate id %q", i, p.ID)
+		}
+		seen[p.ID] = struct{}{}
+	}
 	if _, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys); err != nil {
 		return err
 	}
@@ -240,4 +306,29 @@ func llmgwUpstreamKey(u *config.LLMGWUpstream) string {
 		return ""
 	}
 	return u.APIKey
+}
+
+func llmgwUpstreamProxy(u *config.LLMGWUpstream) string {
+	if u == nil {
+		return ""
+	}
+	return u.ProxyURL
+}
+
+// ValidateProxyURL accepts empty (direct) or an http/https/socks5 proxy URL.
+func ValidateProxyURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("proxy URL %q is not a valid URL", raw)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "socks5", "socks5h":
+		return nil
+	default:
+		return fmt.Errorf("proxy URL %q must use http, https, socks5 or socks5h", raw)
+	}
 }

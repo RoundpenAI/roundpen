@@ -36,7 +36,9 @@ type SysDeps struct {
 	BrowserSlots tools.BrowserSlot
 	AgentSlots   tools.AgentSlot
 
-	WebSearch func() (endpoint, key string) // nil，或 endpoint 与 key 均为空 → 不注册 WebSearch
+	// WebSearch 返回 (endpoint, key, proxy)。nil，或 endpoint 与 key 均为空
+	// → 不注册 WebSearch；proxy 同时用于 WebFetch/Skill install 的出口。
+	WebSearch func() (endpoint, key, proxy string)
 
 	History sysagent.MessageSource
 }
@@ -149,17 +151,17 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Exec:  m.sandboxes,
 			Files: m.sandboxes,
 		}
-		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{})
+		webSearchEndpoint, webSearchAPIKey, webProxy := "", "", ""
+		if m.sys.WebSearch != nil {
+			webSearchEndpoint, webSearchAPIKey, webProxy = m.sys.WebSearch()
+		}
+		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{ProxyURL: webProxy})
 		tools.RegisterShell(reg, binder)
 		tools.RegisterFiles(reg, binder)
 		tools.RegisterSearch(reg, binder)
 		tools.RegisterInteractive(reg)
 		tools.RegisterSkill(reg, binder, webClient)
 		tools.RegisterWebFetch(reg, &tools.WebBinder{HTTP: webClient, Model: llmCfg})
-		webSearchEndpoint, webSearchAPIKey := "", ""
-		if m.sys.WebSearch != nil {
-			webSearchEndpoint, webSearchAPIKey = m.sys.WebSearch()
-		}
 		tools.RegisterWebSearch(reg, &tools.WebSearchBinder{
 			Endpoint: webSearchEndpoint,
 			APIKey:   webSearchAPIKey,

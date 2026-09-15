@@ -478,6 +478,44 @@ export const environments = {
     ),
 }
 
+export type ModelSource = 'gateway' | 'own'
+
+export const modelSource = {
+  get: () => api<{ modelSource: ModelSource }>('/v1/me/model-source'),
+  set: (source: ModelSource) =>
+    api<{
+      modelSource: ModelSource
+      status?: string
+      environment?: EnvironmentView
+      rebuildError?: string
+    }>('/v1/me/model-source', {
+      method: 'PUT',
+      body: JSON.stringify({ modelSource: source }),
+    }),
+}
+
+export type SlotProxyView = {
+  id: string
+  name: string
+  description?: string
+}
+
+export const slotProxies = {
+  get: () =>
+    api<{ proxies: SlotProxyView[]; agent: string; browser: string }>('/v1/me/proxies'),
+  set: (slot: 'agent' | 'browser', profileId: string) =>
+    api<{
+      slot: string
+      profileId: string
+      status?: string
+      environment?: EnvironmentView
+      rebuildError?: string
+    }>('/v1/me/proxy', {
+      method: 'PUT',
+      body: JSON.stringify({ slot, profileId }),
+    }),
+}
+
 export type SetupPrivilege = 'auto' | 'manual'
 
 export type SetupActionRun = {
@@ -562,6 +600,13 @@ export const browserTasks = {
 /** Suggested categories for agent resolve (e.g. open Browser → default). */
 export const SUGGESTED_CATEGORIES = ['Browser', 'Code', 'Shell'] as const
 
+export type ProxyProfile = {
+  id: string
+  name: string
+  url: string
+  description?: string
+}
+
 export type AppSettings = {
   allowPublicRegistration: boolean
   defaultImage: string
@@ -576,11 +621,15 @@ export type AppSettings = {
   llmgwDefaultModel: string
   llmgwOpenaiBaseUrl: string
   llmgwOpenaiApiKey: string
+  llmgwOpenaiProxy: string
   llmgwAnthropicBaseUrl: string
   llmgwAnthropicApiKey: string
+  llmgwAnthropicProxy: string
   llmgwVirtualKeys: string
   webSearchEndpoint: string
   webSearchApiKey: string
+  webSearchProxy: string
+  proxies: ProxyProfile[]
   cdpProvider: string
   cdpEndpoint: string
   cdpToken: string

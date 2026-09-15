@@ -32,6 +32,7 @@ export const en = {
   'settings.section.browser': 'Browser',
   'settings.section.llmgw': 'LLM gateway',
   'settings.section.webtools': 'Web tools',
+  'settings.section.proxy': 'Network proxies',
   'settings.section.system': 'System',
 
   'settings.loading': 'Loading…',
@@ -200,6 +201,44 @@ export const en = {
   'agentEnv.done': 'Upgrade finished.',
   'agentEnv.failed': 'Upgrade failed.',
   'agentEnv.loadFailed': 'Failed to load environment.',
+  'agentEnv.modelSource': 'Model source',
+  'agentEnv.modelSource.hint':
+    'The platform gateway works out of the box; with your own account the gateway env is withheld and agents use the vendor logins (subscription / free tier) you set up inside the sandbox.',
+  'agentEnv.modelSource.gateway': 'Platform gateway',
+  'agentEnv.modelSource.own': 'My own account',
+  'agentEnv.modelSource.confirm':
+    'Switch the model source? The Agent container is rebuilt and in-sandbox logins are lost.',
+  'agentEnv.modelSource.rebuilt': 'Model source updated; Agent environment rebuilt.',
+  'agentEnv.modelSource.absent':
+    'Model source updated; it applies when the Agent environment is created.',
+  'agentEnv.modelSource.rebuildFailed': 'Model source saved, but the rebuild failed:',
+  'agentEnv.modelSource.failed': 'Failed to update the model source.',
+  'agentEnv.proxy': 'Egress proxy',
+  'agentEnv.proxy.hint':
+    'Route the sandbox network through an admin-defined proxy profile. Switching rebuilds the Agent container.',
+  'agentEnv.proxy.direct': 'Direct',
+  'agentEnv.proxy.confirm':
+    'Switch the egress proxy? The Agent container is rebuilt and in-sandbox logins are lost.',
+  'agentEnv.proxy.rebuilt': 'Proxy updated; Agent environment rebuilt.',
+  'agentEnv.proxy.absent': 'Proxy updated; it applies when the Agent environment is created.',
+  'agentEnv.proxy.rebuildFailed': 'Proxy saved, but the rebuild failed:',
+  'agentEnv.proxy.failed': 'Failed to update the proxy.',
+
+  'settings.proxy.intro':
+    'Named egress proxies users can pick per environment. URLs may embed credentials (user:pass@host); profile names are all users see.',
+  'settings.proxy.id': 'Profile id',
+  'settings.proxy.idHint': 'Stable id referenced by user selections.',
+  'settings.proxy.name': 'Display name',
+  'settings.proxy.url': 'Proxy URL',
+  'settings.proxy.urlHint': 'http, https, socks5 or socks5h URL.',
+  'settings.proxy.description': 'Description',
+  'settings.proxy.add': 'Add profile',
+  'settings.proxy.remove': 'Remove',
+  'settings.proxy.note':
+    'Saved with the settings below. Chrome ignores credentials in proxy URLs; use an auth-less proxy for the Browser slot.',
+  'settings.llmgw.openaiProxy': 'OpenAI upstream proxy',
+  'settings.llmgw.anthropicProxy': 'Anthropic upstream proxy',
+  'settings.webtools.proxy': 'Web tools proxy',
 } as const
 
 export type MessageKey = keyof typeof en

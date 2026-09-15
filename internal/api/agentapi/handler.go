@@ -47,6 +47,9 @@ type Handler struct {
 	Tickets     *assistticket.Store
 	DestroySbx  bool // delete sandbox on session delete
 
+	// ProxyURL resolves a user's agent-slot egress proxy ("" = direct).
+	ProxyURL func(user *storage.User) string
+
 	runnersMu sync.RWMutex
 	runners   map[string]*runner
 }
@@ -160,6 +163,10 @@ func (h *Handler) startSession(ctx context.Context, user *storage.User, title, p
 		prov := *h.Provisioner
 		prov.Config.APIKey = user.APIKey
 		prov.Config.VirtualKey = vkey
+		prov.Config.ModelSource = user.ModelSource
+		if h.ProxyURL != nil {
+			prov.Config.ProxyURL = h.ProxyURL(user)
+		}
 		if provMeta.TemplateID != "" {
 			prov.Config.TemplateID = provMeta.TemplateID
 		}

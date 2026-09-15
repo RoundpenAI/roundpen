@@ -27,7 +27,7 @@ func FormatVirtualKeys(keys []LLMGWVirtualKey) string {
 }
 
 // ApplyLLMGWSettings writes admin settings into LLMGWConfig.
-func ApplyLLMGWSettings(dst *LLMGWConfig, enabled bool, publicURL, embeddingModel, defaultModel string, logBodyMaxBytes int, openaiBase, openaiKey, anthropicBase, anthropicKey, virtualKeysRaw string) error {
+func ApplyLLMGWSettings(dst *LLMGWConfig, enabled bool, publicURL, embeddingModel, defaultModel string, logBodyMaxBytes int, openaiBase, openaiKey, openaiProxy, anthropicBase, anthropicKey, anthropicProxy, virtualKeysRaw string) error {
 	dst.Enabled = enabled
 	dst.PublicURL = strings.TrimSpace(publicURL)
 	dst.EmbeddingModel = strings.TrimSpace(embeddingModel)
@@ -43,7 +43,11 @@ func ApplyLLMGWSettings(dst *LLMGWConfig, enabled bool, publicURL, embeddingMode
 		if openaiBase == "" || openaiKey == "" {
 			return fmt.Errorf("llmgw openai base URL and API key must both be set")
 		}
-		dst.OpenAI = &LLMGWUpstream{BaseURL: openaiBase, APIKey: openaiKey}
+		dst.OpenAI = &LLMGWUpstream{
+			BaseURL:  openaiBase,
+			APIKey:   openaiKey,
+			ProxyURL: strings.TrimSpace(openaiProxy),
+		}
 	} else {
 		dst.OpenAI = nil
 	}
@@ -54,7 +58,11 @@ func ApplyLLMGWSettings(dst *LLMGWConfig, enabled bool, publicURL, embeddingMode
 		if anthropicBase == "" || anthropicKey == "" {
 			return fmt.Errorf("llmgw anthropic base URL and API key must both be set")
 		}
-		dst.Anthropic = &LLMGWUpstream{BaseURL: anthropicBase, APIKey: anthropicKey}
+		dst.Anthropic = &LLMGWUpstream{
+			BaseURL:  anthropicBase,
+			APIKey:   anthropicKey,
+			ProxyURL: strings.TrimSpace(anthropicProxy),
+		}
 	} else {
 		dst.Anthropic = nil
 	}
