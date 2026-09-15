@@ -38,17 +38,16 @@ type Bridge struct {
 	mu                sync.Mutex
 	onEvent           func(Event)
 	permissionHandler func(acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error)
-	autoApprove       bool
 }
 
 var _ acp.Client = (*Bridge)(nil)
 
 // New creates a Bridge.
-func New(log *slog.Logger, sandboxes sandbox.Manager, sandboxID string, autoApprove bool, actor authz.Actor) *Bridge {
+func New(log *slog.Logger, sandboxes sandbox.Manager, sandboxID string, actor authz.Actor) *Bridge {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Bridge{log: log, sandboxes: sandboxes, sandboxID: sandboxID, autoApprove: autoApprove, actor: actor}
+	return &Bridge{log: log, sandboxes: sandboxes, sandboxID: sandboxID, actor: actor}
 }
 
 // SetOnEvent sets the live event sink.
@@ -63,13 +62,6 @@ func (b *Bridge) SetPermissionHandler(fn func(acp.RequestPermissionRequest) (acp
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.permissionHandler = fn
-}
-
-// SetAutoApprove toggles automatic approval of ordinary permission options.
-func (b *Bridge) SetAutoApprove(v bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.autoApprove = v
 }
 
 func (b *Bridge) emit(ev Event) {
@@ -111,7 +103,7 @@ func (b *Bridge) SessionUpdate(ctx context.Context, params acp.SessionNotificati
 		b.emit(Event{
 			Type: "tool_call_update", Title: title, Status: status, Kind: kind,
 			ToolID: string(u.ToolCallUpdate.ToolCallId),
-			Input: u.ToolCallUpdate.RawInput, Output: u.ToolCallUpdate.RawOutput, SessionID: sid,
+			Input:  u.ToolCallUpdate.RawInput, Output: u.ToolCallUpdate.RawOutput, SessionID: sid,
 		})
 	case u.Plan != nil:
 		b.emit(Event{Type: "plan", Text: fmt.Sprintf("%d steps", len(u.Plan.Entries)), SessionID: sid})
@@ -119,31 +111,12 @@ func (b *Bridge) SessionUpdate(ctx context.Context, params acp.SessionNotificati
 	return nil
 }
 
+// RequestPermission defers every decision to the installed handler. Auto mode
+// is a policy evaluated by the handler, never a blanket approval here.
 func (b *Bridge) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	b.mu.Lock()
-	auto := b.autoApprove
 	fn := b.permissionHandler
 	b.mu.Unlock()
-	if auto {
-		if opt := PickOrdinaryAllow(params.Options); opt != "" {
-			title := ""
-			if params.ToolCall.Title != nil {
-				title = *params.ToolCall.Title
-			}
-			b.emit(Event{
-				Type:   "permission",
-				Title:  title,
-				Text:   opt,
-				Status: "auto",
-				ToolID: string(params.ToolCall.ToolCallId),
-			})
-			return acp.RequestPermissionResponse{
-				Outcome: acp.RequestPermissionOutcome{
-					Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(opt)},
-				},
-			}, nil
-		}
-	}
 	if fn == nil {
 		return acp.RequestPermissionResponse{
 			Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},

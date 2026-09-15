@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/template"
@@ -41,8 +43,77 @@ type AppSettings struct {
 	WebSearchEndpoint       string `json:"webSearchEndpoint"`
 	WebSearchApiKey         string `json:"webSearchApiKey"`
 	WebSearchProxy          string `json:"webSearchProxy"`
+	// AutoMode configures the policy classifier behind the chat Auto toggle.
+	AutoMode AutoModeSettings `json:"autoMode"`
 	// Proxies are admin-defined egress profiles users pick per sandbox slot.
 	Proxies []ProxyProfile `json:"proxies"`
+}
+
+// AutoModeSettings holds the admin-configured auto-mode policy. Lists carry
+// prose rules read by the classifier; the "$defaults" token splices in the
+// built-in rules at its position, and a non-empty list without the token
+// replaces them.
+type AutoModeSettings struct {
+	Environment []string `json:"environment,omitempty"`
+	Allow       []string `json:"allow,omitempty"`
+	SoftDeny    []string `json:"softDeny,omitempty"`
+	HardDeny    []string `json:"hardDeny,omitempty"`
+	Model       string   `json:"model,omitempty"`
+}
+
+// Rules converts stored lists into classifier rules; "$defaults" expands at
+// evaluation time.
+func (a AutoModeSettings) Rules() automode.Rules {
+	return automode.Rules{
+		Environment: a.Environment,
+		Allow:       a.Allow,
+		SoftDeny:    a.SoftDeny,
+		HardDeny:    a.HardDeny,
+	}
+}
+
+// ClassifierModel returns the configured classifier model, or "" to use the
+// gateway default.
+func (a AutoModeSettings) ClassifierModel() string { return strings.TrimSpace(a.Model) }
+
+const (
+	autoModeMaxEntries    = 50
+	autoModeMaxEntryRunes = 800
+	autoModeMaxModelRunes = 200
+)
+
+func defaultAutoModeSettings() AutoModeSettings {
+	return AutoModeSettings{
+		Environment: []string{automode.DefaultsToken},
+		Allow:       []string{automode.DefaultsToken},
+		SoftDeny:    []string{automode.DefaultsToken},
+		HardDeny:    []string{automode.DefaultsToken},
+	}
+}
+
+func (s *AppSettings) normalizeAutoMode() {
+	s.AutoMode.Environment = normalizeAutoModeList(s.AutoMode.Environment)
+	s.AutoMode.Allow = normalizeAutoModeList(s.AutoMode.Allow)
+	s.AutoMode.SoftDeny = normalizeAutoModeList(s.AutoMode.SoftDeny)
+	s.AutoMode.HardDeny = normalizeAutoModeList(s.AutoMode.HardDeny)
+	s.AutoMode.Model = strings.TrimSpace(s.AutoMode.Model)
+}
+
+func normalizeAutoModeList(list []string) []string {
+	out := make([]string, 0, len(list))
+	seen := map[string]struct{}{}
+	for _, e := range list {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if _, dup := seen[e]; dup {
+			continue
+		}
+		seen[e] = struct{}{}
+		out = append(out, e)
+	}
+	return out
 }
 
 // ProxyProfile is a named egress proxy users can select for a sandbox slot.
@@ -110,6 +181,7 @@ func FromConfig(cfg *config.Config) AppSettings {
 		WebSearchEndpoint:       cfg.WebTools.SearchEndpoint,
 		WebSearchApiKey:         cfg.WebTools.SearchAPIKey,
 		WebSearchProxy:          cfg.WebTools.SearchProxyURL,
+		AutoMode:                defaultAutoModeSettings(),
 	}
 	out.normalizeCDP()
 	return out
@@ -262,6 +334,28 @@ func (s AppSettings) Validate() error {
 	}
 	if _, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys); err != nil {
 		return err
+	}
+	ruleLists := []struct {
+		field string
+		list  []string
+	}{
+		{"autoMode.environment", s.AutoMode.Environment},
+		{"autoMode.allow", s.AutoMode.Allow},
+		{"autoMode.softDeny", s.AutoMode.SoftDeny},
+		{"autoMode.hardDeny", s.AutoMode.HardDeny},
+	}
+	for _, r := range ruleLists {
+		if len(r.list) > autoModeMaxEntries {
+			return fmt.Errorf("%s: at most %d entries", r.field, autoModeMaxEntries)
+		}
+		for _, e := range r.list {
+			if utf8.RuneCountInString(e) > autoModeMaxEntryRunes {
+				return fmt.Errorf("%s: entry exceeds %d characters", r.field, autoModeMaxEntryRunes)
+			}
+		}
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(s.AutoMode.Model)) > autoModeMaxModelRunes {
+		return fmt.Errorf("autoMode.model: exceeds %d characters", autoModeMaxModelRunes)
 	}
 	s.normalizeCDP()
 	probe := config.CDPConfig{

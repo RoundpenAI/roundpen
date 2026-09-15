@@ -103,8 +103,7 @@ func TestManager_SysadminPromptNoSandbox(t *testing.T) {
 	defer cancel()
 
 	rt, err := m.Start(ctx, "sess-1", "", "sysadmin", manager.StartOpts{
-		AutoApprove: true,
-		Actor:       manager.Actor{Username: "u", Role: "user", APIKey: "k"},
+		Actor: manager.Actor{Username: "u", Role: "user", APIKey: "k"},
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -165,8 +164,7 @@ func TestStartReadsWebSearchGetter(t *testing.T) {
 	defer cancel()
 
 	if _, err := m.Start(ctx, "sess-web", "", "sysadmin", manager.StartOpts{
-		AutoApprove: true,
-		Actor:       manager.Actor{Username: "u", Role: "user", APIKey: "k"},
+		Actor: manager.Actor{Username: "u", Role: "user", APIKey: "k"},
 	}); err != nil {
 		t.Fatalf("Start: %v", err)
 	}

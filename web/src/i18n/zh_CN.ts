@@ -33,6 +33,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.section.browser': '浏览器',
   'settings.section.llmgw': 'LLM 网关',
   'settings.section.webtools': 'Web 工具',
+  'settings.section.automode': '自动模式',
   'settings.section.proxy': '网络代理',
   'settings.section.system': '系统',
 
@@ -234,4 +235,27 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.llmgw.openaiProxy': 'OpenAI 上游代理',
   'settings.llmgw.anthropicProxy': 'Anthropic 上游代理',
   'settings.webtools.proxy': 'Web 工具代理',
+
+  'settings.automode.intro':
+    '会话打开 Auto 后，每个需要授权的工具调用都会先经过分类器模型：安全操作直接执行，不可逆或向外的操作会被拦截并让模型换一种做法。规则是写给分类器的自然语言。',
+  'settings.automode.model': '分类器模型',
+  'settings.automode.modelHint':
+    '可选，经网关路由的模型名；留空使用网关默认模型。判定质量优先，建议用能力较强的模型。',
+  'settings.automode.environment': '可信环境',
+  'settings.automode.environmentHint': '定义什么算环境内、什么算环境外。',
+  'settings.automode.allow': '放行规则',
+  'settings.automode.allowHint': '作为例外，覆盖命中的软拦截规则。',
+  'settings.automode.softDeny': '软拦截规则',
+  'settings.automode.softDenyHint':
+    '默认拦截，除非有放行规则覆盖，或用户明确要求了该操作。',
+  'settings.automode.hardDeny': '硬拦截规则',
+  'settings.automode.hardDenyHint': '无条件拦截，任何规则都无法覆盖。',
+  'settings.automode.add': '新增规则',
+  'settings.automode.remove': '删除',
+  'settings.automode.defaultsToggle': '包含内置规则（$defaults）',
+  'settings.automode.defaultsView': '查看内置规则',
+  'settings.automode.defaultsTitle': '内置自动模式规则',
+  'settings.automode.defaultsFailed': '内置规则加载失败。',
+  'settings.automode.note':
+    '与下方设置一起保存，下一次判定即生效。关掉某张表的「$defaults」后只使用自己写的规则；列表为空时仍回退内置规则。被拦截的调用会连同命中规则记录在会话里；分类器不可用时，风险操作默认拦截。',
 }

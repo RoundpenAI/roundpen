@@ -172,41 +172,64 @@ func main() {
 		writeJSON(w, map[string]any{"messages": seed.messages})
 	})
 
+	stubSettings := map[string]any{
+		"allowPublicRegistration": false,
+		"defaultImage":            "host",
+		"defaultTtlSeconds":       1800,
+		"previewPublicUrl":        "",
+		"previewTokenTtlSeconds":  900,
+		"templateBuilder":         "",
+		"llmgwEnabled":            false,
+		"llmgwPublicUrl":          "",
+		"llmgwLogBodyMaxBytes":    -1,
+		"llmgwEmbeddingModel":     "text-embedding-3-small",
+		"llmgwDefaultModel":       "",
+		"llmgwOpenaiBaseUrl":      "",
+		"llmgwOpenaiApiKey":       "",
+		"llmgwAnthropicBaseUrl":   "",
+		"llmgwAnthropicApiKey":    "",
+		"llmgwVirtualKeys":        "",
+		"cdpProvider":             "auto",
+		"cdpEndpoint":             "",
+		"cdpToken":                "",
+		"cdpPort":                 9222,
+		"autoMode": map[string]any{
+			"environment": []string{"$defaults"},
+			"allow":       []string{"$defaults"},
+			"softDeny":    []string{"$defaults"},
+			"hardDeny":    []string{"$defaults"},
+			"model":       "",
+		},
+	}
+	stubSystem := map[string]any{
+		"backend":               "qemu",
+		"dockerHost":            "",
+		"dataRoot":              "/tmp/roundpen",
+		"httpAddr":              *listen,
+		"templateBuilderActive": "none",
+		"llmgwActive":           false,
+		"llmgwMounted":          false,
+		"cdpProviderActive":     "auto",
+		"cdpHostChromeFound":    false,
+	}
 	mux.HandleFunc("GET /v1/admin/settings", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"settings": stubSettings, "system": stubSystem})
+	})
+	mux.HandleFunc("PUT /v1/admin/settings", func(w http.ResponseWriter, r *http.Request) {
+		var next map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&next); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		stubSettings = next
+		writeJSON(w, map[string]any{"settings": stubSettings, "system": stubSystem})
+	})
+	mux.HandleFunc("GET /v1/admin/settings/automode/defaults", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{
-			"settings": map[string]any{
-				"allowPublicRegistration": false,
-				"defaultImage":            "host",
-				"defaultTtlSeconds":       1800,
-				"previewPublicUrl":        "",
-				"previewTokenTtlSeconds":  900,
-				"templateBuilder":         "",
-				"llmgwEnabled":            false,
-				"llmgwPublicUrl":          "",
-				"llmgwLogBodyMaxBytes":    -1,
-				"llmgwEmbeddingModel":     "text-embedding-3-small",
-				"llmgwDefaultModel":       "",
-				"llmgwOpenaiBaseUrl":      "",
-				"llmgwOpenaiApiKey":       "",
-				"llmgwAnthropicBaseUrl":   "",
-				"llmgwAnthropicApiKey":    "",
-				"llmgwVirtualKeys":        "",
-				"cdpProvider":             "auto",
-				"cdpEndpoint":             "",
-				"cdpToken":                "",
-				"cdpPort":                 9222,
-			},
-			"system": map[string]any{
-				"backend":               "qemu",
-				"dockerHost":            "",
-				"dataRoot":              "/tmp/roundpen",
-				"httpAddr":              *listen,
-				"templateBuilderActive": "none",
-				"llmgwActive":           false,
-				"llmgwMounted":          false,
-				"cdpProviderActive":     "auto",
-				"cdpHostChromeFound":    false,
-			},
+			"environment": []string{"Trusted environment: the sandbox workspace is normal work."},
+			"allow":       []string{"Routine development commands in the sandbox."},
+			"softDeny":    []string{"Force-pushing or rewriting remote git history."},
+			"hardDeny":    []string{"Reaching cloud metadata or control-plane addresses."},
 		})
 	})
 	mux.HandleFunc("PUT /v1/test/ensure-error", func(w http.ResponseWriter, r *http.Request) {

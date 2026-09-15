@@ -607,6 +607,23 @@ export type ProxyProfile = {
   description?: string
 }
 
+/** Auto-mode policy: prose rules read by the permission classifier. */
+export type AutoModeSettings = {
+  environment: string[]
+  allow: string[]
+  softDeny: string[]
+  hardDeny: string[]
+  /** Classifier model; empty uses the gateway default. */
+  model?: string
+}
+
+export type AutoModeDefaults = {
+  environment: string[]
+  allow: string[]
+  softDeny: string[]
+  hardDeny: string[]
+}
+
 export type AppSettings = {
   allowPublicRegistration: boolean
   defaultImage: string
@@ -630,6 +647,7 @@ export type AppSettings = {
   webSearchApiKey: string
   webSearchProxy: string
   proxies: ProxyProfile[]
+  autoMode: AutoModeSettings
   cdpProvider: string
   cdpEndpoint: string
   cdpToken: string
@@ -677,6 +695,8 @@ export const adminSettings = {
       '/v1/admin/settings/browser/test',
       { method: 'POST' },
     ),
+  automodeDefaults: () =>
+    api<AutoModeDefaults>('/v1/admin/settings/automode/defaults'),
 }
 
 export type AgentProvider = {

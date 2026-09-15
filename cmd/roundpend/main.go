@@ -29,6 +29,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
@@ -370,10 +371,22 @@ func main() {
 			"endpoint", endpoint,
 			"api_key_set", s.WebSearchApiKey != "")
 	}
+	autoEvaluator := &automode.LLMEvaluator{
+		BaseURL: strings.TrimRight(loopback, "/") + "/llmgw/openai",
+		APIKey:  llmgw.InternalVirtualKey,
+		Model: func() string {
+			if m := settingsSvc.Current().AutoMode.ClassifierModel(); m != "" {
+				return m
+			}
+			return gw.DefaultModel()
+		},
+		Rules: func() automode.Rules { return settingsSvc.Current().AutoMode.Rules() },
+	}
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
 		LoopbackBase: loopback,
 		LLMKey:       llmgw.InternalVirtualKey,
 		DefaultModel: gw.DefaultModel,
+		AutoMode:     autoEvaluator,
 		BrowserHub:   browserHub,
 		BrowserSlots: envSvc,
 		AgentSlots:   envSvc,
@@ -404,6 +417,7 @@ func main() {
 		Tasks:       &browsetask.Store{DB: db.SQL},
 		Tickets:     nil, // set below after ticketStore
 		DestroySbx:  true,
+		AutoMode:    autoEvaluator,
 		ProxyURL: func(u *storage.User) string {
 			if u == nil {
 				return ""

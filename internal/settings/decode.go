@@ -57,6 +57,9 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 	if _, ok := keys["proxies"]; !ok {
 		out.Proxies = fallback.Proxies
 	}
+	if _, ok := keys["autoMode"]; !ok {
+		out.AutoMode = fallback.AutoMode
+	}
 	return normalizeLegacy(out), nil
 }
 

@@ -32,6 +32,7 @@ export const en = {
   'settings.section.browser': 'Browser',
   'settings.section.llmgw': 'LLM gateway',
   'settings.section.webtools': 'Web tools',
+  'settings.section.automode': 'Auto mode',
   'settings.section.proxy': 'Network proxies',
   'settings.section.system': 'System',
 
@@ -239,6 +240,31 @@ export const en = {
   'settings.llmgw.openaiProxy': 'OpenAI upstream proxy',
   'settings.llmgw.anthropicProxy': 'Anthropic upstream proxy',
   'settings.webtools.proxy': 'Web tools proxy',
+
+  'settings.automode.intro':
+    'While a chat has Auto on, a classifier model reviews every tool call that needs permission: safe calls run, destructive or outbound ones are blocked and the model is told to find another approach. Rules are prose read by the classifier.',
+  'settings.automode.model': 'Classifier model',
+  'settings.automode.modelHint':
+    'Optional model name routed through the gateway; empty uses the gateway default. Judge quality matters, so prefer a capable model.',
+  'settings.automode.environment': 'Trusted environment',
+  'settings.automode.environmentHint':
+    'What counts as inside vs outside the trusted environment.',
+  'settings.automode.allow': 'Allow rules',
+  'settings.automode.allowHint':
+    'Exceptions that override matching soft-deny rules.',
+  'settings.automode.softDeny': 'Soft-deny rules',
+  'settings.automode.softDenyHint':
+    'Blocked unless an allow rule covers the call or the user explicitly asked for it.',
+  'settings.automode.hardDeny': 'Hard-deny rules',
+  'settings.automode.hardDenyHint': 'Always blocked; nothing overrides them.',
+  'settings.automode.add': 'Add rule',
+  'settings.automode.remove': 'Remove',
+  'settings.automode.defaultsToggle': 'Include built-in rules ($defaults)',
+  'settings.automode.defaultsView': 'View built-in rules',
+  'settings.automode.defaultsTitle': 'Built-in auto mode rules',
+  'settings.automode.defaultsFailed': 'Failed to load built-in rules.',
+  'settings.automode.note':
+    'Saved with the settings below and used by the next classification. Turning "$defaults" off keeps only your own rules for that list; an empty list still falls back to the built-ins. Blocked calls are recorded in the chat with the matched rule; if the classifier is unreachable, risky calls are blocked by default.',
 } as const
 
 export type MessageKey = keyof typeof en

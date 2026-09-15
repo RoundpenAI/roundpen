@@ -19,6 +19,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
@@ -46,6 +47,9 @@ type Handler struct {
 	Tasks       *browsetask.Store
 	Tickets     *assistticket.Store
 	DestroySbx  bool // delete sandbox on session delete
+
+	// AutoMode classifies permission requests while the chat Auto toggle is on.
+	AutoMode automode.Evaluator
 
 	// ProxyURL resolves a user's agent-slot egress proxy ("" = direct).
 	ProxyURL func(user *storage.User) string

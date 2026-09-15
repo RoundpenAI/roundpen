@@ -29,3 +29,26 @@ func TestPickOrdinaryAllow(t *testing.T) {
 		t.Fatalf("empty opts, got %q", got)
 	}
 }
+
+func TestPickReject(t *testing.T) {
+	rejectOnce := acp.PermissionOption{OptionId: "no", Kind: acp.PermissionOptionKindRejectOnce}
+	rejectAlways := acp.PermissionOption{OptionId: "deny_all", Kind: acp.PermissionOptionKindRejectAlways}
+	custom := acp.PermissionOption{OptionId: "reject", Kind: ""}
+	allow := acp.PermissionOption{OptionId: "allow", Kind: acp.PermissionOptionKindAllowOnce}
+
+	if got := PickReject([]acp.PermissionOption{allow, rejectAlways, rejectOnce}); got != "no" {
+		t.Fatalf("prefer reject-once, got %q", got)
+	}
+	if got := PickReject([]acp.PermissionOption{allow, custom, rejectAlways}); got != "reject" {
+		t.Fatalf("prefer plain reject id over session-scoped kind, got %q", got)
+	}
+	if got := PickReject([]acp.PermissionOption{allow, rejectAlways}); got != "deny_all" {
+		t.Fatalf("fall back to reject-always kind, got %q", got)
+	}
+	if got := PickReject([]acp.PermissionOption{allow}); got != "" {
+		t.Fatalf("no reject option, got %q", got)
+	}
+	if got := PickReject(nil); got != "" {
+		t.Fatalf("empty opts, got %q", got)
+	}
+}

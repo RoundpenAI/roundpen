@@ -60,19 +60,6 @@ const ROLE_CONFIG = {
 
 const DIALOGUE_RENDER = chatDialogueRenderConfig()
 
-function pickOrdinaryAllow(
-  options: { optionId: string; kind?: string }[],
-): string | null {
-  const once = options.find(
-    (o) =>
-      o.kind === 'allow_once' ||
-      o.optionId === 'allow_once' ||
-      o.optionId === 'allow',
-  )
-  if (once) return once.optionId
-  return options.find((o) => o.optionId === 'allow_tool')?.optionId ?? null
-}
-
 function readAutoMode(): boolean {
   try {
     const v = localStorage.getItem('roundpen.chat.auto')
@@ -632,18 +619,9 @@ export function ChatSessionPage() {
               },
             ])
           } else if (msg.type === 'permission_request') {
+            // Auto mode is answered server-side by the policy classifier; a
+            // frame reaching the UI always means a human decision is needed.
             const options = msg.options ?? []
-            const autoOpt = readAutoMode() ? pickOrdinaryAllow(options) : null
-            if (autoOpt && wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(
-                JSON.stringify({
-                  type: 'permission',
-                  requestId: msg.requestId ?? '',
-                  optionId: autoOpt,
-                }),
-              )
-              return
-            }
             setStatusHint('等待你处理协助单…')
             setPerm({
               requestId: msg.requestId ?? '',
@@ -1005,7 +983,7 @@ export function ChatSessionPage() {
           style={{ marginLeft: 'auto' }}
           title={
             autoMode
-              ? '自动批准常见工具权限'
+              ? '自动模式：分类器放行安全操作，拦截危险操作'
               : '工具权限需你确认（协助单）'
           }
           onClick={toggleAuto}
