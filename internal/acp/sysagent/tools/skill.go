@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"path"
@@ -139,7 +141,10 @@ func readWorkspaceSkill(ctx context.Context, b *AgentBinder, actor Actor, name s
 	}
 	rc, err := b.Files.ReadFile(ctx, id, skillRelPath(name))
 	if err != nil {
-		return Skill{}, false, nil // absent → built-in fallback
+		if isSkillNotExist(err) {
+			return Skill{}, false, nil // absent → built-in fallback
+		}
+		return Skill{}, false, fmt.Errorf("read skill %q: %w", name, err)
 	}
 	defer rc.Close()
 	raw, err := io.ReadAll(io.LimitReader(rc, maxSkillFileBytes+1))
@@ -156,6 +161,18 @@ func readWorkspaceSkill(ctx context.Context, b *AgentBinder, actor Actor, name s
 	s.Name = name
 	s.Source = SkillSourceWorkspace
 	return s, true, nil
+}
+
+// isSkillNotExist reports whether a Files.ReadFile failure means the skill file
+// is simply absent. local.FS returns *fs.PathError (fs.ErrNotExist); sshfs
+// surfaces `cat` stderr containing "No such file or directory" (same matching
+// the API layer uses).
+func isSkillNotExist(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, fs.ErrNotExist) ||
+		strings.Contains(strings.ToLower(err.Error()), "no such file")
 }
 
 func listWorkspaceSkillNames(ctx context.Context, b *AgentBinder, actor Actor) ([]string, error) {
@@ -290,6 +307,9 @@ func RegisterSkill(r *Registry, binder *AgentBinder, web *http.Client) {
 	}
 	r.Register(Tool{
 		Name: "Skill",
+		// Mutating as a whole (install/remove write the workspace); the agent's
+		// dispatch gate refines this per action: invoke and list are read-only.
+		Mutating: true,
 		Description: "Run a curated workflow from its instructions. Actions: " +
 			"invoke (default) runs a skill by name and returns instructions to follow; " +
 			"list shows available skills; " +
@@ -394,6 +414,8 @@ func skillList(ctx context.Context, b *AgentBinder, actor Actor) (string, error)
 			source = SkillSourceWorkspace
 			if s, ok, err := readWorkspaceSkill(ctx, b, actor, n); err == nil && ok {
 				desc = s.Description
+			} else if err != nil {
+				desc = "workspace skill (unreadable: " + err.Error() + ")"
 			} else {
 				desc = "workspace skill"
 			}

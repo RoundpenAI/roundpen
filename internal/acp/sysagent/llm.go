@@ -360,6 +360,7 @@ func readChatSSE(ctx context.Context, r io.Reader, onContent, onReasoning func(s
 type lineReader struct {
 	r   io.Reader
 	buf []byte
+	eof bool
 }
 
 func newLineReader(r io.Reader) *lineReader {
@@ -376,18 +377,27 @@ func (l *lineReader) ReadLine() (string, error) {
 			}
 			return line, nil
 		}
+		if l.eof {
+			// Trailing chunk without a final newline.
+			if len(l.buf) == 0 {
+				return "", io.EOF
+			}
+			line := string(l.buf)
+			l.buf = nil
+			return line, nil
+		}
 		tmp := make([]byte, 4096)
 		n, err := l.r.Read(tmp)
 		if n > 0 {
 			l.buf = append(l.buf, tmp[:n]...)
 		}
 		if err != nil {
-			if err == io.EOF && len(l.buf) > 0 {
-				line := string(l.buf)
-				l.buf = nil
-				return line, nil
+			if err != io.EOF {
+				return "", err
 			}
-			return "", err
+			// A read may return the final bytes together with EOF; keep
+			// splitting the buffered lines instead of gluing them into one.
+			l.eof = true
 		}
 	}
 }

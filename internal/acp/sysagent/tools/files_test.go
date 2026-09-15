@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -22,7 +22,8 @@ func (m *memFiles) ReadFile(_ context.Context, _, relPath string) (io.ReadCloser
 	}
 	b, ok := m.data[relPath]
 	if !ok {
-		return nil, fmt.Errorf("file not found: %s", relPath)
+		// Mirror local.FS, which returns *fs.PathError for absent files.
+		return nil, &fs.PathError{Op: "open", Path: relPath, Err: fs.ErrNotExist}
 	}
 	return io.NopCloser(bytes.NewReader(b)), nil
 }

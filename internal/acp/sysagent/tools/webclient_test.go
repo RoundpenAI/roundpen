@@ -24,14 +24,15 @@ func TestBlockedDialAddr(t *testing.T) {
 		{"[ff02::1]:80", true},
 		{"example.com:443", true},
 		{"[fe80::1%eth0]:80", true},
-		{"10.1.2.3:80", false},
-		{"172.16.9.9:80", false},
-		{"192.168.1.10:443", false},
+		{"10.1.2.3:80", true},
+		{"172.16.9.9:80", true},
+		{"192.168.1.10:443", true},
+		{"[fd00::1]:443", true},
 		{"8.8.8.8:443", false},
 		{"[2606:4700:4700::1111]:443", false},
 	}
 	for _, tc := range cases {
-		err := blockedDialAddr(tc.addr, false)
+		err := blockedDialAddr(tc.addr, false, false)
 		if tc.block && err == nil {
 			t.Errorf("%s: expected blocked", tc.addr)
 		}
@@ -41,11 +42,20 @@ func TestBlockedDialAddr(t *testing.T) {
 	}
 }
 
+func TestBlockedDialAddrAllowPrivate(t *testing.T) {
+	if err := blockedDialAddr("10.1.2.3:80", false, true); err != nil {
+		t.Fatalf("private address should be allowed when opted in: %v", err)
+	}
+	if err := blockedDialAddr("10.1.2.3:80", false, false); err == nil {
+		t.Fatal("private address must be blocked by default")
+	}
+}
+
 func TestBlockedDialAddrAllowLoopback(t *testing.T) {
-	if err := blockedDialAddr("127.0.0.1:80", true); err != nil {
+	if err := blockedDialAddr("127.0.0.1:80", true, false); err != nil {
 		t.Fatalf("loopback should be allowed when opted in: %v", err)
 	}
-	if err := blockedDialAddr("169.254.169.254:80", true); err == nil {
+	if err := blockedDialAddr("169.254.169.254:80", true, false); err == nil {
 		t.Fatal("metadata address must stay blocked even with AllowLoopback")
 	}
 }
