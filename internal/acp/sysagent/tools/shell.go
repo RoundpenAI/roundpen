@@ -9,7 +9,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
@@ -91,11 +90,6 @@ func (b *AgentBinder) execResult(ctx context.Context, sbID string, cmd []string,
 	}
 	env := map[string]string{
 		"GIT_TERMINAL_PROMPT": "0",
-	}
-	if root, err := b.Exec.WorkspaceHostPath(ctx, sbID); err == nil {
-		for k, v := range gitcred.ExecEnv(root) {
-			env[k] = v
-		}
 	}
 	return b.Exec.Exec(ctx, sbID, sandbox.ExecRequest{
 		Cmd:     cmd,

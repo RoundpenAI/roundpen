@@ -1,7 +1,7 @@
 // Package gitcred stores per-user personal tokens (PAT) and injects them into
-// Agent workspaces. One token per host covers git + tea/gh/glab. Secrets never
+// Agent sandboxes. One token per host covers git + tea/gh/glab. Secrets never
 // go into images: user provides, platform stores, EnsureAgent writes
-// /workspace/.roundpen/git.
+// /home/roundpen/.roundpen/git (outside the /workspace project tree).
 package gitcred
 
 import (

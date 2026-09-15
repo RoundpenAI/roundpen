@@ -3,6 +3,7 @@ package agentenv
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -57,7 +58,7 @@ func (p *Provisioner) Provision(ctx context.Context, sessionID, agentID, userNam
 	name = fmt.Sprintf("%s-%s", name, shortID(sessionID))
 
 	// Sandbox id is assigned on create; first pass without id-dependent URLs,
-	// then we patch env via a second write of .roundpen/env after create.
+	// then we patch env via a second exec writing ~/.roundpen/env after create.
 	env := map[string]string{
 		"ROUNDPEN_URL":         base,
 		"ROUNDPEN_API_KEY":     p.Config.APIKey,
@@ -92,12 +93,22 @@ func (p *Provisioner) Provision(ctx context.Context, sessionID, agentID, userNam
 	env["ROUNDPEN_SANDBOX_ID"] = sb.ID
 	env["ROUNDPEN_BROWSER_MCP_URL"] = fmt.Sprintf("%s/v1/sandboxes/%s/browser/mcp", base, sb.ID)
 
-	// Persist env file for agents that source it.
+	// Persist the env file for agents that source it. It lives in the guest's
+	// home (~/.roundpen/env), NOT under /workspace: the agent's project tree
+	// must never contain its own credentials.
 	var b strings.Builder
 	for k, v := range env {
 		fmt.Fprintf(&b, "export %s=%q\n", k, v)
 	}
-	_ = p.Sandboxes.WriteFile(ctx, sb.ID, ".roundpen/env", strings.NewReader(b.String()))
+	payload := base64.StdEncoding.EncodeToString([]byte(b.String()))
+	const writeEnvScript = `D="$HOME/.roundpen"; mkdir -p "$D"; printf %s "$1" | base64 -d > "$D/env"; chmod 600 "$D/env"`
+	_, err = p.Sandboxes.Exec(ctx, sb.ID, sandbox.ExecRequest{
+		Cmd: []string{"/bin/sh", "-c", writeEnvScript, "roundpen-write-env", payload},
+	})
+	if err != nil {
+		// Non-fatal: env is also injected via CreateRequest.Env.
+		return &Result{Sandbox: sb, Env: env}, nil
+	}
 
 	return &Result{Sandbox: sb, Env: env}, nil
 }
