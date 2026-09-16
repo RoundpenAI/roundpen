@@ -36,3 +36,37 @@ func TestRefreshImageDigestStable(t *testing.T) {
 		t.Fatal("empty digest")
 	}
 }
+
+// TestRefreshImageLocalOnly: locally built tags cannot be pulled from a
+// registry; refresh keeps the local copy instead of failing the upgrade.
+func TestRefreshImageLocalOnly(t *testing.T) {
+	if os.Getenv("ROUNDPEN_TEST_DOCKER_LOCAL") == "" {
+		t.Skip("set ROUNDPEN_TEST_DOCKER_LOCAL=1 to run against the local Docker daemon")
+	}
+	be, err := dockerbackend.New("", "")
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	defer be.Close()
+
+	ctx := context.Background()
+	// Built by `make code-agent-image`; skip when the host never built it.
+	const ref = "roundpen-code-agent:local"
+	present, err := be.HasImage(ctx, ref)
+	if err != nil {
+		t.Fatalf("has image: %v", err)
+	}
+	if !present {
+		t.Skipf("%s not built locally", ref)
+	}
+	changed, digest, err := be.RefreshImage(ctx, ref)
+	if err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	if changed {
+		t.Fatal("a local-only image cannot report a registry change")
+	}
+	if digest == "" {
+		t.Fatal("empty digest")
+	}
+}
