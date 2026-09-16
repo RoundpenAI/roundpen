@@ -151,7 +151,19 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 	copyHeaders(upReq.Header, r.Header)
 	setUpstreamAuth(upReq.Header, provider, upstream.APIKey)
 
-	upResp, err := g.httpClient.Do(upReq)
+	client, err := g.clientFor(upstream.ProxyURL)
+	if err != nil {
+		g.logTransaction(ctx, Transaction{
+			RequestID: requestID, VirtualKey: vk.Key, VirtualName: vk.Name,
+			Provider: provider, Method: r.Method, Path: r.URL.Path, UpstreamURL: targetURL,
+			StatusCode: http.StatusBadGateway, RequestBytes: int64(len(reqRaw)),
+			Error: err.Error(), CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
+		}, bodiesIfLogged(logLimit, &reqLog))
+		http.Error(w, "upstream proxy: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	upResp, err := client.Do(upReq)
 	if err != nil {
 		g.logTransaction(ctx, Transaction{
 			RequestID: requestID, VirtualKey: vk.Key, VirtualName: vk.Name,

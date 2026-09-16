@@ -43,7 +43,7 @@ func (m *managerStub) WriteFile(ctx context.Context, id, relPath string, r io.Re
 // session actor attached.
 func TestBridgeFileIOAttachesActor(t *testing.T) {
 	mgr := &managerStub{}
-	b := New(slog.New(slog.NewTextHandler(io.Discard, nil)), mgr, "sb-1", false, authz.Actor{Username: "alice"})
+	b := New(slog.New(slog.NewTextHandler(io.Discard, nil)), mgr, "sb-1", authz.Actor{Username: "alice"})
 
 	if _, err := b.ReadTextFile(context.Background(), acp.ReadTextFileRequest{Path: "/workspace/notes.txt"}); err != nil {
 		t.Fatalf("read: %v", err)

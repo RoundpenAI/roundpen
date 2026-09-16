@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -16,10 +17,19 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
 	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 )
 
 // keepLastToolResults is how many recent tool payloads stay verbatim in-context.
 const keepLastToolResults = 6
+
+// PermissionMetaKindKey marks permission requests that present a question or
+// plan approval to the user. The client treats those as dialogs and skips the
+// auto-mode classifier, which only judges tool actions.
+const (
+	PermissionMetaKindKey  = "roundpen.kind"
+	PermissionKindQuestion = "question"
+)
 
 // maxSkillInvocationsPerTurn bounds Skill nesting within one reply.
 const maxSkillInvocationsPerTurn = 3
@@ -30,6 +40,7 @@ type session struct {
 	allowTools map[string]bool
 	denyTools  map[string]bool
 	planMode   bool
+	autoMode   bool
 }
 
 // Deps wires LLM + tools for one agent instance.
@@ -39,14 +50,16 @@ type Deps struct {
 	Actor     tools.Actor
 	History   MessageSource
 	SessionID string // Roundpen agent session id (for history replay)
+	Evaluator automode.Evaluator
 }
 
 // Agent is an ACP agent that runs an OpenAI tool-calling loop.
 type Agent struct {
-	deps     Deps
-	conn     *acp.AgentSideConnection
-	sessions map[string]*session
-	mu       sync.Mutex
+	deps        Deps
+	conn        *acp.AgentSideConnection
+	sessions    map[string]*session
+	autoDefault bool
+	mu          sync.Mutex
 }
 
 var _ acp.Agent = (*Agent)(nil)
@@ -77,9 +90,44 @@ func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (a
 	a.sessions[sid] = &session{
 		allowTools: make(map[string]bool),
 		denyTools:  make(map[string]bool),
+		autoMode:   a.autoDefault,
 	}
 	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionId: acp.SessionId(sid)}, nil
+}
+
+// SetAutoMode toggles classifier-based auto approval for a session. Calls
+// before NewSession are remembered as the default for later sessions.
+func (a *Agent) SetAutoMode(sid string, on bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.sessions[sid]; s != nil {
+		s.autoMode = on
+		return
+	}
+	a.autoDefault = on
+}
+
+func (a *Agent) autoModeOn(sid string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.sessions[sid]; s != nil {
+		return s.autoMode
+	}
+	return a.autoDefault
+}
+
+// turnDigest renders user/assistant text for the classifier; tool results and
+// reasoning are dropped so content the agent read cannot steer the verdict.
+func turnDigest(messages []chatMessage) string {
+	digest := make([]automode.DigestMessage, 0, len(messages))
+	for _, m := range messages {
+		if m.Role != "user" && m.Role != "assistant" {
+			continue
+		}
+		digest = append(digest, automode.DigestMessage{Role: m.Role, Content: m.Content})
+	}
+	return automode.RecentDigest(digest, 4000)
 }
 
 func (a *Agent) Authenticate(ctx context.Context, _ acp.AuthenticateRequest) (acp.AuthenticateResponse, error) {
@@ -223,9 +271,33 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 			skillBlocked := name == "Skill" && skillInvocations >= maxSkillInvocationsPerTurn
 
 			allowed := true
+			autoDenied := false
+			autoDenyReason := ""
 			if !blockedByPlanMode && mutating {
 				if decided, ok := a.toolPermCached(sid, name); ok {
 					allowed = decided
+				} else if a.autoModeOn(sid) && a.deps.Evaluator != nil {
+					// Auto mode: the policy classifier decides instead of the
+					// user. Failures block the call, so a broken classifier can
+					// never silently widen what may run.
+					verdict, evalErr := a.deps.Evaluator.Evaluate(ctx, automode.Request{
+						Name:       name,
+						Title:      title,
+						Args:       string(args),
+						UserDigest: turnDigest(messages),
+					})
+					if evalErr != nil {
+						slog.Default().Warn("auto mode classifier failed",
+							slog.String("session", sid), slog.String("tool", name), slog.Any("err", evalErr))
+					}
+					allowed = verdict.Allowed()
+					autoDenied = !allowed
+					if autoDenied {
+						autoDenyReason = strings.TrimSpace(verdict.Rule)
+						if r := strings.TrimSpace(verdict.Reason); r != "" {
+							autoDenyReason += " — " + r
+						}
+					}
 				} else {
 					opts := []acp.PermissionOption{
 						{OptionId: acp.PermissionOptionId("allow"), Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
@@ -266,6 +338,10 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 				result = fmt.Sprintf("Blocked: Skill was invoked %d times in this reply (nesting limit). "+
 					"Finish the current skill's steps with the tools already available; "+
 					"if more skills are genuinely needed, end this reply so the user can send a follow-up message.", maxSkillInvocationsPerTurn)
+				status = acp.ToolCallStatusFailed
+			} else if autoDenied {
+				result = fmt.Sprintf("Blocked by auto mode: %s. Do not retry this action or route around it "+
+					"with another tool; choose a safer approach that stays inside the workspace.", autoDenyReason)
 				status = acp.ToolCallStatusFailed
 			} else if !allowed {
 				result = "Permission rejected by user."
@@ -508,6 +584,7 @@ func (a *Agent) askUser(ctx context.Context, sid string, q tools.AskQuestion) (s
 	}
 	resp, err := a.conn.RequestPermission(ctx, acp.RequestPermissionRequest{
 		SessionId: acp.SessionId(sid),
+		Meta:      map[string]any{PermissionMetaKindKey: PermissionKindQuestion},
 		ToolCall: acp.ToolCallUpdate{
 			ToolCallId: acp.ToolCallId("ask-" + randomID()),
 			Title:      &title,

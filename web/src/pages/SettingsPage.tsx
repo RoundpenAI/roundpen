@@ -17,6 +17,9 @@ import {
   templateDisplayName,
   templates,
   type AppSettings,
+  type AutoModeDefaults,
+  type AutoModeSettings,
+  type ProxyProfile,
   type SettingsResponse,
   type Template,
 } from '../api'
@@ -41,16 +44,58 @@ const emptySettings: AppSettings = {
   llmgwDefaultModel: '',
   llmgwOpenaiBaseUrl: '',
   llmgwOpenaiApiKey: '',
+  llmgwOpenaiProxy: '',
   llmgwAnthropicBaseUrl: '',
   llmgwAnthropicApiKey: '',
+  llmgwAnthropicProxy: '',
   llmgwVirtualKeys: '',
   webSearchEndpoint: '',
   webSearchApiKey: '',
+  webSearchProxy: '',
+  proxies: [],
+  autoMode: {
+    environment: ['$defaults'],
+    allow: ['$defaults'],
+    softDeny: ['$defaults'],
+    hardDeny: ['$defaults'],
+    model: '',
+  },
   cdpProvider: 'auto',
   cdpEndpoint: '',
   cdpToken: '',
   cdpPort: 3000,
 }
+
+type AutoModeListKey = 'environment' | 'allow' | 'softDeny' | 'hardDeny'
+
+const AUTOMODE_DEFAULTS_TOKEN = '$defaults'
+
+const AUTOMODE_LISTS: {
+  key: AutoModeListKey
+  labelKey: MessageKey
+  hintKey: MessageKey
+}[] = [
+  {
+    key: 'environment',
+    labelKey: 'settings.automode.environment',
+    hintKey: 'settings.automode.environmentHint',
+  },
+  {
+    key: 'allow',
+    labelKey: 'settings.automode.allow',
+    hintKey: 'settings.automode.allowHint',
+  },
+  {
+    key: 'softDeny',
+    labelKey: 'settings.automode.softDeny',
+    hintKey: 'settings.automode.softDenyHint',
+  },
+  {
+    key: 'hardDeny',
+    labelKey: 'settings.automode.hardDeny',
+    hintKey: 'settings.automode.hardDenyHint',
+  },
+]
 
 const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
   { value: '', labelKey: 'settings.builder.disabled' },
@@ -240,6 +285,9 @@ export function SettingsPage() {
   const [dirty, setDirty] = useState(false)
   const [browserTest, setBrowserTest] = useState<string>('')
   const [templateList, setTemplateList] = useState<Template[]>([])
+  const [defaultsOpen, setDefaultsOpen] = useState(false)
+  const [defaultsLoading, setDefaultsLoading] = useState(false)
+  const [defaultsView, setDefaultsView] = useState<AutoModeDefaults | null>(null)
   const { section: sectionParam } = useParams()
   const t = useT()
   const currentSuffix = useCallback(
@@ -360,6 +408,36 @@ export function SettingsPage() {
   function patch(partial: Partial<AppSettings>) {
     setForm((prev) => ({ ...prev, ...partial }))
     setDirty(true)
+  }
+
+  function patchProxy(index: number, next: Partial<ProxyProfile>) {
+    patch({ proxies: form.proxies.map((p, i) => (i === index ? { ...p, ...next } : p)) })
+  }
+
+  function patchAutoMode(next: Partial<AutoModeSettings>) {
+    patch({ autoMode: { ...form.autoMode, ...next } })
+  }
+
+  // setAutoModeList writes the custom entries back while preserving whether
+  // the "$defaults" token is in effect for that list.
+  function setAutoModeList(key: AutoModeListKey, custom: string[]) {
+    const withDefaults = form.autoMode[key].includes(AUTOMODE_DEFAULTS_TOKEN)
+    patchAutoMode({
+      [key]: withDefaults ? [...custom, AUTOMODE_DEFAULTS_TOKEN] : custom,
+    } as Partial<AutoModeSettings>)
+  }
+
+  async function openDefaults() {
+    setDefaultsOpen(true)
+    if (defaultsView) return
+    setDefaultsLoading(true)
+    try {
+      setDefaultsView(await adminSettings.automodeDefaults())
+    } catch {
+      setDefaultsView(null)
+    } finally {
+      setDefaultsLoading(false)
+    }
   }
 
   async function onSave() {
@@ -721,6 +799,28 @@ export function SettingsPage() {
                       onChange={(v) => patch({ llmgwAnthropicApiKey: v })}
                     />
                   </Field>
+                  <Field
+                    label={t('settings.llmgw.openaiProxy')}
+                    hint={t('settings.proxy.urlHint')}
+                  >
+                    <Input
+                      autoComplete="off"
+                      placeholder="socks5://10.0.0.9:1080"
+                      value={form.llmgwOpenaiProxy}
+                      onChange={(v) => patch({ llmgwOpenaiProxy: v })}
+                    />
+                  </Field>
+                  <Field
+                    label={t('settings.llmgw.anthropicProxy')}
+                    hint={t('settings.proxy.urlHint')}
+                  >
+                    <Input
+                      autoComplete="off"
+                      placeholder="http://10.0.0.8:8080"
+                      value={form.llmgwAnthropicProxy}
+                      onChange={(v) => patch({ llmgwAnthropicProxy: v })}
+                    />
+                  </Field>
                 </div>
               </div>
 
@@ -859,9 +959,217 @@ export function SettingsPage() {
                       onChange={(v) => patch({ webSearchApiKey: v })}
                     />
                   </Field>
+                  <Field
+                    label={t('settings.webtools.proxy')}
+                    hint={t('settings.proxy.urlHint')}
+                  >
+                    <Input
+                      autoComplete="off"
+                      placeholder="http://10.0.0.8:8080"
+                      value={form.webSearchProxy}
+                      onChange={(v) => patch({ webSearchProxy: v })}
+                    />
+                  </Field>
                 </div>
                 <Typography.Text type="tertiary" size="small">
                   {t('settings.webtools.note')}
+                </Typography.Text>
+              </div>
+            </Form>
+          ) : null
+        )}
+
+        {section === 'automode' && (
+          isAdmin && loading ? (
+            <Loading tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+              <div style={{ ...sectionGap, paddingTop: 16 }}>
+                <Typography.Text type="tertiary">
+                  {t('settings.automode.intro')}
+                </Typography.Text>
+                <Field label={t('settings.automode.model')} hint={t('settings.automode.modelHint')}>
+                  <Input
+                    autoComplete="off"
+                    placeholder={form.llmgwDefaultModel || 'default'}
+                    value={form.autoMode.model ?? ''}
+                    onChange={(v) => patchAutoMode({ model: v })}
+                  />
+                </Field>
+                {AUTOMODE_LISTS.map(({ key, labelKey, hintKey }) => {
+                  const withDefaults = form.autoMode[key].includes(AUTOMODE_DEFAULTS_TOKEN)
+                  const custom = form.autoMode[key].filter(
+                    (e) => e !== AUTOMODE_DEFAULTS_TOKEN,
+                  )
+                  return (
+                    <div
+                      key={key}
+                      style={{
+                        ...sectionGap,
+                        borderTop: '1px solid var(--semi-color-border)',
+                        paddingTop: 16,
+                      }}
+                    >
+                      <Field label={t(labelKey)} hint={t(hintKey)}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {custom.map((entry, i) => (
+                            <div key={i} style={{ display: 'flex', gap: 8 }}>
+                              <Input
+                                autoComplete="off"
+                                value={entry}
+                                onChange={(v) =>
+                                  setAutoModeList(
+                                    key,
+                                    custom.map((e, idx) => (idx === i ? v : e)),
+                                  )
+                                }
+                              />
+                              <Button
+                                type="danger"
+                                onClick={() =>
+                                  setAutoModeList(
+                                    key,
+                                    custom.filter((_, idx) => idx !== i),
+                                  )
+                                }
+                              >
+                                {t('settings.automode.remove')}
+                              </Button>
+                            </div>
+                          ))}
+                          <Button onClick={() => setAutoModeList(key, [...custom, ''])}>
+                            {t('settings.automode.add')}
+                          </Button>
+                        </div>
+                      </Field>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <Switch
+                          checked={withDefaults}
+                          onChange={(v) =>
+                            patchAutoMode({
+                              [key]: v ? [...custom, AUTOMODE_DEFAULTS_TOKEN] : custom,
+                            } as Partial<AutoModeSettings>)
+                          }
+                        />
+                        <Typography.Text size="small">
+                          {t('settings.automode.defaultsToggle')}
+                        </Typography.Text>
+                      </div>
+                    </div>
+                  )
+                })}
+                <Button onClick={() => void openDefaults()}>
+                  {t('settings.automode.defaultsView')}
+                </Button>
+                <Typography.Text type="tertiary" size="small">
+                  {t('settings.automode.note')}
+                </Typography.Text>
+              </div>
+            </Form>
+          ) : null
+        )}
+
+        <Modal
+          title={t('settings.automode.defaultsTitle')}
+          visible={defaultsOpen}
+          footer={null}
+          width={720}
+          onCancel={() => setDefaultsOpen(false)}
+        >
+          {defaultsLoading ? (
+            <Loading tip={t('settings.loadingSystem')} />
+          ) : defaultsView ? (
+            <div style={{ ...sectionGap, maxHeight: '60vh', overflowY: 'auto' }}>
+              {AUTOMODE_LISTS.map(({ key, labelKey }) => (
+                <div key={key}>
+                  <Typography.Title heading={6} style={{ margin: '0 0 4px' }}>
+                    {t(labelKey)}
+                  </Typography.Title>
+                  {(defaultsView[key] ?? []).map((entry, i) => (
+                    <Typography.Paragraph key={i} size="small" style={{ margin: '0 0 6px' }}>
+                      {entry}
+                    </Typography.Paragraph>
+                  ))}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Typography.Text type="danger">
+              {t('settings.automode.defaultsFailed')}
+            </Typography.Text>
+          )}
+        </Modal>
+
+        {section === 'proxy' && (
+          isAdmin && loading ? (
+            <Loading tip={t('settings.loadingSystem')} />
+          ) : isAdmin ? (
+            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
+              <div style={{ ...sectionGap, paddingTop: 16 }}>
+                <Typography.Text type="tertiary">
+                  {t('settings.proxy.intro')}
+                </Typography.Text>
+                {form.proxies.map((p, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'grid',
+                      gap: 16,
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      alignItems: 'end',
+                      borderTop: '1px solid var(--semi-color-border)',
+                      paddingTop: 16,
+                    }}
+                  >
+                    <Field label={t('settings.proxy.id')} hint={t('settings.proxy.idHint')}>
+                      <Input
+                        autoComplete="off"
+                        placeholder="us-egress"
+                        value={p.id}
+                        onChange={(v) => patchProxy(i, { id: v })}
+                      />
+                    </Field>
+                    <Field label={t('settings.proxy.name')}>
+                      <Input
+                        autoComplete="off"
+                        value={p.name}
+                        onChange={(v) => patchProxy(i, { name: v })}
+                      />
+                    </Field>
+                    <Field label={t('settings.proxy.url')} hint={t('settings.proxy.urlHint')}>
+                      <Input
+                        autoComplete="off"
+                        placeholder="socks5://10.0.0.9:1080"
+                        value={p.url}
+                        onChange={(v) => patchProxy(i, { url: v })}
+                      />
+                    </Field>
+                    <Field label={t('settings.proxy.description')}>
+                      <Input
+                        autoComplete="off"
+                        value={p.description ?? ''}
+                        onChange={(v) => patchProxy(i, { description: v })}
+                      />
+                    </Field>
+                    <Button
+                      type="danger"
+                      onClick={() => patch({ proxies: form.proxies.filter((_, idx) => idx !== i) })}
+                    >
+                      {t('settings.proxy.remove')}
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  onClick={() =>
+                    patch({
+                      proxies: [...form.proxies, { id: '', name: '', url: '', description: '' }],
+                    })
+                  }
+                >
+                  {t('settings.proxy.add')}
+                </Button>
+                <Typography.Text type="tertiary" size="small">
+                  {t('settings.proxy.note')}
                 </Typography.Text>
               </div>
             </Form>

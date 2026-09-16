@@ -4,6 +4,8 @@ import {
   Banner,
   Button,
   Input,
+  Modal,
+  Select,
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui-19'
@@ -11,8 +13,10 @@ import {
   ApiError,
   browserTasks,
   environments,
+  slotProxies,
   type BrowserTask,
   type EnvironmentView,
+  type SlotProxyView,
 } from '../api'
 import { PageShell } from '../components/PageShell'
 
@@ -45,6 +49,8 @@ export function BrowserPage() {
     typeof window !== 'undefined' ? window.location.origin : '',
   )
   const [brief, setBrief] = useState('')
+  const [proxyOptions, setProxyOptions] = useState<SlotProxyView[]>([])
+  const [browserProxy, setBrowserProxy] = useState('')
 
   const load = useCallback(async () => {
     setError(null)
@@ -55,6 +61,13 @@ export function BrowserPage() {
       setError(e instanceof Error ? e.message : 'failed to load environments')
     } finally {
       setLoading(false)
+    }
+    try {
+      const proxies = await slotProxies.get()
+      setProxyOptions(proxies.proxies || [])
+      setBrowserProxy(proxies.browser || '')
+    } catch {
+      setProxyOptions([])
     }
     try {
       const listed = await browserTasks.list()
@@ -85,6 +98,32 @@ export function BrowserPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  function changeProxy(profileId: string) {
+    if (profileId === browserProxy) return
+    Modal.confirm({
+      title: 'Egress proxy',
+      content:
+        'Switch the browser egress proxy? The browser container is rebuilt and its current pages are lost.',
+      onOk: async () => {
+        setBusy(true)
+        setError(null)
+        try {
+          const res = await slotProxies.set('browser', profileId)
+          setBrowserProxy(res.profileId)
+          if (res.rebuildError) {
+            setError(`Proxy saved, but the rebuild failed: ${res.rebuildError}`)
+          }
+          await load()
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'proxy update failed')
+          await load()
+        } finally {
+          setBusy(false)
+        }
+      },
+    })
   }
 
   async function openLive() {
@@ -235,6 +274,27 @@ export function BrowserPage() {
                   Open live view
                 </Button>
               </div>
+              {proxyOptions.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <Typography.Text type="tertiary" size="small">
+                    Egress proxy (rebuilds the browser container when changed)
+                  </Typography.Text>
+                  <Select
+                    style={{ display: 'block', marginTop: 8, maxWidth: 320 }}
+                    size="small"
+                    value={browserProxy}
+                    disabled={busy}
+                    onChange={(v) => void changeProxy(String(v))}
+                    optionList={[
+                      { value: '', label: 'Direct' },
+                      ...proxyOptions.map((p) => ({
+                        value: p.id,
+                        label: p.description ? `${p.name} — ${p.description}` : p.name,
+                      })),
+                    ]}
+                  />
+                </div>
+              )}
             </>
           )}
         </div>

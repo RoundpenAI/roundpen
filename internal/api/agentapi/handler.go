@@ -19,6 +19,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
@@ -46,6 +47,12 @@ type Handler struct {
 	Tasks       *browsetask.Store
 	Tickets     *assistticket.Store
 	DestroySbx  bool // delete sandbox on session delete
+
+	// AutoMode classifies permission requests while the chat Auto toggle is on.
+	AutoMode automode.Evaluator
+
+	// ProxyURL resolves a user's agent-slot egress proxy ("" = direct).
+	ProxyURL func(user *storage.User) string
 
 	runnersMu sync.RWMutex
 	runners   map[string]*runner
@@ -160,6 +167,10 @@ func (h *Handler) startSession(ctx context.Context, user *storage.User, title, p
 		prov := *h.Provisioner
 		prov.Config.APIKey = user.APIKey
 		prov.Config.VirtualKey = vkey
+		prov.Config.ModelSource = user.ModelSource
+		if h.ProxyURL != nil {
+			prov.Config.ProxyURL = h.ProxyURL(user)
+		}
 		if provMeta.TemplateID != "" {
 			prov.Config.TemplateID = provMeta.TemplateID
 		}

@@ -20,6 +20,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
@@ -74,7 +75,14 @@ func main() {
 	mux := http.NewServeMux()
 	auth.Mount(mux, users, sessions, func() bool { return false })
 	(&envapi.Handler{
-		Envs: envs,
+		Envs:  envs,
+		Users: users,
+		Proxies: func() []settings.ProxyProfile {
+			return []settings.ProxyProfile{
+				{ID: "us", Name: "US egress", Description: "overseas"},
+				{ID: "jp", Name: "JP egress"},
+			}
+		},
 		Dial: liveDialer(strings.TrimPrefix(liveUpstream.URL, "http://")),
 	}).Mount(mux)
 	mux.HandleFunc("GET /v1/ready", func(w http.ResponseWriter, _ *http.Request) {
@@ -164,41 +172,64 @@ func main() {
 		writeJSON(w, map[string]any{"messages": seed.messages})
 	})
 
+	stubSettings := map[string]any{
+		"allowPublicRegistration": false,
+		"defaultImage":            "host",
+		"defaultTtlSeconds":       1800,
+		"previewPublicUrl":        "",
+		"previewTokenTtlSeconds":  900,
+		"templateBuilder":         "",
+		"llmgwEnabled":            false,
+		"llmgwPublicUrl":          "",
+		"llmgwLogBodyMaxBytes":    -1,
+		"llmgwEmbeddingModel":     "text-embedding-3-small",
+		"llmgwDefaultModel":       "",
+		"llmgwOpenaiBaseUrl":      "",
+		"llmgwOpenaiApiKey":       "",
+		"llmgwAnthropicBaseUrl":   "",
+		"llmgwAnthropicApiKey":    "",
+		"llmgwVirtualKeys":        "",
+		"cdpProvider":             "auto",
+		"cdpEndpoint":             "",
+		"cdpToken":                "",
+		"cdpPort":                 9222,
+		"autoMode": map[string]any{
+			"environment": []string{"$defaults"},
+			"allow":       []string{"$defaults"},
+			"softDeny":    []string{"$defaults"},
+			"hardDeny":    []string{"$defaults"},
+			"model":       "",
+		},
+	}
+	stubSystem := map[string]any{
+		"backend":               "qemu",
+		"dockerHost":            "",
+		"dataRoot":              "/tmp/roundpen",
+		"httpAddr":              *listen,
+		"templateBuilderActive": "none",
+		"llmgwActive":           false,
+		"llmgwMounted":          false,
+		"cdpProviderActive":     "auto",
+		"cdpHostChromeFound":    false,
+	}
 	mux.HandleFunc("GET /v1/admin/settings", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"settings": stubSettings, "system": stubSystem})
+	})
+	mux.HandleFunc("PUT /v1/admin/settings", func(w http.ResponseWriter, r *http.Request) {
+		var next map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&next); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		stubSettings = next
+		writeJSON(w, map[string]any{"settings": stubSettings, "system": stubSystem})
+	})
+	mux.HandleFunc("GET /v1/admin/settings/automode/defaults", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{
-			"settings": map[string]any{
-				"allowPublicRegistration": false,
-				"defaultImage":            "host",
-				"defaultTtlSeconds":       1800,
-				"previewPublicUrl":        "",
-				"previewTokenTtlSeconds":  900,
-				"templateBuilder":         "",
-				"llmgwEnabled":            false,
-				"llmgwPublicUrl":          "",
-				"llmgwLogBodyMaxBytes":    -1,
-				"llmgwEmbeddingModel":     "text-embedding-3-small",
-				"llmgwDefaultModel":       "",
-				"llmgwOpenaiBaseUrl":      "",
-				"llmgwOpenaiApiKey":       "",
-				"llmgwAnthropicBaseUrl":   "",
-				"llmgwAnthropicApiKey":    "",
-				"llmgwVirtualKeys":        "",
-				"cdpProvider":             "auto",
-				"cdpEndpoint":             "",
-				"cdpToken":                "",
-				"cdpPort":                 9222,
-			},
-			"system": map[string]any{
-				"backend":               "qemu",
-				"dockerHost":            "",
-				"dataRoot":              "/tmp/roundpen",
-				"httpAddr":              *listen,
-				"templateBuilderActive": "none",
-				"llmgwActive":           false,
-				"llmgwMounted":          false,
-				"cdpProviderActive":     "auto",
-				"cdpHostChromeFound":    false,
-			},
+			"environment": []string{"Trusted environment: the sandbox workspace is normal work."},
+			"allow":       []string{"Routine development commands in the sandbox."},
+			"softDeny":    []string{"Force-pushing or rewriting remote git history."},
+			"hardDeny":    []string{"Reaching cloud metadata or control-plane addresses."},
 		})
 	})
 	mux.HandleFunc("PUT /v1/test/ensure-error", func(w http.ResponseWriter, r *http.Request) {
@@ -355,6 +386,16 @@ func (s *slotEnvs) UpgradeAgent(_ context.Context, _ string, _ bool) (*userenv.U
 		Status: "up_to_date", Image: "uismoke-agent", Digest: "sha256:uismoke",
 		Environment: userenv.EnvView{Slot: userenv.SlotAgent, Status: "running", Image: "uismoke-agent"},
 	}, nil
+}
+
+// RecreateAgent backs the model-source switch in the fake environment.
+func (s *slotEnvs) RecreateAgent(_ context.Context, _ string) (*userenv.UpgradeResult, error) {
+	return &userenv.UpgradeResult{Status: "absent"}, nil
+}
+
+// RecreateBrowser backs the browser proxy switch in the fake environment.
+func (s *slotEnvs) RecreateBrowser(_ context.Context, _ string) (*userenv.UpgradeResult, error) {
+	return &userenv.UpgradeResult{Status: "absent"}, nil
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

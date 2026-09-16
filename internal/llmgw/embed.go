@@ -111,14 +111,20 @@ func (g *Gateway) Embed(ctx context.Context, texts []string) ([][]float32, error
 	}
 
 	url := u.BaseURL + "/v1/embeddings"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	// The shared/streaming clients carry no timeout, so bound the embed call here.
+	reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+u.APIKey)
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client, err := g.clientFor(u.ProxyURL)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("llmgw: embed http: %w", err)

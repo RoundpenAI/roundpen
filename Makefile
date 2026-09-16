@@ -80,10 +80,6 @@ run-daemon: build
 browser-driver:
 	go run ./cmd/browserdriver
 
-# Deprecated: Agent runs on Docker now. Kept only for the experimental QEMU agent recipe.
-agent-image:
-	./images/agent-qemu/build.sh
-
 # Docker Agent image (git/ssh/curl). Used by local dev / private overrides.
 code-agent-image:
 	docker build -t roundpen-code-agent:local images/code-agent

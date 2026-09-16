@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
@@ -20,6 +22,40 @@ type Config struct {
 	TemplateID   string
 	Category     string
 	NamePrefix   string
+	ModelSource  string // storage.ModelSource*; "own" withholds the llmgw env
+	ProxyURL     string // optional egress proxy for in-sandbox tools
+}
+
+// ProxyEnv returns proxy env vars (upper and lower case) for tools running in
+// a sandbox. noProxyHosts are appended to the loopback defaults, so the
+// control-plane host must be passed to keep it off the proxy. Nil when no
+// proxy is configured.
+func ProxyEnv(proxyURL string, noProxyHosts ...string) map[string]string {
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" {
+		return nil
+	}
+	entries := append([]string{"localhost", "127.0.0.1", "::1"}, noProxyHosts...)
+	noProxy := strings.Join(entries, ",")
+	return map[string]string{
+		"HTTP_PROXY": proxyURL, "HTTPS_PROXY": proxyURL, "ALL_PROXY": proxyURL, "NO_PROXY": noProxy,
+		"http_proxy": proxyURL, "https_proxy": proxyURL, "all_proxy": proxyURL, "no_proxy": noProxy,
+	}
+}
+
+// HostOf returns the hostname (no port) of an absolute URL, or "".
+func HostOf(rawURL string) string {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
+// UsesOwnModels reports whether the model source means the sandbox keeps the
+// user's own vendor login instead of the platform gateway env.
+func UsesOwnModels(modelSource string) bool {
+	return strings.EqualFold(strings.TrimSpace(modelSource), storage.ModelSourceOwn)
 }
 
 // Provisioner creates sandboxes ready for agents.
@@ -60,19 +96,26 @@ func (p *Provisioner) Provision(ctx context.Context, sessionID, agentID, userNam
 	// Sandbox id is assigned on create; first pass without id-dependent URLs,
 	// then we patch env via a second exec writing ~/.roundpen/env after create.
 	env := map[string]string{
-		"ROUNDPEN_URL":         base,
-		"ROUNDPEN_API_KEY":     p.Config.APIKey,
-		"ROUNDPEN_AGENT_ID":    agentID,
-		"ROUNDPEN_SESSION_ID":  sessionID,
-		"ROUNDPEN_MEMORY_URL":  base + "/v1",
-		"OPENAI_BASE_URL":      base + "/llmgw/openai",
-		"ANTHROPIC_BASE_URL":   base + "/llmgw/anthropic",
-		"OPENAI_API_KEY":       p.Config.VirtualKey,
-		"ANTHROPIC_API_KEY":    p.Config.VirtualKey,
-		"ANTHROPIC_AUTH_TOKEN": p.Config.VirtualKey,
-		"ROUNDPEN_USER":        userName,
+		"ROUNDPEN_URL":        base,
+		"ROUNDPEN_API_KEY":    p.Config.APIKey,
+		"ROUNDPEN_AGENT_ID":   agentID,
+		"ROUNDPEN_SESSION_ID": sessionID,
+		"ROUNDPEN_MEMORY_URL": base + "/v1",
+		"ROUNDPEN_USER":       userName,
 	}
-	ApplyDefaultModel(env, p.Config.DefaultModel)
+	// ANTHROPIC_API_KEY in particular must stay unset in "own" mode: its
+	// presence makes Claude Code bill the API instead of the user's plan.
+	if !UsesOwnModels(p.Config.ModelSource) {
+		env["OPENAI_BASE_URL"] = base + "/llmgw/openai"
+		env["ANTHROPIC_BASE_URL"] = base + "/llmgw/anthropic"
+		env["OPENAI_API_KEY"] = p.Config.VirtualKey
+		env["ANTHROPIC_API_KEY"] = p.Config.VirtualKey
+		env["ANTHROPIC_AUTH_TOKEN"] = p.Config.VirtualKey
+		ApplyDefaultModel(env, p.Config.DefaultModel)
+	}
+	for k, v := range ProxyEnv(p.Config.ProxyURL, HostOf(base)) {
+		env[k] = v
+	}
 
 	sb, err := p.Sandboxes.Create(ctx, sandbox.CreateRequest{
 		Name:        name,

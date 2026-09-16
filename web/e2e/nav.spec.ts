@@ -23,5 +23,7 @@ test('nav reaches settings from assistants', async ({ page }) => {
   await page.goto('/a')
   await page.getByRole('button', { name: '设置' }).first().click()
   await expect(page).toHaveURL(/\/settings/)
-  await expect(page.getByText('Git 个人令牌')).toBeVisible()
+  // Both the desktop sider and the mobile tab strip render this label; the
+  // role locator skips the CSS-hidden copy that is out of the a11y tree.
+  await expect(page.getByRole('button', { name: 'Git 个人令牌' })).toBeVisible()
 })

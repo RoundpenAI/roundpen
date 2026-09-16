@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -102,6 +103,39 @@ func (m *MemoryUserStore) Delete(_ context.Context, username string) error {
 		return ErrNotFound
 	}
 	delete(m.users, username)
+	return nil
+}
+
+func (m *MemoryUserStore) SetModelSource(_ context.Context, username, source string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[username]
+	if !ok {
+		return ErrNotFound
+	}
+	u.ModelSource = source
+	u.UpdatedAt = time.Now().UTC()
+	m.users[username] = u
+	return nil
+}
+
+func (m *MemoryUserStore) SetSlotProxy(_ context.Context, username, slot, profileID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[username]
+	if !ok {
+		return ErrNotFound
+	}
+	switch slot {
+	case "agent":
+		u.AgentProxy = profileID
+	case "browser":
+		u.BrowserProxy = profileID
+	default:
+		return fmt.Errorf("unknown proxy slot %q", slot)
+	}
+	u.UpdatedAt = time.Now().UTC()
+	m.users[username] = u
 	return nil
 }
 

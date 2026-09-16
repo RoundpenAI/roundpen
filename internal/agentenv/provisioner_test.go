@@ -8,6 +8,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
@@ -82,6 +83,70 @@ func TestProvisionUsesUserWorkspace(t *testing.T) {
 	}
 	if res.Sandbox.WorkspaceID != want {
 		t.Fatalf("result: %q", res.Sandbox.WorkspaceID)
+	}
+}
+
+func TestProvisionOwnModelsWithholdsGatewayEnv(t *testing.T) {
+	stub := &stubSandboxes{}
+	p := &agentenv.Provisioner{Sandboxes: stub, Config: agentenv.Config{
+		PublicURL:    "http://127.0.0.1:19001",
+		VirtualKey:   "vk-test",
+		DefaultModel: "some-model",
+		ModelSource:  storage.ModelSourceOwn,
+	}}
+	res, err := p.Provision(context.Background(), "sess-1", "claude", "Admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"ROUNDPEN_URL", "ROUNDPEN_API_KEY"} {
+		if _, ok := res.Env[k]; !ok {
+			t.Fatalf("control-plane env %s must survive: %+v", k, res.Env)
+		}
+	}
+	for _, k := range []string{
+		"OPENAI_BASE_URL", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL",
+	} {
+		if v, ok := res.Env[k]; ok {
+			t.Fatalf("%s must not be injected in own mode: %q", k, v)
+		}
+	}
+}
+
+func TestProxyEnv(t *testing.T) {
+	if env := agentenv.ProxyEnv("  ", "x"); env != nil {
+		t.Fatalf("empty proxy must skip injection: %+v", env)
+	}
+	env := agentenv.ProxyEnv("http://proxy.local:7890", "10.0.0.5")
+	if env["HTTPS_PROXY"] != "http://proxy.local:7890" || env["https_proxy"] != "http://proxy.local:7890" {
+		t.Fatalf("proxy vars: %+v", env)
+	}
+	noProxy := env["NO_PROXY"]
+	for _, want := range []string{"localhost", "127.0.0.1", "::1", "10.0.0.5"} {
+		if !strings.Contains(noProxy, want) {
+			t.Fatalf("NO_PROXY %q missing %q", noProxy, want)
+		}
+	}
+	if env["no_proxy"] != noProxy {
+		t.Fatalf("lowercase NO_PROXY mismatch: %+v", env)
+	}
+}
+
+func TestProvisionInjectsProxyEnv(t *testing.T) {
+	stub := &stubSandboxes{}
+	p := &agentenv.Provisioner{Sandboxes: stub, Config: agentenv.Config{
+		PublicURL: "http://10.0.0.5:19001",
+		ProxyURL:  "socks5://10.0.0.9:1080",
+	}}
+	res, err := p.Provision(context.Background(), "sess-1", "claude", "Admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Env["HTTPS_PROXY"] != "socks5://10.0.0.9:1080" {
+		t.Fatalf("proxy env: %+v", res.Env)
+	}
+	if !strings.Contains(res.Env["NO_PROXY"], "10.0.0.5") {
+		t.Fatalf("control-plane host must bypass the proxy: %q", res.Env["NO_PROXY"])
 	}
 }
 

@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,8 +13,10 @@ import (
 	acpclient "github.com/RoundpenAI/roundpen/internal/acp/client"
 	"github.com/RoundpenAI/roundpen/internal/acp/manager"
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
+	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -283,6 +286,115 @@ func (r *runner) finishTurn() {
 	r.broadcast(r.snapshot())
 }
 
+// autoResolve answers a permission request under auto mode. Interactive
+// questions keep their historical pick-the-first-option behavior; tool actions
+// go through the policy classifier and are blocked when it denies. handled
+// false means no automatic answer applies and the interactive dialog runs.
+func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID, title string) (acp.RequestPermissionResponse, bool) {
+	if r.handler.AutoMode != nil && !isQuestionRequest(req) {
+		verdict, err := r.classifyPermission(req, title)
+		if err != nil && r.handler.Log != nil {
+			r.handler.Log.Warn("auto mode classifier failed",
+				"session", r.session.ID, "tool", title, "err", err)
+		}
+		if !verdict.Allowed() {
+			rule := strings.TrimSpace(verdict.Rule)
+			reason := strings.TrimSpace(verdict.Reason)
+			line := rule
+			if reason != "" {
+				line += " — " + reason
+			}
+			opt := acpclient.PickReject(req.Options)
+			r.persist(agentsession.RolePermission, line, agentsession.PermissionMeta{
+				Type:      "permission",
+				RequestID: reqID,
+				Title:     title,
+				OptionID:  opt,
+				Outcome:   "auto_deny",
+				Options:   req.Options,
+				ToolID:    reqID,
+				Rule:      rule,
+				Reason:    reason,
+			})
+			r.mu.Lock()
+			resp := r.permResult(reqID, opt, opt == "")
+			r.mu.Unlock()
+			return resp, true
+		}
+	}
+	if opt := acpclient.PickOrdinaryAllow(req.Options); opt != "" {
+		r.persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
+			Type:      "permission",
+			RequestID: reqID,
+			Title:     title,
+			OptionID:  opt,
+			Outcome:   "auto",
+			Options:   req.Options,
+			ToolID:    reqID,
+		})
+		r.mu.Lock()
+		resp := r.permResult(reqID, opt, false)
+		r.mu.Unlock()
+		return resp, true
+	}
+	return acp.RequestPermissionResponse{}, false
+}
+
+// isQuestionRequest reports whether the request is an interactive question or
+// plan approval rather than a tool action. The in-process agent marks these
+// with a meta field because their titles carry the question text.
+func isQuestionRequest(req acp.RequestPermissionRequest) bool {
+	v, _ := req.Meta[sysagent.PermissionMetaKindKey].(string)
+	return v == sysagent.PermissionKindQuestion
+}
+
+// classifyPermission builds the classifier request from the pending call plus
+// recent conversation context.
+func (r *runner) classifyPermission(req acp.RequestPermissionRequest, title string) (automode.Verdict, error) {
+	args := ""
+	if req.ToolCall.RawInput != nil {
+		if b, err := json.Marshal(req.ToolCall.RawInput); err == nil {
+			args = string(b)
+		}
+	}
+	kind := ""
+	if req.ToolCall.Kind != nil {
+		kind = string(*req.ToolCall.Kind)
+	}
+	options := make([]string, 0, len(req.Options))
+	for _, o := range req.Options {
+		options = append(options, o.Name)
+	}
+	return r.handler.AutoMode.Evaluate(r.ctx, automode.Request{
+		Name:       title,
+		Title:      title,
+		Kind:       kind,
+		Args:       args,
+		Options:    options,
+		UserDigest: r.recentDigest(),
+	})
+}
+
+// recentDigest renders user/assistant turns for the classifier; tool results
+// are excluded by RecentDigest so read content cannot steer the verdict.
+func (r *runner) recentDigest() string {
+	var digest []automode.DigestMessage
+	if r.handler.Store != nil {
+		if rows, err := r.handler.Store.ListRecentMessages(r.ctx, r.session.ID, 200); err == nil {
+			for _, m := range rows {
+				digest = append(digest, automode.DigestMessage{Role: m.Role, Content: m.Content})
+			}
+		}
+	}
+	r.mu.Lock()
+	reply := strings.TrimSpace(r.reply.String())
+	r.mu.Unlock()
+	if reply != "" {
+		digest = append(digest, automode.DigestMessage{Role: "assistant", Content: reply})
+	}
+	return automode.RecentDigest(digest, 4000)
+}
+
 // onPermission is wired to the ACP runtime exactly once per runtime and
 // outlives any individual WebSocket connection.  If no client is connected the
 // permission is auto-cancelled so the turn is not stuck.
@@ -301,24 +413,8 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	r.flushThought()
 
 	if auto {
-		if opt := acpclient.PickOrdinaryAllow(req.Options); opt != "" {
-			r.persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
-				Type:      "permission",
-				RequestID: reqID,
-				Title:     title,
-				OptionID:  opt,
-				Outcome:   "auto",
-				Options:   req.Options,
-				ToolID:    reqID,
-			})
-			r.mu.Lock()
-			delete(r.perms, reqID)
-			r.mu.Unlock()
-			return acp.RequestPermissionResponse{
-				Outcome: acp.RequestPermissionOutcome{
-					Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(opt)},
-				},
-			}, nil
+		if resp, handled := r.autoResolve(req, reqID, title); handled {
+			return resp, nil
 		}
 	}
 
@@ -472,12 +568,12 @@ func (r *runner) cancelTurn() {
 	_ = r.acp.Cancel(r.ctx, r.session.ID)
 }
 
-// setAuto toggles permission auto-approval for the runtime.
+// setAuto toggles classifier-based auto approval for the runtime.
 func (r *runner) setAuto(v bool) {
 	r.mu.Lock()
 	r.auto = v
 	r.mu.Unlock()
-	r.rt.SetAutoApprove(v)
+	r.rt.SetAutoMode(v)
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -547,8 +643,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	}
 
 	rt, startErr := h.ACP.Start(context.Background(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{
-		Actor:       actor,
-		AutoApprove: true,
+		Actor: actor,
 	})
 	if startErr != nil {
 		if existing, ok := h.ACP.Get(sess.ID); ok {
@@ -575,7 +670,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	}
 	rt.SetEventHandler(r.onEvent)
 	rt.SetPermissionHandler(r.onPermission)
-	rt.SetAutoApprove(true)
+	rt.SetAutoMode(true)
 	h.runners[sess.ID] = r
 	return r, nil
 }

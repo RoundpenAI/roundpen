@@ -74,16 +74,17 @@ func (s *Store) UpsertUpstream(u Upstream) error {
 		patterns = []byte("[]")
 	}
 	_, err = s.db.SQL.Exec(`
-		INSERT INTO llmgw_upstreams (provider, base_url, api_key, model_map, model_patterns, enabled, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		INSERT INTO llmgw_upstreams (provider, base_url, api_key, proxy_url, model_map, model_patterns, enabled, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (provider) DO UPDATE SET
 			base_url=EXCLUDED.base_url,
 			api_key=EXCLUDED.api_key,
+			proxy_url=EXCLUDED.proxy_url,
 			model_map=EXCLUDED.model_map,
 			model_patterns=EXCLUDED.model_patterns,
 			enabled=EXCLUDED.enabled,
 			updated_at=EXCLUDED.updated_at`,
-		u.Provider, u.BaseURL, u.APIKey, modelMap, patterns, u.Enabled, u.UpdatedAt.UTC(),
+		u.Provider, u.BaseURL, u.APIKey, u.ProxyURL, modelMap, patterns, u.Enabled, u.UpdatedAt.UTC(),
 	)
 	return err
 }
@@ -91,7 +92,7 @@ func (s *Store) UpsertUpstream(u Upstream) error {
 // GetUpstream returns an enabled upstream by provider.
 func (s *Store) GetUpstream(ctx context.Context, provider string) (*Upstream, error) {
 	row := s.db.SQL.QueryRowContext(ctx, `
-		SELECT provider, base_url, api_key, model_map, model_patterns, enabled, updated_at
+		SELECT provider, base_url, api_key, proxy_url, model_map, model_patterns, enabled, updated_at
 		FROM llmgw_upstreams WHERE provider=$1 AND enabled=true`, provider)
 	return scanUpstream(row)
 }
@@ -99,7 +100,7 @@ func (s *Store) GetUpstream(ctx context.Context, provider string) (*Upstream, er
 // ListUpstreams returns all upstream rows (including disabled).
 func (s *Store) ListUpstreams(ctx context.Context) ([]Upstream, error) {
 	rows, err := s.db.SQL.QueryContext(ctx, `
-		SELECT provider, base_url, api_key, model_map, model_patterns, enabled, updated_at
+		SELECT provider, base_url, api_key, proxy_url, model_map, model_patterns, enabled, updated_at
 		FROM llmgw_upstreams ORDER BY provider`)
 	if err != nil {
 		return nil, err
@@ -123,7 +124,7 @@ func scanUpstream(row interface{ Scan(dest ...any) error }) (*Upstream, error) {
 		patterns  []byte
 		updatedAt time.Time
 	)
-	err := row.Scan(&u.Provider, &u.BaseURL, &u.APIKey, &modelMap, &patterns, &u.Enabled, &updatedAt)
+	err := row.Scan(&u.Provider, &u.BaseURL, &u.APIKey, &u.ProxyURL, &modelMap, &patterns, &u.Enabled, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, storage.ErrNotFound
 	}

@@ -79,8 +79,9 @@ func (g *Gateway) ApplyConfig(ctx context.Context, cfg config.LLMGWConfig) error
 	seed := SeedConfig{Keys: make([]VirtualKey, 0, len(cfg.VirtualKeys))}
 	if cfg.OpenAI != nil {
 		seed.OpenAI = &UpstreamSeed{
-			BaseURL: cfg.OpenAI.BaseURL,
-			APIKey:  cfg.OpenAI.APIKey,
+			BaseURL:  cfg.OpenAI.BaseURL,
+			APIKey:   cfg.OpenAI.APIKey,
+			ProxyURL: cfg.OpenAI.ProxyURL,
 			ModelMap: map[string]string{
 				EmbeddingModelAlias: cfg.EmbeddingModel,
 			},
@@ -88,8 +89,9 @@ func (g *Gateway) ApplyConfig(ctx context.Context, cfg config.LLMGWConfig) error
 	}
 	if cfg.Anthropic != nil {
 		seed.Anthropic = &UpstreamSeed{
-			BaseURL: cfg.Anthropic.BaseURL,
-			APIKey:  cfg.Anthropic.APIKey,
+			BaseURL:  cfg.Anthropic.BaseURL,
+			APIKey:   cfg.Anthropic.APIKey,
+			ProxyURL: cfg.Anthropic.ProxyURL,
 		}
 	}
 	for _, vk := range cfg.VirtualKeys {

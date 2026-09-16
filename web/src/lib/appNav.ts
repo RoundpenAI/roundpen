@@ -25,6 +25,8 @@ export type SettingsSectionKey =
   | 'browser'
   | 'llmgw'
   | 'webtools'
+  | 'automode'
+  | 'proxy'
   | 'system'
 
 export type SettingsSection = {
@@ -42,6 +44,8 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'browser', labelKey: 'settings.section.browser', admin: true },
   { key: 'llmgw', labelKey: 'settings.section.llmgw', admin: true },
   { key: 'webtools', labelKey: 'settings.section.webtools', admin: true },
+  { key: 'automode', labelKey: 'settings.section.automode', admin: true },
+  { key: 'proxy', labelKey: 'settings.section.proxy', admin: true },
   { key: 'system', labelKey: 'settings.section.system', admin: true },
 ]
 

@@ -27,3 +27,30 @@ func PickOrdinaryAllow(opts []acp.PermissionOption) string {
 	}
 	return tool
 }
+
+// PickReject returns a reject option id, preferring reject-once semantics over
+// session-scoped rejections. Empty means the request offers no reject option.
+func PickReject(opts []acp.PermissionOption) string {
+	var fallback string
+	for _, o := range opts {
+		id := string(o.OptionId)
+		switch o.Kind {
+		case acp.PermissionOptionKindRejectOnce:
+			return id
+		case acp.PermissionOptionKindRejectAlways:
+			if fallback == "" {
+				fallback = id
+			}
+			continue
+		}
+		switch id {
+		case "reject", "deny", "reject_once":
+			return id
+		case "reject_tool":
+			if fallback == "" {
+				fallback = id
+			}
+		}
+	}
+	return fallback
+}

@@ -12,9 +12,19 @@ CREATE TABLE IF NOT EXISTS users (
     role            TEXT NOT NULL DEFAULT 'user',
     password_hash   TEXT,
     auth_provider   TEXT NOT NULL DEFAULT 'local',
+    -- gateway: sandbox agents call llmgw with a platform virtual key.
+    -- own: the gateway env is withheld so agents use the user's own login
+    -- (vendor subscription / free tier) inside the sandbox.
+    model_source    TEXT NOT NULL DEFAULT 'gateway',
+    -- Admin proxy-profile ids selected per slot ('' = direct).
+    agent_proxy     TEXT NOT NULL DEFAULT '',
+    browser_proxy   TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS model_source TEXT NOT NULL DEFAULT 'gateway';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_proxy TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS browser_proxy TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email
     ON users (lower(email))
@@ -78,11 +88,14 @@ CREATE TABLE IF NOT EXISTS llmgw_upstreams (
     provider        TEXT PRIMARY KEY,
     base_url        TEXT NOT NULL,
     api_key         TEXT NOT NULL,
+    -- Optional egress proxy for this upstream (http/https/socks5 URL).
+    proxy_url       TEXT NOT NULL DEFAULT '',
     model_map       JSONB NOT NULL DEFAULT '{}',
     model_patterns  JSONB NOT NULL DEFAULT '[]',
     enabled         BOOLEAN NOT NULL DEFAULT true,
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE llmgw_upstreams ADD COLUMN IF NOT EXISTS proxy_url TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS llmgw_virtual_keys (
     key             TEXT PRIMARY KEY,

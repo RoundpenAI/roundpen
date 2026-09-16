@@ -30,8 +30,10 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 		out.LlmgwDefaultModel = fallback.LlmgwDefaultModel
 		out.LlmgwOpenaiBaseURL = fallback.LlmgwOpenaiBaseURL
 		out.LlmgwOpenaiAPIKey = fallback.LlmgwOpenaiAPIKey
+		out.LlmgwOpenaiProxy = fallback.LlmgwOpenaiProxy
 		out.LlmgwAnthropicBaseURL = fallback.LlmgwAnthropicBaseURL
 		out.LlmgwAnthropicAPIKey = fallback.LlmgwAnthropicAPIKey
+		out.LlmgwAnthropicProxy = fallback.LlmgwAnthropicProxy
 		out.LlmgwVirtualKeys = fallback.LlmgwVirtualKeys
 	}
 	if _, ok := keys["llmgwDefaultModel"]; !ok {
@@ -48,6 +50,15 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 	}
 	if _, ok := keys["webSearchApiKey"]; !ok {
 		out.WebSearchApiKey = fallback.WebSearchApiKey
+	}
+	if _, ok := keys["webSearchProxy"]; !ok {
+		out.WebSearchProxy = fallback.WebSearchProxy
+	}
+	if _, ok := keys["proxies"]; !ok {
+		out.Proxies = fallback.Proxies
+	}
+	if _, ok := keys["autoMode"]; !ok {
+		out.AutoMode = fallback.AutoMode
 	}
 	return normalizeLegacy(out), nil
 }

@@ -103,8 +103,7 @@ func TestManager_SysadminPromptNoSandbox(t *testing.T) {
 	defer cancel()
 
 	rt, err := m.Start(ctx, "sess-1", "", "sysadmin", manager.StartOpts{
-		AutoApprove: true,
-		Actor:       manager.Actor{Username: "u", Role: "user", APIKey: "k"},
+		Actor: manager.Actor{Username: "u", Role: "user", APIKey: "k"},
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -156,17 +155,16 @@ func TestStartReadsWebSearchGetter(t *testing.T) {
 		LoopbackBase: llm.URL,
 		LLMKey:       "vk-test",
 		DefaultModel: func() string { return "gpt-test" },
-		WebSearch: func() (string, string) {
+		WebSearch: func() (string, string, string) {
 			calls.Add(1)
-			return "https://api.tavily.com", "tvly-test"
+			return "https://api.tavily.com", "tvly-test", ""
 		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	if _, err := m.Start(ctx, "sess-web", "", "sysadmin", manager.StartOpts{
-		AutoApprove: true,
-		Actor:       manager.Actor{Username: "u", Role: "user", APIKey: "k"},
+		Actor: manager.Actor{Username: "u", Role: "user", APIKey: "k"},
 	}); err != nil {
 		t.Fatalf("Start: %v", err)
 	}

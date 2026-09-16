@@ -315,7 +315,7 @@ func TestResolveImageAbs(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 	_, err = resolveImage(filepath.Join(dir, "missing.qcow2"))
-	if err == nil || !strings.Contains(err.Error(), "build.sh") {
+	if err == nil || !strings.Contains(err.Error(), "build the qcow2 artifact") {
 		t.Fatalf("missing: %v", err)
 	}
 }

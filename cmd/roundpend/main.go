@@ -29,6 +29,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
@@ -232,16 +233,25 @@ func main() {
 		Git:       gitStore,
 		Probe:     probe,
 		Cfg:       cfg,
+		ModelSource: func(ctx context.Context, userID string) string {
+			u, err := userStore.GetByUsername(ctx, userID)
+			if err != nil || u == nil {
+				return ""
+			}
+			return u.ModelSource
+		},
 		Config: userenv.Config{
 			BrowserTemplate: cfg.DefaultBrowserTemplate,
 			AgentTemplate:   cfg.DefaultAgentTemplate,
 		},
 	}
-	(&envapi.Handler{
-		Envs: envSvc,
-		Cfg:  cfg,
-		Dial: sbSvc,
-	}).Mount(mux)
+	envHandler := &envapi.Handler{
+		Envs:  envSvc,
+		Users: userStore,
+		Cfg:   cfg,
+		Dial:  sbSvc,
+	}
+	envHandler.Mount(mux)
 	(&workspaceapi.Handler{
 		Envs:  envSvc,
 		Files: sbSvc,
@@ -330,6 +340,26 @@ func main() {
 
 	envSvc.SetGateway(publicURL, llmgw.InternalVirtualKey)
 	envSvc.Config.DefaultModel = gw.DefaultModel
+	// Egress proxy resolution needs settingsSvc, which is built after the
+	// environment service; wire both selectors here.
+	envHandler.Proxies = func() []settings.ProxyProfile { return settingsSvc.Current().Proxies }
+	resolveProxy := func(id string) string {
+		p, ok := settingsSvc.Current().ProxyByID(id)
+		if !ok {
+			return ""
+		}
+		return p.URL
+	}
+	envSvc.Proxy = func(ctx context.Context, userID, slot string) string {
+		u, err := userStore.GetByUsername(ctx, userID)
+		if err != nil || u == nil {
+			return ""
+		}
+		if slot == userenv.SlotBrowser {
+			return resolveProxy(u.BrowserProxy)
+		}
+		return resolveProxy(u.AgentProxy)
+	}
 	agentStore := &agentsession.Store{DB: db.SQL}
 	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
 	if s := settingsSvc.Current(); s.WebSearchEndpoint != "" || s.WebSearchApiKey != "" {
@@ -341,18 +371,30 @@ func main() {
 			"endpoint", endpoint,
 			"api_key_set", s.WebSearchApiKey != "")
 	}
+	autoEvaluator := &automode.LLMEvaluator{
+		BaseURL: strings.TrimRight(loopback, "/") + "/llmgw/openai",
+		APIKey:  llmgw.InternalVirtualKey,
+		Model: func() string {
+			if m := settingsSvc.Current().AutoMode.ClassifierModel(); m != "" {
+				return m
+			}
+			return gw.DefaultModel()
+		},
+		Rules: func() automode.Rules { return settingsSvc.Current().AutoMode.Rules() },
+	}
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
 		LoopbackBase: loopback,
 		LLMKey:       llmgw.InternalVirtualKey,
 		DefaultModel: gw.DefaultModel,
+		AutoMode:     autoEvaluator,
 		BrowserHub:   browserHub,
 		BrowserSlots: envSvc,
 		AgentSlots:   envSvc,
 		History:      agentStore,
 
-		WebSearch: func() (string, string) {
+		WebSearch: func() (string, string, string) {
 			s := settingsSvc.Current()
-			return s.WebSearchEndpoint, s.WebSearchApiKey
+			return s.WebSearchEndpoint, s.WebSearchApiKey, s.WebSearchProxy
 		},
 	})
 	provisioner := &agentenv.Provisioner{
@@ -375,6 +417,13 @@ func main() {
 		Tasks:       &browsetask.Store{DB: db.SQL},
 		Tickets:     nil, // set below after ticketStore
 		DestroySbx:  true,
+		AutoMode:    autoEvaluator,
+		ProxyURL: func(u *storage.User) string {
+			if u == nil {
+				return ""
+			}
+			return resolveProxy(u.AgentProxy)
+		},
 	}
 	ticketStore := &assistticket.Store{DB: db.SQL}
 	agentHandler.Tickets = ticketStore
