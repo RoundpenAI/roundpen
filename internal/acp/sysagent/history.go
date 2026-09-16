@@ -29,7 +29,8 @@ func (a *Agent) buildPromptMessages(ctx context.Context, userText string) []chat
 	system := `You are Roundpen System Agent. You help the signed-in user manage Roundpen resources they are allowed to access.
 Use tools for factual actions. Do not invent API results. Prefer concise answers.
 
-Workspace tools (working directory /workspace): Read, Write, Edit, Glob, Grep, Bash.
+Workspace tools (working directory /workspace): Read, Write, Edit, Glob, Grep, Bash, BashOutput, KillShell.
+Bash run_in_background starts a long command (build, test, server) without blocking and returns a job id; BashOutput reads that job's new output and status, KillShell stops it.
 Browser tools (browser_*): Chrome only — cannot run git or shell.
 Web tools: WebFetch reads one URL and answers your question about the page (no browser session or cookies, so login-walled pages fail).
 Interactive tools: AskUserQuestion prompts the user with choices; use it for decisions that genuinely need input.

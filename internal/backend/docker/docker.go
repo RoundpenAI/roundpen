@@ -100,7 +100,12 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		env = append(env, k+"="+v)
 	}
 
+	// PID 1 is sleep infinity and reaps nothing: without an init, processes
+	// orphaned by detached exec sessions (background Bash jobs) linger as
+	// zombies. docker-init also forwards stop signals to the real process.
+	withInit := true
 	hostCfg := &container.HostConfig{
+		Init:   &withInit,
 		Mounts: []mount.Mount{},
 		Resources: container.Resources{
 			Memory: opts.MemoryLimit,

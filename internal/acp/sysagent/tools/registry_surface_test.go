@@ -20,12 +20,13 @@ func TestWorkspaceToolSurface(t *testing.T) {
 	tools.RegisterSearch(reg, binder)
 
 	want := map[string]bool{
-		"Bash": true, "Edit": true, "GetSettings": true, "Glob": true, "Grep": true,
+		"Bash": true, "BashOutput": true, "Edit": true, "GetSettings": true, "Glob": true,
+		"Grep": true, "KillShell": true,
 		"ListEnvironments": true, "ListSessions": true, "ListTemplates": true,
 		"Read": true, "Write": true,
 	}
 	for _, name := range []string{
-		"Bash", "Edit", "GetSettings", "Glob", "Grep",
+		"Bash", "BashOutput", "Edit", "GetSettings", "Glob", "Grep", "KillShell",
 		"ListEnvironments", "ListSessions", "ListTemplates", "Read", "Write",
 	} {
 		if _, ok := reg.Get(name); !ok {

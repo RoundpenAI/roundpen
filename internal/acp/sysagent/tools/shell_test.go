@@ -30,6 +30,7 @@ type stubExec struct {
 	id      string
 	cmd     []string
 	workdir string
+	env     map[string]string
 	ws      string
 	res     *sandbox.ExecResult
 	queue   []*sandbox.ExecResult
@@ -40,6 +41,7 @@ func (s *stubExec) Exec(_ context.Context, id string, req sandbox.ExecRequest) (
 	s.id = id
 	s.cmd = append([]string(nil), req.Cmd...)
 	s.workdir = req.WorkDir
+	s.env = req.Env
 	if s.fail != nil {
 		return nil, s.fail
 	}
