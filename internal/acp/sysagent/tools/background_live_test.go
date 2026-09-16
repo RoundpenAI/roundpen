@@ -67,11 +67,12 @@ func TestLiveBackgroundBash(t *testing.T) {
 
 	name := "roundpen-" + bgLiveSandboxID
 	_ = cli.ContainerRemove(ctx, name, container.RemoveOptions{Force: true})
+	withInit := true
 	created, err := cli.ContainerCreate(ctx, &container.Config{
 		Image: "roundpen-code-agent:local",
 		Cmd:   []string{"sleep", "infinity"},
 		User:  "1000:1000",
-	}, &container.HostConfig{}, nil, nil, name)
+	}, &container.HostConfig{Init: &withInit}, nil, nil, name)
 	if err != nil {
 		t.Fatalf("create container: %v", err)
 	}
