@@ -79,6 +79,10 @@ func (b *AgentBinder) exec(ctx context.Context, sbID string, cmd []string, workD
 }
 
 func (b *AgentBinder) execResult(ctx context.Context, sbID string, cmd []string, workDir string, timeout time.Duration) (*sandbox.ExecResult, error) {
+	return b.execRequest(ctx, sbID, cmd, workDir, nil, timeout)
+}
+
+func (b *AgentBinder) execRequest(ctx context.Context, sbID string, cmd []string, workDir string, env map[string]string, timeout time.Duration) (*sandbox.ExecResult, error) {
 	if b == nil || b.Exec == nil {
 		return nil, fmt.Errorf("workspace exec not configured")
 	}
@@ -88,13 +92,16 @@ func (b *AgentBinder) execResult(ctx context.Context, sbID string, cmd []string,
 	if workDir == "" {
 		workDir = WorkspaceRoot
 	}
-	env := map[string]string{
+	merged := map[string]string{
 		"GIT_TERMINAL_PROMPT": "0",
+	}
+	for k, v := range env {
+		merged[k] = v
 	}
 	return b.Exec.Exec(ctx, sbID, sandbox.ExecRequest{
 		Cmd:     cmd,
 		WorkDir: workDir,
-		Env:     env,
+		Env:     merged,
 		Timeout: timeout,
 	})
 }
@@ -125,7 +132,8 @@ func truncateRunes(s string, max int) string {
 	return s[:max] + "…"
 }
 
-// RegisterShell adds the Bash tool (implicit agent-workspace ensure).
+// RegisterShell adds the Bash tool (implicit agent-workspace ensure) plus the
+// BashOutput and KillShell tools for background jobs it starts.
 func RegisterShell(r *Registry, binder *AgentBinder) {
 	if r == nil || binder == nil {
 		return
@@ -134,21 +142,27 @@ func RegisterShell(r *Registry, binder *AgentBinder) {
 		Name: "Bash",
 		Description: "Run a shell command in the Agent workspace (default cwd /workspace). " +
 			"Use for git, builds, tests, and other command-line work. " +
+			"Set run_in_background to start a long command without blocking and get a job id back. " +
 			"The Browser cannot run shell commands.",
 		Mutating: true,
 		Parameters: objectSchema(map[string]any{
-			"command": map[string]any{"type": "string", "description": "Shell command (passed to /bin/sh -c)"},
-			"workdir": map[string]any{"type": "string", "description": "Working directory (default /workspace)"},
-			"timeout": map[string]any{"type": "integer", "description": "Timeout in seconds (default 180)"},
+			"command":           map[string]any{"type": "string", "description": "Shell command (passed to /bin/sh -c)"},
+			"workdir":           map[string]any{"type": "string", "description": "Working directory (default /workspace)"},
+			"timeout":           map[string]any{"type": "integer", "description": "Timeout in seconds (default 180; ignored when run_in_background is true)"},
+			"run_in_background": map[string]any{"type": "boolean", "description": "Start the command in the background and return a job id immediately (default false)"},
 		}, "command"),
 		Call: func(ctx context.Context, actor Actor, args json.RawMessage) (string, error) {
 			var in struct {
-				Command string `json:"command"`
-				WorkDir string `json:"workdir"`
-				Timeout int    `json:"timeout"`
+				Command         string `json:"command"`
+				WorkDir         string `json:"workdir"`
+				Timeout         int    `json:"timeout"`
+				RunInBackground bool   `json:"run_in_background"`
 			}
 			if err := json.Unmarshal(args, &in); err != nil || strings.TrimSpace(in.Command) == "" {
 				return "", fmt.Errorf("command is required")
+			}
+			if in.RunInBackground {
+				return binder.startBackground(ctx, actor, in.Command, in.WorkDir)
 			}
 			id, err := binder.ensureID(ctx, actor)
 			if err != nil {
@@ -168,4 +182,5 @@ func RegisterShell(r *Registry, binder *AgentBinder) {
 			return out, nil
 		},
 	})
+	registerBackground(r, binder)
 }
