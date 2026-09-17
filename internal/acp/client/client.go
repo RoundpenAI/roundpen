@@ -124,7 +124,10 @@ func (b *Bridge) RequestPermission(ctx context.Context, params acp.RequestPermis
 	auto := b.autoApprove
 	fn := b.permissionHandler
 	b.mu.Unlock()
-	if auto {
+	// AskUserQuestion encodes answer choices as permission options; auto-approve
+	// must never pick an answer on behalf of the user.
+	isUserQuestion := strings.HasPrefix(string(params.ToolCall.ToolCallId), "ask-")
+	if auto && !isUserQuestion {
 		if opt := PickOrdinaryAllow(params.Options); opt != "" {
 			title := ""
 			if params.ToolCall.Title != nil {

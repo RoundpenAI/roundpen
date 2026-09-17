@@ -36,6 +36,9 @@ type SysDeps struct {
 	BrowserSlots tools.BrowserSlot
 	AgentSlots   tools.AgentSlot
 
+	// Roundpen is in-process management tools (envs/templates/sessions/settings).
+	Roundpen *tools.RoundpenBinder
+
 	WebSearch func() (endpoint, key string) // nil，或 endpoint 与 key 均为空 → 不注册 WebSearch
 
 	History sysagent.MessageSource
@@ -138,7 +141,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			DefaultModel: m.sys.DefaultModel,
 		}
 		reg := tools.NewRegistry()
-		tools.RegisterRoundpen(reg, &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase})
+		tools.RegisterRoundpen(reg, m.sys.Roundpen)
 		tools.RegisterBrowser(reg, &tools.BrowserBinder{
 			Hub:       m.sys.BrowserHub,
 			Slots:     m.sys.BrowserSlots,

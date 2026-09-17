@@ -20,6 +20,10 @@ type Store struct {
 	DB *sql.DB
 }
 
+const assistantSelectCols = `id, user_id, name, bio, identity_mode, capabilities,
+			network_tier, network_allowlist, directory_grants, status, kind,
+			COALESCE(im_channels, '{}'::jsonb), created_at, updated_at`
+
 // Create inserts a new assistant.
 func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Assistant, error) {
 	if err := ValidateCreate(in); err != nil {
@@ -49,6 +53,7 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Ass
 		DirectoryGrants:  []DirectoryGrant{},
 		Status:           StatusActive,
 		Kind:             kind,
+		ImChannels:       ImChannels{},
 		CreatedAt:        now,
 		UpdatedAt:        now,
 	}
@@ -64,13 +69,19 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Ass
 	if err != nil {
 		return nil, err
 	}
+	imRaw, err := ImChannelsJSON(a.ImChannels)
+	if err != nil {
+		return nil, err
+	}
 	_, err = s.DB.ExecContext(ctx, `
 		INSERT INTO assistants (
 			id, user_id, name, bio, identity_mode, capabilities,
-			network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			network_tier, network_allowlist, directory_grants, status, kind,
+			im_channels, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 		a.ID, a.UserID, a.Name, a.Bio, a.IdentityMode, capRaw,
-		a.NetworkTier, allowRaw, dirRaw, a.Status, a.Kind, a.CreatedAt, a.UpdatedAt,
+		a.NetworkTier, allowRaw, dirRaw, a.Status, a.Kind,
+		imRaw, a.CreatedAt, a.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -81,8 +92,7 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Ass
 // Get returns an assistant by id.
 func (s *Store) Get(ctx context.Context, id string) (*Assistant, error) {
 	row := s.DB.QueryRowContext(ctx, `
-		SELECT id, user_id, name, bio, identity_mode, capabilities,
-			network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
+		SELECT `+assistantSelectCols+`
 		FROM assistants WHERE id=$1`, id)
 	a, err := scanAssistant(row)
 	if err != nil {
@@ -97,8 +107,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Assistant, error) {
 // ListByUser returns assistants for a user (system first, then newest).
 func (s *Store) ListByUser(ctx context.Context, userID string) ([]*Assistant, error) {
 	rows, err := s.DB.QueryContext(ctx, `
-		SELECT id, user_id, name, bio, identity_mode, capabilities,
-			network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
+		SELECT `+assistantSelectCols+`
 		FROM assistants
 		WHERE user_id=$1 AND status <> $2
 		ORDER BY CASE WHEN kind = $3 THEN 0 ELSE 1 END, updated_at DESC`,
@@ -118,11 +127,31 @@ func (s *Store) ListByUser(ctx context.Context, userID string) ([]*Assistant, er
 	return out, rows.Err()
 }
 
+// ListActive returns all active assistants (for IM supervisor bootstrap).
+func (s *Store) ListActive(ctx context.Context) ([]*Assistant, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT `+assistantSelectCols+`
+		FROM assistants WHERE status=$1
+		ORDER BY updated_at DESC`, StatusActive)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Assistant
+	for rows.Next() {
+		a, err := scanAssistant(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // EnsureSystem returns the user's active system assistant, creating one if needed.
 func (s *Store) EnsureSystem(ctx context.Context, userID string) (*Assistant, error) {
 	row := s.DB.QueryRowContext(ctx, `
-		SELECT id, user_id, name, bio, identity_mode, capabilities,
-			network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
+		SELECT `+assistantSelectCols+`
 		FROM assistants
 		WHERE user_id=$1 AND kind=$2 AND status=$3
 		LIMIT 1`, userID, KindSystem, StatusActive)
@@ -135,10 +164,8 @@ func (s *Store) EnsureSystem(ctx context.Context, userID string) (*Assistant, er
 	}
 	created, err := s.Create(ctx, userID, DefaultSystemCreateInput())
 	if err != nil {
-		// Concurrent ensure: unique index may reject the second insert.
 		row = s.DB.QueryRowContext(ctx, `
-			SELECT id, user_id, name, bio, identity_mode, capabilities,
-				network_tier, network_allowlist, directory_grants, status, kind, created_at, updated_at
+			SELECT `+assistantSelectCols+`
 			FROM assistants
 			WHERE user_id=$1 AND kind=$2 AND status=$3
 			LIMIT 1`, userID, KindSystem, StatusActive)
@@ -161,6 +188,7 @@ type UpdateInput struct {
 	NetworkAllowlist *[]string
 	DirectoryGrants  *[]DirectoryGrant
 	Status           *string
+	ImChannels       *ImChannels
 }
 
 // Update applies a partial update.
@@ -224,6 +252,12 @@ func (s *Store) Update(ctx context.Context, id string, in UpdateInput) (*Assista
 			return nil, fmt.Errorf("status must be active or disabled")
 		}
 	}
+	if in.ImChannels != nil {
+		cur.ImChannels = MergeImChannelsSecrets(*in.ImChannels, cur.ImChannels)
+		if cur.ImChannels == nil {
+			cur.ImChannels = ImChannels{}
+		}
+	}
 	cur.UpdatedAt = time.Now().UTC()
 	capRaw, err := capsJSON(cur.Capabilities)
 	if err != nil {
@@ -237,14 +271,18 @@ func (s *Store) Update(ctx context.Context, id string, in UpdateInput) (*Assista
 	if err != nil {
 		return nil, err
 	}
+	imRaw, err := ImChannelsJSON(cur.ImChannels)
+	if err != nil {
+		return nil, err
+	}
 	_, err = s.DB.ExecContext(ctx, `
 		UPDATE assistants SET
 			name=$2, bio=$3, identity_mode=$4, capabilities=$5,
 			network_tier=$6, network_allowlist=$7, directory_grants=$8,
-			status=$9, updated_at=$10
+			status=$9, im_channels=$10, updated_at=$11
 		WHERE id=$1`,
 		cur.ID, cur.Name, cur.Bio, cur.IdentityMode, capRaw,
-		cur.NetworkTier, allowRaw, dirRaw, cur.Status, cur.UpdatedAt,
+		cur.NetworkTier, allowRaw, dirRaw, cur.Status, imRaw, cur.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -266,10 +304,11 @@ func (s *Store) AttachOrphanSessions(ctx context.Context, userID, assistantID st
 
 func scanAssistant(row interface{ Scan(dest ...any) error }) (*Assistant, error) {
 	var a Assistant
-	var capRaw, allowRaw, dirRaw []byte
+	var capRaw, allowRaw, dirRaw, imRaw []byte
 	if err := row.Scan(
 		&a.ID, &a.UserID, &a.Name, &a.Bio, &a.IdentityMode, &capRaw,
-		&a.NetworkTier, &allowRaw, &dirRaw, &a.Status, &a.Kind, &a.CreatedAt, &a.UpdatedAt,
+		&a.NetworkTier, &allowRaw, &dirRaw, &a.Status, &a.Kind, &imRaw,
+		&a.CreatedAt, &a.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -297,5 +336,10 @@ func scanAssistant(row interface{ Scan(dest ...any) error }) (*Assistant, error)
 	if a.DirectoryGrants == nil {
 		a.DirectoryGrants = []DirectoryGrant{}
 	}
+	im, err := ParseImChannels(imRaw)
+	if err != nil {
+		return nil, err
+	}
+	a.ImChannels = im
 	return &a, nil
 }

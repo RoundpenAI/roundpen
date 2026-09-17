@@ -76,6 +76,19 @@ func RegisterBrowser(r *Registry, binder *BrowserBinder) {
 		return
 	}
 	r.Register(Tool{
+		Name:        "browser_start",
+		Description: "Start or resume the System Agent browser environment (Chrome container). Call this first if other browser tools report the environment is stopped.",
+		Mutating:    true,
+		Parameters:  objectSchema(map[string]any{}),
+		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
+			sess, err := binder.ensure(ctx, actor)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`{"ok":true,"url":%q,"hubId":%q}`, sess.Engine.URL(), sess.SandboxID), nil
+		},
+	})
+	r.Register(Tool{
 		Name:        "browser_navigate",
 		Description: "Navigate the System Agent browser to a URL.",
 		Mutating:    true,

@@ -22,8 +22,10 @@ import {
   type Assistant,
   type AssistantCapabilities,
   type AssistantDirectoryGrant,
+  type ImChannels,
 } from '../api'
 import { useAssistantLayout } from '../components/AssistantLayout'
+import { ImChannelsSection } from '../components/assistant/ImChannelsSection'
 import { Loading } from '../components/Loading'
 import { isSystemAssistant } from '../lib/assistants'
 
@@ -290,6 +292,15 @@ export function AssistantDetailPage() {
             </Typography.Text>
           </div>
         </section>
+
+        <ImChannelsSection
+          assistantId={assistantId}
+          channels={a.imChannels ?? {}}
+          saving={saving}
+          onChange={async (imChannels: ImChannels) => {
+            await patch({ imChannels })
+          }}
+        />
 
         <section style={sectionGap}>
           <Typography.Title heading={5} style={{ margin: 0 }}>

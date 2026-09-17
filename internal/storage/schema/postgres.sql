@@ -293,6 +293,7 @@ CREATE TABLE IF NOT EXISTS assistants (
 );
 CREATE INDEX IF NOT EXISTS assistants_user_idx ON assistants (user_id, updated_at DESC);
 ALTER TABLE assistants ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'user';
+ALTER TABLE assistants ADD COLUMN IF NOT EXISTS im_channels JSONB NOT NULL DEFAULT '{}';
 CREATE UNIQUE INDEX IF NOT EXISTS assistants_user_system_active_idx
     ON assistants (user_id)
     WHERE kind = 'system' AND status = 'active';

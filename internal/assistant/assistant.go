@@ -51,6 +51,7 @@ type Assistant struct {
 	DirectoryGrants  []DirectoryGrant `json:"directoryGrants"`
 	Status           string           `json:"status"`
 	Kind             string           `json:"kind"`
+	ImChannels       ImChannels       `json:"imChannels"`
 	PrimarySessionID string           `json:"primarySessionId,omitempty"`
 	CreatedAt        time.Time        `json:"createdAt"`
 	UpdatedAt        time.Time        `json:"updatedAt"`

@@ -16,7 +16,8 @@ import (
 type Actor struct {
 	Username string
 	Role     string
-	APIKey   string
+	// APIKey is unused by in-process Roundpen tools; kept for call-site compat.
+	APIKey string
 }
 
 // Authz returns the control-plane identity used by owner-scoped services.

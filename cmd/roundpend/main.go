@@ -18,6 +18,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/manager"
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
+	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/agentapi"
@@ -36,6 +37,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/hostsetup"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
+	"github.com/RoundpenAI/roundpen/internal/imconnect"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/policy"
@@ -349,6 +351,12 @@ func main() {
 		BrowserSlots: envSvc,
 		AgentSlots:   envSvc,
 		History:      agentStore,
+		Roundpen: &tools.RoundpenBinder{
+			Envs:      envSvc,
+			Templates: tplSvc,
+			Sessions:  agentStore,
+			Settings:  settingsSvc,
+		},
 
 		WebSearch: func() (string, string) {
 			s := settingsSvc.Current()
@@ -381,13 +389,40 @@ func main() {
 	agentHandler.Mount(mux)
 	assistantStore := &assistant.Store{DB: db.SQL}
 	denialStore := &policy.DenialStore{DB: db.SQL}
-	(&assistant.Handler{
+
+	lang, imDataDir, imProvider := imconnect.EnvDefaults()
+	var imSup *imconnect.Supervisor
+	imSup, err = imconnect.NewSupervisor(imconnect.Deps{
+		Assistants:  assistantStore,
+		Store:       agentStore,
+		ACP:         acpMgr,
+		Users:       userStore,
+		Provisioner: provisioner,
+		LLMGW:       gw,
+		Provider:    imProvider,
+		Lang:        lang,
+		DataDir:     imDataDir,
+	})
+	if err != nil {
+		logger.Error("imconnect supervisor", slog.Any("err", err))
+		imSup = nil
+	}
+
+	asstHandler := &assistant.Handler{
 		Store:    assistantStore,
 		Sessions: agentStore,
 		Starter:  agentHandler,
 		Tickets:  ticketStore,
 		Denials:  denialStore,
-	}).Mount(mux)
+		IM:       imSup,
+	}
+	asstHandler.Mount(mux)
+
+	if imSup != nil {
+		if err := imSup.StartAll(ctx); err != nil {
+			logger.Error("imconnect start", slog.Any("err", err))
+		}
+	}
 
 	// Console SPA last — catch-all for non-API GET paths (embedded via internal/ui).
 	mux.Handle("/", ui.Handler())
@@ -410,6 +445,9 @@ func main() {
 	}()
 
 	<-ctx.Done()
+	if imSup != nil {
+		imSup.StopAll()
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)

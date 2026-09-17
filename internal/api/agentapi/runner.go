@@ -300,7 +300,11 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	}
 	r.flushThought()
 
-	if auto {
+	// AskUserQuestion encodes answer choices as permission options with the
+	// "ask-" ToolCallId prefix; auto-approve must never pick an answer on
+	// behalf of the user.
+	isUserQuestion := strings.HasPrefix(reqID, "ask-")
+	if auto && !isUserQuestion {
 		if opt := acpclient.PickOrdinaryAllow(req.Options); opt != "" {
 			r.persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
 				Type:      "permission",

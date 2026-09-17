@@ -21,6 +21,11 @@ type SessionStarter interface {
 	StartForAssistant(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error)
 }
 
+// IMSyncer reloads IM connectors after channel config changes.
+type IMSyncer interface {
+	Sync(ctx context.Context, a *Assistant) error
+}
+
 // Handler serves /v1/assistants.
 type Handler struct {
 	Store    *Store
@@ -28,6 +33,7 @@ type Handler struct {
 	Starter  SessionStarter
 	Tickets  *assistticket.Store
 	Denials  *policy.DenialStore
+	IM       IMSyncer
 }
 
 // Mount registers routes.
@@ -43,6 +49,8 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/assistants/{id}/assist-tickets", h.createTicket)
 	mux.HandleFunc("POST /v1/assist-tickets/{id}/resolve", h.resolveTicket)
 	mux.HandleFunc("GET /v1/me/assist-tickets/pending", h.pendingTickets)
+	mux.HandleFunc("POST /v1/assistants/{id}/im/weixin/begin", h.weixinBegin)
+	mux.HandleFunc("POST /v1/assistants/{id}/im/weixin/poll", h.weixinPoll)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +81,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	for _, a := range list {
 		h.fillPrimarySession(r.Context(), user.Username, a)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"assistants": list})
+	writeJSON(w, http.StatusOK, map[string]any{"assistants": sanitizeList(list)})
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +124,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, a)
+	writeJSON(w, http.StatusCreated, sanitizeAssistant(a))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -131,7 +139,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.fillPrimarySession(r.Context(), user.Username, a)
-	writeJSON(w, http.StatusOK, a)
+	writeJSON(w, http.StatusOK, sanitizeAssistant(a))
 }
 
 func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
@@ -161,6 +169,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		NetworkAllowlist      *[]string         `json:"networkAllowlist"`
 		DirectoryGrants       *[]DirectoryGrant `json:"directoryGrants"`
 		Status                *string           `json:"status"`
+		ImChannels            *ImChannels       `json:"imChannels"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
@@ -179,6 +188,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		NetworkAllowlist: body.NetworkAllowlist,
 		DirectoryGrants:  body.DirectoryGrants,
 		Status:           body.Status,
+		ImChannels:       body.ImChannels,
 	})
 	if err != nil {
 		if errors.Is(err, ErrSystemUndeletable) {
@@ -192,8 +202,11 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if body.ImChannels != nil || (body.Status != nil && *body.Status == StatusDisabled) {
+		h.syncIM(r.Context(), updated)
+	}
 	h.fillPrimarySession(r.Context(), user.Username, updated)
-	writeJSON(w, http.StatusOK, updated)
+	writeJSON(w, http.StatusOK, sanitizeAssistant(updated))
 }
 
 func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
@@ -245,6 +258,30 @@ func (h *Handler) fillPrimarySession(ctx context.Context, userID string, a *Assi
 		return
 	}
 	a.PrimarySessionID = list[0].ID
+}
+
+func (h *Handler) syncIM(ctx context.Context, a *Assistant) {
+	if h.IM == nil || a == nil {
+		return
+	}
+	_ = h.IM.Sync(ctx, a)
+}
+
+func sanitizeAssistant(a *Assistant) *Assistant {
+	if a == nil {
+		return nil
+	}
+	out := *a
+	out.ImChannels = SanitizeImChannels(a.ImChannels)
+	return &out
+}
+
+func sanitizeList(list []*Assistant) []*Assistant {
+	out := make([]*Assistant, len(list))
+	for i, a := range list {
+		out[i] = sanitizeAssistant(a)
+	}
+	return out
 }
 
 func (h *Handler) ownedAssistant(ctx context.Context, user *storage.User, id string) (*Assistant, error) {

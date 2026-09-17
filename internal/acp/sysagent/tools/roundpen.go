@@ -1,67 +1,50 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"time"
+
+	"github.com/RoundpenAI/roundpen/internal/agentsession"
+	"github.com/RoundpenAI/roundpen/internal/settings"
+	"github.com/RoundpenAI/roundpen/internal/template"
+	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
-// RoundpenHTTP calls Roundpen control-plane APIs as the actor (X-API-Key).
-type RoundpenHTTP struct {
-	BaseURL    string // e.g. http://127.0.0.1:19001
-	HTTPClient *http.Client
+// EnvLister lists fixed per-user environments (agent/browser slots).
+type EnvLister interface {
+	List(ctx context.Context, userID string) ([]userenv.EnvView, error)
 }
 
-func (c *RoundpenHTTP) client() *http.Client {
-	if c.HTTPClient != nil {
-		return c.HTTPClient
-	}
-	return &http.Client{Timeout: 60 * time.Second}
+// TemplateLister lists environment image templates.
+type TemplateLister interface {
+	List(ctx context.Context) ([]template.Record, error)
 }
 
-func (c *RoundpenHTTP) do(ctx context.Context, actor Actor, method, path string, body any) (string, error) {
-	base := strings.TrimRight(c.BaseURL, "/")
-	var rdr io.Reader
-	if body != nil {
-		raw, err := json.Marshal(body)
-		if err != nil {
-			return "", err
-		}
-		rdr = bytes.NewReader(raw)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, base+path, rdr)
-	if err != nil {
-		return "", err
-	}
-	if actor.APIKey != "" {
-		req.Header.Set("X-API-Key", actor.APIKey)
-	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	resp, err := c.client().Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
-	if len(raw) == 0 {
-		return fmt.Sprintf(`{"ok":true,"status":%d}`, resp.StatusCode), nil
-	}
-	return string(raw), nil
+// SessionLister lists agent chat sessions for a user.
+type SessionLister interface {
+	ListByUser(ctx context.Context, userID string, limit int) ([]*agentsession.Session, error)
+}
+
+// SettingsSource returns sanitized admin settings (same shape as HTTP GET).
+type SettingsSource interface {
+	Response() (settings.AppSettings, settings.SystemInfo)
+}
+
+// RoundpenBinder calls control-plane services in-process as the tool Actor.
+// Prefer this over HTTP + API keys: same process, permissions follow Actor.Username/Role.
+type RoundpenBinder struct {
+	Envs      EnvLister
+	Templates TemplateLister
+	Sessions  SessionLister
+	Settings  SettingsSource
 }
 
 // RegisterRoundpen adds Roundpen management tools (model-facing names, no ensure tools).
-func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
-	if api == nil || r == nil {
+func RegisterRoundpen(r *Registry, b *RoundpenBinder) {
+	if b == nil || r == nil {
 		return
 	}
 	r.Register(Tool{
@@ -71,11 +54,17 @@ func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 			"Do not treat a running Browser as the only available environment.",
 		Parameters: objectSchema(map[string]any{}),
 		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
-			raw, err := api.do(ctx, actor, http.MethodGet, "/v1/me/environments", nil)
+			if b.Envs == nil {
+				return "", fmt.Errorf("environments not configured")
+			}
+			if strings.TrimSpace(actor.Username) == "" {
+				return "", fmt.Errorf("actor username required")
+			}
+			list, err := b.Envs.List(ctx, actor.Username)
 			if err != nil {
 				return "", err
 			}
-			return scrubEnvList(raw), nil
+			return scrubEnvViews(list), nil
 		},
 	})
 	r.Register(Tool{
@@ -83,7 +72,22 @@ func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 		Description: "List available environment image templates (agent/browser slots).",
 		Parameters:  objectSchema(map[string]any{}),
 		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
-			return api.do(ctx, actor, http.MethodGet, "/v1/templates", nil)
+			if b.Templates == nil {
+				return "[]", nil
+			}
+			list, err := b.Templates.List(ctx)
+			if err != nil {
+				return "", err
+			}
+			out := make([]map[string]any, 0, len(list))
+			for _, rec := range list {
+				out = append(out, templateSummary(rec))
+			}
+			raw, err := json.Marshal(out)
+			if err != nil {
+				return "", err
+			}
+			return string(raw), nil
 		},
 	})
 	r.Register(Tool{
@@ -91,7 +95,43 @@ func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 		Description: "List the current user's agent chat sessions.",
 		Parameters:  objectSchema(map[string]any{}),
 		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
-			return api.do(ctx, actor, http.MethodGet, "/v1/agent-sessions", nil)
+			if b.Sessions == nil {
+				return `{"sessions":[]}`, nil
+			}
+			if strings.TrimSpace(actor.Username) == "" {
+				return "", fmt.Errorf("actor username required")
+			}
+			list, err := b.Sessions.ListByUser(ctx, actor.Username, 50)
+			if err != nil {
+				return "", err
+			}
+			if list == nil {
+				list = []*agentsession.Session{}
+			}
+			// Strip sandbox ids from the model-facing payload.
+			type sessView struct {
+				ID          string    `json:"id"`
+				UserID      string    `json:"userId"`
+				Title       string    `json:"title"`
+				ProviderID  string    `json:"providerId"`
+				AssistantID string    `json:"assistantId,omitempty"`
+				Status      string    `json:"status"`
+				CreatedAt   time.Time `json:"createdAt"`
+				UpdatedAt   time.Time `json:"updatedAt"`
+			}
+			views := make([]sessView, 0, len(list))
+			for _, s := range list {
+				views = append(views, sessView{
+					ID: s.ID, UserID: s.UserID, Title: s.Title, ProviderID: s.ProviderID,
+					AssistantID: s.AssistantID, Status: s.Status,
+					CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
+				})
+			}
+			raw, err := json.Marshal(map[string]any{"sessions": views})
+			if err != nil {
+				return "", err
+			}
+			return string(raw), nil
 		},
 	})
 	r.Register(Tool{
@@ -102,33 +142,55 @@ func RegisterRoundpen(r *Registry, api *RoundpenHTTP) {
 			if actor.Role != "admin" {
 				return "", fmt.Errorf("admin role required")
 			}
-			return api.do(ctx, actor, http.MethodGet, "/v1/admin/settings", nil)
+			if b.Settings == nil {
+				return "", fmt.Errorf("settings not configured")
+			}
+			cfg, sys := b.Settings.Response()
+			raw, err := json.Marshal(map[string]any{"settings": cfg, "system": sys})
+			if err != nil {
+				return "", err
+			}
+			return string(raw), nil
 		},
 	})
 }
 
 const envListNote = "agent status=absent means not started yet — call Bash or file tools (Read/Write/Edit). Browser cannot run git or shell."
 
-func scrubEnvList(raw string) string {
-	var wrap map[string]any
-	if err := json.Unmarshal([]byte(raw), &wrap); err != nil || wrap == nil {
-		return raw
+func scrubEnvViews(list []userenv.EnvView) string {
+	type view struct {
+		Slot       string `json:"slot"`
+		TemplateID string `json:"templateId,omitempty"`
+		Status     string `json:"status"`
+		Name       string `json:"name,omitempty"`
+		Provider   string `json:"provider,omitempty"`
+		Image      string `json:"image,omitempty"`
 	}
-	if envs, ok := wrap["environments"].([]any); ok {
-		for _, item := range envs {
-			obj, ok := item.(map[string]any)
-			if !ok {
-				continue
-			}
-			delete(obj, "sandboxId")
-			delete(obj, "sandbox_id")
-			delete(obj, "SandboxID")
-		}
+	out := make([]view, 0, len(list))
+	for _, e := range list {
+		out = append(out, view{
+			Slot: e.Slot, TemplateID: e.TemplateID, Status: e.Status,
+			Name: e.Name, Provider: e.Provider, Image: e.Image,
+		})
 	}
-	wrap["note"] = envListNote
-	out, err := json.Marshal(wrap)
+	raw, err := json.Marshal(map[string]any{"environments": out, "note": envListNote})
 	if err != nil {
-		return raw
+		return `{"environments":[],"note":"` + envListNote + `"}`
 	}
-	return string(out)
+	return string(raw)
+}
+
+func templateSummary(rec template.Record) map[string]any {
+	m := map[string]any{
+		"templateID":  rec.TemplateID,
+		"name":        rec.Name,
+		"description": rec.Description,
+		"slot":        rec.Slot,
+		"profile":     rec.Profile,
+		"public":      rec.Public,
+		"buildStatus": string(rec.BuildStatus),
+		"aliases":     rec.Aliases,
+		"names":       rec.Names,
+	}
+	return m
 }
