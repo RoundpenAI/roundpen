@@ -136,10 +136,11 @@ Spec 定稿后写 `issue_docs(kind='plan')`，建议结构：文件地图（改�
 | `drafting` | spec 写入 `current` | `specced` |
 | `drafting` / `specced` | plan 写入 `current` | `planned` |
 | 非 `in_progress` / 非 `cancelled` | 任一任务进入 `in_progress` | `in_progress` |
-| `in_progress` | 全部任务 ∈ {`done`,`cancelled`} 且 ≥1 个 `done` | `done` |
+| 非 `cancelled` | 全部任务 ∈ {`done`,`cancelled`} 且 ≥1 个 `done` | `done` |
 | `cancelled` | 任意事件 | 不变 |
 
 - 任务重新打开（`done` → `todo`/`in_progress`/`blocked`）触发第三条，议题从 `done` 回到 `in_progress`。
+- 完成不要求先经过 `in_progress`：控制台的复选框直接把任务从 `todo` 勾成 `done`，也是「全部任务完成」，议题同样关闭。（实现中曾要求当前状态为 `in_progress`，导致勾选路径永远关不掉议题——E2E 验证时发现并修正。）
 - 边界：全部任务被 cancelled 而没有一个 done 时，议题**不**自动完成——停在 `in_progress` 等用户裁决。
 - `PATCH /v1/issues/{key}` 可显式设置任意状态（用户是最终裁决者）；显式设置有 `cancelled` / `done` 时写 `closed_at`。
 

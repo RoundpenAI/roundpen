@@ -21,10 +21,11 @@ test.describe('issues', () => {
     await page.getByLabel('标题').fill('e2e 议题')
     await page.getByRole('button', { name: '创建' }).click()
 
-    // Land on the detail page, clarifying and with no documents yet.
+    // Land on the detail page, clarifying and with no documents yet. The status
+    // assertions go through the visible copy: Semi's Select does not forward an
+    // accessible name, and what matters is the status the user reads.
     await expect(page).toHaveURL(/\/issues\/ISS-\d+/)
-    const status = page.getByLabel('状态')
-    await expect(status).toBeVisible()
+    await expect(page.getByText('澄清中').first()).toBeVisible()
     await expect(page.getByText('还没有文档。')).toBeVisible()
 
     // Spec v1 (current) advances the issue to specced.
@@ -34,7 +35,7 @@ test.describe('issues', () => {
       .fill('# 目标\n\n验证议题闭环。')
     await page.getByRole('button', { name: '创建' }).click()
     await expect(page.getByText('当前版本')).toBeVisible()
-    await expect(status.locator('..').getByText('Spec 已定稿')).toBeVisible()
+    await expect(page.getByText('Spec 已定稿').first()).toBeVisible()
 
     // A second revision supersedes the first rather than overwriting it.
     await page.getByRole('button', { name: '新版本' }).click()
@@ -48,7 +49,15 @@ test.describe('issues', () => {
     await page.getByRole('button', { name: '创建' }).click()
     await expect(page.getByText('验证任务闭环')).toBeVisible()
 
-    await page.getByRole('checkbox').first().click()
-    await expect(page.getByText('已完成').first()).toBeVisible()
+    // Semi paints a display span over the input, so a pointer click never
+    // reaches it; a real user's click toggles through the wrapping label.
+    await page
+      .getByRole('checkbox', { name: '验证任务闭环' })
+      .press('Space')
+
+    // The issue closes itself. Assert on the issue's own status, not on any
+    // "已完成" in the task row — the loose version passed while the issue was
+    // still open.
+    await expect(page.getByTestId('issue-status')).toContainText('已完成')
   })
 })

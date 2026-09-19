@@ -283,6 +283,7 @@ export function IssueDetailPage() {
             }}
           >
             <span
+              data-testid="issue-status"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
             >
               <Typography.Text type="tertiary" size="small">

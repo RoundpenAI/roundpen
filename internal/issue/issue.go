@@ -118,9 +118,10 @@ func Advance(cur string, ev Event) string {
 			return StatusInProgress
 		}
 	case EventAllTasksDone:
-		if cur == StatusInProgress {
-			return StatusDone
-		}
+		// Closing does not require having passed through in_progress: ticking
+		// the last task is the same act whether or not the work was announced
+		// as started first.
+		return StatusDone
 	}
 	return cur
 }

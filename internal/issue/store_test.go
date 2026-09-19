@@ -285,3 +285,41 @@ func TestStore_GetDoc(t *testing.T) {
 		t.Fatalf("cross-user doc read must be not found, got %v", err)
 	}
 }
+
+// Ticking a task straight from todo is the console's checkbox path. It must
+// close the issue even though the task never passed through in_progress.
+func TestStore_TickingLastTaskClosesIssue(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	user := "issue-test-user"
+	insertUser(t, st, user)
+
+	it, err := st.Create(ctx, user, CreateInput{Title: "复选框路径"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.WriteDoc(ctx, user, it.Key, DocInput{Kind: DocSpec, ContentMD: "# Spec", Status: DocCurrent}); err != nil {
+		t.Fatal(err)
+	}
+	tk, err := st.CreateTask(ctx, user, it.Key, TaskInput{Title: "一步"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _, _, err := st.Get(ctx, user, it.Key); err != nil || got.Status != StatusSpecced {
+		t.Fatalf("want specced before the task is ticked, got %v %v", got, err)
+	}
+
+	if _, err := st.UpdateTask(ctx, user, tk.Key, TaskUpdateInput{Status: ptr(TaskDone)}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, tasks, err := st.Get(ctx, user, it.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusDone || got.ClosedAt == nil {
+		t.Fatalf("last task ticked must close the issue, got %s closed=%v", got.Status, got.ClosedAt)
+	}
+	if tasks[0].DoneAt == nil {
+		t.Fatal("done task must carry done_at")
+	}
+}

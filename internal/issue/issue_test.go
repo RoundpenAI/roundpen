@@ -15,7 +15,9 @@ func TestAdvance_ForwardOnly(t *testing.T) {
 		{StatusPlanned, EventTaskOpen, StatusInProgress},
 		{StatusDone, EventTaskOpen, StatusInProgress}, // 任务重开，议题回到进行中
 		{StatusInProgress, EventAllTasksDone, StatusDone},
-		{StatusPlanned, EventAllTasksDone, StatusPlanned},    // 还没开工不算完成
+		{StatusPlanned, EventAllTasksDone, StatusDone}, // 勾完最后一个任务即完成
+		{StatusSpecced, EventAllTasksDone, StatusDone}, // 不必先「开工」经过 in_progress
+		{StatusDrafting, EventAllTasksDone, StatusDone},
 		{StatusCancelled, EventSpecCurrent, StatusCancelled}, // 取消后不自动复活
 		{StatusCancelled, EventAllTasksDone, StatusCancelled},
 	}
