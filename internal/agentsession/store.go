@@ -45,6 +45,39 @@ const (
 	RoleEvent      = "event"
 )
 
+// MetaTypeClear marks a context boundary written by /clear (a role=event row).
+// Projections that build model context must drop every row at or before the
+// last marker, while the transcript itself keeps them.
+const MetaTypeClear = "clear"
+
+// AfterLastClear returns the rows after the last /clear marker, or all rows
+// when the session has none. The result aliases rows.
+func AfterLastClear(rows []*Message) []*Message {
+	for i := len(rows) - 1; i >= 0; i-- {
+		m := rows[i]
+		if m == nil || m.Role != RoleEvent {
+			continue
+		}
+		if metaTypeOf(m.Meta) == MetaTypeClear {
+			return rows[i+1:]
+		}
+	}
+	return rows
+}
+
+func metaTypeOf(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var wrap struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &wrap); err != nil {
+		return ""
+	}
+	return wrap.Type
+}
+
 // ToolMeta is stored in agent_messages.meta for role=tool rows.
 type ToolMeta struct {
 	Type   string `json:"type"`

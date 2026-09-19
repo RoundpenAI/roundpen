@@ -381,7 +381,7 @@ func (r *runner) recentDigest() string {
 	var digest []automode.DigestMessage
 	if r.handler.Store != nil {
 		if rows, err := r.handler.Store.ListRecentMessages(r.ctx, r.session.ID, 200); err == nil {
-			for _, m := range rows {
+			for _, m := range agentsession.AfterLastClear(rows) {
 				digest = append(digest, automode.DigestMessage{Role: m.Role, Content: m.Content})
 			}
 		}

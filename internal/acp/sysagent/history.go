@@ -74,6 +74,9 @@ func endsWithUser(msgs []chatMessage, userText string) bool {
 }
 
 func projectHistory(rows []*agentsession.Message) []chatMessage {
+	// /clear appends a marker row; everything at or before it is hidden from
+	// the model while the transcript keeps it.
+	rows = agentsession.AfterLastClear(rows)
 	var out []chatMessage
 	var pending []*agentsession.Message
 	flushTools := func() {

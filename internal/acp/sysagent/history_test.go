@@ -136,6 +136,55 @@ func TestSystemPromptMentionsWebTools(t *testing.T) {
 	}
 }
 
+func TestProjectHistoryStopsAtClearMarker(t *testing.T) {
+	clearMeta, _ := json.Marshal(map[string]string{"type": "clear"})
+	toolMeta, _ := json.Marshal(agentsession.ToolMeta{
+		Type:   "tool_call",
+		ToolID: "call_old",
+		Title:  "Bash",
+		Status: "completed",
+		Output: "old tool output",
+	})
+	rows := []*agentsession.Message{
+		{Role: agentsession.RoleUser, Content: "old ask"},
+		{Role: agentsession.RoleAssistant, Content: "old reply"},
+		{Role: agentsession.RoleTool, Content: "Bash", Meta: toolMeta},
+		{Role: agentsession.RoleEvent, Content: "上下文已清空", Meta: clearMeta},
+		{Role: agentsession.RoleUser, Content: "new ask"},
+		{Role: agentsession.RoleAssistant, Content: "new reply"},
+	}
+	got := projectHistory(rows)
+	if formatRoles(got) != "user,assistant" {
+		t.Fatalf("roles: %s", formatRoles(got))
+	}
+	if got[0].Content != "new ask" || got[1].Content != "new reply" {
+		t.Fatalf("kept pre-clear text: %+v", got)
+	}
+}
+
+func TestProjectHistoryKeepsEverythingWithoutMarker(t *testing.T) {
+	rows := []*agentsession.Message{
+		{Role: agentsession.RoleUser, Content: "one"},
+		{Role: agentsession.RoleAssistant, Content: "two"},
+	}
+	if formatRoles(projectHistory(rows)) != "user,assistant" {
+		t.Fatalf("roles: %s", formatRoles(projectHistory(rows)))
+	}
+}
+
+func TestRestorePreambleHonorsClearMarker(t *testing.T) {
+	clearMeta, _ := json.Marshal(map[string]string{"type": "clear"})
+	rows := []*agentsession.Message{
+		{Role: agentsession.RoleUser, Content: "old ask"},
+		{Role: agentsession.RoleAssistant, Content: "old reply"},
+		{Role: agentsession.RoleEvent, Content: "上下文已清空", Meta: clearMeta},
+	}
+	out := RestorePreamble(rows, "new ask")
+	if strings.Contains(out, "old ask") || strings.Contains(out, "old reply") {
+		t.Fatalf("pre-clear turns leaked into the stdio preamble: %q", out)
+	}
+}
+
 func TestSystemPromptOmitsWebSearchWhenUnconfigured(t *testing.T) {
 	a := New(Deps{})
 	msgs := a.buildPromptMessages(context.Background(), "hi")
