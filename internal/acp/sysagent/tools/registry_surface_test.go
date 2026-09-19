@@ -71,6 +71,25 @@ func TestWebToolSurface(t *testing.T) {
 	assertCleanReadOnly(t, reg2)
 }
 
+func TestIssueToolSurface(t *testing.T) {
+	reg := tools.NewRegistry()
+	tools.RegisterIssues(reg, &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}, "sess-1")
+
+	readOnly := map[string]bool{"ListIssues": true, "GetIssue": true, "ReadIssueDoc": true}
+	for _, name := range []string{
+		"CreateIssue", "ListIssues", "GetIssue", "UpdateIssue",
+		"WriteIssueDoc", "ReadIssueDoc", "CreateTask", "UpdateTask",
+	} {
+		tool, ok := reg.Get(name)
+		if !ok {
+			t.Fatalf("missing tool %q", name)
+		}
+		if want := !readOnly[name]; tool.Mutating != want {
+			t.Fatalf("%s Mutating = %v, want %v", name, tool.Mutating, want)
+		}
+	}
+}
+
 func assertCleanReadOnly(t *testing.T, reg *tools.Registry) {
 	t.Helper()
 	if len(reg.List()) == 0 {

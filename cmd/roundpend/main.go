@@ -37,6 +37,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/hostsetup"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
+	"github.com/RoundpenAI/roundpen/internal/issue"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/policy"
@@ -428,6 +429,8 @@ func main() {
 	ticketStore := &assistticket.Store{DB: db.SQL}
 	agentHandler.Tickets = ticketStore
 	agentHandler.Mount(mux)
+	issueStore := &issue.Store{DB: db.SQL}
+	(&issue.Handler{Store: issueStore}).Mount(mux)
 	assistantStore := &assistant.Store{DB: db.SQL}
 	denialStore := &policy.DenialStore{DB: db.SQL}
 	(&assistant.Handler{

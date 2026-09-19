@@ -150,6 +150,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		}
 		reg := tools.NewRegistry()
 		tools.RegisterRoundpen(reg, &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase})
+		tools.RegisterIssues(reg, &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase}, sessionID)
 		tools.RegisterBrowser(reg, &tools.BrowserBinder{
 			Hub:       m.sys.BrowserHub,
 			Slots:     m.sys.BrowserSlots,

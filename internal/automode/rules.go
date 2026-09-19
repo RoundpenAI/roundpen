@@ -29,6 +29,7 @@ func Defaults() Rules {
 		Allow: []string{
 			"Creating, editing and deleting files inside the workspace /workspace.",
 			"Routine development commands in the sandbox: dependency installs, builds, tests, linters, formatters, and git commands that only inspect or commit to the current branch.",
+			"Recording issues, plan documents and tasks in the user's own issue tracker (CreateIssue, UpdateIssue, WriteIssueDoc, CreateTask, UpdateTask). This writes only the user's own tracker rows and grants no new capability.",
 			"Fetching public documentation, package registries and ordinary public websites over HTTPS.",
 		},
 		SoftDeny: []string{
