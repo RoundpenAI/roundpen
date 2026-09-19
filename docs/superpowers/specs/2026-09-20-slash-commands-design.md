@@ -1,7 +1,7 @@
 # 设计：Slash 命令（技能命令 + 内置动作）
 
 > 日期：2026-09-20
-> 状态：已评审待实施
+> 状态：已实施（2026-09-20）
 > 范围：`internal/api/agentapi`（协议与执行）/ `internal/commands`（新包）/ `internal/acp/sysagent/tools`（技能复用）/ `internal/agentsession`（删消息）/ `web/src`（菜单与发送）/ `tests/uismoke`、`web/e2e`
 
 ## 背景与目标
@@ -172,6 +172,19 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
 | 自定义命令文件 | `.claude/commands/*.md` | 复用技能（`~/.roundpen/skills`） | 技能已有安装/命名/生命周期管理，再做一套职责重叠 |
 | `/compact` | 有 | 不做 | 需要控制面接一次 LLM 摘要调用，本轮不铺管道 |
 | 命令是否入历史 | 以命令原文进上下文 | user 行存展开文本、`meta.display` 存原文 | 历史回放需要指令正文，UI 需要原文，两者都要 |
+
+### 8. 历史写入路径审计（2026-09-20 确认）
+
+会话历史原则上是**仅追加**的，本轮确认了全部写入路径，两处例外保持现状：
+
+| 路径 | 位置 | 性质 |
+|------|------|------|
+| `AddMessage`（纯 INSERT） | `store.go:269` | 追加 |
+| `UpsertToolMessage`（`UPDATE … WHERE id=$1`） | `store.go:330` | 工具行原地更新：同一行的 status/output 随 `tool_call_update` 事件合并，属于运行时状态而非对话内容 |
+| `Store.Delete`（外键级联） | `store.go:235` | 删除整个会话时级联删除其消息；是用户对会话的显式操作，不是对单条历史的篡改 |
+
+没有编辑/删除单条消息的接口（路由只有 `GET /messages` + WS 追加）。`/clear` 采用标记方案后
+也不删行，与本原则一致。
 
 ## 非目标（本期不做）
 

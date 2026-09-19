@@ -171,6 +171,9 @@ func main() {
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"messages": seed.messages})
 	})
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/commands", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"commands": seed.commands})
+	})
 
 	stubSettings := map[string]any{
 		"allowPublicRegistration": false,
@@ -409,6 +412,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 type seedSession struct {
 	session  map[string]any
 	messages []map[string]any
+	commands []map[string]any
 }
 
 func (s *seedSession) sessionID() string {
@@ -472,6 +476,14 @@ func newSeedSession() *seedSession {
 			}),
 		m("m-assist-1", "assistant", "原因通常有三个：一是网关默认读超时 30 秒，慢查询直接掐断导致客户端看到 502；二是后端连接池被打满，新请求排队超过阈值直接拒绝；三是健康检查失败后负载均衡器仍在转发。\n\n建议按下面的顺序排查：\n\n1. 先看网关日志里 `upstream_timed_out` 的次数，排除超时问题。\n2. 再检查连接池大小与活跃连接数，如果持续打满就该扩容。\n3. 最后确认健康检查 path 是否快速返回。\n\n长英文词条折行验证："+long, nil),
 		m("m-user-2", "user", "把超时改成 60 秒。", nil),
+		m("m-clear-1", "event", "上下文已清空", map[string]any{"type": "clear"}),
 	}
-	return &seedSession{session: sess, messages: messages}
+	// Slash command catalog: one builtin skill and the two action commands.
+	commands := []map[string]any{
+		{"name": "clear", "kind": "action", "source": "action", "description": "清空本会话上下文：聊天记录保留，模型从零开始"},
+		{"name": "help", "kind": "action", "source": "action", "description": "显示可用命令"},
+		{"name": "review", "kind": "skill", "source": "builtin", "description": "审查最近改动，给出 bug / 安全 / 可读性结论"},
+		{"name": "commit", "kind": "skill", "source": "builtin", "description": "审阅工作区改动并生成规范的提交信息", "args": true},
+	}
+	return &seedSession{session: sess, messages: messages, commands: commands}
 }
