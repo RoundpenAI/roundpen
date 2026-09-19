@@ -890,6 +890,11 @@ export type AgentMessageMeta = {
   optionId?: string
   outcome?: string
   options?: { optionId: string; name: string; kind?: string }[]
+  // Skill commands persist the expanded instruction text as content; display
+  // keeps what the user actually typed ("/review 关注并发").
+  display?: string
+  command?: string
+  commandArgs?: string
 }
 
 export type AgentMessage = {
@@ -899,6 +904,14 @@ export type AgentMessage = {
   content: string
   meta?: AgentMessageMeta | null
   createdAt: string
+}
+
+export type AgentCommand = {
+  name: string
+  kind?: string
+  source?: string
+  description?: string
+  args?: boolean
 }
 
 export type AgentBrowserStatus = {
@@ -933,6 +946,8 @@ export const agents = {
     api<void>(`/v1/agent-sessions/${id}`, { method: 'DELETE' }),
   messages: (id: string) =>
     api<{ messages: AgentMessage[] }>(`/v1/agent-sessions/${id}/messages`),
+  commands: (id: string) =>
+    api<{ commands: AgentCommand[] }>(`/v1/agent-sessions/${id}/commands`),
   sessionWsUrl: (id: string) => {
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     return `${proto}://${window.location.host}/v1/agent-sessions/${id}/ws`

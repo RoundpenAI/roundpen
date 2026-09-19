@@ -3,6 +3,9 @@ import type { AgentMessage } from '../api'
 /** Marker on Semi messages that only carry thought + tool activity (no bubble chrome). */
 export const ACTIVITY_MODEL = 'roundpen-activity'
 
+/** Marker on /clear marker rows, rendered as a divider instead of a bubble. */
+export const CLEAR_DIVIDER_MODEL = 'roundpen-clear-divider'
+
 /** Minimal Semi AIChatDialogue Message shape (compatible with foundation Message). */
 export type SemiChatMessage = {
   id: string
@@ -120,7 +123,22 @@ export function agentMessageToSemi(m: AgentMessage): SemiChatMessage {
     return {
       id: m.id,
       role: 'user',
-      content: m.content,
+      // Skill commands persist the expanded instructions; show what was typed.
+      content:
+        typeof m.meta?.display === 'string' && m.meta.display
+          ? m.meta.display
+          : m.content,
+      createdAt,
+      status: 'completed',
+    }
+  }
+
+  if (typ === 'clear') {
+    return {
+      id: m.id,
+      role: 'system',
+      model: CLEAR_DIVIDER_MODEL,
+      content: m.content || '上下文已清空',
       createdAt,
       status: 'completed',
     }
@@ -215,4 +233,8 @@ export function agentMessagesToSemi(messages: AgentMessage[]): SemiChatMessage[]
 
 export function isActivityMessage(message: { model?: string } | null | undefined): boolean {
   return message?.model === ACTIVITY_MODEL
+}
+
+export function isClearDivider(message: { model?: string } | null | undefined): boolean {
+  return message?.model === CLEAR_DIVIDER_MODEL
 }
