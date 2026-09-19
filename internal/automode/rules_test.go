@@ -1,6 +1,9 @@
 package automode
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestExpandSplicesDefaults(t *testing.T) {
 	got := Expand(Rules{Allow: []string{"Custom rule A", DefaultsToken}})
@@ -45,4 +48,13 @@ func TestDefaultsNonEmpty(t *testing.T) {
 	if len(def.Environment) == 0 || len(def.Allow) == 0 || len(def.SoftDeny) == 0 || len(def.HardDeny) == 0 {
 		t.Fatal("built-in defaults must cover all four lists")
 	}
+}
+
+func TestDefaults_AllowsIssueTrackerWrites(t *testing.T) {
+	for _, rule := range Defaults().Allow {
+		if strings.Contains(rule, "CreateIssue") && strings.Contains(rule, "WriteIssueDoc") {
+			return
+		}
+	}
+	t.Fatal("defaults must allow recording issues, docs and tasks")
 }
