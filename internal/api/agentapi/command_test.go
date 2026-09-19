@@ -237,11 +237,17 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 func TestListCommandsRoute(t *testing.T) {
 	store, db := commandTestStore(t)
 	h := &Handler{Store: store}
-	if _, err := db.SQL.ExecContext(context.Background(),
-		`INSERT INTO users (username, api_key, role) VALUES ('cmd-route-owner','cmd-route-owner','user')`); err != nil {
+	ctx := context.Background()
+	owner := fmt.Sprintf("cmd-route-%d", time.Now().UnixNano())
+	if _, err := db.SQL.ExecContext(ctx,
+		`INSERT INTO users (username, api_key, role) VALUES ($1,$1,'user')`, owner); err != nil {
 		t.Fatal(err)
 	}
-	sess, err := store.Create(context.Background(), "cmd-route-owner", "route test", "sysadmin", "", "")
+	// Sessions cascade from the user row, so this cleans up both.
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM users WHERE username=$1`, owner)
+	})
+	sess, err := store.Create(ctx, owner, "route test", "sysadmin", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +270,7 @@ func TestListCommandsRoute(t *testing.T) {
 	if code := call("someone-else", storage.RoleUser).Code; code != http.StatusForbidden {
 		t.Fatalf("foreign user status=%d", code)
 	}
-	rec := call("cmd-route-owner", storage.RoleUser)
+	rec := call(owner, storage.RoleUser)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("owner status=%d body=%s", rec.Code, rec.Body.String())
 	}
