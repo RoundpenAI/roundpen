@@ -10,6 +10,7 @@ import { AssistantCreatePage } from './pages/AssistantCreatePage'
 import { AssistantDetailPage } from './pages/AssistantDetailPage'
 import { BrowserPage } from './pages/BrowserPage'
 import { ChatSessionPage } from './pages/ChatSessionPage'
+import { IssuesPage } from './pages/IssuesPage'
 import { LoginPage } from './pages/LoginPage'
 import { SettingsLayout } from './pages/SettingsLayout'
 import { SettingsPage } from './pages/SettingsPage'
@@ -45,6 +46,7 @@ export default function App() {
             <Route path=":section" element={<SettingsPage />} />
           </Route>
           <Route path="/workspace" element={<WorkspacePage />} />
+          <Route path="/issues" element={<IssuesPage />} />
           <Route path="/registry" element={<TemplatesPage />} />
         </Route>
         <Route path="/chats" element={<Navigate to="/a" replace />} />
