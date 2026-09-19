@@ -2,7 +2,7 @@
 
 > 日期：2026-09-20
 > 状态：已实施（2026-09-20）
-> 范围：`internal/api/agentapi`（协议与执行）/ `internal/commands`（新包）/ `internal/acp/sysagent/tools`（技能复用）/ `internal/agentsession`（删消息）/ `web/src`（菜单与发送）/ `tests/uismoke`、`web/e2e`
+> 范围：`internal/api/agentapi`（协议与执行）/ `internal/commands`（新包）/ `internal/acp/sysagent/tools`（技能复用）/ `internal/agentsession`（标记与投影截断）/ `web/src`（菜单与发送）/ `tests/uismoke`、`web/e2e`
 
 ## 背景与目标
 
@@ -13,7 +13,7 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
 本轮补上用户侧入口：输入框打 `/` 弹出命令菜单（复用 Semi `AIChatInput` 自带的 skill 弹层），
 选中技能即把技能指令注入为用户轮次；同时补两个动作型命令：
 
-- `/clear`：清空当前会话的上下文（DB 消息行 + 可见聊天记录），下一轮从零开始。
+- `/clear`：清空当前会话的上下文（模型从零开始；聊天记录保留，界面多一条分割线）。
 - `/help`：不调模型，直接在会话里列出全部可用命令。
 
 目标：用户不依赖模型"自觉"就能复用沉淀好的工作流，并且能一键重置跑偏的长会话。
@@ -101,8 +101,9 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
   `semiChatAdapter.ts:140-148` 现有的 event 分支自动渲染成系统气泡，adapter 零改动）+
   广播 event 帧 + 该帧同时推给其它标签页。
 - **`/clear`**：见下节。
-- **未知命令**：后端收到 `command` 帧但解析不出技能 → 广播 `error` 帧，不落库、不开轮次
-  （前端理论上不会发，属于防御）。
+- **未知命令**：后端收到 `command` 帧但解析不出技能 → 广播 `event/command_error` 帧（前端按系统气泡
+  显示），不落库、不开轮次。不用 `error` 帧是因为那会把连接状态切成错误态，而"命令不存在"
+  不是连接问题。（前端理论上不会发未知命令，属于防御。）
 
 ### 4. `/clear` 状态机
 
@@ -142,8 +143,8 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
   只有输入框为空时按 `/` 才打开，方向键 + Enter 选择。
 - 新 `web/src/lib/slashCommand.ts`（纯函数 + 单测）：
   - `buildSendPayload(contents, catalog)` → `{kind:'command',name,args}` 或 `{kind:'text',text}`。
-  - 修复 `contentsHaveSendableText`（`ChatSessionPage.tsx:220-227`）：现在只看 `text` 节点，
-    导致"只选技能不打字"永远不可发送。
+  - 修复 `contentsHaveSendableText`（原在 `ChatSessionPage.tsx`，现随纯函数一起搬进
+    `slashCommand.ts`）：原来只看 `text` 节点，导致"只选技能不打字"永远不可发送。
   - chip 之后的文本节点拼起来就是 `args`（`/review 关注并发` → args = `关注并发`）。
 - 命令帧只在 WS `OPEN` 时发送，**不走离线 outbox**（命令没有"稍后补发"的语义）；
   收到 `cleared` 时清空 outbox 并 refetch（**不清空已渲染的消息**——旧记录仍可见，只是多出一条分割线）。
@@ -156,8 +157,9 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
 ### 6. 测试与文案
 
 - Go：`internal/commands` 表驱动测试（目录、HelpText、中文覆盖表）；`tools` 的
-  `ExpandSkill` golden 测试（输出必须与 `Skill(action=invoke)` 一致）；`Store.DeleteMessages` 测试
-  （沿用仓库既有"需要 DATABASE_URL 否则 skip"的模式）。
+  `ExpandSkill` golden 测试（输出必须与 `Skill(action=invoke)` 一致）；`agentsession` 的
+  `AfterLastClear` 与 `sysagent` 的投影截断测试；`agentapi` 的目录/runner 命令测试
+  （需要 DB 的沿用仓库既有"缺 DATABASE_URL 即 skip"的模式）。
 - 前端：`node --test --experimental-strip-types src/lib/slashCommand.test.ts`。
 - e2e：`tests/uismoke` 加 `/commands` stub；新 `web/e2e/slash-commands.spec.ts` 用
   `page.routeWebSocket` 起假 WS：打 `/` → 选 `review` → 输参数 → Enter → 断言收到
