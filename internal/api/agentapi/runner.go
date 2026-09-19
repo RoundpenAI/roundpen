@@ -29,6 +29,11 @@ type permWait struct {
 	title    string
 	options  any
 	ticketID string
+
+	// cancel is closed by /clear to abandon the dialog (the turn it belongs to
+	// is being cancelled anyway); cancelOnce keeps the close idempotent.
+	cancel     chan struct{}
+	cancelOnce sync.Once
 }
 
 // runner owns the ACP turn lifecycle for one agent session: prompt execution,
@@ -40,15 +45,19 @@ type runner struct {
 	session *agentsession.Session
 	acp     *manager.Manager
 	rt      *manager.Runtime
+	// actor is the identity the runtime was started with; /clear reuses it to
+	// restart the runtime.
+	actor manager.Actor
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu      sync.Mutex
-	clients map[*wsClient]struct{}
-	busy    bool
-	auto    bool
-	pending []string // queued prompts while a turn is in progress
+	mu           sync.Mutex
+	clients      map[*wsClient]struct{}
+	busy         bool
+	auto         bool
+	clearPending bool     // /clear arrived mid-turn; reset once the turn ends
+	pending      []string // queued prompts while a turn is in progress
 
 	reply   strings.Builder
 	thought strings.Builder
@@ -218,11 +227,19 @@ func (r *runner) onEvent(ev acpclient.Event) {
 
 // prompt queues a new user message and starts a turn if the runner is idle.
 func (r *runner) prompt(text string) {
+	r.startUserTurn(text, map[string]string{"type": "user"})
+}
+
+// startUserTurn persists a user turn and runs it, or queues it while busy.
+// meta carries the row's display information: plain prompts use
+// {"type":"user"}, slash commands add the command name and the text the user
+// typed (the persisted content is the expanded instruction text).
+func (r *runner) startUserTurn(text string, meta any) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
 	}
-	r.persist(agentsession.RoleUser, text, map[string]string{"type": "user"})
+	r.persist(agentsession.RoleUser, text, meta)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.busy {
@@ -268,13 +285,21 @@ func (r *runner) runTurn(text string) {
 	r.finishTurn()
 }
 
-// finishTurn clears busy state and optionally starts a queued turn.
+// finishTurn clears busy state and optionally starts a queued turn. A pending
+// /clear takes the turn slot instead: the runner stays busy across the reset
+// and reset() calls back here once the fresh runtime is up.
 func (r *runner) finishTurn() {
 	r.mu.Lock()
-	r.busy = false
 	r.reply.Reset()
 	r.thought.Reset()
 	r.thinkAt = time.Time{}
+	if r.clearPending {
+		r.clearPending = false
+		r.mu.Unlock()
+		go r.reset()
+		return
+	}
+	r.busy = false
 	if len(r.pending) > 0 {
 		next := r.pending[0]
 		r.pending = r.pending[1:]
@@ -402,7 +427,7 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	reqID := string(req.ToolCall.ToolCallId)
 	ch := make(chan string, 1)
 	r.mu.Lock()
-	r.perms[reqID] = &permWait{ch: ch}
+	r.perms[reqID] = &permWait{ch: ch, cancel: make(chan struct{})}
 	auto := r.auto
 	r.mu.Unlock()
 
@@ -500,6 +525,12 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 			return resp, nil
 		case <-time.After(300 * time.Millisecond):
 			// Re-check whether a client is still connected.
+		case <-r.permCancel(reqID):
+			r.cancelPermission(reqID, title, req.Options)
+			r.mu.Lock()
+			resp := r.permResult(reqID, "", true)
+			r.mu.Unlock()
+			return resp, nil
 		case <-r.ctx.Done():
 			r.cancelPermission(reqID, title, req.Options)
 			r.mu.Lock()
@@ -525,6 +556,18 @@ func (r *runner) cancelPermission(reqID, title string, options any) {
 	r.mu.Lock()
 	delete(r.perms, reqID)
 	r.mu.Unlock()
+}
+
+// permCancel returns the /clear abandonment channel for a pending permission
+// request. A missing entry yields nil (a channel that never fires), which is
+// exactly the "no dialog to cancel" semantics the select needs.
+func (r *runner) permCancel(reqID string) <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if pw := r.perms[reqID]; pw != nil {
+		return pw.cancel
+	}
+	return nil
 }
 
 // permResult builds the response from the map and removes the entry.
@@ -662,6 +705,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 		session: sess,
 		acp:     h.ACP,
 		rt:      rt,
+		actor:   actor,
 		ctx:     ctx,
 		cancel:  cancel,
 		clients: make(map[*wsClient]struct{}),
