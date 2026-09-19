@@ -24,8 +24,12 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
    本期不做（见非目标）。
 2. **命令解析位置**：控制面（`agentapi`）。前端只负责"选中了什么命令"，展开成指令文本的事
    完全在后端做——这样 stdio provider 也一样能用技能命令，且技能正文不需要下发到浏览器。
-3. **`/clear` 语义**：清空该会话全部 `agent_messages` 行（含用户可见记录），与 Claude Code 的
-   `/clear` 一致。这是产品决策：会话记录的"重置"就是从头开始，而不是只藏起来。
+3. **`/clear` 语义（2026-09-20 评审修订）**：不删任何行。控制面追加一条**标记行**
+   （`role=event`、`meta.type="clear"`），模型上下文从最后一条标记**之后**开始；
+   **聊天记录完整保留**，界面在标记处渲一条分割线。初版设计是删除消息行（对齐 Claude Code），
+   评审时改为标记方案：误触可恢复、历史可回看，而且不需要 migration——因为模型上下文的唯一
+   投影入口是 `projectHistory`（`history.go:75-147`，sysagent 与 stdio 的 `RestorePreamble`
+   都走它），在那里按标记截断即可。
 4. **未匹配的 `/foo`**：按普通文本发送给模型（例如用户想抱怨 `/etc/hosts`）。只有能匹配到命令
    目录的输入才走命令路径。
 5. **持久化语义**：技能命令的 user 行 `content` 存**展开后的指令文本**（否则后续轮次的历史回放
@@ -57,7 +61,8 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
 ```
 
 `sessionWS` 的 switch（`handler.go:484-493`）加一个 case 转给 `runner.command(name, args)`。
-出站新增一个裸帧 `{"type":"cleared"}`（`wsOut` 结构不变），通知所有已连接客户端"历史已清空"。
+出站新增一个裸帧 `{"type":"cleared"}`（`wsOut` 结构不变），通知所有已连接客户端"上下文边界已变"，
+客户端据此重新拉取消息以渲染分割线。
 
 前端只在能匹配命令目录时才发 command 帧；否则仍发 `{type:"prompt", text}`。这样旧客户端
 （只会发 prompt）行为完全不变，协议是向后兼容的加法。
@@ -111,20 +116,24 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
 3. `finishTurn`（`runner.go:272-287`）：发现 `clearPending` → 清标志、保持 `busy=true`、
    `go r.reset()`。保持 busy 是为了锁住输入框、并且让其它标签页此刻发来的 prompt 进 `pending` 排队。
 4. `reset()`：
-   1. `Store.DeleteMessages(ctx, sessionID)`（新方法）；
-   2. 落 `/clear` 命令 event 行（用户能看到自己执行过）；
-   3. 广播 `{"type":"cleared"}`（前端立刻清空并 refetch，所以能看到第 2 步那行）；
-   4. `r.acp.Stop(sessionID)` + `r.acp.Start(ctx, sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{Actor: r.actor})`
+   1. 落**标记行**：`role=event`、`meta={"type":"clear"}`（用现有 `AddMessage`，不删任何旧行）；
+   2. 广播 `{"type":"cleared"}`（各客户端 refetch，界面出现分割线，旧记录都还在）；
+   3. `r.acp.Stop(sessionID)` + `r.acp.Start(ctx, sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{Actor: r.actor})`
       + 重挂 `SetEventHandler` / `SetPermissionHandler` / `SetAutoMode`，替换 `r.rt`。
-      **sysadmin 也重启**：顺手清掉 sysagent 内存里的 `planMode` / `allowTools` 等每会话状态
-      （`sysagent/agent.go:523-533`），DB 删行清不到它们。stdio 重启最坏 1-2 分钟（QEMU + ACP
-      适配器），全程 composer 保持 busy。
-   5. 释放 `busy=false`，广播 snapshot，drain `pending`。
-5. **未决权限对话框**：`onPermission`（`runner.go:474-510`）在没有客户端应答时会一直循环，
+      **stdio 必须重启**（子进程自己记着对话，DB 标记它看不见）；**sysadmin 也重启**：顺手清掉
+      sysagent 内存里的 `planMode` / `allowTools` 等每会话状态（`sysagent/agent.go:523-533`），
+      标记截断管不到它们。stdio 重启最坏 1-2 分钟（QEMU + ACP 适配器），全程 composer 保持 busy。
+   4. 释放 `busy=false`，广播 snapshot，drain `pending`。
+5. **模型上下文截断**：`projectHistory`（`history.go:75`）开头把 `rows` 截到
+   `AfterLastClear(rows)` 之后。sysagent 的 `buildPromptMessages` 与 stdio 的 `RestorePreamble`
+   共用这个投影，两条路径自动一致；标记行本身不会被回放（非 `error` 的 event 行本来就被跳过）。
+   `runner.recentDigest`（classifier 上下文，取最新 200 行）用同一个 helper —— 若标记不在窗口内，
+   窗口内的行本来就都在标记之后，截断是幂等的。
+6. **未决权限对话框**：`onPermission`（`runner.go:474-510`）在没有客户端应答时会一直循环，
    `/clear` 会因此卡死。给 `permWait` 加 `cancel chan struct{}`，clear 时 close 之，
    select 加一个 `case <-pw.cancel:` 分支走 `cancelPermission`（记 `cancelled` 并回 cancelled 响应）。
-6. 历史读者已核对无副作用：`recentDigest`（classifier 上下文）自然变空、`assistant/http_activity.go`
-   的活动流按 last-80 取，会话标题从不从消息推导，`restorePreamble` 下次播种的也是空历史。
+7. 历史读者已核对：`assistant/http_activity.go` 的活动流与 `GET /messages` 都是**用户可见视图**，
+   保持完整历史（分割线由标记行渲染）；会话标题从不从消息推导。
 
 ### 5. 前端（`web/src/pages/ChatSessionPage.tsx`）
 
@@ -137,7 +146,10 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
     导致"只选技能不打字"永远不可发送。
   - chip 之后的文本节点拼起来就是 `args`（`/review 关注并发` → args = `关注并发`）。
 - 命令帧只在 WS `OPEN` 时发送，**不走离线 outbox**（命令没有"稍后补发"的语义）；
-  收到 `cleared` 时清空 outbox 与本地消息后 refetch。
+  收到 `cleared` 时清空 outbox 并 refetch（**不清空已渲染的消息**——旧记录仍可见，只是多出一条分割线）。
+- 分割线渲染：`semiChatAdapter` 给 `meta.type === "clear"` 的 event 行打上
+  `model: CLEAR_DIVIDER_MODEL`（沿用 `ACTIVITY_MODEL` 的既有模式，`semiChatAdapter.ts:4,216-218`），
+  `chatDialogueRender.tsx:96-103` 加一个分支渲染 `.chat-clear-divider`（文案"上下文已清空"）。
 - `semiChatAdapter.ts:119-127` 的 user 分支改为 `content: m.meta?.display ?? m.content`，
   发送时本地回显也用 `display`，保证气泡显示用户打的原文而不是展开后的长指令。
 
@@ -168,13 +180,17 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
 - 项目级命令文件（`.roundpen/commands/*.md`）
 - 命令的权限门（技能展开是纯文本注入，不触发工具权限；`/clear` 是用户显式操作，不再二次确认）
 - 离线命令队列（断线时命令不入 outbox）
+- 历史归档/裁剪（标记方案下 `agent_messages` 只增不减，长会话的存储增长留给后续迭代）
 
 ## 测试计划
 
 - `internal/commands`：目录内容与顺序、动作命令元数据、中文覆盖表命中内置技能名。
 - `tools`：`ExpandSkill` 对四个内置技能的输出 golden（与 `skillInvoke` 逐字节一致）；
   未知技能名报错文案；`ListInstalledSkills` 在 binder 报错时的降级。
-- `agentsession`：`DeleteMessages` 删除指定会话全部行、不影响其它会话（需 DB，缺 `DATABASE_URL` 时 skip）。
+- `agentsession`：`AfterLastClear` 的边界（无标记 / 单标记 / 多标记 / 标记在首尾 / 跨标记的工具行
+  不被拼装）。
+- `sysagent`：`projectHistory` 截断后只回放标记之后的行；`RestorePreamble` 对 stdio 走同一投影，
+  用同一组用例覆盖。
 - `agentapi`：`/commands` 路由鉴权与响应形状（用 fake Envs/Sandboxes）；`command` 帧在 runner 上的
   解析与落库行为（fake ACP）。
 - 前端单测：`buildSendPayload` 的四种输入（纯文本 / 纯 chip / chip+参数 / 未匹配斜杠文本）。
@@ -194,8 +210,8 @@ Roundpen 的技能（Skill）系统已经成型：`commit` / `review` / `fix` / 
   这是现有 runtime 生命周期的固有代价（没有 Reset API），换来做完即干净。
 - **已安装技能对 stdio 会话不可见**：`Skill` 工具与 `~/.roundpen/skills` 都只属于 sysadmin
   模式的 agent 容器；`claude`/`stdio` 会话只保证内置技能 + 动作命令。v1 记录为限制。
-- **`/clear` 删的是行**：审计上等于抹掉历史。若后续需要保留痕迹，得改成标记位 + 投影过滤，
-  那是另一轮设计。
+- **历史只增不减**：标记方案下 `/clear` 不缩小 `agent_messages`，长会话的存储增长需要归档/裁剪
+  迭代来解决（非目标）。
 - **`/help` 依赖 event 气泡渲染**：若前端后续改 event 的渲染方式，`/help` 的输出样式会跟着变
   （功能不受影响）。
 - **技能目录与实际可用性可能短暂不一致**：目录是拉取时的快照，技能被删除后旧菜单仍可能显示，

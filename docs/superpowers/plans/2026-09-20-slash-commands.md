@@ -20,8 +20,10 @@
 | `internal/commands/commands_test.go` | 上述纯函数的表驱动测试 |
 | `internal/acp/sysagent/tools/skill.go` | 抽出 `formatSkillInvocation`；新增 `ExpandSkill`、`ListInstalledSkills` |
 | `internal/acp/sysagent/tools/skill_export_test.go` | golden 测试：`ExpandSkill` 输出与 `skillInvoke` 逐字节一致 |
-| `internal/agentsession/store.go` | 新增 `DeleteMessages(ctx, sessionID)` |
-| `internal/agentsession/store_test.go` | 删除语义测试（无 `DATABASE_URL` 时 skip） |
+| `internal/agentsession/store.go` | 新增标记常量 `MetaTypeClear` 与 `AfterLastClear(rows)` 纯函数（不删行） |
+| `internal/agentsession/store_test.go` | `AfterLastClear` 边界测试 |
+| `internal/acp/sysagent/history.go` | `projectHistory` 按标记截断（sysagent 与 stdio 共用） |
+| `internal/acp/sysagent/history_test.go` | 截断投影测试（含 `RestorePreamble`） |
 | `internal/api/agentapi/handler.go` | `wsIn` 加 `Name`/`Args`；`sessionWS` 加 `command` case；注册 `/commands` 路由；`cleared` 帧 |
 | `internal/api/agentapi/command.go` | 新文件：`runner.command` / `reset` / `clearPending` / 目录处理器 |
 | `internal/api/agentapi/command_test.go` | runner 命令路径与目录处理器的测试（fake ACP / fake Envs） |
@@ -30,7 +32,8 @@
 | `web/src/lib/slashCommand.test.ts` | 纯函数单测 |
 | `web/src/api.ts` | `agents.commands(id)` |
 | `web/src/pages/ChatSessionPage.tsx` | catalog 状态、`skills`/`skillHotKey`/`renderSkillItem`、发送路径、`cleared` 分支、outbox |
-| `web/src/lib/semiChatAdapter.ts` | user 分支用 `meta.display` |
+| `web/src/lib/semiChatAdapter.ts` | user 分支用 `meta.display`；`CLEAR_DIVIDER_MODEL` 标记 |
+| `web/src/components/chatDialogueRender.tsx` | 渲染 `/clear` 分割线 |
 | `tests/uismoke/main.go` | `/commands` stub |
 | `web/e2e/slash-commands.spec.ts` | 假 WS 端到端 |
 | `docs/skills.md` | 补 `/name` 直接调用说明 |
@@ -100,23 +103,36 @@ func HelpText(skills []Command) string
 
 ---
 
-## Phase 2 — 存储
+## Phase 2 — `/clear` 标记与投影截断
 
-### Task 3: `Store.DeleteMessages`
+### Task 3: `AfterLastClear` + `projectHistory` 截断
 
-- [ ] 在 `internal/agentsession/store_test.go` 加用例：插入两条消息到两个会话 →
-  `DeleteMessages(ctx, sessionA)` → A 空、B 不变；返回删除行数。沿用现有
-  `DATABASE_URL` 缺失即 `t.Skip` 的模式。
-  运行：`go test ./internal/agentsession/ -run TestDeleteMessages` → 期望 FAIL。
-- [ ] 在 `internal/agentsession/store.go` 头部常量区加 SQL，并实现：
+- [ ] 在 `internal/agentsession/store_test.go` 加 `AfterLastClear` 边界用例：无标记 → 原样；
+  末尾标记 → 空；中间标记 → 只留其后；多个标记 → 以最后一个为准。`AfterLastClear` 是纯函数
+  （只读 `row.Role` / `row.Meta`），不需要 DB。
+  运行：`go test ./internal/agentsession/ -run TestAfterLastClear` → 期望 FAIL。
+- [ ] 在 `internal/agentsession` 实现：
 
 ```go
-// DeleteMessages removes every message in a session and reports how many rows
-// were deleted. Callers reset the agent context this way (/clear).
-func (s *Store) DeleteMessages(ctx context.Context, sessionID string) (int64, error)
+// MetaTypeClear marks a context boundary written by /clear. Projections that
+// build model context must ignore rows at or before the last such marker.
+const MetaTypeClear = "clear"
+
+// AfterLastClear returns rows after the last /clear marker (all rows when none).
+func AfterLastClear(rows []*Message) []*Message
 ```
 
-  运行：同上 → 期望 PASS（有 DB）或 SKIP（无 DB）。
+  `Message.Meta` 是 `json.RawMessage`/`[]byte` 时按 `{"type":"clear"}` 解析，解析失败按"非标记"处理。
+  运行：同上 → 期望 PASS。
+- [ ] 在 `internal/acp/sysagent/history_test.go` 加投影用例：标记之前的 user/assistant/tool 行
+  不出现在 `projectHistory` 结果里；标记行自身不回放；跨标记的工具行不会与标记后的
+  assistant 行拼装；`RestorePreamble`（同一投影）同样被截断。
+  运行：`go test ./internal/acp/sysagent/ -run 'TestProjectHistory.*Clear|TestRestorePreamble'` → 期望 FAIL。
+- [ ] `internal/acp/sysagent/history.go`：`projectHistory(rows)` 首行 `rows = agentsession.AfterLastClear(rows)`。
+  运行：同上 → 期望 PASS；`go test ./internal/acp/sysagent/` 全量。
+- [ ] `internal/api/agentapi/runner.go:383`：`recentDigest` 里对 `ListRecentMessages` 的结果套
+  `agentsession.AfterLastClear`（标记不在窗口内时是幂等的）。
+  运行：`go test ./internal/api/agentapi/` → 期望 PASS（现有用例不回归）。
 
 ---
 
@@ -193,7 +209,7 @@ case <-pw.cancel:
         Cancelled: &acp.RequestPermissionOutcomeCancelled{}}, nil
 ```
 
-- [ ] `command.go` 实现 `requestClear` / `finishClear`（`reset`）：
+- [ ] `command.go` 实现 `requestClear` / `reset`：
 
 ```go
 func (r *runner) requestClear() {
@@ -205,13 +221,14 @@ func (r *runner) requestClear() {
 }
 ```
 
-  `reset()`：`Store.DeleteMessages` → 落 `/clear` event 行 → 广播 `{"type":"cleared"}` →
+  `reset()`（**不删任何行**）：落标记行 `RoleEvent` + `meta={"type":"clear"}`（`content` 用
+  "上下文已清空"，供分割线文案）→ 广播 `{"type":"cleared"}` →
   `r.acp.Stop(sessionID)` → `r.acp.Start(ctx, sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{Actor: r.actor})` →
   重挂 `SetEventHandler`/`SetPermissionHandler`/`SetAutoMode(r.auto)`、`r.rt = rt`；
   失败时广播 error 且**保持** `busy=false`（下一次 WS 连接时 `runnerFor` 会重建）。
 - [ ] `finishTurn`（`:272-287`）加：`clearPending` → 清标志、`busy=true`、`go r.reset()`，
   其余排队逻辑不变。
-- [ ] 测试：fake ACP 断言顺序（cancel → 回合结束 → delete → cleared 帧 → Stop/Start 调用）；
+- [ ] 测试：fake ACP 断言顺序（cancel → 回合结束 → 标记行落库 → cleared 帧 → Stop/Start 调用）；
   在途权限对话框下 clear 能返回而不是卡住（`select` 带 timeout 断言）。
   运行：`go test ./internal/api/agentapi/ -run 'TestClear'` → 期望 PASS；
   再全量：`go build ./... && go test ./internal/api/agentapi/ ./internal/commands/ ./internal/acp/sysagent/tools/ ./internal/agentsession/`
@@ -252,11 +269,20 @@ export function contentsHaveSendableText(contents: Array<Record<string, unknown>
   - `handleMessageSend`（`:859`）改用 `buildSendPayload`：命令帧在 `ws.readyState === OPEN` 时
     直接 `ws.send(JSON.stringify({type:'command', name, args}))` 并本地回显 `/{name} {args}`；
     **不走 outbox**（断线时提示用户重发）；
-  - WS 消息处理（`:531-653`）加 `case 'cleared'`：清 `messages`、`clearStreaming`、清空 outbox、
-    `refetchMessages()`；
+  - WS 消息处理（`:531-653`）加 `case 'cleared'`：`clearStreaming`、清空 outbox、`refetchMessages()`
+    —— **不要清空 `messages`**（旧记录仍要显示，refetch 只是把标记行拉回来）；
   - `composerHasText` 改用新的 `contentsHaveSendableText`（chip-only 可发送）。
 - [ ] `semiChatAdapter.ts:119-127`：`content: typeof m.meta?.display === 'string' ? m.meta.display : m.content`
   （`AgentMessageMeta` 类型加可选 `display`/`command`/`commandArgs`）。
+- [ ] `/clear` 分割线：`semiChatAdapter.ts` 加 `export const CLEAR_DIVIDER_MODEL = 'roundpen-clear-divider'`
+  与 `isClearDivider(message)`（照抄 `ACTIVITY_MODEL` 的写法，`:4,216-218`）；
+  `agentMessageToSemi` 在 event 分支前拦一条：`typ === 'event' && m.meta?.type === 'clear'` →
+  返回 `{ id, role: 'system', model: CLEAR_DIVIDER_MODEL, content: '上下文已清空' }`；
+  `chatDialogueRender.tsx:96-103` 的 `renderDialogueContent` 加分支渲染
+  `<div className="chat-clear-divider"><span>上下文已清空</span></div>`，样式加进现有的聊天样式文件
+  （细线 + 居中灰字）。
+- [ ] `semiChatAdapter.test.ts` 加两条断言：`meta.type === 'clear'` 的行映射出
+  `CLEAR_DIVIDER_MODEL`；普通 event 行不受影响。
 - [ ] 验证：`cd web && npx tsc -b && npm run lint && node --test --experimental-strip-types src/lib/slashCommand.test.ts src/lib/semiChatAdapter.test.ts`
 
 ---
@@ -271,7 +297,8 @@ export function contentsHaveSendableText(contents: Array<Record<string, unknown>
     `{type:'hello'}`、`{type:'status'}`，并记录前端发出的帧；
   - 在输入框输入 `/` → 断言菜单出现 `review` → 点选 → 输入 `关注并发` → Enter；
   - 断言收到 `{type:'command',name:'review',args:'关注并发'}`，气泡文本为 `/review 关注并发`；
-  - 推 `{type:'cleared'}` → 断言消息列表被清空并触发 `/messages` 重新拉取（用 `page.waitForRequest`）。
+  - 推 `{type:'cleared'}` → 断言触发 `/messages` 重新拉取（`page.waitForRequest`），
+    且**旧气泡仍在**、新出现一条"上下文已清空"分割线（stub 的 `/messages` 返回值加上标记行）。
   运行：`cd web && npm run test:e2e -- slash-commands` → 期望 PASS。
 - [ ] 若 Composer 的假 WS 需要登录态：复用 `web/e2e/helpers.ts:14-31` 的登录等待 helper，
   并确认 uismoke 的 `/commands` stub 已就绪（Task 4 最后一步）。
@@ -287,10 +314,10 @@ export function contentsHaveSendableText(contents: Array<Record<string, unknown>
 ## 验收清单（实施完成后逐条跑）
 
 - [ ] `go build ./... && go vet ./...`
-- [ ] `go test ./internal/commands/ ./internal/acp/sysagent/tools/ ./internal/api/agentapi/ ./internal/agentsession/`
-      （无 `DATABASE_URL` 时存储用例 SKIP）
+- [ ] `go test ./internal/commands/ ./internal/acp/sysagent/ ./internal/api/agentapi/ ./internal/agentsession/`
 - [ ] `cd web && npm ci && npx tsc -b && npm run lint && node --test --experimental-strip-types src/lib/slashCommand.test.ts`
 - [ ] `cd web && npm run test:e2e -- slash-commands`
 - [ ] 手工（`make dev`，sysadmin provider 会话）：打 `/` 出菜单 → `/review` 跑通一轮 →
-      `/help` 输出清单 → `/clear` 清空且下一轮模型不知道旧内容；
-      再开一个 `claude` provider 会话验 `/clear` 的重启路径（不打开 installed 技能，符合限制）。
+      `/help` 输出清单 → `/clear` 后旧记录仍在、多出"上下文已清空"分割线，且下一轮模型
+      不知道清空前的任何内容；再开一个 `claude` provider 会话验 `/clear` 的重启路径
+      （不打开 installed 技能，符合限制）。
