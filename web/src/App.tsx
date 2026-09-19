@@ -10,6 +10,7 @@ import { AssistantCreatePage } from './pages/AssistantCreatePage'
 import { AssistantDetailPage } from './pages/AssistantDetailPage'
 import { BrowserPage } from './pages/BrowserPage'
 import { ChatSessionPage } from './pages/ChatSessionPage'
+import { IssueDetailPage } from './pages/IssueDetailPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { LoginPage } from './pages/LoginPage'
 import { SettingsLayout } from './pages/SettingsLayout'
@@ -47,6 +48,7 @@ export default function App() {
           </Route>
           <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/issues" element={<IssuesPage />} />
+          <Route path="/issues/:key" element={<IssueDetailPage />} />
           <Route path="/registry" element={<TemplatesPage />} />
         </Route>
         <Route path="/chats" element={<Navigate to="/a" replace />} />

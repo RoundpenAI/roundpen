@@ -304,6 +304,28 @@ export const en = {
   'issues.doc.superseded': 'Superseded',
   'issues.doc.draft': 'Draft',
   'issues.doc.empty': 'No document yet.',
+  'issues.back': 'Back to issues',
+  'issues.link.session': 'Session',
+  'issues.updateFailed': 'failed to update the issue',
+  'issues.doc.bodyFailed': 'failed to load the document',
+  'issues.doc.writeFailed': 'failed to save the document',
+  'issues.doc.contentPlaceholder': 'Write the document in Markdown…',
+  'issues.doc.newVersionHint':
+    'Saved as a new version — the previous current version stays as superseded.',
+  'issues.task.status.todo': 'To do',
+  'issues.task.status.in_progress': 'In progress',
+  'issues.task.status.done': 'Done',
+  'issues.task.status.blocked': 'Blocked',
+  'issues.task.status.cancelled': 'Cancelled',
+  'issues.task.blockedHint': 'Blocked — write the blocker down in the detail.',
+  'issues.task.detailPlaceholder': 'Optional — how this step gets verified',
+  'issues.task.empty': 'No tasks yet.',
+  'issues.task.createFailed': 'failed to create the task',
+  'issues.task.updateFailed': 'failed to update the task',
+  'issues.task.markInProgress': 'Start',
+  'issues.task.markBlocked': 'Block',
+  'issues.task.markCancelled': 'Cancel task',
+  'issues.task.reopen': 'Reopen',
 } as const
 
 export type MessageKey = keyof typeof en
