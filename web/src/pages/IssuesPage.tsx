@@ -337,7 +337,12 @@ export function IssuesPage() {
             >
               {t('issues.field.title')}
             </Typography.Text>
-            <Input value={title} onChange={setTitle} autoFocus />
+            <Input
+              value={title}
+              onChange={setTitle}
+              aria-label={t('issues.field.title')}
+              autoFocus
+            />
           </div>
 
           <div>
