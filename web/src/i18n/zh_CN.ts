@@ -3,6 +3,7 @@ import type { MessageKey } from './en.ts'
 /** Chinese UI copy (default). */
 export const zh_CN: Record<MessageKey, string> = {
   'nav.assistants': '助手',
+  'nav.issues': '议题',
   'nav.workspace': '工作区',
   'nav.settings': '设置',
   'nav.registry': '镜像',
@@ -258,4 +259,28 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.automode.defaultsFailed': '内置规则加载失败。',
   'settings.automode.note':
     '与下方设置一起保存，下一次判定即生效。关掉某张表的「$defaults」后只使用自己写的规则；列表为空时仍回退内置规则。被拦截的调用会连同命中规则记录在会话里；分类器不可用时，风险操作默认拦截。',
+
+  'issues.title': '议题',
+  'issues.new': '新建议题',
+  'issues.empty': '还没有议题。也可以在对话里让助手创建。',
+  'issues.column.key': '编号',
+  'issues.column.title': '标题',
+  'issues.column.status': '状态',
+  'issues.column.updated': '更新时间',
+  'issues.status.drafting': '澄清中',
+  'issues.status.specced': 'Spec 已定稿',
+  'issues.status.planned': '已计划',
+  'issues.status.in_progress': '进行中',
+  'issues.status.done': '已完成',
+  'issues.status.cancelled': '已取消',
+  'issues.tab.spec': 'Spec',
+  'issues.tab.plan': 'Plan',
+  'issues.tasks': '任务',
+  'issues.task.new': '新增任务',
+  'issues.doc.newVersion': '新版本',
+  'issues.doc.version': '版本 {n}',
+  'issues.doc.current': '当前版本',
+  'issues.doc.superseded': '已被取代',
+  'issues.doc.draft': '草稿',
+  'issues.doc.empty': '还没有文档。',
 }

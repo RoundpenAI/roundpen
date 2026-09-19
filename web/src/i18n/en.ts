@@ -1,6 +1,7 @@
 /** English UI copy (settings + app shell). Source for MessageKey. */
 export const en = {
   'nav.assistants': 'Assistants',
+  'nav.issues': 'Issues',
   'nav.workspace': 'Workspace',
   'nav.settings': 'Settings',
   'nav.registry': 'Images',
@@ -265,6 +266,31 @@ export const en = {
   'settings.automode.defaultsFailed': 'Failed to load built-in rules.',
   'settings.automode.note':
     'Saved with the settings below and used by the next classification. Turning "$defaults" off keeps only your own rules for that list; an empty list still falls back to the built-ins. Blocked calls are recorded in the chat with the matched rule; if the classifier is unreachable, risky calls are blocked by default.',
+
+  'issues.title': 'Issues',
+  'issues.new': 'New issue',
+  'issues.empty':
+    'No issues yet. You can also ask your assistant in chat to create one.',
+  'issues.column.key': 'Key',
+  'issues.column.title': 'Title',
+  'issues.column.status': 'Status',
+  'issues.column.updated': 'Updated',
+  'issues.status.drafting': 'Clarifying',
+  'issues.status.specced': 'Spec ready',
+  'issues.status.planned': 'Planned',
+  'issues.status.in_progress': 'In progress',
+  'issues.status.done': 'Done',
+  'issues.status.cancelled': 'Cancelled',
+  'issues.tab.spec': 'Spec',
+  'issues.tab.plan': 'Plan',
+  'issues.tasks': 'Tasks',
+  'issues.task.new': 'Add task',
+  'issues.doc.newVersion': 'New version',
+  'issues.doc.version': 'Version {n}',
+  'issues.doc.current': 'Current',
+  'issues.doc.superseded': 'Superseded',
+  'issues.doc.draft': 'Draft',
+  'issues.doc.empty': 'No document yet.',
 } as const
 
 export type MessageKey = keyof typeof en

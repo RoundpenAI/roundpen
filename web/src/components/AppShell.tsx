@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Layout, SideSheet, Typography } from '@douyinfe/semi-ui-19'
 import {
+  IconCheckList,
   IconExit,
   IconFolder,
   IconMenu,
@@ -23,6 +24,7 @@ import {
 const { Sider, Content } = Layout
 
 function menuIcon(id: PrimaryMenuId) {
+  if (id === 'issues') return <IconCheckList />
   if (id === 'workspace') return <IconFolder />
   if (id === 'settings') return <IconSetting />
   if (id === 'registry') return <IconTemplate />
