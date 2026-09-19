@@ -46,6 +46,7 @@ const (
 	skillsHomeRel     = ".roundpen/skills"
 	maxSkillFileBytes = 256 << 10
 	skillFetchTimeout = 15 * time.Second
+	skillListTimeout  = 5 * time.Second
 )
 
 // Shell snippets used to manage installed skills. Everything lives under the
@@ -445,6 +446,29 @@ func RegisterSkill(r *Registry, binder *AgentBinder, web *http.Client) {
 }
 
 func skillInvoke(ctx context.Context, b *AgentBinder, actor Actor, name, args string) (string, error) {
+	return ExpandInstalledSkill(ctx, b, actor, name, args)
+}
+
+// ExpandSkill resolves a built-in skill by name and returns the instruction
+// text a caller injects. It never touches the sandbox, so user-typed slash
+// commands work even when no agent environment is running.
+func ExpandSkill(name, args string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("skill name is required")
+	}
+	s, ok := builtinSkill(name)
+	if !ok {
+		return "", fmt.Errorf("unknown skill %q; use Skill with action \"list\" to see available skills", name)
+	}
+	return formatSkillInvocation(s, args), nil
+}
+
+// ExpandInstalledSkill is the full resolution for callers with a binder:
+// installed skills in the agent home shadow built-ins, exactly like the Skill
+// tool's invoke action. Slash commands and the tool share this path so both
+// inject byte-identical instructions.
+func ExpandInstalledSkill(ctx context.Context, b *AgentBinder, actor Actor, name, args string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", fmt.Errorf("skill name is required")
@@ -461,6 +485,11 @@ func skillInvoke(ctx context.Context, b *AgentBinder, actor Actor, name, args st
 	if !found {
 		return "", fmt.Errorf("unknown skill %q; use Skill with action \"list\" to see available skills", name)
 	}
+	return formatSkillInvocation(s, args), nil
+}
+
+// formatSkillInvocation renders the text both invocation paths inject.
+func formatSkillInvocation(s Skill, args string) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Running skill %q (%s).\n\n%s", s.Name, s.Source, strings.TrimSpace(s.Prompt))
 	if s.Params && strings.TrimSpace(args) != "" {
@@ -469,7 +498,35 @@ func skillInvoke(ctx context.Context, b *AgentBinder, actor Actor, name, args st
 	if len(s.AllowedTools) > 0 {
 		fmt.Fprintf(&sb, "\n\nThis skill is intended to use these tools: %s", strings.Join(s.AllowedTools, ", "))
 	}
-	return sb.String(), nil
+	return sb.String()
+}
+
+// ListInstalledSkills returns the skills installed in the agent home, with
+// descriptions for catalog display. A skill whose file cannot be parsed is
+// reported as "unreadable" instead of failing the whole listing; only the
+// sandbox exec itself surfaces an error.
+func ListInstalledSkills(ctx context.Context, b *AgentBinder, actor Actor) ([]Skill, error) {
+	ctx, cancel := context.WithTimeout(ctx, skillListTimeout)
+	defer cancel()
+	names, err := listInstalledSkillNames(ctx, b, actor)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Skill, 0, len(names))
+	for _, name := range names {
+		s, found, err := readInstalledSkill(ctx, b, actor, name)
+		switch {
+		case err != nil:
+			out = append(out, Skill{
+				Name:        name,
+				Description: "installed skill (unreadable)",
+				Source:      SkillSourceInstalled,
+			})
+		case found:
+			out = append(out, s)
+		}
+	}
+	return out, nil
 }
 
 func skillList(ctx context.Context, b *AgentBinder, actor Actor) (string, error) {

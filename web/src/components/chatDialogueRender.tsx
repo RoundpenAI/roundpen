@@ -6,6 +6,7 @@ import {
 } from '../components/ToolCallCard'
 import {
   isActivityMessage,
+  isClearDivider,
   type SemiContentItem,
 } from '../lib/semiChatAdapter'
 
@@ -97,6 +98,13 @@ export function chatDialogueRenderConfig() {
       if (message && isActivityMessage(message)) {
         return (
           <div className="chat-activity-wrap">{renderActivityContent(message)}</div>
+        )
+      }
+      if (message && isClearDivider(message)) {
+        return (
+          <div className="chat-clear-divider">
+            <span>上下文已清空</span>
+          </div>
         )
       }
       return defaultContent

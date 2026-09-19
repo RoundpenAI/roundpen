@@ -314,6 +314,52 @@ button {
   max-width: 100%;
 }
 
+/* /clear boundary: a divider, not a bubble */
+.chat-pane-scroll .semi-ai-chat-dialogue-content-bubble:has(.chat-clear-divider) {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  max-width: 100%;
+}
+
+.chat-clear-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.35rem 0;
+  color: var(--semi-color-text-2, #6b7280);
+  font-size: 0.75rem;
+}
+
+.chat-clear-divider::before,
+.chat-clear-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--semi-color-border, rgba(0, 0, 0, 0.12));
+}
+
+/* "/" command menu rows */
+.chat-skill-name {
+  font-weight: 600;
+}
+
+.chat-skill-desc {
+  margin-left: 0.5rem;
+  color: var(--semi-color-text-2, #6b7280);
+}
+
+.chat-skill-tag {
+  margin-left: 0.5rem;
+  padding: 0 0.35rem;
+  border-radius: 0.5rem;
+  background: var(--semi-color-fill-0, rgba(0, 0, 0, 0.05));
+  color: var(--semi-color-text-2, #6b7280);
+  font-size: 0.72rem;
+}
+
 .chat-pane-scroll .semi-ai-chat-dialogue-content-bubble {
   max-width: 100%;
 }

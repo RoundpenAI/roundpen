@@ -2,8 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   ACTIVITY_MODEL,
+  CLEAR_DIVIDER_MODEL,
   agentMessageToSemi,
   agentMessagesToSemi,
+  isActivityMessage,
+  isClearDivider,
 } from './semiChatAdapter.ts'
 import type { AgentMessage } from '../api.ts'
 
@@ -87,6 +90,35 @@ describe('agentMessageToSemi', () => {
     const out = agentMessageToSemi(m)
     assert.equal(out.role, 'system')
     assert.equal(out.content, 'notice')
+  })
+
+  it('shows the typed text for slash command turns', () => {
+    const m: AgentMessage = {
+      id: 'cmd',
+      sessionId: 's',
+      role: 'user',
+      content: 'Running skill "review" (builtin).\n\nReview the most recent changes…',
+      meta: { type: 'user', command: 'review', commandArgs: '关注并发', display: '/review 关注并发' },
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    const out = agentMessageToSemi(m)
+    assert.equal(out.role, 'user')
+    assert.equal(out.content, '/review 关注并发')
+  })
+
+  it('marks /clear markers as a divider', () => {
+    const m: AgentMessage = {
+      id: 'clear',
+      sessionId: 's',
+      role: 'event',
+      content: '上下文已清空',
+      meta: { type: 'clear' },
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    const out = agentMessageToSemi(m)
+    assert.equal(out.model, CLEAR_DIVIDER_MODEL)
+    assert.equal(isClearDivider(out), true)
+    assert.equal(isActivityMessage(out), false)
   })
 })
 

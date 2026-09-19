@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AIChatDialogue,
@@ -13,6 +20,7 @@ import type { MessageContent } from '@douyinfe/semi-ui-19/lib/es/aiChatInput/int
 import {
   agents,
   assistantsApi,
+  type AgentCommand,
   type AgentMessage,
   type AgentSession,
   ApiError,
@@ -44,6 +52,10 @@ import {
   shouldApplySocketOpen,
   socketLooksOpen,
 } from '../lib/sessionWsConnect'
+import {
+  buildSendPayload,
+  contentsHaveSendableText,
+} from '../lib/slashCommand'
 
 type PermReq = {
   requestId: string
@@ -209,21 +221,15 @@ function shouldShowInDialogue(m: AgentMessage): boolean {
   return true
 }
 
-function messageContentToPlainText(payload: MessageContent): string {
-  const parts = payload.inputContents ?? []
-  return parts
-    .map((c) => (typeof c.text === 'string' ? c.text : ''))
-    .join('')
-    .trim()
-}
-
-function contentsHaveSendableText(
-  contents: Array<{ [key: string]: unknown }> | undefined,
-): boolean {
-  if (!contents?.length) return false
-  return contents.some(
-    (c) => typeof c.text === 'string' && c.text.trim().length > 0,
-  )
+/** Semi skill item for the "/" menu; extra fields ride along for renderSkillItem. */
+function toSkillItem(c: AgentCommand) {
+  return {
+    value: c.name,
+    label: c.name,
+    description: c.description,
+    kind: c.kind,
+    source: c.source,
+  }
 }
 
 const sentPending = new Set<string>()
@@ -284,6 +290,7 @@ export function ChatSessionPage() {
   const [autoMode, setAutoMode] = useState(readAutoMode)
   const [composerFocused, setComposerFocused] = useState(false)
   const [composerHasText, setComposerHasText] = useState(false)
+  const [commands, setCommands] = useState<AgentCommand[]>([])
   const busyRef = useRef(false)
   useEffect(() => {
     busyRef.current = busy
@@ -295,6 +302,22 @@ export function ChatSessionPage() {
     () => agentMessagesToSemi(messages.filter(shouldShowInDialogue)),
     [messages],
   )
+
+  const skillItems = useMemo(() => commands.map(toSkillItem), [commands])
+
+  // Catalog drives the "/" menu; a failure just means the composer behaves as
+  // a plain prompt box.
+  const refreshCommands = useCallback(() => {
+    if (!id) return
+    agents
+      .commands(id)
+      .then((res) => setCommands(res.commands ?? []))
+      .catch(() => undefined)
+  }, [id])
+
+  useEffect(() => {
+    refreshCommands()
+  }, [refreshCommands])
 
   useEffect(() => {
     const incoming =
@@ -641,6 +664,15 @@ export function ChatSessionPage() {
             setMessages((prev) => clearStreaming(prev))
             refetchMessages()
             flushOutbox(socket)
+            refreshCommands()
+          } else if (msg.type === 'cleared') {
+            // /clear only appends a marker row: the transcript stays, the
+            // model context restarts after the marker.
+            setPerm(null)
+            outboxRef.current = []
+            setMessages((prev) => clearStreaming(prev))
+            refetchMessages()
+            refreshCommands()
           } else if (msg.type === 'error') {
             setBusy(false)
             setStatusHint(null)
@@ -773,7 +805,7 @@ export function ChatSessionPage() {
       }
       detachSocket(s)
     }
-  }, [id])
+  }, [id, refreshCommands])
 
   useEffect(() => {
     initialScrollDone.current = false
@@ -856,19 +888,38 @@ export function ChatSessionPage() {
     ws.send(JSON.stringify({ type: 'prompt', text }))
   }
 
+  const sendCommand = (ws: WebSocket, name: string, args: string) => {
+    setBusy(true)
+    setStatusHint('Working…')
+    setError(null)
+    appendLocalUser(`/${name}${args ? ` ${args}` : ''}`)
+    ws.send(JSON.stringify({ type: 'command', name, args }))
+  }
+
   const handleMessageSend = (payload: MessageContent) => {
-    const text = messageContentToPlainText(payload)
-    if (!text) return
+    const out = buildSendPayload(payload.inputContents, commands)
+    if (!out) return
     setComposerHasText(false)
     setComposerFocused(false)
     const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      sendPrompt(ws, text)
+    const open = ws && ws.readyState === WebSocket.OPEN
+    if (out.kind === 'command') {
+      // Commands are never queued offline: the runner cancels the current turn
+      // and resets the runtime, which only makes sense against a live session.
+      if (open) {
+        sendCommand(ws, out.name, out.args)
+      } else {
+        setError('连接断开，命令未发送：请等待重连后再试')
+      }
+      return
+    }
+    if (open) {
+      sendPrompt(ws, out.text)
       return
     }
     // WeChat-style: show the bubble immediately; deliver when WS is ready.
-    appendLocalUser(text)
-    outboxRef.current = enqueueOutbox(outboxRef.current, text)
+    appendLocalUser(out.text)
+    outboxRef.current = enqueueOutbox(outboxRef.current, out.text)
     setStatusHint(outboxWaitingHint(outboxRef.current.length))
     setError(null)
   }
@@ -1088,6 +1139,23 @@ export function ChatSessionPage() {
                   const sendBtn = menuItem[menuItem.length - 1]
                   return <div className={className}>{sendBtn}</div>
                 }}
+                skills={skillItems}
+                skillHotKey="/"
+                renderSkillItem={({ skill, className, onClick, onMouseEnter }) => (
+                  <div
+                    className={className}
+                    onClick={onClick}
+                    onMouseEnter={onMouseEnter}
+                    role="button"
+                    tabIndex={-1}
+                  >
+                    <span className="chat-skill-name">/{skill.label ?? skill.value}</span>
+                    <span className="chat-skill-desc">{skill.description ?? ''}</span>
+                    {skill.source === 'installed' && (
+                      <span className="chat-skill-tag">已安装</span>
+                    )}
+                  </div>
+                )}
                 onFocus={() => setComposerFocused(true)}
                 onBlur={() => setComposerFocused(false)}
                 onContentChange={(contents) => {

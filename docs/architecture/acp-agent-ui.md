@@ -89,7 +89,8 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 | GET | `/v1/agents` | Provider 列表 |
 | GET/POST | `/v1/agent-sessions` | 列出会话 / 创建（sysadmin 跳过 Provisioner） |
 | GET/DELETE | `/v1/agent-sessions/{id}` | 详情 / 结束 |
-| GET | `/v1/agent-sessions/{id}/ws` | prompt / cancel / permission ↔ session updates |
+| GET | `/v1/agent-sessions/{id}/ws` | prompt / command / cancel / permission ↔ session updates（`command` 是 `/技能` 与 `/clear`、`/help`；出站有 `cleared`） |
+| GET | `/v1/agent-sessions/{id}/commands` | Slash 命令目录：内置技能 + 动作命令恒有，已安装技能仅在 agent 环境 running 时列出 |
 | GET | `/v1/agent-sessions/{id}/browser` | System Agent 浏览器状态（Hub key `sysagent-<id>`） |
 | GET | `/v1/agent-sessions/{id}/browser/screenshot` | viewport PNG（聊天右侧轮询） |
 | POST | `/v1/agent-sessions/{id}/browser/takeover` | `{enabled}` 人工接管；开启后 agent 写工具返回 `browser under human takeover` |
@@ -113,6 +114,7 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 | `assistant` | 是（跳过空 / `(no response)`） | `assistant` 文本 |
 | `tool` | 是 | 连续工具合成一条 `assistant.tool_calls` + 多条 `tool` |
 | `event`（`type=error`） | 是 | `user`: `Previous turn error: …` |
+| `event`（`type=clear`，`/clear` 标记） | 否（且**截断**：只回放最后一条标记之后的行） | — |
 | `thought` | 否 | 与 Claude Code 一样，旧 thinking 不回放 |
 | `permission` | 否 | 只给 UI / 审计 |
 | 其它 `event`（plan 等） | 否 | — |

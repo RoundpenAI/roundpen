@@ -67,6 +67,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}", h.renameSession)
 	mux.HandleFunc("DELETE /v1/agent-sessions/{id}", h.deleteSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", h.listMessages)
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/commands", h.listCommands)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/ws", h.sessionWS)
 	h.mountBrowser(mux)
 	h.mountTasks(mux)
@@ -339,6 +340,8 @@ func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
 type wsIn struct {
 	Type      string `json:"type"`
 	Text      string `json:"text,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Args      string `json:"args,omitempty"`
 	OptionID  string `json:"optionId,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
 	Enabled   bool   `json:"enabled"`
@@ -484,6 +487,8 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 		switch strings.ToLower(in.Type) {
 		case "prompt":
 			run.prompt(in.Text)
+		case "command":
+			run.command(in.Name, in.Args)
 		case "cancel":
 			run.cancelTurn()
 		case "auto":
