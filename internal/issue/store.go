@@ -81,6 +81,21 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Iss
 	return it, nil
 }
 
+// SessionAssistant resolves a session id to the assistant bound to it, scoped to
+// the caller. ErrNotFound means the session does not exist or is not the
+// caller's, so ids belonging to others cannot be attributed to this user.
+// assistant_id is nullable (sessions predate assistants); NULL reads as "".
+func (s *Store) SessionAssistant(ctx context.Context, userID, sessionID string) (string, error) {
+	var assistantID string
+	err := s.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(assistant_id, '') FROM agent_sessions WHERE id = $1 AND user_id = $2`,
+		sessionID, userID).Scan(&assistantID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return assistantID, err
+}
+
 // Get returns an issue with its document index and task list.
 func (s *Store) Get(ctx context.Context, userID, keyOrID string) (*Issue, []Doc, []Task, error) {
 	it, err := s.getIssue(ctx, userID, keyOrID)
@@ -195,12 +210,17 @@ func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInp
 }
 
 // ListDocs returns the issue's document index, newest version first. Bodies are
-// deliberately omitted — read them with GetDoc.
+// deliberately omitted — read them with GetDoc. Resolving the issue first, like
+// ListTasks, keeps an unknown key a 404 rather than an empty list.
 func (s *Store) ListDocs(ctx context.Context, userID, keyOrID string) ([]Doc, error) {
+	issueID, err := s.lookupIssueID(ctx, userID, keyOrID)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT `+docCols+` FROM issue_docs
-		WHERE issue_id = (SELECT id FROM issues WHERE (id = $2 OR key = $2) AND user_id = $1)
-		ORDER BY kind, version DESC`, userID, keyOrID)
+		WHERE issue_id = $1
+		ORDER BY kind, version DESC`, issueID)
 	if err != nil {
 		return nil, err
 	}
