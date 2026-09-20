@@ -94,7 +94,11 @@ jobs:
 
       - name: Install the SDK components the build needs
         run: |
-          yes | sdkmanager --licenses > /dev/null
+          # The runner runs steps under bash -e -o pipefail: piping `yes` into
+          # sdkmanager would fail the step with exit 141 as soon as sdkmanager
+          # exits and `yes` is killed by SIGPIPE. Process substitution keeps
+          # sdkmanager's own exit status.
+          sdkmanager --licenses > /dev/null < <(yes)
           sdkmanager "platform-tools" "platforms;${ANDROID_PLATFORM}" \
                      "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}"
 
