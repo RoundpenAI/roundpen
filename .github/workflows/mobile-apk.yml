@@ -1,9 +1,9 @@
 name: mobile console APK
 
-# Build the Flutter mobile console and publish the per-ABI release APKs to the
-# Gitea generic package registry:
+# Build the Flutter mobile console and attach the per-ABI release APKs to a
+# Gitea release tagged v<version>:
 #
-#   <server>/<owner>/-/packages/generic/roundpen-console/<version>/
+#   <server>/<owner>/<repo>/releases/tag/v<version>
 #
 # Install on a phone with:  adb install -r app-arm64-v8a-release.apk
 #
@@ -14,6 +14,10 @@ name: mobile console APK
 #   * A plugin brings native code, so AGP insists on the NDK version Flutter
 #     pins — the job installs it explicitly instead of letting AGP download it
 #     mid-build.
+#   * Artifacts ride on a release rather than the generic package registry:
+#     uploading a package needs a token with the `package` scope, and Gitea
+#     does not give that scope to the automatic GITHUB_TOKEN — `packages: write`
+#     in a workflow is not implemented there yet (gitea#24635).
 #   * Egress on this intranet: the internet is only reachable through the
 #     SOCKS5 proxy 10.10.1.4:1212. Direct connects stall on anything larger
 #     than a few hundred KB (a GitHub clone dies with "unexpected EOF"), which
@@ -39,15 +43,13 @@ on:
         type: string
 
 permissions:
-  contents: read
-  packages: write
+  contents: write
 
 env:
   FLUTTER_VERSION: "3.47.5"
   ANDROID_PLATFORM: "android-36"
   ANDROID_BUILD_TOOLS: "36.0.0"
   ANDROID_NDK: "28.2.13676358"
-  PACKAGE_NAME: "roundpen-console"
 
 jobs:
   apk:
@@ -117,29 +119,48 @@ jobs:
           # emulators / android-in-containers (redroid).
           flutter build apk --release --split-per-abi
 
-      - name: Publish to the package registry
+      - name: Publish a release with the APKs
         working-directory: mobile/build/app/outputs/flutter-apk
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
           SERVER_URL: ${{ github.server_url }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
-
           server="${SERVER_URL:-}"
           if [[ -z "${server}" ]]; then
             host="$(git config --get remote.origin.url | sed -E 's#^(ssh://)?([^@/]*@)?([^:/]+)[:/].*#\3#')"
             server="https://${host}"
           fi
-          base="${server}/api/packages/${OWNER}/generic/${PACKAGE_NAME}/${version}"
+          api="${server}/api/v1/repos/${REPO}"
+          tag="v${VERSION}"
+          auth="Authorization: token ${TOKEN}"
+
+          # Re-running the same version reuses the release from the first try.
+          release_id="$(curl -fsS -H "${auth}" "${api}/releases/tags/${tag}" 2>/dev/null |
+            jq -r 'first(.id)' || true)"
+          if [[ -z "${release_id}" || "${release_id}" == "null" ]]; then
+            release_id="$(jq -n --arg tag "${tag}" --arg sha "${GITHUB_SHA}" \
+                '{tag_name: $tag, name: $tag, target_commitish: $sha}' |
+              curl -fsS -X POST -H "${auth}" -H "Content-Type: application/json" \
+                --data-binary @- "${api}/releases" | jq -r '.id')"
+          fi
+          echo "release ${tag}: id=${release_id}"
 
           sha256sum ./*.apk > sha256sums.txt
           for file in ./*.apk sha256sums.txt; do
-            echo "→ ${base}/${file}"
-            curl -fsS -X PUT \
-              -H "Authorization: token ${TOKEN}" \
-              --upload-file "${file}" \
-              "${base}/${file}"
+            name="${file#./}"
+            # Drop an asset of the same name left by an earlier run, so that a
+            # re-run replaces it instead of failing on the duplicate.
+            asset_id="$(curl -fsS -H "${auth}" "${api}/releases/${release_id}/assets" |
+              jq -r --arg n "${name}" 'first(.[] | select(.name == $n) | .id)' || true)"
+            if [[ -n "${asset_id}" && "${asset_id}" != "null" ]]; then
+              curl -fsS -X DELETE -H "${auth}" "${api}/releases/${release_id}/assets/${asset_id}"
+            fi
+            echo "→ ${tag}/${name}"
+            curl -fsS -X POST -H "${auth}" -F "attachment=@${file}" \
+              "${api}/releases/${release_id}/assets?name=${name}"
+            echo
           done
-          echo "Published ${PACKAGE_NAME} ${version}: ${base}"
+          echo "Published ${tag}: ${server}/${REPO}/releases/tag/${tag}"
