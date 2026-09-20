@@ -57,7 +57,7 @@ Agent 可见工具对齐 Claude Code 命名；沙箱 / ensure 是实现细节（
 
 Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 PostgreSQL → `EnsureAgent` 经 guest exec 写入 `$HOME/.roundpen/git`（guest home，**不放 `/workspace`**，不写宿主机目录）。**禁止**把宿主机 `~/.ssh` 拷进镜像或沙箱。见 [git-credentials.md](../git-credentials.md)。`Bash` 内的 `git` 通过 `~/.gitconfig` include 自动使用已注入凭据。
 
-LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-roundpen-internal`；model 回落 settings Default Model。
+LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权用每实例随机生成的内部 Virtual Key（`Gateway.InternalKey()`，持久化于 `data/llmgw-internal.key`）；model 回落 settings Default Model。
 
 写操作权限（`Mutating`）：只读不询问。写操作弹出选项：
 
@@ -143,4 +143,4 @@ internal/browser  # Playwright 引擎 + Hub + agent session browser API
 - 完整 policy / toolgw 产品化（registry 仅 System Agent 内）
 - computer-use / 宿主机键鼠（预留扩展点；takeover 仅 CDP Input）
 - 聊天内嵌浏览器实时视图 / WebRTC 视频流
-- 替换 Sandboxes / Templates 运维页
+- 替换 Templates（镜像）运维页

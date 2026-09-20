@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -117,7 +118,7 @@ func Middleware(users storage.UserStore, sessions storage.SessionStore) func(htt
 			user, key, sessionID := resolveAuth(r, users, sessions)
 			if user == nil && !isPublicPath(r) {
 				slog.Warn("unauthorized", slog.String("path", r.URL.Path), slog.String("remote", r.RemoteAddr))
-				writeErr(w, http.StatusUnauthorized, "unauthorized")
+				httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
@@ -167,7 +168,7 @@ func RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := GetUser(r.Context())
 		if user == nil || user.Role != storage.RoleAdmin {
-			writeErr(w, http.StatusForbidden, "forbidden")
+			httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 			return
 		}
 		next(w, r)

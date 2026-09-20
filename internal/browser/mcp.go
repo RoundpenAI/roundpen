@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 type rpcRequest struct {
@@ -43,7 +45,7 @@ func (h *Handler) mcp(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	var req rpcRequest

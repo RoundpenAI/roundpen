@@ -112,7 +112,7 @@ func TestAdminAutoModeHTTP(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)
 	cfg := &config.Config{DefaultImage: "host", DefaultTTL: 30 * time.Minute, PreviewTokenTTL: 15 * time.Minute}
-	store := settings.NewStore(db.SQL)
+	store := settings.NewStore(db.SQL, nil)
 	current, err := settings.Bootstrap(ctx, store, cfg)
 	if err != nil {
 		t.Fatal(err)

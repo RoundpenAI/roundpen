@@ -18,33 +18,33 @@ const (
 	KindCaptcha     = "captcha"
 	KindOther       = "other"
 
-	StatusPending    = "pending"
-	StatusResolved   = "resolved"
-	StatusRejected   = "rejected"
-	StatusCancelled  = "cancelled"
+	StatusPending   = "pending"
+	StatusResolved  = "resolved"
+	StatusRejected  = "rejected"
+	StatusCancelled = "cancelled"
 
-	ResAllowOnce  = "allow_once"
-	ResPermanent  = "permanent"
-	ResReject     = "reject"
+	ResAllowOnce = "allow_once"
+	ResPermanent = "permanent"
+	ResReject    = "reject"
 )
 
 type Ticket struct {
-	ID              string          `json:"id"`
-	UserID          string          `json:"userId"`
-	AssistantID     string          `json:"assistantId"`
-	SessionID       string          `json:"sessionId"`
-	Kind            string          `json:"kind"`
-	Status          string          `json:"status"`
-	Title           string          `json:"title"`
-	Reason          string          `json:"reason"`
-	ContextSummary  string          `json:"contextSummary"`
-	AskHuman        string          `json:"askHuman"`
-	Payload         json.RawMessage `json:"payload,omitempty"`
-	Resolution      string          `json:"resolution,omitempty"`
-	ResolutionNote  string          `json:"resolutionNote,omitempty"`
-	CreatedAt       time.Time       `json:"createdAt"`
-	UpdatedAt       time.Time       `json:"updatedAt"`
-	ResolvedAt      *time.Time      `json:"resolvedAt,omitempty"`
+	ID             string          `json:"id"`
+	UserID         string          `json:"userId"`
+	AssistantID    string          `json:"assistantId"`
+	SessionID      string          `json:"sessionId"`
+	Kind           string          `json:"kind"`
+	Status         string          `json:"status"`
+	Title          string          `json:"title"`
+	Reason         string          `json:"reason"`
+	ContextSummary string          `json:"contextSummary"`
+	AskHuman       string          `json:"askHuman"`
+	Payload        json.RawMessage `json:"payload,omitempty"`
+	Resolution     string          `json:"resolution,omitempty"`
+	ResolutionNote string          `json:"resolutionNote,omitempty"`
+	CreatedAt      time.Time       `json:"createdAt"`
+	UpdatedAt      time.Time       `json:"updatedAt"`
+	ResolvedAt     *time.Time      `json:"resolvedAt,omitempty"`
 }
 
 type CreateInput struct {
@@ -150,14 +150,6 @@ func (s *Store) ListByAssistant(ctx context.Context, userID, assistantID string,
 	}
 	defer rows.Close()
 	return scanTickets(rows)
-}
-
-func (s *Store) CountPending(ctx context.Context, userID string) (int, error) {
-	var n int
-	err := s.DB.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM assist_tickets WHERE user_id=$1 AND status=$2`,
-		userID, StatusPending).Scan(&n)
-	return n, err
 }
 
 func (s *Store) Resolve(ctx context.Context, id, resolution, note string) (*Ticket, error) {

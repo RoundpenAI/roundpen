@@ -1,6 +1,6 @@
 # Roundpen 项目结构
 
-单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 与 Browser 槽位固定 Docker**（官方 `code-agent` OCI 镜像 / `browserless/chrome` 容器），**Desktop / Mobile 槽位预留 QEMU**。`policy` / `toolgw` 仍是空包。
+单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 与 Browser 槽位固定 Docker**（官方 `code-agent` OCI 镜像 / `browserless/chrome` 容器），**Desktop / Mobile 槽位预留 QEMU**。
 
 ## 目录树
 

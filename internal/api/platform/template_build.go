@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/template"
 )
 
@@ -53,12 +54,12 @@ type buildReasonResp struct {
 
 func (h *Handler) createTemplateV3(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
-		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "templates not configured")
 		return
 	}
 	var req createTemplateV3Req
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	name := strings.TrimSpace(req.Name)
@@ -66,7 +67,7 @@ func (h *Handler) createTemplateV3(w http.ResponseWriter, r *http.Request) {
 		name = strings.TrimSpace(req.Alias)
 	}
 	if name == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	out, err := h.Templates.CreateTemplate(r.Context(), template.CreateTemplateRequest{
@@ -80,14 +81,14 @@ func (h *Handler) createTemplateV3(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "already exists") {
-			writeErr(w, http.StatusConflict, err.Error())
+			httpx.WriteErr(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	display := template.DisplayName(out.Namespace, out.Name)
-	writeJSON(w, http.StatusAccepted, createTemplateV3Resp{
+	httpx.WriteJSON(w, http.StatusAccepted, createTemplateV3Resp{
 		TemplateID: out.TemplateID,
 		BuildID:    out.BuildID,
 		Public:     out.Public,
@@ -99,7 +100,7 @@ func (h *Handler) createTemplateV3(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) createTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
-		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "templates not configured")
 		return
 	}
 	templateID := r.PathValue("templateID")
@@ -112,7 +113,7 @@ func (h *Handler) createTemplateBuildV2(w http.ResponseWriter, r *http.Request) 
 	}
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid json")
+			httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 			return
 		}
 	}
@@ -124,14 +125,14 @@ func (h *Handler) createTemplateBuildV2(w http.ResponseWriter, r *http.Request) 
 		DiskSizeMB:    req.DiskSizeMB,
 	})
 	if errors.Is(err, template.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, err.Error())
+		httpx.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httpx.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"templateID": out.TemplateID,
 		"buildID":    out.BuildID,
 		"tags":       out.Tags,
@@ -140,7 +141,7 @@ func (h *Handler) createTemplateBuildV2(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) startTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
-		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "templates not configured")
 		return
 	}
 	templateID := r.PathValue("templateID")
@@ -151,7 +152,7 @@ func (h *Handler) startTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 		AssignDefault *bool    `json:"assignDefault"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	out, err := h.Templates.StartBuild(r.Context(), templateID, buildID, req.BuildSpec, template.CreateBuildRequest{
@@ -161,18 +162,18 @@ func (h *Handler) startTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 		MemoryMB:      req.MemoryMB,
 	})
 	if errors.Is(err, template.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, err.Error())
+		httpx.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "not configured") {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httpx.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"templateID": out.TemplateID,
 		"buildID":    out.BuildID,
 		"forked":     out.Forked,
@@ -181,7 +182,7 @@ func (h *Handler) startTemplateBuildV2(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) getTemplateBuildStatus(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
-		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "templates not configured")
 		return
 	}
 	templateID := r.PathValue("templateID")
@@ -190,11 +191,11 @@ func (h *Handler) getTemplateBuildStatus(w http.ResponseWriter, r *http.Request)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	info, logs, err := h.Templates.GetBuildStatus(r.Context(), templateID, buildID, offset, limit)
 	if errors.Is(err, template.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "build not found")
+		httpx.WriteErr(w, http.StatusNotFound, "build not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	resp := buildStatusResp{
@@ -221,13 +222,13 @@ func (h *Handler) getTemplateBuildStatus(w http.ResponseWriter, r *http.Request)
 	if info.Status == template.BuildError && info.ErrorMessage != "" {
 		resp.Reason = &buildReasonResp{Message: info.ErrorMessage}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 // buildTemplate is a Roundpen convenience endpoint: create + start in one request.
 func (h *Handler) buildTemplate(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
-		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "templates not configured")
 		return
 	}
 	var body struct {
@@ -237,11 +238,11 @@ func (h *Handler) buildTemplate(w http.ResponseWriter, r *http.Request) {
 		Spec     template.BuildSpec `json:"spec"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	if strings.TrimSpace(body.Name) == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	if body.Spec.CPUCount == 0 {
@@ -257,14 +258,14 @@ func (h *Handler) buildTemplate(w http.ResponseWriter, r *http.Request) {
 		Public:   true,
 	})
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if _, err := h.Templates.StartBuild(r.Context(), created.TemplateID, created.BuildID, body.Spec, template.CreateBuildRequest{}); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]any{
+	httpx.WriteJSON(w, http.StatusAccepted, map[string]any{
 		"templateID": created.TemplateID,
 		"buildID":    created.BuildID,
 		"name":       template.DisplayName(created.Namespace, created.Name),

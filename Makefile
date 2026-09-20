@@ -85,6 +85,7 @@ code-agent-image:
 	docker build -t roundpen-code-agent:local images/code-agent
 
 # End-user path: no Node on the host. UI is baked in the image build.
+# Requires POSTGRES_PASSWORD in .env (no default); see .env.compose.example.
 compose-up:
 	docker compose up -d --build
 

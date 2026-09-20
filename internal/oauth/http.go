@@ -55,14 +55,14 @@ type adminProviderView struct {
 func (h *Handler) listEnabled(w http.ResponseWriter, r *http.Request) {
 	providers, err := h.Svc.ListEnabledProviders(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	out := make([]providerView, 0, len(providers))
 	for _, p := range providers {
 		out = append(out, providerView{ID: p.ID, Kind: p.Kind, Host: p.Host, Label: p.DisplayLabel()})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"providers": out})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"providers": out})
 }
 
 func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +116,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) link(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	raw, err := h.Svc.AuthorizeURL(r.Context(), StartInput{
@@ -127,10 +127,10 @@ func (h *Handler) link(w http.ResponseWriter, r *http.Request) {
 		ConsoleHost:   httpx.DefaultTrust.Host(r),
 	})
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"authorizeUrl": raw})
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"authorizeUrl": raw})
 }
 
 type identityView struct {
@@ -152,12 +152,12 @@ type identityView struct {
 func (h *Handler) listIdentities(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	idents, err := h.Svc.Identities(r.Context(), user.Username)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	out := make([]identityView, 0, len(idents))
@@ -174,13 +174,13 @@ func (h *Handler) listIdentities(w http.ResponseWriter, r *http.Request) {
 			LastLoginAt: id.LastLoginAt, CreatedAt: id.CreatedAt,
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"identities": out})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"identities": out})
 }
 
 func (h *Handler) unlink(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	err := h.Svc.Unlink(r.Context(), user.Username, r.PathValue("id"))
@@ -188,30 +188,30 @@ func (h *Handler) unlink(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case isNotFound(err):
-		writeErr(w, http.StatusNotFound, "identity not found")
+		httpx.WriteErr(w, http.StatusNotFound, "identity not found")
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 	}
 }
 
 func (h *Handler) adminList(w http.ResponseWriter, r *http.Request) {
 	providers, err := h.Svc.ListProviders(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"providers": h.adminViews(r, providers)})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"providers": h.adminViews(r, providers)})
 }
 
 func (h *Handler) adminSave(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	var payload Provider
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	// A masked/empty secret means "keep the stored one".
@@ -222,11 +222,11 @@ func (h *Handler) adminSave(w http.ResponseWriter, r *http.Request) {
 	}
 	saved, err := h.Svc.SaveProvider(r.Context(), payload)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	views := h.adminViews(r, []Provider{*saved})
-	writeJSON(w, http.StatusOK, map[string]any{"provider": views[0]})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"provider": views[0]})
 }
 
 func (h *Handler) adminDelete(w http.ResponseWriter, r *http.Request) {
@@ -235,9 +235,9 @@ func (h *Handler) adminDelete(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case isNotFound(err):
-		writeErr(w, http.StatusNotFound, "provider not found")
+		httpx.WriteErr(w, http.StatusNotFound, "provider not found")
 	default:
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 	}
 }
 
@@ -288,13 +288,3 @@ func withQuery(path, key, value string) string {
 }
 
 func isNotFound(err error) bool { return errors.Is(err, storage.ErrNotFound) }
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"message": msg})
-}

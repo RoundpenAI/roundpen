@@ -1,18 +1,21 @@
 package llmgw_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
+	"github.com/RoundpenAI/roundpen/internal/secretbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
 func TestStoreUpstreamVirtualKeyRoundTrip(t *testing.T) {
 	db := testDB(t)
-	store := llmgw.NewStore(db)
+	store := llmgw.NewStore(db, nil)
 	ctx := context.Background()
 	now := time.Now().UTC()
 
@@ -89,7 +92,7 @@ func TestStoreUpstreamVirtualKeyRoundTrip(t *testing.T) {
 
 func TestStoreListTransactionsDefaults(t *testing.T) {
 	db := testDB(t)
-	store := llmgw.NewStore(db)
+	store := llmgw.NewStore(db, nil)
 	ctx := context.Background()
 	logs, err := store.ListTransactions(ctx, llmgw.ListOptions{})
 	if err != nil {
@@ -97,5 +100,67 @@ func TestStoreListTransactionsDefaults(t *testing.T) {
 	}
 	if logs == nil {
 		t.Fatal("expected non-nil slice")
+	}
+}
+
+func TestStoreUpstreamAPIKeyEncryptedAtRest(t *testing.T) {
+	db := testDB(t)
+	box, err := secretbox.New(bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := llmgw.NewStore(db, box)
+	ctx := context.Background()
+
+	if err := store.UpsertUpstream(llmgw.Upstream{
+		Provider:  llmgw.ProviderAnthropic,
+		BaseURL:   "https://api.anthropic.com",
+		APIKey:    "sk-ant-real-key",
+		Enabled:   true,
+		UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var raw string
+	if err := db.SQL.QueryRowContext(ctx,
+		`SELECT api_key FROM llmgw_upstreams WHERE provider=$1`,
+		llmgw.ProviderAnthropic).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(raw, "sk-ant-real-key") {
+		t.Fatalf("plaintext api key at rest: %s", raw)
+	}
+	if !strings.HasPrefix(raw, "enc:v1:") {
+		t.Fatalf("expected sealed api key, got %q", raw)
+	}
+
+	got, err := store.GetUpstream(ctx, llmgw.ProviderAnthropic)
+	if err != nil || got.APIKey != "sk-ant-real-key" {
+		t.Fatalf("GetUpstream: err=%v key=%q", err, got.APIKey)
+	}
+	list, err := store.ListUpstreams(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, u := range list {
+		if u.Provider == llmgw.ProviderAnthropic {
+			found = u.APIKey == "sk-ant-real-key"
+		}
+	}
+	if !found {
+		t.Fatal("ListUpstreams did not decrypt the api key")
+	}
+
+	// A legacy plaintext row remains readable.
+	if _, err := db.SQL.ExecContext(ctx,
+		`UPDATE llmgw_upstreams SET api_key='sk-legacy-plaintext' WHERE provider=$1`,
+		llmgw.ProviderAnthropic); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := store.GetUpstream(ctx, llmgw.ProviderAnthropic)
+	if err != nil || legacy.APIKey != "sk-legacy-plaintext" {
+		t.Fatalf("legacy: err=%v key=%q", err, legacy.APIKey)
 	}
 }

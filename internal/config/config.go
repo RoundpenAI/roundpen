@@ -18,7 +18,8 @@ type Config struct {
 	BootstrapAdmin          bool
 	DatabaseURL             string
 	DataRoot                string
-	Backend                 string // docker | k8s (qemu accepted as legacy alias; kern removed)
+	SecretKey               string // master key (hex/base64, 32 bytes) sealing DB secrets; empty = auto-generated file under DataRoot
+	Backend                 string // docker (qemu accepted as legacy alias; k8s/kern rejected)
 	DockerHost              string
 	DockerRuntime           string // e.g. runc, runsc; empty = daemon default
 	DefaultImage            string
@@ -47,6 +48,7 @@ func Load() (*Config, error) {
 		BootstrapAdmin:          getenvBool("ROUNDPEN_BOOTSTRAP_ADMIN", true),
 		DatabaseURL:             os.Getenv("DATABASE_URL"),
 		DataRoot:                getenv("ROUNDPEN_DATA_ROOT", "./data"),
+		SecretKey:               os.Getenv("ROUNDPEN_SECRET_KEY"),
 		Backend:                 getenv("ROUNDPEN_BACKEND", "docker"),
 		DockerHost:              getenv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		DockerRuntime:           os.Getenv("ROUNDPEN_DOCKER_RUNTIME"),
@@ -85,8 +87,10 @@ func Load() (*Config, error) {
 		cfg.LogLevel = level
 	}
 	switch strings.ToLower(cfg.Backend) {
-	case "docker", "qemu", "k8s":
+	case "docker", "qemu":
 		// qemu here means multi-backend default preference historically; Agent is always Docker.
+	case "k8s":
+		return nil, fmt.Errorf("ROUNDPEN_BACKEND=k8s is not implemented; use docker (Agent) + QEMU (Browser)")
 	case "kern":
 		return nil, fmt.Errorf("ROUNDPEN_BACKEND=kern is removed; use docker (Agent) + QEMU (Browser)")
 	default:

@@ -3,7 +3,6 @@ package workspaceapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
@@ -59,7 +59,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []workspace.DirEntry{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries, "path": rel})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"entries": entries, "path": rel})
 }
 
 func (h *Handler) read(w http.ResponseWriter, r *http.Request) {
@@ -69,7 +69,7 @@ func (h *Handler) read(w http.ResponseWriter, r *http.Request) {
 	}
 	rel := filePath(r)
 	if rel == "" || rel == "." {
-		writeErr(w, http.StatusBadRequest, "path is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "path is required")
 		return
 	}
 	rc, err := h.Files.ReadGuestFile(r.Context(), sb.ID, rel)
@@ -90,14 +90,14 @@ func (h *Handler) write(w http.ResponseWriter, r *http.Request) {
 	}
 	rel := filePath(r)
 	if rel == "" || rel == "." {
-		writeErr(w, http.StatusBadRequest, "path is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "path is required")
 		return
 	}
 	body := http.MaxBytesReader(w, r.Body, maxFileBytes)
 	err := h.Files.WriteGuestFile(r.Context(), sb.ID, rel, body)
 	if err != nil {
 		if strings.Contains(err.Error(), "request body too large") || strings.Contains(err.Error(), "file too large") {
-			writeErr(w, http.StatusRequestEntityTooLarge, "file too large")
+			httpx.WriteErr(w, http.StatusRequestEntityTooLarge, "file too large")
 			return
 		}
 		writeGuestErr(w, err)
@@ -113,7 +113,7 @@ func (h *Handler) remove(w http.ResponseWriter, r *http.Request) {
 	}
 	rel := filePath(r)
 	if rel == "" || rel == "." {
-		writeErr(w, http.StatusBadRequest, "path is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "path is required")
 		return
 	}
 	if err := h.Files.RemoveGuestFile(r.Context(), sb.ID, rel); err != nil {
@@ -126,21 +126,21 @@ func (h *Handler) remove(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ensure(w http.ResponseWriter, r *http.Request) (*sandbox.Sandbox, bool) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return nil, false
 	}
 	if h.Envs == nil || h.Files == nil {
-		writeErr(w, http.StatusServiceUnavailable, "workspace not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "workspace not configured")
 		return nil, false
 	}
 	sb, err := h.Envs.EnsureAgent(r.Context(), user.Username)
 	if err != nil {
 		var nr *runtime.NotReady
 		if errors.As(err, &nr) {
-			writeErr(w, http.StatusServiceUnavailable, nr.Error())
+			httpx.WriteErr(w, http.StatusServiceUnavailable, nr.Error())
 			return nil, false
 		}
-		writeErr(w, http.StatusServiceUnavailable, err.Error())
+		httpx.WriteErr(w, http.StatusServiceUnavailable, err.Error())
 		return nil, false
 	}
 	return sb, true
@@ -157,22 +157,12 @@ func filePath(r *http.Request) string {
 func writeGuestErr(w http.ResponseWriter, err error) {
 	msg := err.Error()
 	if errors.Is(err, sandbox.ErrNotFound) || os.IsNotExist(err) || strings.Contains(msg, "no such file") {
-		writeErr(w, http.StatusNotFound, "path not found")
+		httpx.WriteErr(w, http.StatusNotFound, "path not found")
 		return
 	}
 	if strings.Contains(msg, "escapes") || strings.Contains(msg, "path is required") {
-		writeErr(w, http.StatusBadRequest, msg)
+		httpx.WriteErr(w, http.StatusBadRequest, msg)
 		return
 	}
-	writeErr(w, http.StatusBadRequest, msg)
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+	httpx.WriteErr(w, http.StatusBadRequest, msg)
 }
