@@ -27,10 +27,10 @@ describe('visiblePrimaryMenus', () => {
 })
 
 describe('visibleSettingsSections', () => {
-  it('non-admin gets git and agent', () => {
+  it('non-admin gets the account sections', () => {
     assert.deepEqual(
       visibleSettingsSections(false).map((s) => s.key),
-      ['git', 'agent'],
+      ['git', 'accounts', 'password', 'agent'],
     )
   })
 

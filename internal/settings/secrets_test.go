@@ -1,6 +1,7 @@
 package settings_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -37,6 +38,20 @@ func TestAppSettingsSanitizeForResponse(t *testing.T) {
 	}
 	if out.LlmgwVirtualKeys == "vk-devsecret:dev" || !strings.Contains(out.LlmgwVirtualKeys, "****") && !strings.Contains(out.LlmgwVirtualKeys, "...") {
 		t.Fatalf("virtual keys not masked: %q", out.LlmgwVirtualKeys)
+	}
+}
+
+func TestAppSettingsProxiesNeverSerializeAsNull(t *testing.T) {
+	out := settings.AppSettings{}.SanitizeForResponse()
+	if out.Proxies == nil {
+		t.Fatal("nil proxy list must come back empty, not nil")
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"proxies":[]`) {
+		t.Fatalf("proxies must serialize as []: %s", raw)
 	}
 }
 

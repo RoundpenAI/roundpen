@@ -14,6 +14,7 @@ import {
 } from '../api'
 import { useAuth } from '../auth'
 import { useT } from '../i18n'
+import { ChangePasswordForm } from '../components/ChangePasswordForm'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
 import { LinkedAccountsPanel } from '../components/LinkedAccountsPanel'
 import { OAuthProvidersPanel } from '../components/OAuthProvidersPanel'
@@ -272,7 +273,7 @@ export function SettingsPage() {
     <>
       <div
         style={{
-          padding: '16px 12px 96px',
+          padding: '16px 12px 24px',
           maxWidth: 768,
           margin: '0 auto',
           width: '100%',
@@ -293,6 +294,8 @@ export function SettingsPage() {
         {section === 'git' && <GitCredentialsPanel />}
 
         {section === 'accounts' && <LinkedAccountsPanel />}
+
+        {section === 'password' && <ChangePasswordForm />}
 
         {section === 'oauth' && isAdmin && <OAuthProvidersPanel />}
 
@@ -401,26 +404,13 @@ export function SettingsPage() {
         {section === 'system' && (
           <SystemSection isAdmin={isAdmin} loading={loading} t={t} sys={sys} />
         )}
-      </div>
 
-      {isAdmin && !loading && (
-        <div
-          style={{
-            position: 'fixed',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 20,
-            borderTop: '1px solid var(--semi-color-border)',
-            background: 'var(--semi-color-bg-1)',
-            padding:
-              '12px 16px max(12px, env(safe-area-inset-bottom))',
-          }}
-        >
+        {isAdmin && !loading && (
           <div
             style={{
-              margin: '0 auto',
-              maxWidth: 768,
+              marginTop: 24,
+              borderTop: '1px solid var(--semi-color-border)',
+              paddingTop: 16,
               display: 'flex',
               flexWrap: 'wrap',
               alignItems: 'center',
@@ -462,8 +452,8 @@ export function SettingsPage() {
               </Button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </>
   )
 }

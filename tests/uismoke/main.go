@@ -81,8 +81,12 @@ func main() {
 		"name": "Octo Cat", "email": "octo@example.test", "scopes": "read:user user:email repo",
 		"hasRefreshToken": true, "createdAt": "2026-01-01T00:00:00Z",
 	}}
-	identities := &identityStore{seed: identitySeed}
+	identities := &fixtureList{seed: identitySeed}
 	identities.reset()
+	providers := &fixtureList{seed: []map[string]any{{
+		"id": "gitea-git-eaxi-com", "kind": "gitea", "host": "git.eaxi.com", "label": "Gitea",
+	}}}
+	providers.reset()
 	mux := http.NewServeMux()
 	auth.Mount(mux, users, sessions, func() bool { return false })
 	(&envapi.Handler{
@@ -306,15 +310,24 @@ func main() {
 	mux.HandleFunc("POST /v1/test/reset", func(w http.ResponseWriter, _ *http.Request) {
 		envs.reset()
 		identities.reset()
+		providers.reset()
+		writeJSON(w, map[string]any{"ok": true})
+	})
+	// Test hook: replace the enabled provider list, so a spec can reach the
+	// "nothing to bind yet" state.
+	mux.HandleFunc("PUT /v1/test/oauth-providers", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Providers []map[string]any `json:"providers"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		providers.set(body.Providers)
 		writeJSON(w, map[string]any{"ok": true})
 	})
 
 	// Federated login stubs: the login page, the linked-accounts panel and the
 	// admin provider form all talk to these.
 	mux.HandleFunc("GET /v1/auth/oauth/providers", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"providers": []map[string]any{{
-			"id": "gitea-git-eaxi-com", "kind": "gitea", "host": "git.eaxi.com", "label": "Gitea",
-		}}})
+		writeJSON(w, map[string]any{"providers": providers.list()})
 	})
 	mux.HandleFunc("GET /v1/me/identities", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"identities": identities.list()})
@@ -388,8 +401,9 @@ func writePlan(w http.ResponseWriter, id string, context map[string]any) {
 	})
 }
 
-// identityStore backs the linked-accounts panel so unlink is observable.
-type identityStore struct {
+// fixtureList backs resettable JSON fixtures (linked identities, oauth
+// providers) so specs can watch them change or empty them out.
+type fixtureList struct {
 	mu    sync.Mutex
 	items []map[string]any
 	seed  []map[string]any
@@ -397,14 +411,14 @@ type identityStore struct {
 
 // reset returns the fixture to its seeded state; /v1/test/reset is called
 // between specs and must not erase data later specs depend on.
-func (s *identityStore) reset() {
+func (s *fixtureList) reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.items = make([]map[string]any, len(s.seed))
 	copy(s.items, s.seed)
 }
 
-func (s *identityStore) list() []map[string]any {
+func (s *fixtureList) list() []map[string]any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.items == nil {
@@ -415,7 +429,14 @@ func (s *identityStore) list() []map[string]any {
 	return out
 }
 
-func (s *identityStore) remove(id string) bool {
+func (s *fixtureList) set(items []map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items = make([]map[string]any, len(items))
+	copy(s.items, items)
+}
+
+func (s *fixtureList) remove(id string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, item := range s.items {

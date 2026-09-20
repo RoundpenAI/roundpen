@@ -204,6 +204,10 @@ func (s AppSettings) SanitizeForResponse() AppSettings {
 	out.LlmgwVirtualKeys = MaskVirtualKeysSetting(s.LlmgwVirtualKeys)
 	out.CDPToken = MaskSecret(s.CDPToken)
 	out.WebSearchApiKey = MaskSecret(s.WebSearchApiKey)
+	// Clients map over this list, so it must serialize as [] and never null.
+	if out.Proxies == nil {
+		out.Proxies = []ProxyProfile{}
+	}
 	return out
 }
 

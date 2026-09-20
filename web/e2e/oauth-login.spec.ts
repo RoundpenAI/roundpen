@@ -1,5 +1,10 @@
 import { expect, test } from './fixtures'
-import { loginViaApi, resetSmoke, skipIfNoLivePassword } from './helpers'
+import {
+  loginViaApi,
+  resetSmoke,
+  setSmokeProviders,
+  skipIfNoLivePassword,
+} from './helpers'
 
 test('login page offers the configured providers', async ({ page }) => {
   await page.goto('/login')
@@ -20,20 +25,59 @@ test('login page surfaces oauth_error from the callback', async ({ page }) => {
   )
 })
 
-test('linked accounts lists and disconnects an identity', async ({ page }) => {
+test('linked accounts binds, re-authorizes and unbinds', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   await resetSmoke(page)
   await page.goto('/settings/accounts')
 
-  await expect(page.getByText('Gitea · git.eaxi.com')).toBeVisible()
-  await expect(page.getByText('octocat', { exact: false })).toBeVisible()
+  const row = page
+    .getByRole('listitem')
+    .filter({ hasText: 'Gitea · git.eaxi.com' })
+  await expect(row).toContainText('octocat')
 
-  await page.getByRole('button', { name: '解绑' }).click()
+  // A bound provider offers re-authorization for that same provider.
+  await row.getByRole('button', { name: '重新授权' }).click()
+  await expect(page.locator('#oauth-authorize-stub')).toBeVisible()
+  expect(page.url()).toContain('provider=gitea-git-eaxi-com')
+
+  await page.goto('/settings/accounts')
+  await row.getByRole('button', { name: '解除绑定' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'confirm' }).click()
 
   await expect(page.getByText('账号已解绑。')).toBeVisible()
   await expect(page.getByText('octocat', { exact: false })).toHaveCount(0)
+
+  // The row stays in place, now offering an entry to bind an account again.
+  await expect(row).toContainText('未绑定')
+  await row.getByRole('button', { name: '去绑定' }).click()
+  await expect(page.locator('#oauth-authorize-stub')).toBeVisible()
+})
+
+test('linked accounts keeps an entry when no account can be bound yet', async ({
+  page,
+}) => {
+  skipIfNoLivePassword()
+  await loginViaApi(page)
+  await resetSmoke(page)
+  await setSmokeProviders(page, [])
+  await page.goto('/settings/accounts')
+
+  // The binding outlives its provider being switched off: no re-authorization
+  // (the provider is gone) but the unbind entry stays.
+  const row = page
+    .getByRole('listitem')
+    .filter({ hasText: 'Gitea · git.eaxi.com' })
+  await expect(row).toContainText('octocat')
+  await expect(row.getByRole('button', { name: '重新授权' })).toHaveCount(0)
+  await row.getByRole('button', { name: '解除绑定' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'confirm' }).click()
+  await expect(page.getByText('账号已解绑。')).toBeVisible()
+
+  // Nothing left to bind, so the page points an admin at provider setup.
+  await expect(page.getByText('还没有可绑定的账号类型。')).toBeVisible()
+  await page.getByRole('button', { name: '配置 OAuth 登录' }).click()
+  await expect(page).toHaveURL(/\/settings\/oauth$/)
 })
 
 test('admin can add an oauth provider', async ({ page }) => {
