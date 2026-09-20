@@ -53,20 +53,21 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, r, "", -1)
 }
 
-// IssueSession stores a fresh session for user and sets the session cookie.
-// Exported so federated-login callbacks can sign a user in through the exact
-// same path as the password login.
-func IssueSession(w http.ResponseWriter, r *http.Request, sessions storage.SessionStore, user *storage.User) error {
+// IssueSession stores a fresh session for user and sets the session cookie,
+// returning the plaintext token so callers that hand it to a native client
+// (mobile console login) can do so. Exported so federated-login callbacks can
+// sign a user in through the exact same path as the password login.
+func IssueSession(w http.ResponseWriter, r *http.Request, sessions storage.SessionStore, user *storage.User) (string, error) {
 	if sessions == nil {
-		return nil
+		return "", nil
 	}
 	plain, hash, err := NewSessionToken()
 	if err != nil {
-		return err
+		return "", err
 	}
 	id, err := NewID()
 	if err != nil {
-		return err
+		return "", err
 	}
 	now := time.Now()
 	if err := sessions.Create(r.Context(), storage.Session{
@@ -79,8 +80,8 @@ func IssueSession(w http.ResponseWriter, r *http.Request, sessions storage.Sessi
 		UserAgent:  r.UserAgent(),
 		IP:         clientIP(r),
 	}); err != nil {
-		return err
+		return "", err
 	}
 	setSessionCookie(w, r, plain, int(SessionTTL.Seconds()))
-	return nil
+	return plain, nil
 }

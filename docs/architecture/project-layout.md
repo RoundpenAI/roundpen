@@ -2,12 +2,15 @@
 
 单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 与 Browser 槽位固定 Docker**（官方 `code-agent` OCI 镜像 / `browserless/chrome` 容器），**Desktop / Mobile 槽位预留 QEMU**。`policy` / `toolgw` 仍是空包。
 
+两个前端工程互不引用、各自独立依赖管理：`web/`（控制台 SPA，npm）与 `mobile/`（移动端控制台，Flutter/Dart，pub）。注意后者与上文的 **Mobile 槽位**（QEMU Agent 环境）无关，只是名字相近，文档里一律写全称「移动端控制台」。
+
 ## 目录树
 
 ```
 roundpen/
 ├── cmd/roundpend/             # 控制面守护进程（嵌入 UI）
 ├── web/                       # 控制台 SPA（Chats / Browser / Images）
+├── mobile/                    # 移动端控制台（Flutter 客户端），非 Mobile 槽位
 ├── images/                    # 镜像配方：code-agent（OCI）；Browser 用上游 browserless/chrome
 ├── internal/
 │   ├── api/
