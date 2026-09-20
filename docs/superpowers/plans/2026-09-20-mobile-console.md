@@ -202,7 +202,18 @@
 
 - [x] `go build ./... && go vet ./...`
 - [x] `go test ./internal/api/auth/ ./internal/api/agentapi/`（另加 `go test ./internal/...` 全绿）
-- [x] `cd mobile && flutter analyze && flutter test`（54 个用例全过，analyze 无问题）
+- [x] `cd mobile && flutter analyze && flutter test`（55 个用例全过，analyze 无问题）
+- [x] **设备验收（redroid Android 12 容器 + `tests/uismoke` 桩）**：
+  - [x] 登录：桩日志 `auth.login user=admin ip=172.17.0.2 return_session_token=true`（会话 token 流程）
+  - [x] token 持久化：强杀 App 重启后直接进助手列表，未再要求登录
+  - [x] 助手列表 → 会话列表（按 `assistantId` 过滤、新建/重命名/删除菜单）→ 进入会话
+  - [x] 聊天历史渲染：活动块分组、`上下文已清空` 分割线、长英文词折行
+  - [x] WS 全链路：发消息 → 流式文本 → 思考 → 工具卡（`Read README.md`）→ **权限弹层** →「允许一次」→ done → 历史回读，与服务端落库的 4 行逐一对上
+  - [x] 断线重连：`POST /v1/test/drop-sockets` 掐断连接 → 状态条「连接断开，重连中…」→ 10 秒内自动重连成功（客户端端口 53220 → 36498，全程未触碰 App）
+  - [x] 切后台/回前台：后台期间掐断，回前台后连接正常
+  - [x] 设置页退出登录：返回登录页（地址保留），服务端吊销该会话
+  - [x] **设备测试抓到一个真 bug 并修复**：`WebSocket.connect` 无超时，一次挂死的拨号会让重连循环永久停摆（状态卡在 `connecting`）。改为拨号带 10s 超时 + `_dialing` 标志在 `finally` 复位，并加了「黑洞拨号」回归测试（`session_socket_test.dart`）。
+- [ ] iOS 真机验收——没有 macOS，无法在本环境进行。
 - [ ] 手工（`make dev` + `cd mobile && flutter run`，**不要用 `-d chrome`**）：
   - [ ] 从手机浏览器确认 `http://<局域网IP>:19001/health` 可达（先排除网络问题再怀疑 App）；
   - [ ] 登录 admin → 助手列表 → 开会话 → 发一条会触发工具调用的指令 → 流式 + 工具卡正常；
