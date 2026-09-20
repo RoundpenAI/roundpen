@@ -57,6 +57,11 @@ func isPublicPath(r *http.Request) bool {
 			return true
 		}
 	}
+	// Federated login: provider discovery, redirect to the remote authorize
+	// endpoint and its callback. Writes live elsewhere and stay authenticated.
+	if r.Method == http.MethodGet && strings.HasPrefix(path, "/v1/auth/oauth/") {
+		return true
+	}
 	// Console SPA + static assets (auth enforced in the browser).
 	if isConsolePath(r) {
 		return true

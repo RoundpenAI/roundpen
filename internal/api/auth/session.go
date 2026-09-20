@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/httpx"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
 const (
@@ -50,4 +51,36 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, plaintext string, 
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	setSessionCookie(w, r, "", -1)
+}
+
+// IssueSession stores a fresh session for user and sets the session cookie.
+// Exported so federated-login callbacks can sign a user in through the exact
+// same path as the password login.
+func IssueSession(w http.ResponseWriter, r *http.Request, sessions storage.SessionStore, user *storage.User) error {
+	if sessions == nil {
+		return nil
+	}
+	plain, hash, err := NewSessionToken()
+	if err != nil {
+		return err
+	}
+	id, err := NewID()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	if err := sessions.Create(r.Context(), storage.Session{
+		ID:         id,
+		UserID:     user.Username,
+		TokenHash:  hash,
+		ExpiresAt:  now.Add(SessionTTL),
+		CreatedAt:  now,
+		LastSeenAt: now,
+		UserAgent:  r.UserAgent(),
+		IP:         clientIP(r),
+	}); err != nil {
+		return err
+	}
+	setSessionCookie(w, r, plain, int(SessionTTL.Seconds()))
+	return nil
 }
