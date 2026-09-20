@@ -219,6 +219,37 @@ void main() {
       expect(delay.delays.length, before, reason: 'dispose stops the loop');
     });
 
+    test('a black-holed dial times out instead of wedging the loop', () async {
+      final delay = ControlledDelay();
+      var dials = 0;
+      final socket = SessionSocket(
+        api: testApi(),
+        sessionId: 's1',
+        autoEnabled: () => true,
+        delay: delay.call,
+        connectTimeout: const Duration(milliseconds: 50),
+        // A dial that neither completes nor fails — seen on a real device when
+        // the server went away mid-session; it used to stop all retries.
+        connector: (_, _) {
+          dials += 1;
+          return Completer<WsConnection>().future;
+        },
+      );
+
+      await socket.connect();
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+
+      expect(socket.status, WsStatus.reconnecting);
+      expect(delay.delays, [1000], reason: 'the hung dial gave up and scheduled a retry');
+      expect(dials, 1);
+
+      delay.release();
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(dials, 2, reason: 'the retry must actually dial again');
+
+      socket.dispose();
+    });
+
     test('resume retries immediately after the app comes back', () async {
       final delay = ControlledDelay();
       final socket = SessionSocket(

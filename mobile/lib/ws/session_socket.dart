@@ -50,6 +50,7 @@ class SessionSocket {
     required this.autoEnabled,
     WsConnector? connector,
     Future<void> Function(Duration)? delay,
+    this.connectTimeout = const Duration(seconds: 10),
   })  : _connector = connector ?? defaultWsConnector,
         _delay = delay ?? Future<void>.delayed;
 
@@ -61,6 +62,10 @@ class SessionSocket {
   final WsConnector _connector;
   final Future<void> Function(Duration) _delay;
 
+  /// A dial that neither completes nor fails (a black-holed TCP connect) must
+  /// not wedge the reconnect loop; this bounds every attempt.
+  final Duration connectTimeout;
+
   void Function(ServerFrame frame)? onFrame;
   void Function(WsStatus status)? onStatus;
   void Function()? onConnected;
@@ -70,6 +75,7 @@ class SessionSocket {
   WsStatus _status = WsStatus.idle;
   int _attempt = 0;
   bool _disposed = false;
+  bool _dialing = false;
   List<String> _outbox = [];
 
   WsStatus get status => _status;
@@ -90,12 +96,11 @@ class SessionSocket {
   Map<String, String> headers() => {'Authorization': 'Bearer ${api.token}'};
 
   Future<void> connect() async {
-    if (_disposed || _status == WsStatus.open || _status == WsStatus.connecting) {
-      return;
-    }
+    if (_disposed || _dialing || _status == WsStatus.open) return;
+    _dialing = true;
     _setStatus(WsStatus.connecting);
     try {
-      final conn = await _connector(wsUri(), headers());
+      final conn = await _connector(wsUri(), headers()).timeout(connectTimeout);
       if (_disposed) {
         await conn.close();
         return;
@@ -113,6 +118,10 @@ class SessionSocket {
       );
     } catch (_) {
       _scheduleReconnect();
+    } finally {
+      // Must always clear: a stuck flag here used to kill the retry loop for
+      // good (every later attempt returned early).
+      _dialing = false;
     }
   }
 
