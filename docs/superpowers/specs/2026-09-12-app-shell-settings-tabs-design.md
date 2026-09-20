@@ -4,6 +4,10 @@
 状态：已对齐，待实现计划  
 范围：Roundpen Web 控制台的应用壳信息架构；设置页分段；镜像页接入壳。不含后端 API 变更与镜像二级栏。
 
+> 后续更新（2026-09-20）：设置已拆分为 `/settings`（个人设置）与 `/admin/settings`（系统管理）两个路由区，
+> 见 [2026-09-20-settings-personal-admin-split-design.md](2026-09-20-settings-personal-admin-split-design.md)。
+> 本文中「非 admin 在设置中仍能看到 Runtime 与 Git tokens；admin 额外看到系统设置段落」的描述已被取代。
+
 ## 1. 目标
 
 把「助手 / 设置 / 镜像」统一成同一套左右应用壳，替代设置与镜像当前的 `PageShell` 顶栏布局；并把设置里原先独立的 Agent runtime、Git personal tokens 收进与其它设置项一致的分段导航。

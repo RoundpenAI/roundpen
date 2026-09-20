@@ -11,16 +11,11 @@ import {
   type ProxyProfile,
   type SettingsResponse,
   type Template,
-} from '../api'
-import { useAuth } from '../auth'
-import { useT } from '../i18n'
-import { ChangePasswordForm } from '../components/ChangePasswordForm'
-import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
-import { LinkedAccountsPanel } from '../components/LinkedAccountsPanel'
-import { OAuthProvidersPanel } from '../components/OAuthProvidersPanel'
-import { AgentEnvironmentPanel } from '../components/AgentEnvironmentPanel'
-import { Loading } from '../components/Loading'
-import { resolveSettingsSection } from '../lib/appNav'
+} from '../../api'
+import { useAuth } from '../../auth'
+import { useT } from '../../i18n'
+import { OAuthProvidersPanel } from '../../components/OAuthProvidersPanel'
+import { SETTINGS_AREAS } from '../../lib/appNav'
 import {
   AUTOMODE_DEFAULTS_TOKEN,
   BUILDER_OPTIONS,
@@ -29,27 +24,24 @@ import {
   PREVIEW_TTL_OPTIONS,
   SANDBOX_TTL_OPTIONS,
   type AutoModeListKey,
-} from './settings/constants'
+} from './constants'
 import {
   numberOptionsWithCurrent,
   optionsWithCurrentValue,
   templateRef,
   ttlOptionsWithCurrent,
-} from './settings/helpers'
-import {
-  AutoModeDefaultsModal,
-  AutoModeSection,
-} from './settings/AutoModeSection'
-import { BrowserSection } from './settings/BrowserSection'
-import { BuildsSection } from './settings/BuildsSection'
-import { GeneralSection } from './settings/GeneralSection'
-import { LlmgwSection } from './settings/LlmgwSection'
-import { PreviewSection } from './settings/PreviewSection'
-import { ProxySection } from './settings/ProxySection'
-import { SystemSection } from './settings/SystemSection'
-import { WebtoolsSection } from './settings/WebtoolsSection'
+} from './helpers'
+import { AutoModeDefaultsModal, AutoModeSection } from './AutoModeSection'
+import { BrowserSection } from './BrowserSection'
+import { BuildsSection } from './BuildsSection'
+import { GeneralSection } from './GeneralSection'
+import { LlmgwSection } from './LlmgwSection'
+import { PreviewSection } from './PreviewSection'
+import { ProxySection } from './ProxySection'
+import { SystemSection } from './SystemSection'
+import { WebtoolsSection } from './WebtoolsSection'
 
-export function SettingsPage() {
+export function AdminSettingsPage() {
   const auth = useAuth()
   const [data, setData] = useState<SettingsResponse | null>(null)
   const [form, setForm] = useState<AppSettings>(emptySettings)
@@ -71,14 +63,9 @@ export function SettingsPage() {
   )
 
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
-  const section = resolveSettingsSection(sectionParam, isAdmin)
+  const section = SETTINGS_AREAS.admin.resolve(sectionParam)
 
   const load = useCallback(async () => {
-    if (!isAdmin) {
-      setLoading(false)
-      setError(null)
-      return
-    }
     setLoading(true)
     setError(null)
     try {
@@ -95,7 +82,7 @@ export function SettingsPage() {
     } finally {
       setLoading(false)
     }
-  }, [isAdmin, t])
+  }, [t])
 
   const defaultImageOptions = useMemo(() => {
     const fromTemplates = templateList.flatMap((tpl) => {
@@ -161,24 +148,6 @@ export function SettingsPage() {
   useEffect(() => {
     void load()
   }, [load])
-
-  if (auth.status === 'loading') {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          height: '100%',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Loading tip={t('settings.loading')} />
-      </div>
-    )
-  }
-  if (auth.status === 'anon') {
-    return <Navigate to="/login" replace />
-  }
 
   function patch(partial: Partial<AppSettings>) {
     setForm((prev) => ({ ...prev, ...partial }))
@@ -266,194 +235,184 @@ export function SettingsPage() {
   const sys = data?.system
 
   if (sectionParam && sectionParam !== section) {
-    return <Navigate to={`/settings/${section}`} replace />
+    return <Navigate to={`/admin/settings/${section}`} replace />
   }
 
   return (
-    <>
-      <div
-        style={{
-          padding: '16px 12px 24px',
-          maxWidth: 768,
-          margin: '0 auto',
-          width: '100%',
-          boxSizing: 'border-box',
-        }}
-      >
-        {error && (
-          <div role="alert" style={{ marginBottom: 16 }}>
-            <Banner
-              fullMode={false}
-              type="danger"
-              description={error}
-              closeIcon={null}
-            />
-          </div>
-        )}
-
-        {section === 'git' && <GitCredentialsPanel />}
-
-        {section === 'accounts' && <LinkedAccountsPanel />}
-
-        {section === 'password' && <ChangePasswordForm />}
-
-        {section === 'oauth' && isAdmin && <OAuthProvidersPanel />}
-
-        {section === 'agent' && <AgentEnvironmentPanel />}
-
-        {section === 'general' && (
-          <GeneralSection
-            isAdmin={isAdmin}
-            loading={loading}
-            t={t}
-            form={form}
-            patch={patch}
-            defaultImageOptions={defaultImageOptions}
-            sandboxTtlOptions={sandboxTtlOptions}
+    <div
+      style={{
+        padding: '16px 12px 24px',
+        maxWidth: 768,
+        margin: '0 auto',
+        width: '100%',
+        boxSizing: 'border-box',
+      }}
+    >
+      {error && (
+        <div role="alert" style={{ marginBottom: 16 }}>
+          <Banner
+            fullMode={false}
+            type="danger"
+            description={error}
+            closeIcon={null}
           />
-        )}
+        </div>
+      )}
 
-        {section === 'preview' && (
-          <PreviewSection
-            isAdmin={isAdmin}
-            loading={loading}
-            t={t}
-            form={form}
-            patch={patch}
-            previewTtlOptions={previewTtlOptions}
-          />
-        )}
+      {section === 'oauth' && <OAuthProvidersPanel />}
 
-        {section === 'builds' && (
-          <BuildsSection
-            isAdmin={isAdmin}
-            loading={loading}
-            t={t}
-            form={form}
-            patch={patch}
-            builderOptions={builderOptions}
-          />
-        )}
-
-        {section === 'browser' && (
-          <BrowserSection
-            isAdmin={isAdmin}
-            loading={loading}
-            t={t}
-            form={form}
-            patch={patch}
-            currentSuffix={currentSuffix}
-            browserTest={browserTest}
-            testBrowser={testBrowser}
-          />
-        )}
-
-        {section === 'llmgw' && (
-          <LlmgwSection
-            isAdmin={isAdmin}
-            loading={loading}
-            t={t}
-            form={form}
-            patch={patch}
-            logBodyOptions={logBodyOptions}
-          />
-        )}
-
-        {section === 'webtools' && (
-          <WebtoolsSection
-            isAdmin={isAdmin}
-            loading={loading}
-            t={t}
-            form={form}
-            patch={patch}
-          />
-        )}
-
-        {section === 'automode' && (
-          <AutoModeSection
-            isAdmin={isAdmin}
-            loading={loading}
-            t={t}
-            form={form}
-            patch={patch}
-            patchAutoMode={patchAutoMode}
-            setAutoModeList={setAutoModeList}
-            openDefaults={openDefaults}
-          />
-        )}
-
-        <AutoModeDefaultsModal
+      {section === 'general' && (
+        <GeneralSection
+          isAdmin={isAdmin}
+          loading={loading}
           t={t}
-          defaultsOpen={defaultsOpen}
-          setDefaultsOpen={setDefaultsOpen}
-          defaultsLoading={defaultsLoading}
-          defaultsView={defaultsView}
+          form={form}
+          patch={patch}
+          defaultImageOptions={defaultImageOptions}
+          sandboxTtlOptions={sandboxTtlOptions}
         />
+      )}
 
-        {section === 'proxy' && (
-          <ProxySection
-            isAdmin={isAdmin}
-            loading={loading}
-            t={t}
-            form={form}
-            patch={patch}
-            patchProxy={patchProxy}
-          />
-        )}
+      {section === 'preview' && (
+        <PreviewSection
+          isAdmin={isAdmin}
+          loading={loading}
+          t={t}
+          form={form}
+          patch={patch}
+          previewTtlOptions={previewTtlOptions}
+        />
+      )}
 
-        {section === 'system' && (
-          <SystemSection isAdmin={isAdmin} loading={loading} t={t} sys={sys} />
-        )}
+      {section === 'builds' && (
+        <BuildsSection
+          isAdmin={isAdmin}
+          loading={loading}
+          t={t}
+          form={form}
+          patch={patch}
+          builderOptions={builderOptions}
+        />
+      )}
 
-        {isAdmin && !loading && (
+      {section === 'browser' && (
+        <BrowserSection
+          isAdmin={isAdmin}
+          loading={loading}
+          t={t}
+          form={form}
+          patch={patch}
+          currentSuffix={currentSuffix}
+          browserTest={browserTest}
+          testBrowser={testBrowser}
+        />
+      )}
+
+      {section === 'llmgw' && (
+        <LlmgwSection
+          isAdmin={isAdmin}
+          loading={loading}
+          t={t}
+          form={form}
+          patch={patch}
+          logBodyOptions={logBodyOptions}
+        />
+      )}
+
+      {section === 'webtools' && (
+        <WebtoolsSection
+          isAdmin={isAdmin}
+          loading={loading}
+          t={t}
+          form={form}
+          patch={patch}
+        />
+      )}
+
+      {section === 'automode' && (
+        <AutoModeSection
+          isAdmin={isAdmin}
+          loading={loading}
+          t={t}
+          form={form}
+          patch={patch}
+          patchAutoMode={patchAutoMode}
+          setAutoModeList={setAutoModeList}
+          openDefaults={openDefaults}
+        />
+      )}
+
+      <AutoModeDefaultsModal
+        t={t}
+        defaultsOpen={defaultsOpen}
+        setDefaultsOpen={setDefaultsOpen}
+        defaultsLoading={defaultsLoading}
+        defaultsView={defaultsView}
+      />
+
+      {section === 'proxy' && (
+        <ProxySection
+          isAdmin={isAdmin}
+          loading={loading}
+          t={t}
+          form={form}
+          patch={patch}
+          patchProxy={patchProxy}
+        />
+      )}
+
+      {section === 'system' && (
+        <SystemSection isAdmin={isAdmin} loading={loading} t={t} sys={sys} />
+      )}
+
+      {!loading && (
+        <div
+          style={{
+            marginTop: 24,
+            borderTop: '1px solid var(--semi-color-border)',
+            paddingTop: 16,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          {saveError && (
+            <div role="alert" style={{ flex: 1, minWidth: 160 }}>
+              <Banner
+                fullMode={false}
+                type="danger"
+                description={saveError}
+                closeIcon={null}
+              />
+            </div>
+          )}
           <div
             style={{
-              marginTop: 24,
-              borderTop: '1px solid var(--semi-color-border)',
-              paddingTop: 16,
               display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
               gap: 8,
+              marginLeft: 'auto',
             }}
           >
-            {saveError && (
-              <div role="alert" style={{ flex: 1, minWidth: 160 }}>
-                <Banner
-                  fullMode={false}
-                  type="danger"
-                  description={saveError}
-                  closeIcon={null}
-                />
-              </div>
-            )}
-            <div
-              style={{
-                display: 'flex',
-                gap: 8,
-                marginLeft: 'auto',
-              }}
+            <Button
+              theme="solid"
+              type="primary"
+              loading={saving}
+              disabled={!dirty}
+              onClick={() => void onSave()}
             >
-              <Button
-                theme="solid"
-                type="primary"
-                loading={saving}
-                disabled={!dirty}
-                onClick={() => void onSave()}
-              >
-                {t('settings.save')}
-              </Button>
-              <Button
-                type="tertiary"
-                disabled={loading || saving}
-                onClick={onReload}
-              >
-                {t('settings.reload')}
-              </Button>
-            </div>
+              {t('settings.save')}
+            </Button>
+            <Button
+              type="tertiary"
+              disabled={loading || saving}
+              onClick={onReload}
+            >
+              {t('settings.reload')}
+            </Button>
           </div>
-        )}
-      </div>
-    </>
+        </div>
+      )}
+    </div>
   )
 }

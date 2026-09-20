@@ -263,7 +263,7 @@ export function LinkedAccountsPanel() {
             {t('accounts.empty')}
           </Typography.Text>
           {isAdmin ? (
-            <Button size="small" onClick={() => navigate('/settings/oauth')}>
+            <Button size="small" onClick={() => navigate('/admin/settings/oauth')}>
               {t('accounts.configure')}
             </Button>
           ) : (

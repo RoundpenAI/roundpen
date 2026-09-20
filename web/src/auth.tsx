@@ -49,28 +49,44 @@ export function useAuth(): AuthState {
   return state
 }
 
+function AuthLoading() {
+  return (
+    <div
+      style={{
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 14,
+        opacity: 0.6,
+      }}
+    >
+      Loading…
+    </div>
+  )
+}
+
 export function RequireAuth({ children }: { children: ReactNode }) {
   const authState = useAuth()
   const location = useLocation()
 
   if (authState.status === 'loading') {
-    return (
-      <div
-        style={{
-          height: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: 14,
-          opacity: 0.6,
-        }}
-      >
-        Loading…
-      </div>
-    )
+    return <AuthLoading />
   }
   if (authState.status === 'anon') {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
+  return children
+}
+
+export function RequireAdminRoute({ children }: { children: ReactNode }) {
+  const authState = useAuth()
+
+  if (authState.status === 'loading') {
+    return <AuthLoading />
+  }
+  if (authState.status !== 'ok' || authState.user.role !== 'admin') {
+    return <Navigate to="/settings" replace />
   }
   return children
 }

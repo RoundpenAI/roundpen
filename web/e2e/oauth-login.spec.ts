@@ -77,13 +77,13 @@ test('linked accounts keeps an entry when no account can be bound yet', async ({
   // Nothing left to bind, so the page points an admin at provider setup.
   await expect(page.getByText('还没有可绑定的账号类型。')).toBeVisible()
   await page.getByRole('button', { name: '配置 OAuth 登录' }).click()
-  await expect(page).toHaveURL(/\/settings\/oauth$/)
+  await expect(page).toHaveURL(/\/admin\/settings\/oauth$/)
 })
 
 test('admin can add an oauth provider', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
-  await page.goto('/settings/oauth')
+  await page.goto('/admin/settings/oauth')
 
   await expect(page.getByText('smoke-client')).toBeVisible()
   await expect(page.getByText('/v1/auth/oauth/gitea-git-eaxi-com/callback')).toBeVisible()

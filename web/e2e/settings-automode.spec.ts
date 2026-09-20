@@ -4,7 +4,7 @@ import { loginViaApi, skipIfNoLivePassword } from './helpers'
 test('auto mode editor shows built-in rules', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
-  await page.goto('/settings/automode')
+  await page.goto('/admin/settings/automode')
 
   await expect(page.getByText('会话打开 Auto 后', { exact: false })).toBeVisible()
 
@@ -22,7 +22,7 @@ test('auto mode editor shows built-in rules', async ({ page }) => {
 test('auto mode custom rule round-trips through save', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
-  await page.goto('/settings/automode')
+  await page.goto('/admin/settings/automode')
 
   // The first "新增规则" button belongs to the environment list; its entry
   // input follows the classifier-model input in DOM order.

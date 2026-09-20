@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { RequireAuth } from './auth'
+import { RequireAdminRoute, RequireAuth } from './auth'
 import { AppShell } from './components/AppShell'
 import {
   AssistantLayout,
@@ -14,7 +14,8 @@ import { IssueDetailPage } from './pages/IssueDetailPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { LoginPage } from './pages/LoginPage'
 import { SettingsLayout } from './pages/SettingsLayout'
-import { SettingsPage } from './pages/SettingsPage'
+import { AdminSettingsPage } from './pages/settings/AdminSettingsPage'
+import { PersonalSettingsPage } from './pages/settings/PersonalSettingsPage'
 import { TemplatesPage } from './pages/TemplatesPage'
 import { WorkbenchPage } from './pages/WorkbenchPage'
 import { WorkspacePage } from './pages/WorkspacePage'
@@ -42,9 +43,20 @@ export default function App() {
             />
             <Route path=":assistantId/s/:id" element={<ChatSessionPage />} />
           </Route>
-          <Route path="/settings" element={<SettingsLayout />}>
-            <Route index element={<Navigate to="git" replace />} />
-            <Route path=":section" element={<SettingsPage />} />
+          <Route path="/settings" element={<SettingsLayout area="personal" />}>
+            <Route index element={<Navigate to="accounts" replace />} />
+            <Route path=":section" element={<PersonalSettingsPage />} />
+          </Route>
+          <Route
+            path="/admin/settings"
+            element={
+              <RequireAdminRoute>
+                <SettingsLayout area="admin" />
+              </RequireAdminRoute>
+            }
+          >
+            <Route index element={<Navigate to="general" replace />} />
+            <Route path=":section" element={<AdminSettingsPage />} />
           </Route>
           <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/issues" element={<IssuesPage />} />
