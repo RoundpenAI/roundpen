@@ -86,6 +86,11 @@ jobs:
           cache: true
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list is still `tools platform-tools`,
+          # and the retired `tools` package now fails the whole run with
+          # "Failed to find package 'tools'".
+          packages: "platform-tools"
 
       - name: Install the SDK components the build needs
         run: |
