@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 // Handler exposes memory REST endpoints.
@@ -67,24 +68,24 @@ type putShortReq struct {
 func (h *Handler) listShort(w http.ResponseWriter, r *http.Request) {
 	sid, err := scopedSession(r.Context(), r.PathValue("sid"))
 	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	entries, err := h.Store.ListShort(r.Context(), sid)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if entries == nil {
 		entries = []ShortEntry{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"entries": entries})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"entries": entries})
 }
 
 func (h *Handler) putShort(w http.ResponseWriter, r *http.Request) {
 	var req putShortReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	id := req.ID
@@ -97,7 +98,7 @@ func (h *Handler) putShort(w http.ResponseWriter, r *http.Request) {
 	}
 	sid, err := scopedSession(r.Context(), r.PathValue("sid"))
 	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	e := ShortEntry{
@@ -105,32 +106,32 @@ func (h *Handler) putShort(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: req.ExpiresAt, CreatedAt: time.Now().UTC(),
 	}
 	if err := h.Store.PutShort(r.Context(), e); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, e)
+	httpx.WriteJSON(w, http.StatusCreated, e)
 }
 
 func (h *Handler) deleteShort(w http.ResponseWriter, r *http.Request) {
 	e, err := h.Store.GetShort(r.Context(), r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "not found")
+			httpx.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if !ownsSession(r.Context(), e.SessionID) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err := h.Store.DeleteShort(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "not found")
+			httpx.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -157,7 +158,7 @@ type addMemoryReq struct {
 func (h *Handler) addMemory(w http.ResponseWriter, r *http.Request) {
 	var req addMemoryReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	text := req.Text
@@ -175,10 +176,10 @@ func (h *Handler) addMemory(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: req.ExpiresAt, Embedding: req.Embedding, Infer: req.Infer,
 	})
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusCreated, toAgentMemory(e, 0))
+	httpx.WriteJSON(w, http.StatusCreated, toAgentMemory(e, 0))
 }
 
 type searchMemoryReq struct {
@@ -192,7 +193,7 @@ type searchMemoryReq struct {
 func (h *Handler) searchMemory(w http.ResponseWriter, r *http.Request) {
 	var req searchMemoryReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	f := parseFilters(req.Filters)
@@ -201,14 +202,14 @@ func (h *Handler) searchMemory(w http.ResponseWriter, r *http.Request) {
 		Threshold: req.Threshold, Embedding: req.Embedding,
 	})
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	out := make([]agentMemory, 0, len(results))
 	for _, sm := range results {
 		out = append(out, toAgentMemory(sm.LongEntry, sm.Score))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"results": out})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"results": out})
 }
 
 func (h *Handler) listMemories(w http.ResponseWriter, r *http.Request) {
@@ -220,11 +221,11 @@ func (h *Handler) listMemories(w http.ResponseWriter, r *http.Request) {
 		Kind:    LongKind(q.Get("kind")),
 	}
 	if err := applyListScope(r.Context(), &f); err != nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if f.AgentID == "" && f.UserID == "" && f.RunID == "" {
-		writeErr(w, http.StatusBadRequest, "agent_id, user_id, or run_id required")
+		httpx.WriteErr(w, http.StatusBadRequest, "agent_id, user_id, or run_id required")
 		return
 	}
 	if v := q.Get("limit"); v != "" {
@@ -249,7 +250,7 @@ func (h *Handler) listMemories(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := h.Store.ListLong(r.Context(), f)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	count, _ := h.Store.CountLong(r.Context(), f)
@@ -257,7 +258,7 @@ func (h *Handler) listMemories(w http.ResponseWriter, r *http.Request) {
 	for _, e := range entries {
 		results = append(results, toAgentMemory(e, 0))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"count":   count,
 		"results": results,
 	})
@@ -266,18 +267,18 @@ func (h *Handler) listMemories(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) getMemory(w http.ResponseWriter, r *http.Request) {
 	e, err := h.Store.GetLong(r.Context(), r.PathValue("id"))
 	if errors.Is(err, ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := canAccessMemory(r.Context(), e.UserID); err != nil {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, toAgentMemory(e, 0))
+	httpx.WriteJSON(w, http.StatusOK, toAgentMemory(e, 0))
 }
 
 type updateMemoryReq struct {
@@ -295,7 +296,7 @@ type updateMemoryReq struct {
 func (h *Handler) updateMemory(w http.ResponseWriter, r *http.Request) {
 	var req updateMemoryReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	content := req.Text
@@ -308,36 +309,36 @@ func (h *Handler) updateMemory(w http.ResponseWriter, r *http.Request) {
 		UserID: req.UserID, RunID: req.RunID, Embedding: req.Embedding,
 	})
 	if errors.Is(err, ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toAgentMemory(e, 0))
+	httpx.WriteJSON(w, http.StatusOK, toAgentMemory(e, 0))
 }
 
 func (h *Handler) deleteMemory(w http.ResponseWriter, r *http.Request) {
 	e, err := h.Store.GetLong(r.Context(), r.PathValue("id"))
 	if errors.Is(err, ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := canAccessMemory(r.Context(), e.UserID); err != nil {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err := h.Store.DeleteLong(r.Context(), r.PathValue("id")); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "not found")
+			httpx.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -457,14 +458,4 @@ func RunPurge(ctx context.Context, store Store, logger *slog.Logger, interval ti
 			}
 		}
 	}
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"message": msg})
 }

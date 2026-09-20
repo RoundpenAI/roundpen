@@ -19,7 +19,6 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
-	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
@@ -91,9 +90,6 @@ func New(log *slog.Logger, sandboxes sandbox.Manager, list []providers.Provider,
 	}
 	if list == nil {
 		list = providers.Default()
-	}
-	if sys.LLMKey == "" {
-		sys.LLMKey = llmgw.InternalVirtualKey
 	}
 	return &Manager{
 		log:       log,

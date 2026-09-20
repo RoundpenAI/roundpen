@@ -119,8 +119,11 @@ type Config struct {
 	BrowserTemplate string // default "browser"
 	AgentTemplate   string // default "code-agent"
 	PublicURL       string // control-plane / llmgw base, e.g. http://127.0.0.1:9527
-	VirtualKey      string // llmgw virtual key (not an upstream key)
-	DefaultModel    func() string
+	VirtualKey      string // llmgw fallback key (not an upstream key)
+	// UserVirtualKey resolves a per-user llmgw virtual key for sandbox
+	// injection, so LLM usage is attributable and revocable per user.
+	UserVirtualKey func(ctx context.Context, userID string) string
+	DefaultModel   func() string
 }
 
 // SetGateway records the public base URL and virtual key injected into new slots.
@@ -148,9 +151,17 @@ func (s *Service) gatewayEnv(ctx context.Context, userID string) map[string]stri
 	if s.usesOwnModels(ctx, userID) {
 		return env
 	}
-	key := strings.TrimSpace(s.Config.VirtualKey)
+	key := ""
+	if s.Config.UserVirtualKey != nil {
+		key = strings.TrimSpace(s.Config.UserVirtualKey(ctx, userID))
+	}
 	if key == "" {
-		key = "vk-roundpen-internal"
+		key = strings.TrimSpace(s.Config.VirtualKey)
+	}
+	if key == "" {
+		// No gateway credential available: expose only ROUNDPEN_URL rather
+		// than advertising LLM endpoints that cannot authenticate.
+		return env
 	}
 	env["OPENAI_BASE_URL"] = base + "/llmgw/openai"
 	env["ANTHROPIC_BASE_URL"] = base + "/llmgw/anthropic"

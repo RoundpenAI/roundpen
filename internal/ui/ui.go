@@ -11,6 +11,34 @@ import (
 //go:embed all:dist
 var distEmbed embed.FS
 
+// contentSecurityPolicy is the CSP for the console SPA only (mounted at "/").
+// 'unsafe-eval' is required because Semi MarkdownRender compiles MDX at
+// runtime via new Function; the Google Fonts hosts are referenced from
+// index.html. API and preview routes are mounted separately and unaffected.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self' 'unsafe-eval'; " +
+	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+	"font-src 'self' https://fonts.gstatic.com data:; " +
+	"img-src * data: blob:; " +
+	"media-src * blob:; " +
+	"connect-src 'self' ws: wss:; " +
+	"frame-src 'self' blob:; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'self'"
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", contentSecurityPolicy)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "SAMEORIGIN")
+		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Handler returns an http.Handler that serves the embedded UI.
 // Unknown paths fall back to index.html for client-side routing.
 func Handler() http.Handler {
@@ -20,7 +48,7 @@ func Handler() http.Handler {
 	}
 	fileServer := http.FileServer(http.FS(fsys))
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	spa := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/")
 		if path == "" {
 			path = "index.html"
@@ -40,4 +68,6 @@ func Handler() http.Handler {
 		r.URL.Path = "/"
 		fileServer.ServeHTTP(w, r)
 	})
+
+	return securityHeaders(spa)
 }

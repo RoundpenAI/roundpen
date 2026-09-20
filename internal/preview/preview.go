@@ -5,9 +5,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -124,7 +124,7 @@ func (h *Handler) previewLink(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("port"); v != "" {
 		p, err := strconv.Atoi(v)
 		if err != nil || p <= 0 || p > 65535 {
-			writeErr(w, http.StatusBadRequest, "invalid port")
+			httpx.WriteErr(w, http.StatusBadRequest, "invalid port")
 			return
 		}
 		port = p
@@ -139,13 +139,13 @@ func (h *Handler) previewLink(w http.ResponseWriter, r *http.Request) {
 
 	sb, err := h.Manager.Get(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "sandbox not found")
+		httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 
 	token, exp, err := h.Tokens.Issue(id, port, sb.Owner)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "token issue failed")
+		httpx.WriteErr(w, http.StatusInternalServerError, "token issue failed")
 		return
 	}
 
@@ -154,15 +154,47 @@ func (h *Handler) previewLink(w http.ResponseWriter, r *http.Request) {
 		base = httpx.DefaultTrust.Scheme(r) + "://" + httpx.DefaultTrust.Host(r)
 	}
 	u := fmt.Sprintf("%s/p/%s/%d%s", base, id, port, pathSuffix)
-	if strings.Contains(u, "?") {
-		u += "&token=" + token
+
+	if sameOriginPreview(base, r) {
+		// Default same-origin preview: deliver the token as a path-scoped
+		// HttpOnly cookie so it never appears in the URL — no leakage via
+		// browser history, access logs, or Referer — and sub-resource
+		// requests of the previewed app carry it automatically. The proxy
+		// refreshes the cookie on each request.
+		http.SetCookie(w, &http.Cookie{
+			Name:     "roundpen_preview",
+			Value:    token,
+			Path:     fmt.Sprintf("/p/%s/%d", id, port),
+			HttpOnly: true,
+			Secure:   httpx.DefaultTrust.Scheme(r) == "https",
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   int(h.Tokens.ttl.Seconds()),
+		})
 	} else {
-		u += "?token=" + token
+		// Separate preview origin: a cookie set on the console domain is
+		// never sent to the preview domain, so the first navigation must
+		// carry ?token=; the proxy then sets its own cookie on the preview
+		// origin for subsequent requests.
+		if strings.Contains(u, "?") {
+			u += "&token=" + token
+		} else {
+			u += "?token=" + token
+		}
 	}
 
-	writeJSON(w, http.StatusOK, previewLinkResp{
+	httpx.WriteJSON(w, http.StatusOK, previewLinkResp{
 		URL: u, Port: port, Token: token, ExpiresAt: exp,
 	})
+}
+
+// sameOriginPreview reports whether preview links resolve to the same host as
+// the console request, i.e. whether a cookie set here will reach the iframe.
+func sameOriginPreview(base string, r *http.Request) bool {
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return true
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
@@ -187,13 +219,20 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
 		if owner != "" {
 			ctx = authz.WithActor(ctx, authz.Actor{Username: owner})
 		}
+		// When the console embeds the preview from a separate domain the
+		// request is cross-site: Lax cookies are not sent inside cross-site
+		// iframes, so fall back to SameSite=None (browsers require Secure).
+		sameSite := http.SameSiteLaxMode
+		if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site") {
+			sameSite = http.SameSiteNoneMode
+		}
 		http.SetCookie(w, &http.Cookie{
 			Name:     "roundpen_preview",
 			Value:    token,
 			Path:     fmt.Sprintf("/p/%s/%d", id, port),
 			HttpOnly: true,
-			Secure:   httpx.DefaultTrust.Scheme(r) == "https",
-			SameSite: http.SameSiteLaxMode,
+			Secure:   sameSite == http.SameSiteNoneMode || httpx.DefaultTrust.Scheme(r) == "https",
+			SameSite: sameSite,
 			MaxAge:   int(h.Tokens.ttl.Seconds()),
 		})
 	case auth.GetUser(r.Context()) != nil:
@@ -214,6 +253,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
 
 	conn, err := h.Manager.Dial(ctx, id, port)
 	if err != nil {
+		slog.Warn("preview dial failed", "sandbox", id, "port", port, "err", err)
 		http.Error(w, "dial failed", http.StatusBadGateway)
 		return
 	}
@@ -254,7 +294,8 @@ func (h *Handler) proxyHTTP(w http.ResponseWriter, r *http.Request, conn net.Con
 			DisableKeepAlives: true,
 		},
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
-			http.Error(rw, "preview proxy error: "+err.Error(), http.StatusBadGateway)
+			slog.Warn("preview proxy error", "path", r.URL.Path, "err", err)
+			http.Error(rw, "preview proxy error", http.StatusBadGateway)
 		},
 	}
 	proxy.ServeHTTP(w, r)
@@ -311,14 +352,4 @@ func stripToken(raw string) string {
 	}
 	vals.Del("token")
 	return vals.Encode()
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"message": msg})
 }

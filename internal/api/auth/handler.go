@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -30,12 +31,12 @@ func maskAPIKey(key string) string {
 func (h *UserHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	masked := *user
 	masked.APIKey = maskAPIKey(masked.APIKey)
-	writeJSON(w, http.StatusOK, struct {
+	httpx.WriteJSON(w, http.StatusOK, struct {
 		storage.User
 		HasPassword bool `json:"hasPassword"`
 	}{User: masked, HasPassword: user.PasswordHash != ""})
@@ -50,7 +51,7 @@ type UserWithFlags struct {
 func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.users.ListAll(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	result := make([]UserWithFlags, len(users))
@@ -59,7 +60,7 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		result[i].APIKey = maskAPIKey(u.APIKey)
 		result[i].HasPassword = u.PasswordHash != ""
 	}
-	writeJSON(w, http.StatusOK, result)
+	httpx.WriteJSON(w, http.StatusOK, result)
 }
 
 func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
@@ -72,18 +73,18 @@ func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		Password string           `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if !validUsername.MatchString(req.Username) {
-		writeErr(w, http.StatusBadRequest, "missing or invalid username")
+		httpx.WriteErr(w, http.StatusBadRequest, "missing or invalid username")
 		return
 	}
 	if _, err := h.users.GetByUsername(r.Context(), req.Username); err == nil {
-		writeErr(w, http.StatusConflict, "username already exists")
+		httpx.WriteErr(w, http.StatusConflict, "username already exists")
 		return
 	} else if err != storage.ErrNotFound {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -92,21 +93,21 @@ func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		var err error
 		email, err = normalizeEmail(req.Email)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid email")
+			httpx.WriteErr(w, http.StatusBadRequest, "invalid email")
 			return
 		}
 		if existing, err := h.users.GetByEmail(r.Context(), email); err == nil && existing.Username != req.Username {
-			writeErr(w, http.StatusConflict, "email already registered")
+			httpx.WriteErr(w, http.StatusConflict, "email already registered")
 			return
 		} else if err != nil && err != storage.ErrNotFound {
-			writeErr(w, http.StatusInternalServerError, "internal server error")
+			httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 	}
 
 	apiKey, err := NewID()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	user := storage.User{
@@ -122,20 +123,20 @@ func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		user.Role = storage.RoleUser
 	}
 	if !user.Role.Valid() {
-		writeErr(w, http.StatusBadRequest, "role must be 'user' or 'admin'")
+		httpx.WriteErr(w, http.StatusBadRequest, "role must be 'user' or 'admin'")
 		return
 	}
 	plain, err := assignLoginPassword(&user, req.Password)
 	if err != nil {
 		if errors.Is(err, errPasswordTooShort) {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if err := h.users.Upsert(r.Context(), user); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
@@ -150,15 +151,15 @@ func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	username := r.PathValue("username")
 	if username == "" {
-		writeErr(w, http.StatusBadRequest, "bad request")
+		httpx.WriteErr(w, http.StatusBadRequest, "bad request")
 		return
 	}
 	user, err := h.users.GetByUsername(r.Context(), username)
 	if err != nil {
 		if err == storage.ErrNotFound {
-			writeErr(w, http.StatusNotFound, "user not found")
+			httpx.WriteErr(w, http.StatusNotFound, "user not found")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "internal server error")
+			httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		}
 		return
 	}
@@ -166,23 +167,23 @@ func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	plain, err := assignLoginPassword(user, req.Password)
 	if err != nil {
 		if errors.Is(err, errPasswordTooShort) {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if err := h.users.Upsert(r.Context(), *user); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
 		"username": user.Username,
 		"password": plain,
 	})
@@ -191,15 +192,15 @@ func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	username := r.PathValue("username")
 	if username == "" {
-		writeErr(w, http.StatusBadRequest, "bad request")
+		httpx.WriteErr(w, http.StatusBadRequest, "bad request")
 		return
 	}
 	user, err := h.users.GetByUsername(r.Context(), username)
 	if err != nil {
 		if err == storage.ErrNotFound {
-			writeErr(w, http.StatusNotFound, "user not found")
+			httpx.WriteErr(w, http.StatusNotFound, "user not found")
 		} else {
-			writeErr(w, http.StatusInternalServerError, "internal server error")
+			httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		}
 		return
 	}
@@ -210,13 +211,13 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Role     storage.UserRole `json:"role"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if req.Email != "" {
 		email, err := normalizeEmail(req.Email)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid email")
+			httpx.WriteErr(w, http.StatusBadRequest, "invalid email")
 			return
 		}
 		user.Email = email
@@ -229,36 +230,36 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Role != "" {
 		if !req.Role.Valid() {
-			writeErr(w, http.StatusBadRequest, "role must be 'user' or 'admin'")
+			httpx.WriteErr(w, http.StatusBadRequest, "role must be 'user' or 'admin'")
 			return
 		}
 		user.Role = req.Role
 	}
 	if err := h.users.Upsert(r.Context(), *user); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	masked := *user
 	masked.APIKey = maskAPIKey(masked.APIKey)
-	writeJSON(w, http.StatusOK, masked)
+	httpx.WriteJSON(w, http.StatusOK, masked)
 }
 
 func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	username := r.PathValue("username")
 	if username == "" {
-		writeErr(w, http.StatusBadRequest, "bad request")
+		httpx.WriteErr(w, http.StatusBadRequest, "bad request")
 		return
 	}
 	if username == "admin" {
-		writeErr(w, http.StatusBadRequest, "cannot delete admin")
+		httpx.WriteErr(w, http.StatusBadRequest, "cannot delete admin")
 		return
 	}
 	if err := h.users.Delete(r.Context(), username); err != nil {
 		if err == storage.ErrNotFound {
-			writeErr(w, http.StatusNotFound, "user not found")
+			httpx.WriteErr(w, http.StatusNotFound, "user not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -267,25 +268,25 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 func (h *UserHandler) GenerateAPIKey(w http.ResponseWriter, r *http.Request) {
 	username := r.PathValue("username")
 	if username == "" {
-		writeErr(w, http.StatusBadRequest, "bad request")
+		httpx.WriteErr(w, http.StatusBadRequest, "bad request")
 		return
 	}
 	user, err := h.users.GetByUsername(r.Context(), username)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "user not found")
+		httpx.WriteErr(w, http.StatusNotFound, "user not found")
 		return
 	}
 	id, err := NewID()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	user.APIKey = APIKeyPrefix + id
 	if err := h.users.Upsert(r.Context(), *user); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
 		"username": user.Username,
 		"apiKey":   user.APIKey,
 	})

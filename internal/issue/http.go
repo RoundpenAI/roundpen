@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 // Handler serves the issue tracker: /v1/issues, their docs and tasks.
@@ -33,13 +34,13 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var f ListFilter
 	if status := r.URL.Query().Get("status"); status != "" {
 		if err := ValidateIssueStatus(status); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		f.Status = status
@@ -47,13 +48,13 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 	if limit := r.URL.Query().Get("limit"); limit != "" {
 		n, err := strconv.Atoi(limit)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "limit must be an integer")
+			httpx.WriteErr(w, http.StatusBadRequest, "limit must be an integer")
 			return
 		}
 		f.Limit = n
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	items, err := h.Store.List(r.Context(), user.Username, f)
@@ -61,13 +62,13 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"issues": items})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"issues": items})
 }
 
 func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var body struct {
@@ -79,11 +80,11 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := ValidateTitle(body.Title); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	// The client never supplies assistantId: it is always derived from the
@@ -103,17 +104,17 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"issue": it})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"issue": it})
 }
 
 func (h *Handler) getIssue(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	it, docs, tasks, err := h.Store.Get(r.Context(), user.Username, r.PathValue("key"))
@@ -121,13 +122,13 @@ func (h *Handler) getIssue(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"issue": it, "docs": docs, "tasks": tasks})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"issue": it, "docs": docs, "tasks": tasks})
 }
 
 func (h *Handler) patchIssue(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var body struct {
@@ -140,18 +141,18 @@ func (h *Handler) patchIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Status != nil {
 		if err := ValidateIssueStatus(*body.Status); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if body.Title != nil {
 		if err := ValidateTitle(*body.Title); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	it, err := h.Store.Update(r.Context(), user.Username, r.PathValue("key"), UpdateInput{
@@ -163,24 +164,24 @@ func (h *Handler) patchIssue(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"issue": it})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"issue": it})
 }
 
 func (h *Handler) listDocs(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	kind := r.URL.Query().Get("kind")
 	if kind != "" {
 		if err := ValidateKind(kind); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	docs, err := h.Store.ListDocs(r.Context(), user.Username, r.PathValue("key"))
@@ -197,13 +198,13 @@ func (h *Handler) listDocs(w http.ResponseWriter, r *http.Request) {
 		}
 		docs = filtered
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"docs": docs})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"docs": docs})
 }
 
 func (h *Handler) createDoc(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var body struct {
@@ -219,16 +220,16 @@ func (h *Handler) createDoc(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := ValidateKind(body.Kind); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if strings.TrimSpace(body.ContentMD) == "" {
-		writeErr(w, http.StatusBadRequest, "contentMd is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "contentMd is required")
 		return
 	}
 	if body.Status != "" {
 		if err := ValidateDocStatus(body.Status); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
@@ -237,11 +238,11 @@ func (h *Handler) createDoc(w http.ResponseWriter, r *http.Request) {
 		authorType = "assistant"
 	}
 	if authorType != "user" && authorType != "assistant" {
-		writeErr(w, http.StatusBadRequest, "authorType must be user or assistant")
+		httpx.WriteErr(w, http.StatusBadRequest, "authorType must be user or assistant")
 		return
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	in := DocInput{
@@ -261,17 +262,17 @@ func (h *Handler) createDoc(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"doc": doc})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"doc": doc})
 }
 
 func (h *Handler) getDoc(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	// docKey is a short key, a uuid or "latest" — GetDoc resolves all three and
@@ -281,17 +282,17 @@ func (h *Handler) getDoc(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"doc": doc})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"doc": doc})
 }
 
 func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	tasks, err := h.Store.ListTasks(r.Context(), user.Username, r.PathValue("key"))
@@ -299,13 +300,13 @@ func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
 }
 
 func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var body struct {
@@ -320,17 +321,17 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := ValidateTitle(body.Title); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if body.Status != "" {
 		if err := ValidateTaskStatus(body.Status); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	in := TaskInput{
@@ -350,13 +351,13 @@ func (h *Handler) createTask(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"task": task})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"task": task})
 }
 
 func (h *Handler) patchTask(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var body struct {
@@ -370,18 +371,18 @@ func (h *Handler) patchTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Status != nil {
 		if err := ValidateTaskStatus(*body.Status); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if body.Title != nil {
 		if err := ValidateTitle(*body.Title); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	if h.Store == nil {
-		writeErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
 	in := TaskUpdateInput{Status: body.Status, Title: body.Title, Detail: body.Detail}
@@ -396,7 +397,7 @@ func (h *Handler) patchTask(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"task": task})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"task": task})
 }
 
 // resolveSession checks that a client-supplied sessionId belongs to the caller
@@ -407,7 +408,7 @@ func (h *Handler) resolveSession(w http.ResponseWriter, r *http.Request, userID,
 	assistantID, err := h.Store.SessionAssistant(r.Context(), userID, sessionID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			writeErr(w, http.StatusBadRequest, "sessionId does not belong to the caller")
+			httpx.WriteErr(w, http.StatusBadRequest, "sessionId does not belong to the caller")
 			return "", false
 		}
 		writeStoreErr(w, err)
@@ -421,28 +422,18 @@ func (h *Handler) resolveSession(w http.ResponseWriter, r *http.Request, userID,
 // internal failure — a failed write must never masquerade as a 400.
 func writeStoreErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
-	writeErr(w, http.StatusInternalServerError, err.Error())
+	httpx.WriteErrOrInternal(w, nil, err, nil)
 }
 
 // decodeBody reads a size-capped JSON body into v. An empty body decodes to the
 // zero struct so PATCH may send only the fields it changes.
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(v); err != nil && !errors.Is(err, io.EOF) {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return false
 	}
 	return true
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"error": msg})
 }

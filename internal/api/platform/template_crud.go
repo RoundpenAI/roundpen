@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/template"
 )
 
@@ -71,31 +72,31 @@ func toTemplateDetailResp(d template.TemplateDetail) templateDetailResp {
 
 func (h *Handler) getTemplate(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
-		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "templates not configured")
 		return
 	}
 	id := r.PathValue("templateID")
 	detail, err := h.Templates.Get(r.Context(), id)
 	if errors.Is(err, template.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "template not found")
+		httpx.WriteErr(w, http.StatusNotFound, "template not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, toTemplateDetailResp(detail))
+	httpx.WriteJSON(w, http.StatusOK, toTemplateDetailResp(detail))
 }
 
 func (h *Handler) patchTemplate(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
-		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "templates not configured")
 		return
 	}
 	id := r.PathValue("templateID")
 	var req patchTemplateReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	rec, err := h.Templates.Update(r.Context(), id, template.UpdateTemplateRequest{
@@ -108,37 +109,37 @@ func (h *Handler) patchTemplate(w http.ResponseWriter, r *http.Request) {
 		DiskSizeMB:  req.DiskSizeMB,
 	})
 	if errors.Is(err, template.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "template not found")
+		httpx.WriteErr(w, http.StatusNotFound, "template not found")
 		return
 	}
 	if errors.Is(err, template.ErrBuiltin) {
-		writeErr(w, http.StatusForbidden, "built-in template is read-only")
+		httpx.WriteErr(w, http.StatusForbidden, "built-in template is read-only")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toTemplateResp(rec))
+	httpx.WriteJSON(w, http.StatusOK, toTemplateResp(rec))
 }
 
 func (h *Handler) deleteTemplate(w http.ResponseWriter, r *http.Request) {
 	if h.Templates == nil {
-		writeErr(w, http.StatusServiceUnavailable, "templates not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "templates not configured")
 		return
 	}
 	id := r.PathValue("templateID")
 	err := h.Templates.Delete(r.Context(), id)
 	if errors.Is(err, template.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "template not found")
+		httpx.WriteErr(w, http.StatusNotFound, "template not found")
 		return
 	}
 	if errors.Is(err, template.ErrBuiltin) {
-		writeErr(w, http.StatusForbidden, "built-in template cannot be deleted")
+		httpx.WriteErr(w, http.StatusForbidden, "built-in template cannot be deleted")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

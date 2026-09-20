@@ -12,16 +12,18 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/policy"
+
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 type activityItem struct {
-	ID        string    `json:"id"`
-	At        time.Time `json:"at"`
-	Kind      string    `json:"kind"` // tool | event | permission | denial | message
-	Title     string    `json:"title"`
-	Detail    string    `json:"detail,omitempty"`
-	Status    string    `json:"status,omitempty"`
-	Source    string    `json:"source"` // session | denial
+	ID     string    `json:"id"`
+	At     time.Time `json:"at"`
+	Kind   string    `json:"kind"` // tool | event | permission | denial | message
+	Title  string    `json:"title"`
+	Detail string    `json:"detail,omitempty"`
+	Status string    `json:"status,omitempty"`
+	Source string    `json:"source"` // session | denial
 }
 
 func (h *Handler) activity(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +90,7 @@ func (h *Handler) activity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// newest first-ish: denials already desc; session msgs are oldest-first typically — reverse msgs already appended in order
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"activity": items,
 		"busy":     activityBusy(items),
 	})
@@ -115,7 +117,7 @@ func (h *Handler) policyCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	var body struct {
@@ -126,7 +128,7 @@ func (h *Handler) policyCheck(w http.ResponseWriter, r *http.Request) {
 		Record    bool   `json:"record"` // persist denial when blocked
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	var d policy.Decision
@@ -139,13 +141,13 @@ func (h *Handler) policyCheck(w http.ResponseWriter, r *http.Request) {
 	case "capability":
 		d = policy.CheckCapability(prof, body.Target)
 	default:
-		writeErr(w, http.StatusBadRequest, "dimension must be network, directory, or capability")
+		httpx.WriteErr(w, http.StatusBadRequest, "dimension must be network, directory, or capability")
 		return
 	}
 	if !d.Allowed && body.Record && h.Denials != nil {
 		_, _ = h.Denials.Record(r.Context(), user.Username, a.ID, body.SessionID, d)
 	}
-	writeJSON(w, http.StatusOK, d)
+	httpx.WriteJSON(w, http.StatusOK, d)
 }
 
 func (h *Handler) listTickets(w http.ResponseWriter, r *http.Request) {
@@ -159,19 +161,19 @@ func (h *Handler) listTickets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Tickets == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"tickets": []*assistticket.Ticket{}})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"tickets": []*assistticket.Ticket{}})
 		return
 	}
 	pendingOnly := r.URL.Query().Get("pending") == "1"
 	list, err := h.Tickets.ListByAssistant(r.Context(), user.Username, a.ID, pendingOnly)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if list == nil {
 		list = []*assistticket.Ticket{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tickets": list})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"tickets": list})
 }
 
 func (h *Handler) createTicket(w http.ResponseWriter, r *http.Request) {
@@ -185,12 +187,12 @@ func (h *Handler) createTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Tickets == nil {
-		writeErr(w, http.StatusServiceUnavailable, "tickets unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "tickets unavailable")
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	var body struct {
@@ -203,11 +205,11 @@ func (h *Handler) createTicket(w http.ResponseWriter, r *http.Request) {
 		Payload        any    `json:"payload"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	if strings.TrimSpace(body.Title) == "" {
-		writeErr(w, http.StatusBadRequest, "title is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "title is required")
 		return
 	}
 	t, err := h.Tickets.Create(r.Context(), user.Username, assistticket.CreateInput{
@@ -221,10 +223,10 @@ func (h *Handler) createTicket(w http.ResponseWriter, r *http.Request) {
 		Payload:        body.Payload,
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
-	writeJSON(w, http.StatusCreated, t)
+	httpx.WriteJSON(w, http.StatusCreated, t)
 }
 
 func (h *Handler) resolveTicket(w http.ResponseWriter, r *http.Request) {
@@ -233,25 +235,25 @@ func (h *Handler) resolveTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.Tickets == nil {
-		writeErr(w, http.StatusServiceUnavailable, "tickets unavailable")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "tickets unavailable")
 		return
 	}
 	t, err := h.Tickets.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
 		if errors.Is(err, assistticket.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "not found")
+			httpx.WriteErr(w, http.StatusNotFound, "not found")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if t.UserID != user.Username && user.Role != "admin" {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	var body struct {
@@ -259,27 +261,27 @@ func (h *Handler) resolveTicket(w http.ResponseWriter, r *http.Request) {
 		Note       string `json:"note"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	switch body.Resolution {
 	case assistticket.ResAllowOnce, assistticket.ResPermanent, assistticket.ResReject:
 	default:
-		writeErr(w, http.StatusBadRequest, "resolution must be allow_once, permanent, or reject")
+		httpx.WriteErr(w, http.StatusBadRequest, "resolution must be allow_once, permanent, or reject")
 		return
 	}
 	if body.Resolution == assistticket.ResPermanent {
 		if err := h.applyPermanent(r, t); err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
 	out, err := h.Tickets.Resolve(r.Context(), t.ID, body.Resolution, body.Note)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) applyPermanent(r *http.Request, t *assistticket.Ticket) error {
@@ -332,22 +334,22 @@ func (h *Handler) applyPermanent(r *http.Request, t *assistticket.Ticket) error 
 func (h *Handler) pendingTickets(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Tickets == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"count": 0, "tickets": []*assistticket.Ticket{}})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"count": 0, "tickets": []*assistticket.Ticket{}})
 		return
 	}
 	list, err := h.Tickets.ListPendingByUser(r.Context(), user.Username)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if list == nil {
 		list = []*assistticket.Ticket{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"count": len(list), "tickets": list})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"count": len(list), "tickets": list})
 }
 
 func truncate(s string, n int) string {

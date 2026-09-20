@@ -14,6 +14,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/settings"
@@ -80,7 +81,7 @@ type proxyView struct {
 func (h *Handler) getProxies(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	views := []proxyView{}
@@ -89,7 +90,7 @@ func (h *Handler) getProxies(w http.ResponseWriter, r *http.Request) {
 			views = append(views, proxyView{ID: p.ID, Name: p.Name, Description: p.Description})
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"proxies": views,
 		"agent":   user.AgentProxy,
 		"browser": user.BrowserProxy,
@@ -99,7 +100,7 @@ func (h *Handler) getProxies(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) putProxy(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var body struct {
@@ -107,12 +108,12 @@ func (h *Handler) putProxy(w http.ResponseWriter, r *http.Request) {
 		ProfileID string `json:"profileId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	slot := strings.TrimSpace(body.Slot)
 	if slot != userenv.SlotAgent && slot != userenv.SlotBrowser {
-		writeErr(w, http.StatusBadRequest, "slot must be agent or browser")
+		httpx.WriteErr(w, http.StatusBadRequest, "slot must be agent or browser")
 		return
 	}
 	profileID := strings.TrimSpace(body.ProfileID)
@@ -127,16 +128,16 @@ func (h *Handler) putProxy(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !found {
-			writeErr(w, http.StatusBadRequest, "unknown proxy profile")
+			httpx.WriteErr(w, http.StatusBadRequest, "unknown proxy profile")
 			return
 		}
 	}
 	if h.Users == nil {
-		writeErr(w, http.StatusServiceUnavailable, "user store not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "user store not configured")
 		return
 	}
 	if err := h.Users.SetSlotProxy(r.Context(), user.Username, slot, profileID); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	resp := map[string]any{"slot": slot, "profileId": profileID}
@@ -163,46 +164,46 @@ func (h *Handler) putProxy(w http.ResponseWriter, r *http.Request) {
 			resp["environment"] = res.Environment
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) getModelSource(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	src := user.ModelSource
 	if src == "" {
 		src = storage.ModelSourceGateway
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"modelSource": src})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"modelSource": src})
 }
 
 func (h *Handler) putModelSource(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var body struct {
 		ModelSource string `json:"modelSource"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	src := strings.TrimSpace(body.ModelSource)
 	if !storage.ValidModelSource(src) {
-		writeErr(w, http.StatusBadRequest, "modelSource must be gateway or own")
+		httpx.WriteErr(w, http.StatusBadRequest, "modelSource must be gateway or own")
 		return
 	}
 	if h.Users == nil {
-		writeErr(w, http.StatusServiceUnavailable, "user store not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "user store not configured")
 		return
 	}
 	if err := h.Users.SetModelSource(r.Context(), user.Username, src); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	resp := map[string]any{"modelSource": src}
@@ -219,35 +220,35 @@ func (h *Handler) putModelSource(w http.ResponseWriter, r *http.Request) {
 			resp["environment"] = res.Environment
 		}
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Envs == nil {
-		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
 	}
 	list, err := h.Envs.List(r.Context(), user.Username)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"environments": list})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"environments": list})
 }
 
 func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Envs == nil {
-		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
 	}
 	target, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
@@ -255,7 +256,7 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 		if runtime.WriteNotReady(w, err) {
 			return
 		}
-		writeErr(w, http.StatusBadGateway, err.Error())
+		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	resp := map[string]any{
@@ -267,17 +268,17 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 		resp["sandboxId"] = target.Sandbox.ID
 		resp["status"] = string(target.Sandbox.Status)
 	}
-	writeJSON(w, http.StatusOK, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Envs == nil {
-		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
 	}
 	sb, err := h.Envs.EnsureAgent(r.Context(), user.Username)
@@ -285,10 +286,10 @@ func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
 		if runtime.WriteNotReady(w, err) {
 			return
 		}
-		writeErr(w, http.StatusBadGateway, err.Error())
+		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"slot":      userenv.SlotAgent,
 		"sandboxId": sb.ID,
 		"status":    sb.Status,
@@ -299,18 +300,18 @@ func (h *Handler) ensureAgent(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) upgradeAgent(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Envs == nil {
-		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
 	}
 	var body struct {
 		Force bool `json:"force"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	res, err := h.Envs.UpgradeAgent(r.Context(), user.Username, body.Force)
@@ -318,23 +319,13 @@ func (h *Handler) upgradeAgent(w http.ResponseWriter, r *http.Request) {
 		if runtime.WriteNotReady(w, err) {
 			return
 		}
-		writeErr(w, http.StatusBadGateway, err.Error())
+		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"status":      res.Status,
 		"image":       res.Image,
 		"digest":      res.Digest,
 		"environment": res.Environment,
 	})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
 }

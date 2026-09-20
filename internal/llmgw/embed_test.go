@@ -16,7 +16,7 @@ func TestEmbeddingAliasMapsToDefaultModel(t *testing.T) {
 	if EmbeddingDimensions != 1024 {
 		t.Fatalf("EmbeddingDimensions=%d want 1024", EmbeddingDimensions)
 	}
-	if InternalVirtualKey == "" || EmbeddingModelAlias == "" {
+	if LegacyInternalVirtualKey == "" || EmbeddingModelAlias == "" {
 		t.Fatal("internal key/alias empty")
 	}
 }

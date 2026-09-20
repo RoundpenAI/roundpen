@@ -14,6 +14,8 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/storage"
+
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 // SessionStarter starts an ACP session bound to an assistant.
@@ -48,23 +50,23 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	sys, err := h.Store.EnsureSystem(r.Context(), user.Username)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if h.Sessions != nil && sys != nil {
 		if _, err := h.Store.AttachOrphanSessions(r.Context(), user.Username, sys.ID); err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteErrOrInternal(w, r, err, nil)
 			return
 		}
 	}
 	list, err := h.Store.ListByUser(r.Context(), user.Username)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if list == nil {
@@ -73,18 +75,18 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	for _, a := range list {
 		h.fillPrimarySession(r.Context(), user.Username, a)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"assistants": list})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"assistants": list})
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	var body struct {
@@ -95,7 +97,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		Capabilities *Capabilities `json:"capabilities"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if body.IdentityMode == "" {
@@ -110,19 +112,19 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "must be") {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
-	writeJSON(w, http.StatusCreated, a)
+	httpx.WriteJSON(w, http.StatusCreated, a)
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	a, err := h.ownedAssistant(r.Context(), user, r.PathValue("id"))
@@ -131,13 +133,13 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.fillPrimarySession(r.Context(), user.Username, a)
-	writeJSON(w, http.StatusOK, a)
+	httpx.WriteJSON(w, http.StatusOK, a)
 }
 
 func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := r.PathValue("id")
@@ -148,7 +150,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	var body struct {
@@ -163,11 +165,11 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		Status                *string           `json:"status"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if body.IdentityMode != nil && *body.IdentityMode != cur.IdentityMode && !body.ConfirmIdentityChange {
-		writeErr(w, http.StatusBadRequest, "confirmIdentityChange required to change identityMode")
+		httpx.WriteErr(w, http.StatusBadRequest, "confirmIdentityChange required to change identityMode")
 		return
 	}
 	updated, err := h.Store.Update(r.Context(), id, UpdateInput{
@@ -182,24 +184,24 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, ErrSystemUndeletable) {
-			writeErr(w, http.StatusForbidden, "系统助手不可删除")
+			httpx.WriteErr(w, http.StatusForbidden, "系统助手不可删除")
 			return
 		}
 		if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "must be") {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	h.fillPrimarySession(r.Context(), user.Username, updated)
-	writeJSON(w, http.StatusOK, updated)
+	httpx.WriteJSON(w, http.StatusOK, updated)
 }
 
 func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	a, err := h.ownedAssistant(r.Context(), user, r.PathValue("id"))
@@ -210,7 +212,7 @@ func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 	if h.Sessions != nil {
 		list, err := h.Sessions.ListByAssistant(r.Context(), user.Username, a.ID, 1)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err.Error())
+			httpx.WriteErrOrInternal(w, r, err, nil)
 			return
 		}
 		if len(list) > 0 {
@@ -219,21 +221,21 @@ func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 			// sessions (e.g. legacy claude) are skipped so we can open a
 			// sysadmin chat without QEMU for now.
 			if meta, ok := providers.ByID(providers.Default(), existing.ProviderID); ok && !providers.NeedsSandbox(meta) {
-				writeJSON(w, http.StatusOK, map[string]any{"sessionId": existing.ID})
+				httpx.WriteJSON(w, http.StatusOK, map[string]any{"sessionId": existing.ID})
 				return
 			}
 		}
 	}
 	if h.Starter == nil {
-		writeErr(w, http.StatusServiceUnavailable, "session starter not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "session starter not configured")
 		return
 	}
 	sess, err := h.Starter.StartForAssistant(r.Context(), user, a.ID, a.Name)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"sessionId": sess.ID})
 }
 
 func (h *Handler) fillPrimarySession(ctx context.Context, userID string, a *Assistant) {
@@ -262,22 +264,12 @@ var errForbidden = errors.New("forbidden")
 
 func writeAssistantErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if errors.Is(err, errForbidden) {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	writeErr(w, http.StatusInternalServerError, err.Error())
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"error": msg})
+	httpx.WriteErrOrInternal(w, nil, err, nil)
 }

@@ -1,17 +1,6 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
-import {
-  Banner,
-  Button,
-  Collapse,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Switch,
-  Toast,
-  Typography,
-} from '@douyinfe/semi-ui-19'
+import { Banner, Button, Modal, Toast } from '@douyinfe/semi-ui-19'
 import {
   adminSettings,
   templateDisplayName,
@@ -24,257 +13,40 @@ import {
   type Template,
 } from '../api'
 import { useAuth } from '../auth'
-import { useT, type MessageKey } from '../i18n'
+import { useT } from '../i18n'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
 import { LinkedAccountsPanel } from '../components/LinkedAccountsPanel'
 import { OAuthProvidersPanel } from '../components/OAuthProvidersPanel'
 import { AgentEnvironmentPanel } from '../components/AgentEnvironmentPanel'
 import { Loading } from '../components/Loading'
 import { resolveSettingsSection } from '../lib/appNav'
-
-const emptySettings: AppSettings = {
-  allowPublicRegistration: false,
-  defaultImage: 'host',
-  defaultTtlSeconds: 1800,
-  previewPublicUrl: '',
-  previewTokenTtlSeconds: 900,
-  templateBuilder: '',
-  llmgwEnabled: false,
-  llmgwPublicUrl: '',
-  llmgwLogBodyMaxBytes: 0,
-  llmgwEmbeddingModel: 'text-embedding-3-small',
-  llmgwDefaultModel: '',
-  llmgwOpenaiBaseUrl: '',
-  llmgwOpenaiApiKey: '',
-  llmgwOpenaiProxy: '',
-  llmgwAnthropicBaseUrl: '',
-  llmgwAnthropicApiKey: '',
-  llmgwAnthropicProxy: '',
-  llmgwVirtualKeys: '',
-  webSearchEndpoint: '',
-  webSearchApiKey: '',
-  webSearchProxy: '',
-  proxies: [],
-  autoMode: {
-    environment: ['$defaults'],
-    allow: ['$defaults'],
-    softDeny: ['$defaults'],
-    hardDeny: ['$defaults'],
-    model: '',
-  },
-  cdpProvider: 'auto',
-  cdpEndpoint: '',
-  cdpToken: '',
-  cdpPort: 3000,
-}
-
-type AutoModeListKey = 'environment' | 'allow' | 'softDeny' | 'hardDeny'
-
-const AUTOMODE_DEFAULTS_TOKEN = '$defaults'
-
-const AUTOMODE_LISTS: {
-  key: AutoModeListKey
-  labelKey: MessageKey
-  hintKey: MessageKey
-}[] = [
-  {
-    key: 'environment',
-    labelKey: 'settings.automode.environment',
-    hintKey: 'settings.automode.environmentHint',
-  },
-  {
-    key: 'allow',
-    labelKey: 'settings.automode.allow',
-    hintKey: 'settings.automode.allowHint',
-  },
-  {
-    key: 'softDeny',
-    labelKey: 'settings.automode.softDeny',
-    hintKey: 'settings.automode.softDenyHint',
-  },
-  {
-    key: 'hardDeny',
-    labelKey: 'settings.automode.hardDeny',
-    hintKey: 'settings.automode.hardDenyHint',
-  },
-]
-
-const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
-  { value: '', labelKey: 'settings.builder.disabled' },
-  { value: 'docker', labelKey: 'settings.builder.docker' },
-  { value: 'ci', labelKey: 'settings.builder.ci' },
-  { value: 'auto', labelKey: 'settings.builder.auto' },
-]
-
-const CDP_OPTIONS: { value: string; labelKey: MessageKey }[] = [
-  { value: 'auto', labelKey: 'settings.cdp.auto' },
-  { value: 'docker', labelKey: 'settings.cdp.docker' },
-  { value: 'host', labelKey: 'settings.cdp.host' },
-  { value: 'remote', labelKey: 'settings.cdp.remote' },
-  { value: 'cloud', labelKey: 'settings.cdp.cloud' },
-]
-
-const SANDBOX_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
-  { value: 600, labelKey: 'settings.ttl.10m' },
-  { value: 900, labelKey: 'settings.ttl.15m' },
-  { value: 1200, labelKey: 'settings.ttl.20m' },
-  { value: 1800, labelKey: 'settings.ttl.30m' },
-  { value: 3600, labelKey: 'settings.ttl.1h' },
-  { value: 7200, labelKey: 'settings.ttl.2h' },
-  { value: 14400, labelKey: 'settings.ttl.4h' },
-]
-
-const PREVIEW_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
-  { value: 300, labelKey: 'settings.ttl.5m' },
-  { value: 600, labelKey: 'settings.ttl.10m' },
-  { value: 900, labelKey: 'settings.ttl.15m' },
-  { value: 1800, labelKey: 'settings.ttl.30m' },
-  { value: 3600, labelKey: 'settings.ttl.1h' },
-]
-
-const LOG_BODY_OPTIONS: { value: number; labelKey: MessageKey }[] = [
-  { value: 0, labelKey: 'settings.logBody.off' },
-  { value: -1, labelKey: 'settings.logBody.legacy' },
-  { value: 4096, labelKey: 'settings.logBody.4k' },
-  { value: 16384, labelKey: 'settings.logBody.16k' },
-  { value: 65536, labelKey: 'settings.logBody.64k' },
-  { value: 262144, labelKey: 'settings.logBody.256k' },
-]
-
-const sectionGap: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 16,
-}
-
-function optionsWithCurrentValue(
-  options: { value: string; label: string }[],
-  current: string,
-  currentSuffix: (value: string) => string,
-): { value: string; label: string }[] {
-  if (options.some((o) => o.value === current)) return options
-  return [...options, { value: current, label: currentSuffix(current) }]
-}
-
-function formatDurationSeconds(
-  seconds: number,
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
-): string {
-  if (!Number.isFinite(seconds)) return String(seconds)
-  if (seconds < 0) return String(seconds)
-  if (seconds % 3600 === 0) {
-    const h = seconds / 3600
-    return h === 1 ? t('settings.duration.1h') : t('settings.duration.nh', { n: h })
-  }
-  if (seconds % 60 === 0) {
-    const m = seconds / 60
-    return m === 1 ? t('settings.duration.1m') : t('settings.duration.nm', { n: m })
-  }
-  return t('settings.duration.s', { n: seconds })
-}
-
-function ttlOptionsWithCurrent(
-  options: { value: number; label: string }[],
-  current: number,
-  currentSuffix: (value: string) => string,
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
-) {
-  if (options.some((o) => o.value === current)) return options
-  return [
-    ...options,
-    {
-      value: current,
-      label: currentSuffix(formatDurationSeconds(current, t)),
-    },
-  ]
-}
-
-function numberOptionsWithCurrent(
-  options: { value: number; label: string }[],
-  current: number,
-  currentSuffix: (value: string) => string,
-) {
-  if (options.some((o) => o.value === current)) return options
-  return [
-    ...options,
-    { value: current, label: currentSuffix(String(current)) },
-  ]
-}
-
-function templateRef(t: Template): string {
-  const name = templateDisplayName(t)
-  return name.includes('/') ? (name.split('/').pop() ?? name) : name
-}
-
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string
-  hint?: string
-  children: ReactNode
-}) {
-  return (
-    <Form.Slot label={label}>
-      {children}
-      {hint ? (
-        <Typography.Text
-          type="tertiary"
-          size="small"
-          style={{ display: 'block', marginTop: 4 }}
-        >
-          {hint}
-        </Typography.Text>
-      ) : null}
-    </Form.Slot>
-  )
-}
-
-function Toggle({
-  checked,
-  onChange,
-  children,
-}: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  children: ReactNode
-}) {
-  return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        minHeight: 44,
-      }}
-    >
-      <Switch checked={checked} onChange={onChange} />
-      <Typography.Text>{children}</Typography.Text>
-    </div>
-  )
-}
-
-function SystemRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ minWidth: 0, display: 'contents' }}>
-      <Typography.Text type="tertiary" size="small" component="dt">
-        {label}
-      </Typography.Text>
-      <Typography.Text
-        component="dd"
-        style={{
-          margin: 0,
-          fontFamily: 'var(--semi-font-family-code)',
-          fontSize: 12,
-          wordBreak: 'break-all',
-        }}
-      >
-        {value}
-      </Typography.Text>
-    </div>
-  )
-}
+import {
+  AUTOMODE_DEFAULTS_TOKEN,
+  BUILDER_OPTIONS,
+  emptySettings,
+  LOG_BODY_OPTIONS,
+  PREVIEW_TTL_OPTIONS,
+  SANDBOX_TTL_OPTIONS,
+  type AutoModeListKey,
+} from './settings/constants'
+import {
+  numberOptionsWithCurrent,
+  optionsWithCurrentValue,
+  templateRef,
+  ttlOptionsWithCurrent,
+} from './settings/helpers'
+import {
+  AutoModeDefaultsModal,
+  AutoModeSection,
+} from './settings/AutoModeSection'
+import { BrowserSection } from './settings/BrowserSection'
+import { BuildsSection } from './settings/BuildsSection'
+import { GeneralSection } from './settings/GeneralSection'
+import { LlmgwSection } from './settings/LlmgwSection'
+import { PreviewSection } from './settings/PreviewSection'
+import { ProxySection } from './settings/ProxySection'
+import { SystemSection } from './settings/SystemSection'
+import { WebtoolsSection } from './settings/WebtoolsSection'
 
 export function SettingsPage() {
   const auth = useAuth()
@@ -527,748 +299,107 @@ export function SettingsPage() {
         {section === 'agent' && <AgentEnvironmentPanel />}
 
         {section === 'general' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-            <div style={{ ...sectionGap, paddingTop: 16 }}>
-              <Toggle
-                checked={form.allowPublicRegistration}
-                onChange={(v) => patch({ allowPublicRegistration: v })}
-              >
-                {t('settings.general.allowRegistration')}
-              </Toggle>
-              <Field label={t('settings.general.defaultImage')}>
-                {defaultImageOptions.length > 0 ? (
-                  <Select
-                    value={form.defaultImage}
-                    onChange={(v) => patch({ defaultImage: String(v) })}
-                    optionList={defaultImageOptions}
-                    style={{ width: '100%' }}
-                  />
-                ) : (
-                  <Input
-                    value={form.defaultImage}
-                    onChange={(v) => patch({ defaultImage: v })}
-                  />
-                )}
-              </Field>
-              <Field label={t('settings.general.defaultTtl')}>
-                <Select
-                  value={form.defaultTtlSeconds}
-                  onChange={(v) =>
-                    patch({ defaultTtlSeconds: Number(v) })
-                  }
-                  optionList={sandboxTtlOptions.map((o) => ({
-                    value: o.value,
-                    label: o.label,
-                  }))}
-                  style={{ width: '100%' }}
-                />
-              </Field>
-            </div>
-            </Form>
-          ) : null
+          <GeneralSection
+            isAdmin={isAdmin}
+            loading={loading}
+            t={t}
+            form={form}
+            patch={patch}
+            defaultImageOptions={defaultImageOptions}
+            sandboxTtlOptions={sandboxTtlOptions}
+          />
         )}
 
         {section === 'preview' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-            <div style={{ ...sectionGap, paddingTop: 16 }}>
-              <Field label={t('settings.preview.publicUrl')}>
-                <Input
-                  inputMode="url"
-                  autoComplete="url"
-                  placeholder="http://127.0.0.1:19001"
-                  value={form.previewPublicUrl}
-                  onChange={(v) => patch({ previewPublicUrl: v })}
-                />
-              </Field>
-              <Field label={t('settings.preview.tokenTtl')}>
-                <Select
-                  value={form.previewTokenTtlSeconds}
-                  onChange={(v) =>
-                    patch({ previewTokenTtlSeconds: Number(v) })
-                  }
-                  optionList={previewTtlOptions.map((o) => ({
-                    value: o.value,
-                    label: o.label,
-                  }))}
-                  style={{ width: '100%' }}
-                />
-              </Field>
-            </div>
-            </Form>
-          ) : null
+          <PreviewSection
+            isAdmin={isAdmin}
+            loading={loading}
+            t={t}
+            form={form}
+            patch={patch}
+            previewTtlOptions={previewTtlOptions}
+          />
         )}
 
         {section === 'builds' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-            <div style={{ ...sectionGap, paddingTop: 16 }}>
-              <Field label={t('settings.builds.engine')}>
-                <Select
-                  value={form.templateBuilder}
-                  onChange={(v) => patch({ templateBuilder: String(v) })}
-                  optionList={builderOptions.map((o) => ({
-                    value: o.value,
-                    label: o.label,
-                  }))}
-                  style={{ width: '100%' }}
-                />
-              </Field>
-            </div>
-            </Form>
-          ) : null
+          <BuildsSection
+            isAdmin={isAdmin}
+            loading={loading}
+            t={t}
+            form={form}
+            patch={patch}
+            builderOptions={builderOptions}
+          />
         )}
 
         {section === 'browser' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-            <div style={{ ...sectionGap, paddingTop: 16 }}>
-              <Field label={t('settings.browser.cdpProvider')}>
-                <Select
-                  value={form.cdpProvider}
-                  onChange={(v) => patch({ cdpProvider: String(v) })}
-                  optionList={optionsWithCurrentValue(
-                    CDP_OPTIONS.map((o) => ({
-                      value: o.value,
-                      label: t(o.labelKey),
-                    })),
-                    form.cdpProvider,
-                    currentSuffix,
-                  )}
-                  style={{ width: '100%' }}
-                />
-              </Field>
-              {(form.cdpProvider === 'remote' ||
-                form.cdpProvider === 'cloud' ||
-                form.cdpProvider === 'host') && (
-                <Field
-                  label={
-                    form.cdpProvider === 'host'
-                      ? t('settings.browser.hostCdpUrl')
-                          : t('settings.browser.cdpEndpoint')
-                  }
-                >
-                  <Input
-                    inputMode="url"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder={
-                      form.cdpProvider === 'host'
-                        ? 'http://127.0.0.1:9222'
-                        : 'wss://browser.example/devtools/browser/…'
-                    }
-                    value={form.cdpEndpoint}
-                    onChange={(v) => patch({ cdpEndpoint: v })}
-                  />
-                </Field>
-              )}
-              {(form.cdpProvider === 'remote' ||
-                form.cdpProvider === 'cloud') && (
-                <Field label={t('settings.browser.cdpToken')}>
-                  <Input
-                    mode="password"
-                    autoComplete="new-password"
-                    placeholder={t('settings.browser.keepMasked')}
-                    value={form.cdpToken}
-                    onChange={(v) => patch({ cdpToken: v })}
-                  />
-                </Field>
-              )}
-              {(form.cdpProvider === 'auto' ||
-                form.cdpProvider === 'docker') && (
-                <Field label={t('settings.browser.guestPort')}>
-                  <Input
-                    inputMode="numeric"
-                    spellCheck={false}
-                    value={String(form.cdpPort || 3000)}
-                    onChange={(v) =>
-                      patch({ cdpPort: Number(v) || 3000 })
-                    }
-                  />
-                </Field>
-              )}
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                  gap: 8,
-                }}
-              >
-                <Button
-                  size="small"
-                  theme="borderless"
-                  onClick={() => void testBrowser()}
-                >
-                  {t('settings.browser.test')}
-                </Button>
-                {browserTest && (
-                  <Typography.Text type="tertiary" size="small">
-                    {browserTest}
-                  </Typography.Text>
-                )}
-              </div>
-              <Typography.Text type="tertiary" size="small">
-                {t('settings.browser.hint')}
-              </Typography.Text>
-            </div>
-            </Form>
-          ) : null
+          <BrowserSection
+            isAdmin={isAdmin}
+            loading={loading}
+            t={t}
+            form={form}
+            patch={patch}
+            currentSuffix={currentSuffix}
+            browserTest={browserTest}
+            testBrowser={testBrowser}
+          />
         )}
 
         {section === 'llmgw' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-            <div style={{ ...sectionGap, paddingTop: 16 }}>
-              <Typography.Text type="tertiary" size="small">
-                {t('settings.llmgw.intro')}
-              </Typography.Text>
-
-              <Toggle
-                checked={form.llmgwEnabled}
-                onChange={(v) => patch({ llmgwEnabled: v })}
-              >
-                {t('settings.llmgw.enable')}
-              </Toggle>
-
-              <div style={sectionGap}>
-                <Typography.Text strong size="small">
-                  {t('settings.llmgw.upstreamTitle')}
-                </Typography.Text>
-                <Typography.Text type="tertiary" size="small">
-                  {t('settings.llmgw.upstreamHint')}
-                </Typography.Text>
-                <div
-                  style={{
-                    display: 'grid',
-                    gap: 16,
-                    gridTemplateColumns:
-                      'repeat(auto-fit, minmax(220px, 1fr))',
-                  }}
-                >
-                  <Field
-                    label={t('settings.llmgw.openaiBase')}
-                    hint={t('settings.llmgw.openaiBaseHint')}
-                  >
-                    <Input
-                      inputMode="url"
-                      autoComplete="off"
-                      placeholder="https://api.openai.com"
-                      value={form.llmgwOpenaiBaseUrl}
-                      onChange={(v) => patch({ llmgwOpenaiBaseUrl: v })}
-                    />
-                  </Field>
-                  <Field
-                    label={t('settings.llmgw.openaiKey')}
-                    hint={t('settings.llmgw.keepSecret')}
-                  >
-                    <Input
-                      mode="password"
-                      autoComplete="new-password"
-                      placeholder={t('settings.browser.keepMasked')}
-                      value={form.llmgwOpenaiApiKey}
-                      onChange={(v) => patch({ llmgwOpenaiApiKey: v })}
-                    />
-                  </Field>
-                  <Field
-                    label={t('settings.llmgw.anthropicBase')}
-                    hint={t('settings.llmgw.anthropicBaseHint')}
-                  >
-                    <Input
-                      inputMode="url"
-                      autoComplete="off"
-                      placeholder="https://api.anthropic.com"
-                      value={form.llmgwAnthropicBaseUrl}
-                      onChange={(v) => patch({ llmgwAnthropicBaseUrl: v })}
-                    />
-                  </Field>
-                  <Field
-                    label={t('settings.llmgw.anthropicKey')}
-                    hint={t('settings.llmgw.keepSecret')}
-                  >
-                    <Input
-                      mode="password"
-                      autoComplete="new-password"
-                      placeholder={t('settings.browser.keepMasked')}
-                      value={form.llmgwAnthropicApiKey}
-                      onChange={(v) => patch({ llmgwAnthropicApiKey: v })}
-                    />
-                  </Field>
-                  <Field
-                    label={t('settings.llmgw.openaiProxy')}
-                    hint={t('settings.proxy.urlHint')}
-                  >
-                    <Input
-                      autoComplete="off"
-                      placeholder="socks5://10.0.0.9:1080"
-                      value={form.llmgwOpenaiProxy}
-                      onChange={(v) => patch({ llmgwOpenaiProxy: v })}
-                    />
-                  </Field>
-                  <Field
-                    label={t('settings.llmgw.anthropicProxy')}
-                    hint={t('settings.proxy.urlHint')}
-                  >
-                    <Input
-                      autoComplete="off"
-                      placeholder="http://10.0.0.8:8080"
-                      value={form.llmgwAnthropicProxy}
-                      onChange={(v) => patch({ llmgwAnthropicProxy: v })}
-                    />
-                  </Field>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  ...sectionGap,
-                  borderTop: '1px solid var(--semi-color-border)',
-                  paddingTop: 16,
-                }}
-              >
-                <Typography.Text strong size="small">
-                  {t('settings.llmgw.agentsTitle')}
-                </Typography.Text>
-                <Typography.Text type="tertiary" size="small">
-                  {t('settings.llmgw.agentsHint')}
-                </Typography.Text>
-                <Field
-                  label={t('settings.llmgw.publicUrl')}
-                  hint={t('settings.llmgw.publicUrlHint')}
-                >
-                  <Input
-                    inputMode="url"
-                    autoComplete="url"
-                    placeholder="http://127.0.0.1:9527"
-                    value={form.llmgwPublicUrl}
-                    onChange={(v) => patch({ llmgwPublicUrl: v })}
-                  />
-                </Field>
-                <Field
-                  label={t('settings.llmgw.defaultModel')}
-                  hint={t('settings.llmgw.defaultModelHint')}
-                >
-                  <Input
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder="e.g. gpt-4o-mini or claude-sonnet-4"
-                    value={form.llmgwDefaultModel}
-                    onChange={(v) => patch({ llmgwDefaultModel: v })}
-                  />
-                </Field>
-                <Field
-                  label={t('settings.llmgw.virtualKeys')}
-                  hint={t('settings.llmgw.virtualKeysHint')}
-                >
-                  <Input
-                    spellCheck={false}
-                    autoComplete="off"
-                    placeholder="vk-dev:dev"
-                    value={form.llmgwVirtualKeys}
-                    onChange={(v) => patch({ llmgwVirtualKeys: v })}
-                  />
-                </Field>
-              </div>
-
-              <Collapse>
-                <Collapse.Panel header={t('settings.llmgw.advanced')} itemKey="advanced">
-                  <div style={sectionGap}>
-                    <Field
-                      label={t('settings.llmgw.embedModel')}
-                      hint={t('settings.llmgw.embedModelHint')}
-                    >
-                      <Input
-                        spellCheck={false}
-                        placeholder="text-embedding-3-small"
-                        value={form.llmgwEmbeddingModel}
-                        onChange={(v) =>
-                          patch({ llmgwEmbeddingModel: v })
-                        }
-                      />
-                    </Field>
-                    <Field
-                      label={t('settings.llmgw.logBody')}
-                      hint={t('settings.llmgw.logBodyHint')}
-                    >
-                      <Select
-                        value={form.llmgwLogBodyMaxBytes}
-                        onChange={(v) =>
-                          patch({ llmgwLogBodyMaxBytes: Number(v) })
-                        }
-                        optionList={logBodyOptions.map((o) => ({
-                          value: o.value,
-                          label: o.label,
-                        }))}
-                        style={{ width: '100%' }}
-                      />
-                    </Field>
-                    <Typography.Text type="tertiary" size="small">
-                          {t('settings.llmgw.secretsNote')}
-                        </Typography.Text>
-                  </div>
-                </Collapse.Panel>
-              </Collapse>
-            </div>
-            </Form>
-          ) : null
+          <LlmgwSection
+            isAdmin={isAdmin}
+            loading={loading}
+            t={t}
+            form={form}
+            patch={patch}
+            logBodyOptions={logBodyOptions}
+          />
         )}
 
         {section === 'webtools' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-              <div style={{ ...sectionGap, paddingTop: 16 }}>
-                <Typography.Text type="tertiary">
-                  {t('settings.webtools.intro')}
-                </Typography.Text>
-                <div
-                  style={{
-                    display: 'grid',
-                    gap: 16,
-                    gridTemplateColumns:
-                      'repeat(auto-fit, minmax(220px, 1fr))',
-                  }}
-                >
-                  <Field
-                    label={t('settings.webtools.endpoint')}
-                    hint={t('settings.webtools.endpointHint')}
-                  >
-                    <Input
-                      inputMode="url"
-                      autoComplete="off"
-                      placeholder="https://api.tavily.com"
-                      value={form.webSearchEndpoint}
-                      onChange={(v) => patch({ webSearchEndpoint: v })}
-                    />
-                  </Field>
-                  <Field
-                    label={t('settings.webtools.apiKey')}
-                    hint={t('settings.webtools.keepSecret')}
-                  >
-                    <Input
-                      mode="password"
-                      autoComplete="new-password"
-                      placeholder={t('settings.browser.keepMasked')}
-                      value={form.webSearchApiKey}
-                      onChange={(v) => patch({ webSearchApiKey: v })}
-                    />
-                  </Field>
-                  <Field
-                    label={t('settings.webtools.proxy')}
-                    hint={t('settings.proxy.urlHint')}
-                  >
-                    <Input
-                      autoComplete="off"
-                      placeholder="http://10.0.0.8:8080"
-                      value={form.webSearchProxy}
-                      onChange={(v) => patch({ webSearchProxy: v })}
-                    />
-                  </Field>
-                </div>
-                <Typography.Text type="tertiary" size="small">
-                  {t('settings.webtools.note')}
-                </Typography.Text>
-              </div>
-            </Form>
-          ) : null
+          <WebtoolsSection
+            isAdmin={isAdmin}
+            loading={loading}
+            t={t}
+            form={form}
+            patch={patch}
+          />
         )}
 
         {section === 'automode' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-              <div style={{ ...sectionGap, paddingTop: 16 }}>
-                <Typography.Text type="tertiary">
-                  {t('settings.automode.intro')}
-                </Typography.Text>
-                <Field label={t('settings.automode.model')} hint={t('settings.automode.modelHint')}>
-                  <Input
-                    autoComplete="off"
-                    placeholder={form.llmgwDefaultModel || 'default'}
-                    value={form.autoMode.model ?? ''}
-                    onChange={(v) => patchAutoMode({ model: v })}
-                  />
-                </Field>
-                {AUTOMODE_LISTS.map(({ key, labelKey, hintKey }) => {
-                  const withDefaults = form.autoMode[key].includes(AUTOMODE_DEFAULTS_TOKEN)
-                  const custom = form.autoMode[key].filter(
-                    (e) => e !== AUTOMODE_DEFAULTS_TOKEN,
-                  )
-                  return (
-                    <div
-                      key={key}
-                      style={{
-                        ...sectionGap,
-                        borderTop: '1px solid var(--semi-color-border)',
-                        paddingTop: 16,
-                      }}
-                    >
-                      <Field label={t(labelKey)} hint={t(hintKey)}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {custom.map((entry, i) => (
-                            <div key={i} style={{ display: 'flex', gap: 8 }}>
-                              <Input
-                                autoComplete="off"
-                                value={entry}
-                                onChange={(v) =>
-                                  setAutoModeList(
-                                    key,
-                                    custom.map((e, idx) => (idx === i ? v : e)),
-                                  )
-                                }
-                              />
-                              <Button
-                                type="danger"
-                                onClick={() =>
-                                  setAutoModeList(
-                                    key,
-                                    custom.filter((_, idx) => idx !== i),
-                                  )
-                                }
-                              >
-                                {t('settings.automode.remove')}
-                              </Button>
-                            </div>
-                          ))}
-                          <Button onClick={() => setAutoModeList(key, [...custom, ''])}>
-                            {t('settings.automode.add')}
-                          </Button>
-                        </div>
-                      </Field>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <Switch
-                          checked={withDefaults}
-                          onChange={(v) =>
-                            patchAutoMode({
-                              [key]: v ? [...custom, AUTOMODE_DEFAULTS_TOKEN] : custom,
-                            } as Partial<AutoModeSettings>)
-                          }
-                        />
-                        <Typography.Text size="small">
-                          {t('settings.automode.defaultsToggle')}
-                        </Typography.Text>
-                      </div>
-                    </div>
-                  )
-                })}
-                <Button onClick={() => void openDefaults()}>
-                  {t('settings.automode.defaultsView')}
-                </Button>
-                <Typography.Text type="tertiary" size="small">
-                  {t('settings.automode.note')}
-                </Typography.Text>
-              </div>
-            </Form>
-          ) : null
+          <AutoModeSection
+            isAdmin={isAdmin}
+            loading={loading}
+            t={t}
+            form={form}
+            patch={patch}
+            patchAutoMode={patchAutoMode}
+            setAutoModeList={setAutoModeList}
+            openDefaults={openDefaults}
+          />
         )}
 
-        <Modal
-          title={t('settings.automode.defaultsTitle')}
-          visible={defaultsOpen}
-          footer={null}
-          width={720}
-          onCancel={() => setDefaultsOpen(false)}
-        >
-          {defaultsLoading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : defaultsView ? (
-            <div style={{ ...sectionGap, maxHeight: '60vh', overflowY: 'auto' }}>
-              {AUTOMODE_LISTS.map(({ key, labelKey }) => (
-                <div key={key}>
-                  <Typography.Title heading={6} style={{ margin: '0 0 4px' }}>
-                    {t(labelKey)}
-                  </Typography.Title>
-                  {(defaultsView[key] ?? []).map((entry, i) => (
-                    <Typography.Paragraph key={i} size="small" style={{ margin: '0 0 6px' }}>
-                      {entry}
-                    </Typography.Paragraph>
-                  ))}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <Typography.Text type="danger">
-              {t('settings.automode.defaultsFailed')}
-            </Typography.Text>
-          )}
-        </Modal>
+        <AutoModeDefaultsModal
+          t={t}
+          defaultsOpen={defaultsOpen}
+          setDefaultsOpen={setDefaultsOpen}
+          defaultsLoading={defaultsLoading}
+          defaultsView={defaultsView}
+        />
 
         {section === 'proxy' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-              <div style={{ ...sectionGap, paddingTop: 16 }}>
-                <Typography.Text type="tertiary">
-                  {t('settings.proxy.intro')}
-                </Typography.Text>
-                {form.proxies.map((p, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'grid',
-                      gap: 16,
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                      alignItems: 'end',
-                      borderTop: '1px solid var(--semi-color-border)',
-                      paddingTop: 16,
-                    }}
-                  >
-                    <Field label={t('settings.proxy.id')} hint={t('settings.proxy.idHint')}>
-                      <Input
-                        autoComplete="off"
-                        placeholder="us-egress"
-                        value={p.id}
-                        onChange={(v) => patchProxy(i, { id: v })}
-                      />
-                    </Field>
-                    <Field label={t('settings.proxy.name')}>
-                      <Input
-                        autoComplete="off"
-                        value={p.name}
-                        onChange={(v) => patchProxy(i, { name: v })}
-                      />
-                    </Field>
-                    <Field label={t('settings.proxy.url')} hint={t('settings.proxy.urlHint')}>
-                      <Input
-                        autoComplete="off"
-                        placeholder="socks5://10.0.0.9:1080"
-                        value={p.url}
-                        onChange={(v) => patchProxy(i, { url: v })}
-                      />
-                    </Field>
-                    <Field label={t('settings.proxy.description')}>
-                      <Input
-                        autoComplete="off"
-                        value={p.description ?? ''}
-                        onChange={(v) => patchProxy(i, { description: v })}
-                      />
-                    </Field>
-                    <Button
-                      type="danger"
-                      onClick={() => patch({ proxies: form.proxies.filter((_, idx) => idx !== i) })}
-                    >
-                      {t('settings.proxy.remove')}
-                    </Button>
-                  </div>
-                ))}
-                <Button
-                  onClick={() =>
-                    patch({
-                      proxies: [...form.proxies, { id: '', name: '', url: '', description: '' }],
-                    })
-                  }
-                >
-                  {t('settings.proxy.add')}
-                </Button>
-                <Typography.Text type="tertiary" size="small">
-                  {t('settings.proxy.note')}
-                </Typography.Text>
-              </div>
-            </Form>
-          ) : null
+          <ProxySection
+            isAdmin={isAdmin}
+            loading={loading}
+            t={t}
+            form={form}
+            patch={patch}
+            patchProxy={patchProxy}
+          />
         )}
 
         {section === 'system' && (
-          isAdmin && loading ? (
-            <Loading tip={t('settings.loadingSystem')} />
-          ) : isAdmin ? (
-            <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-            <div style={{ paddingTop: 16 }}>
-              {sys ? (
-                <div
-                  style={{
-                    border: '1px solid var(--semi-color-border)',
-                    borderRadius: 8,
-                    padding: 16,
-                  }}
-                >
-                  <Typography.Title heading={5} style={{ margin: '0 0 12px' }}>
-                    {t('settings.system.title')}
-                  </Typography.Title>
-                  <dl
-                    style={{
-                      margin: 0,
-                      display: 'grid',
-                      gridTemplateColumns: '7.5rem 1fr',
-                      columnGap: 16,
-                      rowGap: 8,
-                    }}
-                  >
-                    <SystemRow label={t('settings.system.backend')} value={sys.backend} />
-                    <SystemRow label={t('settings.system.httpAddr')} value={sys.httpAddr} />
-                    <SystemRow label={t('settings.system.dataRoot')} value={sys.dataRoot} />
-                    <SystemRow label={t('settings.system.dockerHost')} value={sys.dockerHost} />
-                    <SystemRow
-                      label={t('settings.system.activeBuilder')}
-                      value={sys.templateBuilderActive || t('settings.system.disabled')}
-                    />
-                    <SystemRow
-                      label={t('settings.system.llmgw')}
-                      value={
-                        sys.llmgwActive
-                          ? t('settings.system.llmgwActive')
-                          : sys.llmgwMounted
-                            ? t('settings.system.llmgwMounted')
-                            : t('settings.system.llmgwOff')
-                      }
-                    />
-                    <SystemRow
-                      label={t('settings.system.cdpProvider')}
-                      value={sys.cdpProviderActive || 'auto'}
-                    />
-                    <SystemRow
-                      label={t('settings.system.hostChrome')}
-                      value={sys.cdpHostChromeFound ? t('settings.system.hostChromeFound') : t('settings.system.hostChromeMissing')}
-                    />
-                  </dl>
-                  {sys.templateBuilderHint && (
-                    <Typography.Text
-                      type="tertiary"
-                      size="small"
-                      style={{ display: 'block', marginTop: 12 }}
-                    >
-                      {sys.templateBuilderHint}
-                    </Typography.Text>
-                  )}
-                  {sys.cdpHint && (
-                    <Typography.Text
-                      type="tertiary"
-                      size="small"
-                      style={{ display: 'block', marginTop: 12 }}
-                    >
-                      {sys.cdpHint}
-                    </Typography.Text>
-                  )}
-                  <Typography.Text
-                        type="tertiary"
-                        size="small"
-                        style={{ display: 'block', marginTop: 12 }}
-                      >
-                        {t('settings.system.footer')}
-                      </Typography.Text>
-                </div>
-              ) : (
-                <Typography.Text type="tertiary" size="small">
-                  {t('settings.system.unavailable')}
-                </Typography.Text>
-              )}
-            </div>
-            </Form>
-          ) : null
+          <SystemSection isAdmin={isAdmin} loading={loading} t={t} sys={sys} />
         )}
       </div>
 
