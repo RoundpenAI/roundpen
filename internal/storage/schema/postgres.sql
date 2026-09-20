@@ -471,3 +471,57 @@ CREATE INDEX IF NOT EXISTS issue_docs_task_idx ON issue_docs (task_id) WHERE tas
 -- ADD COLUMN IF NOT EXISTS keeps the embedded schema re-executable on every boot.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS plan_doc_id TEXT REFERENCES issue_docs (id) ON DELETE SET NULL;
 
+
+-- OAuth2 federated login (GitHub / self-hosted Gitea).
+-- oauth_providers: one row per remote OAuth app (a Gitea instance = one row).
+CREATE TABLE IF NOT EXISTS oauth_providers (
+    id            TEXT PRIMARY KEY,
+    kind          TEXT NOT NULL DEFAULT 'gitea',
+    scheme        TEXT NOT NULL DEFAULT 'https',
+    host          TEXT NOT NULL,
+    label         TEXT NOT NULL DEFAULT '',
+    client_id     TEXT NOT NULL DEFAULT '',
+    client_secret TEXT NOT NULL DEFAULT '',
+    scopes        TEXT NOT NULL DEFAULT '',
+    auth_url      TEXT NOT NULL DEFAULT '',
+    token_url     TEXT NOT NULL DEFAULT '',
+    api_url       TEXT NOT NULL DEFAULT '',
+    enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (kind, host)
+);
+
+-- user_identities: remote account linked to a local user; holds the tokens that
+-- are projected into the guest git credentials (a manual PAT wins per host).
+CREATE TABLE IF NOT EXISTS user_identities (
+    id               TEXT PRIMARY KEY,
+    user_id          TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    provider_id      TEXT NOT NULL REFERENCES oauth_providers (id) ON DELETE CASCADE,
+    subject          TEXT NOT NULL,
+    login            TEXT NOT NULL DEFAULT '',
+    name             TEXT NOT NULL DEFAULT '',
+    email            TEXT NOT NULL DEFAULT '',
+    access_token     TEXT NOT NULL DEFAULT '',
+    refresh_token    TEXT NOT NULL DEFAULT '',
+    token_expires_at TIMESTAMPTZ,
+    scopes           TEXT NOT NULL DEFAULT '',
+    last_login_at    TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (provider_id, subject),
+    UNIQUE (user_id, provider_id)
+);
+CREATE INDEX IF NOT EXISTS user_identities_user_idx ON user_identities (user_id);
+
+-- oauth_states: single-use authorization state (PKCE verifier + link-flow owner).
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state       TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    verifier    TEXT NOT NULL DEFAULT '',
+    link_user    TEXT NOT NULL DEFAULT '',
+    redirect_uri TEXT NOT NULL DEFAULT '',
+    redirect_to  TEXT NOT NULL DEFAULT '',
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
