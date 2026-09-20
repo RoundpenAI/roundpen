@@ -41,7 +41,7 @@ func TestCredentialStoreHasHTTPS(t *testing.T) {
 }
 
 func TestGuestInstallScriptHasNoRawTokenAndRewritesSSH(t *testing.T) {
-	script := guestInstallScript([]Cred{{
+	script := InstallScript([]Cred{{
 		Provider: ProviderGitea, Host: "git.eaxi.com", Token: "rp-secret-pat",
 	}})
 	if strings.Contains(script, "rp-secret-pat") {
@@ -66,10 +66,56 @@ func TestGuestInstallScriptHasNoRawTokenAndRewritesSSH(t *testing.T) {
 }
 
 func TestGuestClearScriptRemovesWorkspaceLegacy(t *testing.T) {
-	script := guestClearGitScript()
+	script := GuestClearGitScript()
 	for _, want := range []string{"/workspace/.roundpen/git", "/home/roundpen/.roundpen/git", "/home/roundpen/.gitconfig"} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("clear script missing %q:\n%s", want, script)
 		}
+	}
+}
+
+func TestTokenCredUsesProviderDefaults(t *testing.T) {
+	gitea := TokenCred("gitea", "Git.Eaxi.com/", "tok")
+	if gitea.Provider != ProviderGitea || gitea.Host != "git.eaxi.com" || gitea.Token != "tok" {
+		t.Errorf("token cred = %+v", gitea)
+	}
+	if got := credentialURL(gitea); !strings.Contains(got, "git:tok@git.eaxi.com") {
+		t.Errorf("gitea credential url = %q", got)
+	}
+	if env := cliEnv(gitea); env["GITEA_TOKEN"] != "tok" || env["TEA_TOKEN"] != "tok" {
+		t.Errorf("gitea env = %v", env)
+	}
+
+	gh := TokenCred("gh", "github.com", "tok")
+	if gh.Provider != ProviderGitHub {
+		t.Errorf("github provider = %q", gh.Provider)
+	}
+	if got := credentialURL(gh); !strings.Contains(got, "x-access-token:tok@github.com") {
+		t.Errorf("github credential url = %q", got)
+	}
+}
+
+func TestMergeCredsPrimaryWinsPerHost(t *testing.T) {
+	pat := Cred{Provider: ProviderGitea, Host: "git.eaxi.com", Token: "pat"}
+	oauthSameHost := Cred{Provider: ProviderGitea, Host: "Git.Eaxi.COM", Token: "oauth"}
+	oauthOther := Cred{Provider: ProviderGitHub, Host: "github.com", Token: "oauth-gh"}
+	empty := Cred{Provider: ProviderGitea, Host: "empty.test"}
+
+	got := MergeCreds([]Cred{pat}, []Cred{oauthSameHost, oauthOther, empty})
+	if len(got) != 2 {
+		t.Fatalf("merged = %+v", got)
+	}
+	byHost := map[string]string{}
+	for _, c := range got {
+		byHost[c.Host] = c.Token
+	}
+	if byHost["git.eaxi.com"] != "pat" {
+		t.Errorf("the manual PAT should win: %+v", got)
+	}
+	if byHost["github.com"] != "oauth-gh" {
+		t.Errorf("fallback for another host should survive: %+v", got)
+	}
+	if got[0].Host > got[1].Host {
+		t.Errorf("output should be sorted by host: %+v", got)
 	}
 }
