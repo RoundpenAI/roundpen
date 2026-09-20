@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"regexp"
@@ -118,7 +119,7 @@ func (h *SessionHandler) Register(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	if err := h.issueSession(w, r, &user); err != nil {
+	if _, err := h.issueSession(w, r, &user); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -132,6 +133,9 @@ type loginRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// ReturnSessionToken echoes the freshly issued session token in the body.
+	// Native clients have no cookie jar and present it as a Bearer credential.
+	ReturnSessionToken bool `json:"returnSessionToken"`
 }
 
 func (h *SessionHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -166,13 +170,20 @@ func (h *SessionHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.limiter.clear(ip)
-	if err := h.issueSession(w, r, user); err != nil {
+	token, err := h.issueSession(w, r, user)
+	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	masked := *user
 	masked.APIKey = maskAPIKey(masked.APIKey)
-	writeJSON(w, http.StatusOK, map[string]any{"user": masked})
+	body := map[string]any{"user": masked}
+	if req.ReturnSessionToken && token != "" {
+		body["sessionToken"] = token
+		slog.Info("auth.login", slog.String("user", user.Username), slog.String("ip", ip),
+			slog.Bool("return_session_token", true))
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func lookupLoginUser(ctx context.Context, users storage.UserStore, ident string) (*storage.User, error) {
@@ -202,9 +213,14 @@ func lookupLoginUser(ctx context.Context, users storage.UserStore, ident string)
 }
 
 func (h *SessionHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" && h.sessions != nil {
-		if sess, err := h.sessions.GetByTokenHash(r.Context(), HashSessionToken(c.Value)); err == nil {
-			_ = h.sessions.Delete(r.Context(), sess.ID)
+	if h.sessions != nil {
+		// Bearer-authenticated (native) requests carry no cookie.
+		if sid := GetSessionID(r.Context()); sid != "" {
+			_ = h.sessions.Delete(r.Context(), sid)
+		} else if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" {
+			if sess, err := h.sessions.GetByTokenHash(r.Context(), HashSessionToken(c.Value)); err == nil {
+				_ = h.sessions.Delete(r.Context(), sess.ID)
+			}
 		}
 	}
 	clearSessionCookie(w, r)
@@ -253,7 +269,7 @@ func (h *SessionHandler) ChangePassword(w http.ResponseWriter, r *http.Request) 
 	if h.sessions != nil {
 		_ = h.sessions.DeleteByUser(r.Context(), fresh.Username)
 	}
-	if err := h.issueSession(w, r, fresh); err != nil {
+	if _, err := h.issueSession(w, r, fresh); err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
@@ -287,7 +303,9 @@ func (h *SessionHandler) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *SessionHandler) issueSession(w http.ResponseWriter, r *http.Request, user *storage.User) error {
+// issueSession creates a session for the handler's store and returns the
+// plaintext token so callers that need it (native login) can hand it over.
+func (h *SessionHandler) issueSession(w http.ResponseWriter, r *http.Request, user *storage.User) (string, error) {
 	return IssueSession(w, r, h.sessions, user)
 }
 

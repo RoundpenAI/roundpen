@@ -101,7 +101,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, loginErrorPath(sessionUser, errorCode(err)), http.StatusFound)
 		return
 	}
-	if err := auth.IssueSession(w, r, h.Sessions, res.User); err != nil {
+	if _, err := auth.IssueSession(w, r, h.Sessions, res.User); err != nil {
 		slog.Error("oauth session", "user", res.User.Username, "err", err)
 		http.Redirect(w, r, loginErrorPath(sessionUser, "failed"), http.StatusFound)
 		return

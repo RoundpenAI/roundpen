@@ -39,6 +39,14 @@ func GetAPIKey(ctx context.Context) string {
 	return ""
 }
 
+// GetSessionID retrieves the session id from context (empty for API-key auth).
+func GetSessionID(ctx context.Context) string {
+	if v, ok := ctx.Value(sessionIDContextKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
 func isPublicPath(r *http.Request) bool {
 	path := r.URL.Path
 	if path == "/health" || path == "/v1/ready" {
@@ -98,11 +106,17 @@ func extractAPIKey(r *http.Request) string {
 		got = r.Header.Get("X-API-KEY")
 	}
 	if got == "" {
-		if a := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(a), "bearer ") {
-			got = strings.TrimSpace(a[7:])
-		}
+		got = extractBearer(r)
 	}
 	return got
+}
+
+func extractBearer(r *http.Request) string {
+	a := r.Header.Get("Authorization")
+	if !strings.HasPrefix(strings.ToLower(a), "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(a[7:])
 }
 
 // Middleware authenticates Cookie session, then X-API-Key / Bearer.
@@ -153,6 +167,18 @@ func resolveAuth(r *http.Request, users storage.UserStore, sessions storage.Sess
 
 	key := extractAPIKey(r)
 	if key == "" {
+		return nil, "", ""
+	}
+	// API keys are always minted with APIKeyPrefix; a non-prefixed credential in
+	// Authorization: Bearer is a native client's session token (it has no cookie
+	// jar).  X-API-Key never carries a session token.
+	if bearer := extractBearer(r); bearer != "" && bearer == key && !strings.HasPrefix(bearer, APIKeyPrefix) && sessions != nil {
+		if sess, err := sessions.GetByTokenHash(r.Context(), HashSessionToken(bearer)); err == nil {
+			if user, err := users.GetByUsername(r.Context(), sess.UserID); err == nil {
+				_ = sessions.Touch(r.Context(), sess.ID)
+				return user, user.APIKey, sess.ID
+			}
+		}
 		return nil, "", ""
 	}
 	user, err := users.GetByAPIKey(r.Context(), key)
