@@ -40,6 +40,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/issue"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
+	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
@@ -228,12 +229,19 @@ func main() {
 
 	envStore := &userenv.Store{DB: db.SQL}
 	gitStore := &gitcred.Store{DB: db.SQL}
+	oauthStore := &oauth.Store{DB: db.SQL}
+	oauthSvc := &oauth.Service{
+		Store:             oauthStore,
+		Users:             userStore,
+		AllowRegistration: allowRegistration,
+	}
 	envSvc := &userenv.Service{
-		Store:     envStore,
-		Sandboxes: mgr,
-		Git:       gitStore,
-		Probe:     probe,
-		Cfg:       cfg,
+		Store:          envStore,
+		Sandboxes:      mgr,
+		Git:            gitStore,
+		IdentityTokens: oauthSvc,
+		Probe:          probe,
+		Cfg:            cfg,
 		ModelSource: func(ctx context.Context, userID string) string {
 			u, err := userStore.GetByUsername(ctx, userID)
 			if err != nil || u == nil {
@@ -258,6 +266,7 @@ func main() {
 		Files: sbSvc,
 	}).Mount(mux)
 	(&gitcred.Handler{Store: gitStore}).Mount(mux)
+	(&oauth.Handler{Svc: oauthSvc, Sessions: sessionStore}).Mount(mux)
 	(&runtime.Handler{Probe: probe}).Mount(mux)
 
 	setupSvc := &hostsetup.Service{
@@ -444,6 +453,10 @@ func main() {
 	// Console SPA last — catch-all for non-API GET paths (embedded via internal/ui).
 	mux.Handle("/", ui.Handler())
 
+	// Gitea access tokens expire (1h by default): keep them fresh and push the
+	// new token into any running agent sandbox, or long sessions lose push.
+	go oauthRefresher(ctx, oauthSvc, envSvc, logger)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           auth.Middleware(userStore, sessionStore)(mux),
@@ -496,6 +509,35 @@ type internalDialer struct {
 func (d internalDialer) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {
 	ctx = authz.WithActor(ctx, authz.Actor{Username: "roundpend", Admin: true})
 	return d.sandbox.Dial(ctx, sandboxID, destPort)
+}
+
+// oauthRefresher refreshes expiring federated tokens and re-injects the git
+// credentials of the affected users' running agent sandboxes.
+func oauthRefresher(ctx context.Context, svc *oauth.Service, envs *userenv.Service, logger *slog.Logger) {
+	const interval = 10 * time.Minute
+	// Refresh anything expiring within 30 minutes; injected tokens must stay
+	// usable for a sandbox that runs long between EnsureAgent calls.
+	const horizon = 30 * time.Minute
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			users, err := svc.RefreshExpiring(ctx, time.Now().Add(horizon))
+			if err != nil {
+				logger.Warn("oauth refresh", slog.Any("err", err))
+				continue
+			}
+			for _, user := range users {
+				envs.ReinjectGit(ctx, user)
+			}
+			if len(users) > 0 {
+				logger.Info("oauth tokens refreshed", slog.Int("users", len(users)))
+			}
+		}
+	}
 }
 
 func firstNonEmpty(vals ...string) string {
