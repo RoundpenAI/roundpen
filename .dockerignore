@@ -7,6 +7,9 @@
 **/node_modules
 **/dist
 web/dist
+mobile/.dart_tool
+mobile/build
+mobile/ios/Pods
 internal/ui/dist/**
 !internal/ui/dist/.gitkeep
 *.test
