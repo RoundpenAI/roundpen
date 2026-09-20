@@ -33,6 +33,17 @@ type Cred struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// TokenCred builds a credential from a token obtained by logging in (OAuth).
+// The username stays empty so authUsername applies the provider's default
+// (x-access-token / oauth2 / git).
+func TokenCred(provider, host, token string) Cred {
+	return Cred{
+		Provider: normalizeProvider(provider),
+		Host:     credKey(host),
+		Token:    strings.TrimSpace(token),
+	}
+}
+
 // SanitizeForResponse masks the token.
 func (c Cred) SanitizeForResponse() Cred {
 	out := c

@@ -288,33 +288,7 @@ func (h *SessionHandler) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SessionHandler) issueSession(w http.ResponseWriter, r *http.Request, user *storage.User) error {
-	if h.sessions == nil {
-		return nil
-	}
-	plain, hash, err := NewSessionToken()
-	if err != nil {
-		return err
-	}
-	id, err := NewID()
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	sess := storage.Session{
-		ID:         id,
-		UserID:     user.Username,
-		TokenHash:  hash,
-		ExpiresAt:  now.Add(SessionTTL),
-		CreatedAt:  now,
-		LastSeenAt: now,
-		UserAgent:  r.UserAgent(),
-		IP:         clientIP(r),
-	}
-	if err := h.sessions.Create(r.Context(), sess); err != nil {
-		return err
-	}
-	setSessionCookie(w, r, plain, int(SessionTTL.Seconds()))
-	return nil
+	return IssueSession(w, r, h.sessions, user)
 }
 
 func normalizeEmail(raw string) (string, error) {
@@ -345,15 +319,26 @@ func usernameFromEmail(email string) string {
 	if i := strings.Index(email, "@"); i > 0 {
 		local = email[:i]
 	}
-	s := nonUsername.ReplaceAllString(local, "_")
+	return SanitizeUsername(local)
+}
+
+// SanitizeUsername maps an arbitrary string (a remote login, an email local
+// part) onto the charset local usernames allow.
+func SanitizeUsername(raw string) string {
+	s := nonUsername.ReplaceAllString(strings.TrimSpace(raw), "_")
 	s = strings.Trim(s, "._-")
+	if len(s) > 64 {
+		s = strings.Trim(s[:64], "._-")
+	}
 	if s == "" || !validUsername.MatchString(s) {
 		s = "user"
 	}
-	if len(s) > 64 {
-		s = s[:64]
-	}
 	return s
+}
+
+// UniqueUsername returns base, or base-2, base-3, … when already taken.
+func UniqueUsername(ctx context.Context, users storage.UserStore, base string) (string, error) {
+	return uniqueUsername(ctx, users, base)
 }
 
 func uniqueUsername(ctx context.Context, users storage.UserStore, base string) (string, error) {

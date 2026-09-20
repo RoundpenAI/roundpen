@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
@@ -209,9 +210,13 @@ type Service struct {
 	Store     slotStore
 	Sandboxes sandbox.Manager
 	Git       *gitcred.Store
-	Probe     *runtime.Probe
-	Config    Config
-	Cfg       *config.Config
+
+	// IdentityTokens supplies credentials from federated logins (OAuth).
+	// Manual PATs win for the same host; see the merge in injectGit.
+	IdentityTokens identityTokens
+	Probe          *runtime.Probe
+	Config         Config
+	Cfg            *config.Config
 
 	// ModelSource resolves a user's model-source preference (storage
 	// constants); nil or "" means the gateway default.
@@ -360,15 +365,62 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 	return out, nil
 }
 
-func (s *Service) injectGit(ctx context.Context, userID, sandboxID string) {
-	if s == nil || s.Sandboxes == nil || s.Git == nil {
-		return
+// identityTokens is the subset of oauth.Service the sandbox injection needs.
+type identityTokens interface {
+	CredsForUser(ctx context.Context, userID string) ([]gitcred.Cred, error)
+}
+
+// gitCredentials merges hand-entered PATs (which win per host) with tokens
+// obtained by federated login.
+func (s *Service) gitCredentials(ctx context.Context, userID string) ([]gitcred.Cred, error) {
+	var pats []gitcred.Cred
+	if s.Git != nil {
+		got, err := s.Git.List(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		pats = got
 	}
-	script, err := s.Git.GuestInstallScript(ctx, userID)
+	if s.IdentityTokens == nil {
+		return pats, nil
+	}
+	idents, err := s.IdentityTokens.CredsForUser(ctx, userID)
 	if err != nil {
-		slog.Warn("git credentials script", "user", userID, "err", err)
+		slog.Warn("oauth git credentials", "user", userID, "err", err)
+		return pats, nil
+	}
+	return gitcred.MergeCreds(pats, idents), nil
+}
+
+// ReinjectGit rewrites the git credential files of a running agent sandbox.
+// It never starts one: without a running sandbox the next EnsureAgent injects.
+func (s *Service) ReinjectGit(ctx context.Context, userID string) {
+	if s == nil || s.Sandboxes == nil {
 		return
 	}
+	m, err := s.Store.Get(ctx, userID, SlotAgent)
+	if err != nil || m == nil || m.SandboxID == "" {
+		return
+	}
+	// The refresher runs without an HTTP actor; sandbox.Get authorizes callers.
+	ctx = authz.WithActor(ctx, authz.Actor{Username: "roundpend", Admin: true})
+	sb, err := s.Sandboxes.Get(ctx, m.SandboxID)
+	if err != nil || sb == nil || sb.Status != sandbox.StatusRunning {
+		return
+	}
+	s.injectGit(ctx, userID, sb.ID)
+}
+
+func (s *Service) injectGit(ctx context.Context, userID, sandboxID string) {
+	if s == nil || s.Sandboxes == nil || (s.Git == nil && s.IdentityTokens == nil) {
+		return
+	}
+	creds, err := s.gitCredentials(ctx, userID)
+	if err != nil {
+		slog.Warn("git credentials", "user", userID, "err", err)
+		return
+	}
+	script := gitcred.InstallScript(creds)
 	execCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	res, err := s.Sandboxes.Exec(execCtx, sandboxID, sandbox.ExecRequest{

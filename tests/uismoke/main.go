@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +73,14 @@ func main() {
 	defer liveUpstream.Close()
 
 	envs := &slotEnvs{}
+	identitySeed := []map[string]any{{
+		"id": "ident-1", "providerId": "gitea-git-eaxi-com", "providerKind": "gitea",
+		"providerLabel": "Gitea", "providerHost": "git.eaxi.com", "login": "octocat",
+		"name": "Octo Cat", "email": "octo@example.test", "scopes": "read:user user:email repo",
+		"hasRefreshToken": true, "createdAt": "2026-01-01T00:00:00Z",
+	}}
+	identities := &identityStore{seed: identitySeed}
+	identities.reset()
 	mux := http.NewServeMux()
 	auth.Mount(mux, users, sessions, func() bool { return false })
 	(&envapi.Handler{
@@ -245,7 +254,66 @@ func main() {
 	})
 	mux.HandleFunc("POST /v1/test/reset", func(w http.ResponseWriter, _ *http.Request) {
 		envs.reset()
+		identities.reset()
 		writeJSON(w, map[string]any{"ok": true})
+	})
+
+	// Federated login stubs: the login page, the linked-accounts panel and the
+	// admin provider form all talk to these.
+	mux.HandleFunc("GET /v1/auth/oauth/providers", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"providers": []map[string]any{{
+			"id": "gitea-git-eaxi-com", "kind": "gitea", "host": "git.eaxi.com", "label": "Gitea",
+		}}})
+	})
+	mux.HandleFunc("GET /v1/me/identities", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"identities": identities.list()})
+	})
+	mux.HandleFunc("DELETE /v1/me/identities/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if !identities.remove(r.PathValue("id")) {
+			writeJSONStatus(w, http.StatusNotFound, map[string]any{"message": "identity not found"})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/me/identities/link/{provider}", func(w http.ResponseWriter, r *http.Request) {
+		// The SPA redirects the browser to this URL; point it back at a stub so
+		// the smoke test can assert the navigation without leaving the origin.
+		writeJSON(w, map[string]any{
+			"authorizeUrl": "/v1/auth/oauth/dev/authorize?provider=" + r.PathValue("provider"),
+		})
+	})
+	// The login page navigates to the real start route; smoke answers it with a
+	// redirect to a local stand-in for the remote authorization page.
+	mux.HandleFunc("GET /v1/auth/oauth/{provider}/start", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/v1/auth/oauth/dev/authorize?provider="+url.PathEscape(r.PathValue("provider")), http.StatusFound)
+	})
+	// Stays under /v1/auth/oauth/ because only that prefix is public to the
+	// middleware, exactly like the real remote authorization page.
+	mux.HandleFunc("GET /v1/auth/oauth/dev/authorize", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>authorize stub</title><div id="oauth-authorize-stub">authorize stub</div>`)
+	})
+	mux.HandleFunc("GET /v1/admin/oauth/providers", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"providers": []map[string]any{{
+			"id": "gitea-git-eaxi-com", "kind": "gitea", "scheme": "https", "host": "git.eaxi.com",
+			"label": "Gitea", "clientId": "smoke-client", "clientSecret": "●●●●●●●●",
+			"scopes":   "read:user user:email repo",
+			"authUrl":  "https://git.eaxi.com/login/oauth/authorize",
+			"tokenUrl": "https://git.eaxi.com/login/oauth/access_token",
+			"apiUrl":   "https://git.eaxi.com/api/v1", "enabled": true,
+			"displayLabel": "Gitea",
+			"callbackUrl":  "http://" + r.Host + "/v1/auth/oauth/gitea-git-eaxi-com/callback",
+		}}})
+	})
+	mux.HandleFunc("PUT /v1/admin/oauth/providers", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		body["displayLabel"] = "Gitea"
+		body["callbackUrl"] = "http://" + r.Host + "/v1/auth/oauth/" + fmt.Sprint(body["id"]) + "/callback"
+		writeJSON(w, map[string]any{"provider": body})
+	})
+	mux.HandleFunc("DELETE /v1/admin/oauth/providers/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	log.Printf("uismoke-api %s live=%s", *listen, liveUpstream.URL)
@@ -267,6 +335,45 @@ func writePlan(w http.ResponseWriter, id string, context map[string]any) {
 		"actions":   []any{},
 		"createdAt": time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+// identityStore backs the linked-accounts panel so unlink is observable.
+type identityStore struct {
+	mu    sync.Mutex
+	items []map[string]any
+	seed  []map[string]any
+}
+
+// reset returns the fixture to its seeded state; /v1/test/reset is called
+// between specs and must not erase data later specs depend on.
+func (s *identityStore) reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.items = make([]map[string]any, len(s.seed))
+	copy(s.items, s.seed)
+}
+
+func (s *identityStore) list() []map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.items == nil {
+		return []map[string]any{}
+	}
+	out := make([]map[string]any, len(s.items))
+	copy(out, s.items)
+	return out
+}
+
+func (s *identityStore) remove(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, item := range s.items {
+		if item["id"] == id {
+			s.items = append(s.items[:i], s.items[i+1:]...)
+			return true
+		}
+	}
+	return false
 }
 
 type assistantStore struct {
@@ -399,6 +506,12 @@ func (s *slotEnvs) RecreateAgent(_ context.Context, _ string) (*userenv.UpgradeR
 // RecreateBrowser backs the browser proxy switch in the fake environment.
 func (s *slotEnvs) RecreateBrowser(_ context.Context, _ string) (*userenv.UpgradeResult, error) {
 	return &userenv.UpgradeResult{Status: "absent"}, nil
+}
+
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

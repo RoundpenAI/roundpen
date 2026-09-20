@@ -17,6 +17,8 @@ roundpen/
 │   │   ├── agentapi/          # Agent sessions + browser CDP UI
 │   │   └── auth/
 │   ├── authz/                 # 请求 Actor（属主 / admin）
+│   ├── oauth/                 # GitHub / Gitea 联合登录（provider 配置、授权流程、身份→git 凭据）
+│   ├── gitcred/               # 用户 git 凭据（手填 PAT + OAuth token 合并）与 guest 注入
 │   ├── httpx/                 # 可信代理、ClientIP / Scheme
 │   ├── userenv/               # 用户 → agent/browser 槽位映射
 │   ├── template/              # 槽位镜像（slot=agent|browser|mobile）
@@ -42,6 +44,8 @@ roundpen/
 | `api/platform` | 内部沙箱/模板 HTTP（非对外多开 SDK）；模板写操作需 admin |
 | `api/envapi` | 固定环境 Ensure + Browser 实时视图反代 |
 | `authz` / `httpx` | 属主上下文；可信代理下的 IP / HTTPS 判定 |
+| `oauth` | 联合登录：`oauth_providers` / `user_identities` / `oauth_states` 三表，回调复用 `auth.IssueSession` |
+| `gitcred` | `MergeCreds` 合并 PAT（优先）与 OAuth token，`InstallScript` 写入 guest `$HOME` |
 | `userenv` | PG `user_environments` |
 | `template` | slot 镜像配方与构建产物 |
 | `backend/qemu` | qcow2 生命周期、CDP hostfwd、VNC unix sock（Desktop/Mobile 落点） |

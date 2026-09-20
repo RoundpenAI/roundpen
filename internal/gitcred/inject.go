@@ -20,18 +20,22 @@ const (
 	GuestHomeGitConfig = guestHomeGitConfig
 )
 
+// GuestInstallScript lists the user's stored PATs and renders the install
+// script. Callers that also hold tokens from other sources (OAuth identities)
+// should list both and use InstallScript directly.
 func (s *Store) GuestInstallScript(ctx context.Context, userID string) (string, error) {
 	if s == nil {
-		return guestClearGitScript(), nil
+		return GuestClearGitScript(), nil
 	}
 	creds, err := s.List(ctx, userID)
 	if err != nil {
 		return "", err
 	}
-	return guestInstallScript(creds), nil
+	return InstallScript(creds), nil
 }
 
-func guestClearGitScript() string {
+// GuestClearGitScript removes every credential file from a guest.
+func GuestClearGitScript() string {
 	return `set -e
 rm -rf /workspace/.roundpen/git /home/roundpen/.roundpen/git 2>/dev/null || true
 rm -f /home/roundpen/.gitconfig 2>/dev/null || true
@@ -39,9 +43,11 @@ exit 0
 `
 }
 
-func guestInstallScript(creds []Cred) string {
+// InstallScript renders the guest-side script that (re)writes every git
+// credential file. Pure so callers can merge sources before rendering.
+func InstallScript(creds []Cred) string {
 	if len(creds) == 0 {
-		return guestClearGitScript()
+		return GuestClearGitScript()
 	}
 	cfg := base64.StdEncoding.EncodeToString([]byte(gitConfig(creds)))
 	store := base64.StdEncoding.EncodeToString([]byte(credentialStore(creds)))
