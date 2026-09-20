@@ -1,0 +1,135 @@
+name: mobile console APK
+
+# Build the Flutter mobile console and publish the per-ABI release APKs to the
+# Gitea generic package registry:
+#
+#   <server>/<owner>/-/packages/generic/roundpen-console/<version>/
+#
+# Install on a phone with:  adb install -r app-arm64-v8a-release.apk
+#
+# Notes for whoever maintains this:
+#   * Release builds are signed with the Android debug keystore (the Flutter
+#     template does that). Fine for sideloading onto your own device; a store
+#     or a wider rollout needs a real keystore via key.properties.
+#   * A plugin brings native code, so AGP insists on the NDK version Flutter
+#     pins — the job installs it explicitly instead of letting AGP download it
+#     mid-build.
+#   * If the runner cannot reach dl.google.com quickly, route the SDK/NDK
+#     traffic through a proxy by exporting GRADLE_SOCKS_PROXY (e.g.
+#     socks5h://10.10.1.4:1212) as a repository variable; it is applied to the
+#     JVM and to sdkmanager.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version to publish (default: short SHA)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  FLUTTER_VERSION: "3.47.5"
+  ANDROID_PLATFORM: "android-36"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  ANDROID_NDK: "28.2.13676358"
+  PACKAGE_NAME: "roundpen-console"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute the package version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            version="${{ inputs.version }}"
+          else
+            version="sha-${GITHUB_SHA::7}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the SDK components the build needs
+        env:
+          PROXY: ${{ vars.GRADLE_SOCKS_PROXY }}
+        run: |
+          if [[ -n "${PROXY}" ]]; then
+            host="${PROXY#*://}"; host="${host%%:*}"
+            port="${PROXY##*:}"
+            export JAVA_TOOL_OPTIONS="-DsocksProxyHost=${host} -DsocksProxyPort=${port}"
+          fi
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "platforms;${ANDROID_PLATFORM}" \
+                     "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-v1
+
+      - name: Build the release APKs
+        working-directory: mobile
+        env:
+          PROXY: ${{ vars.GRADLE_SOCKS_PROXY }}
+        run: |
+          if [[ -n "${PROXY}" ]]; then
+            host="${PROXY#*://}"; host="${host%%:*}"
+            port="${PROXY##*:}"
+            export JAVA_TOOL_OPTIONS="-DsocksProxyHost=${host} -DsocksProxyPort=${port}"
+          fi
+          flutter pub get
+          # One APK per ABI: arm64 phones, older armv7 phones, and x86_64 for
+          # emulators / android-in-containers (redroid).
+          flutter build apk --release --split-per-abi
+
+      - name: Publish to the package registry
+        working-directory: mobile/build/app/outputs/flutter-apk
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+
+          server="${SERVER_URL:-}"
+          if [[ -z "${server}" ]]; then
+            host="$(git config --get remote.origin.url | sed -E 's#^(ssh://)?([^@/]*@)?([^:/]+)[:/].*#\3#')"
+            server="https://${host}"
+          fi
+          base="${server}/api/packages/${OWNER}/generic/${PACKAGE_NAME}/${version}"
+
+          sha256sum ./*.apk > sha256sums.txt
+          for file in ./*.apk sha256sums.txt; do
+            echo "→ ${base}/${file}"
+            curl -fsS -X PUT \
+              -H "Authorization: token ${TOKEN}" \
+              --upload-file "${file}" \
+              "${base}/${file}"
+          done
+          echo "Published ${PACKAGE_NAME} ${version}: ${base}"
