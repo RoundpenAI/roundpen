@@ -14,10 +14,18 @@ name: mobile console APK
 #   * A plugin brings native code, so AGP insists on the NDK version Flutter
 #     pins — the job installs it explicitly instead of letting AGP download it
 #     mid-build.
-#   * If the runner cannot reach dl.google.com quickly, route the SDK/NDK
-#     traffic through a proxy by exporting GRADLE_SOCKS_PROXY (e.g.
-#     socks5h://10.10.1.4:1212) as a repository variable; it is applied to the
-#     JVM and to sdkmanager.
+#   * Egress on this intranet: the internet is only reachable through the
+#     SOCKS5 proxy 10.10.1.4:1212. Direct connects stall on anything larger
+#     than a few hundred KB (a GitHub clone dies with "unexpected EOF"), which
+#     is why the runner daemon fetches actions through `ci-proxy`, an HTTP
+#     CONNECT front for that SOCKS5 proxy running on the runner host
+#     (10.10.1.5:18118, source in /opt/ci-proxy). The job uses the same bridge
+#     for the tools that cannot speak SOCKS5 — the node-based actions, curl,
+#     git and Dart/pub. Java ignores the *_PROXY variables, so
+#     JAVA_TOOL_OPTIONS points Gradle, sdkmanager and the Gradle wrapper at
+#     the SOCKS5 proxy directly.
+#   * NO_PROXY must keep intranet traffic (Gitea, the runner's cache server)
+#     off the proxy: the SOCKS5 proxy cannot route back into 10.0.0.0/8.
 
 on:
   push:
@@ -44,6 +52,13 @@ env:
 jobs:
   apk:
     runs-on: ubuntu-latest
+    env:
+      # See the egress note above. Read by the node actions, curl, git and
+      # Dart/pub; the JVM is covered by JAVA_TOOL_OPTIONS instead.
+      HTTP_PROXY: "http://10.10.1.5:18118"
+      HTTPS_PROXY: "http://10.10.1.5:18118"
+      NO_PROXY: "localhost,127.0.0.1,::1,git.eaxi.com,10.10.1.5"
+      JAVA_TOOL_OPTIONS: "-DsocksProxyHost=10.10.1.4 -DsocksProxyPort=1212"
     steps:
       - uses: actions/checkout@v4
 
@@ -71,17 +86,19 @@ jobs:
           cache: true
 
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list is still `tools platform-tools`,
+          # and the retired `tools` package now fails the whole run with
+          # "Failed to find package 'tools'".
+          packages: "platform-tools"
 
       - name: Install the SDK components the build needs
-        env:
-          PROXY: ${{ vars.GRADLE_SOCKS_PROXY }}
         run: |
-          if [[ -n "${PROXY}" ]]; then
-            host="${PROXY#*://}"; host="${host%%:*}"
-            port="${PROXY##*:}"
-            export JAVA_TOOL_OPTIONS="-DsocksProxyHost=${host} -DsocksProxyPort=${port}"
-          fi
-          yes | sdkmanager --licenses > /dev/null
+          # The runner runs steps under bash -e -o pipefail: piping `yes` into
+          # sdkmanager would fail the step with exit 141 as soon as sdkmanager
+          # exits and `yes` is killed by SIGPIPE. Process substitution keeps
+          # sdkmanager's own exit status.
+          sdkmanager --licenses > /dev/null < <(yes)
           sdkmanager "platform-tools" "platforms;${ANDROID_PLATFORM}" \
                      "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}"
 
@@ -94,14 +111,7 @@ jobs:
 
       - name: Build the release APKs
         working-directory: mobile
-        env:
-          PROXY: ${{ vars.GRADLE_SOCKS_PROXY }}
         run: |
-          if [[ -n "${PROXY}" ]]; then
-            host="${PROXY#*://}"; host="${host%%:*}"
-            port="${PROXY##*:}"
-            export JAVA_TOOL_OPTIONS="-DsocksProxyHost=${host} -DsocksProxyPort=${port}"
-          fi
           flutter pub get
           # One APK per ABI: arm64 phones, older armv7 phones, and x86_64 for
           # emulators / android-in-containers (redroid).
