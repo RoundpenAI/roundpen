@@ -2,8 +2,12 @@
 
 Roundpen 支持三种验证方式（对齐 ai-sandbox）：
 
-1. **用户名/邮箱 + 密码**：登录后下发 HttpOnly `roundpen_session` Cookie（7 天滑动过期）
-2. **API Key**（`rp-...`）：CLI 与自动化，通过 `X-API-Key` 或 `Authorization: Bearer`
+1. **用户名/邮箱 + 密码**：登录后下发 HttpOnly `roundpen_session` Cookie（7 天滑动过期）；
+   原生客户端（移动端控制台）可在登录时要求把会话 token 一并返回，之后以
+   `Authorization: Bearer <sessionToken>` 携带——服务端存的只有 token 的哈希，
+   token 每次登录新发一条、可单独吊销（见下「移动端登录」）
+2. **API Key**（`rp-...`）：CLI 与自动化，通过 `X-API-Key` 或 `Authorization: Bearer`。
+   数据库只存哈希，明文仅在生成/轮换时返回一次
 3. **GitHub / Gitea OAuth2**：授权码 + PKCE 登录；token 同时作为该用户的 git 凭据注入沙箱，
    见 [git-credentials.md](git-credentials.md)
 
@@ -14,8 +18,8 @@ Roundpen 支持三种验证方式（对齐 ai-sandbox）：
 | Method | Path | Auth | Notes |
 |--------|------|------|--------|
 | POST | `/v1/auth/register` | public（开关） | `{ email?, password, username?, fullname? }` → 201 + Set-Cookie。需 `ROUNDPEN_ALLOW_PUBLIC_REGISTRATION=true` |
-| POST | `/v1/auth/login` | public | `{ user, password }`（`user` 可为 username 或 email；也接受 `username` / `email`）→ 200 `{ user }` + Set-Cookie |
-| POST | `/v1/auth/logout` | session | 204，清除 Cookie |
+| POST | `/v1/auth/login` | public | `{ user, password, returnSessionToken? }`（`user` 可为 username 或 email；也接受 `username` / `email`）→ 200 `{ user, sessionToken? }` + Set-Cookie。`sessionToken` 只在显式要求时返回（见「移动端登录」） |
+| POST | `/v1/auth/logout` | session | 204，吊销当前会话（Cookie 或 Bearer 会话 token）并清除 Cookie |
 | GET | `/v1/auth/user` | Cookie 或 API key | 当前用户（API key 脱敏） |
 | GET | `/v1/auth/oauth/providers` | public | 已启用的联合登录 provider（登录页按钮用） |
 | GET | `/v1/auth/oauth/{provider}/start` | public | 302 到远端授权页；可选 `?redirect=` 站内回跳路径 |
@@ -39,8 +43,24 @@ Roundpen 支持三种验证方式（对齐 ai-sandbox）：
 公开路径（无需登录）：`GET /health`、`GET /v1/ready`、登录/注册、`GET /v1/auth/oauth/`（联合登录的
 发现与回调）、以及 LLM 网关 `/llmgw/`（使用 virtual key）。
 
-登录按 IP 限流（15 分钟内 10 次失败）；OAuth 回调不经过该限流器（不涉及凭据猜测，state 单次使用
-且 10 分钟过期）。
+登录按 IP 限流（15 分钟内 10 次失败）；`returnSessionToken` 在口令校验之后才生效，无法绕过限流。
+OAuth 回调不经过该限流器（不涉及凭据猜测，state 单次使用且 10 分钟过期）。
+
+## 移动端登录
+
+原生客户端没有浏览器 Cookie 罐，流程是：
+
+1. `POST /v1/auth/login` `{ user, password, returnSessionToken: true }` → 响应体里的 `sessionToken`
+   （64 位十六进制，明文只此一次；服务端存的是 SHA-256）连同 `Set-Cookie` 一起下发，客户端忽略 Cookie。
+2. 之后所有 REST 与 WebSocket 升级请求都带 `Authorization: Bearer <sessionToken>`
+   （`X-API-Key` 不接受会话 token，只认 `rp-` 开头的 API Key）。
+3. token 进系统钥匙串（Keychain / Keystore）。同一条 token 同时只有一个设备持有；
+   会话 7 天滑动过期，期间任意一次请求都会续期。
+4. 退出登录调 `POST /v1/auth/logout`（带同一个 Bearer）即可在服务端吊销该会话。
+5. 改密码（`POST /v1/auth/password`）会吊销该用户名下的**所有**会话，客户端会收到 401，需重新登录。
+
+为什么不用 API Key：数据库只存哈希，登录接口拿不到明文；`/v1/auth/apikey/rotate` 虽能返回明文，
+但会作废其它设备（CLI、另一台手机）手里的 key，不能拿来当登录凭据。
 
 ## 联合登录（GitHub / Gitea）
 

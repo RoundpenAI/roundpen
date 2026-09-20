@@ -25,6 +25,9 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 | Browser | Docker | browserless/chrome 容器；CDP + 自带 debugger 实时视图（来源可配：托管/局域网/云/本机） |
 | Mobile | 预留 | 后续独立 VM（QEMU） |
 
+> `Mobile` 槽位是给 Agent 用的手机环境（QEMU，预留），和客户端没关系。
+> 手机上用的客户端叫 **移动端控制台**（`mobile/`，Flutter），见「本地开发（贡献者）」。
+
 ## 架构（摘要）
 
 ```
@@ -107,6 +110,16 @@ make dev            # pg0 → roundpend :19001 + UI :19000
 # 浏览器打开 http://127.0.0.1:19000/
 ```
 
+**移动端控制台**（可选，Flutter，需要本机装 Flutter SDK；控制面本身不需要 Dart）：
+
+```bash
+make mobile-setup   # 首次：cd mobile && flutter pub get
+make mobile-dev     # 模拟器/真机运行；先起 make dev，App 里填 http://<本机局域网IP>:19001
+```
+
+注意：**不要用 `flutter run -d chrome` 调试**——WebSocket 鉴权走原生握手 header，浏览器会丢弃它。
+鼠标键盘调试用模拟器，真机验收用 dev build；iOS 首次访问局域网地址会弹「本地网络」权限，需要允许。
+
 环境变量示例见 [.env.example](.env.example)。
 
 ## 技术选型
@@ -123,6 +136,7 @@ make dev            # pg0 → roundpend :19001 + UI :19000
 ## 路线图
 
 - **近期**：固定环境模型 + Browser 迁 Docker / Playwright（多来源：托管/局域网/云/本机）；删除多开沙箱 / E2B 兼容；删除 Kern 与 Agent-QEMU 默认路径
+- **移动端**：移动端控制台（`mobile/`，Flutter）——对话核心优先，后续接 slash 命令、议题等（与 `Mobile` 槽位是两件事）
 - **中期**：镜像可视化定制加深；Agent 容器工作区增强
 - **远期**：Mobile 槽位、集群扩展与企业能力
 

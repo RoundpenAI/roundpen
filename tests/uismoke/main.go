@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -178,7 +180,44 @@ func main() {
 		writeJSON(w, seed.create(body.Title, body.ProviderID, body.AssistantID))
 	})
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"messages": seed.messages})
+		writeJSON(w, map[string]any{"messages": seed.messageList()})
+	})
+	// Scripted agent-session socket: plays one deterministic turn per prompt
+	// (streamed text → thinking → a tool card → a permission prompt → done) so
+	// real clients can be exercised without a Docker agent. The web console
+	// fakes the socket in the browser, so this route is for native/device smoke.
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := sessionUpgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		openSockets.Store(conn, struct{}{})
+		defer func() {
+			openSockets.Delete(conn)
+			conn.Close()
+		}()
+		_ = conn.WriteJSON(map[string]any{"type": "hello", "message": "ok"})
+		_ = conn.WriteJSON(map[string]any{"type": "status", "busy": false})
+		for {
+			var in struct {
+				Type      string `json:"type"`
+				Text      string `json:"text"`
+				RequestID string `json:"requestId"`
+			}
+			if err := conn.ReadJSON(&in); err != nil {
+				return
+			}
+			switch in.Type {
+			case "prompt":
+				playScriptedTurn(conn, seed, in.Text)
+			case "permission":
+				_ = conn.WriteJSON(map[string]any{
+					"type": "permission_resolved", "requestId": in.RequestID,
+				})
+			case "cancel":
+				_ = conn.WriteJSON(map[string]any{"type": "done", "stopReason": "cancelled"})
+			}
+		}
 	})
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/commands", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"commands": seed.commands})
@@ -243,6 +282,18 @@ func main() {
 			"softDeny":    []string{"Force-pushing or rewriting remote git history."},
 			"hardDeny":    []string{"Reaching cloud metadata or control-plane addresses."},
 		})
+	})
+	// Test hook: drop every live agent socket so clients have to reconnect.
+	mux.HandleFunc("POST /v1/test/drop-sockets", func(w http.ResponseWriter, r *http.Request) {
+		dropped := 0
+		openSockets.Range(func(key, _ any) bool {
+			if conn, ok := key.(*websocket.Conn); ok {
+				_ = conn.Close()
+				dropped++
+			}
+			return true
+		})
+		writeJSON(w, map[string]any{"dropped": dropped})
 	})
 	mux.HandleFunc("PUT /v1/test/ensure-error", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -522,10 +573,147 @@ func writeJSON(w http.ResponseWriter, v any) {
 // seedSession fabricates a chat session with a long assistant reply so UI
 // smoke can exercise bubble rendering (including narrow mobile viewports)
 // without a live agent.
+var sessionUpgrader = websocket.Upgrader{
+	CheckOrigin: func(*http.Request) bool { return true },
+}
+
+// openSockets lets the test route below drop live agent sockets, which is how
+// the mobile console's reconnect path gets exercised on a device.
+var openSockets sync.Map
+
+// playScriptedTurn streams one canned turn over the socket and persists the
+// same rows, so the post-`done` /messages refetch matches what was streamed.
+func playScriptedTurn(conn *websocket.Conn, seed *seedSession, prompt string) {
+	send := func(frame map[string]any) { _ = conn.WriteJSON(frame) }
+	event := func(typ string, fields map[string]any) {
+		payload := map[string]any{"type": typ}
+		for k, v := range fields {
+			payload[k] = v
+		}
+		send(map[string]any{"type": "event", "event": payload})
+	}
+
+	seed.appendMessage("user", prompt, nil)
+	send(map[string]any{"type": "status", "busy": true})
+
+	reply := "收到：" + prompt + "\n\n先看一眼工作区的文件。"
+	for _, chunk := range []string{"收到：" + prompt, "\n\n先看一眼", "工作区的文件。"} {
+		event("agent_message", map[string]any{"text": chunk})
+		time.Sleep(150 * time.Millisecond)
+	}
+
+	const thought = "让我先列出目录，再读 README。"
+	event("agent_thought", map[string]any{"text": thought})
+	seed.appendMessage("thought", thought, map[string]any{"type": "thought"})
+
+	toolID := fmt.Sprintf("tool-%d", time.Now().UnixNano())
+	event("tool_call", map[string]any{
+		"toolId": toolID, "title": "Read", "kind": "read", "status": "in_progress",
+		"input": map[string]any{"path": "/workspace/README.md"},
+	})
+	seed.upsertToolMessage(toolID, map[string]any{
+		"type": "tool_call", "toolId": toolID, "title": "Read", "kind": "read",
+		"status": "in_progress", "input": map[string]any{"path": "/workspace/README.md"},
+	})
+	time.Sleep(200 * time.Millisecond)
+	event("tool_call_update", map[string]any{
+		"toolId": toolID, "status": "completed",
+		"output": "# Roundpen\n轻量级、可私有化部署的 Agent 固定环境基础设施。",
+	})
+	seed.upsertToolMessage(toolID, map[string]any{
+		"status": "completed", "output": "# Roundpen\n轻量级、可私有化部署的 Agent 固定环境基础设施。",
+	})
+
+	// Always ask for permission once, so the prompt UI is exercised even when
+	// the client has auto mode on. A real control plane only asks when needed.
+	requestID := fmt.Sprintf("perm-%d", time.Now().UnixNano())
+	send(map[string]any{
+		"type": "permission_request", "requestId": requestID,
+		"title": "运行 shell 命令：ls -la /workspace",
+		"options": []map[string]any{
+			{"optionId": "allow_once", "name": "允许一次", "kind": "allow_once"},
+			{"optionId": "allow_always", "name": "始终允许", "kind": "allow_always"},
+			{"optionId": "reject_once", "name": "拒绝", "kind": "reject_once"},
+		},
+	})
+	_ = conn.SetReadDeadline(time.Now().Add(20 * time.Second))
+	var answer struct {
+		Type      string `json:"type"`
+		RequestID string `json:"requestId"`
+	}
+	if err := conn.ReadJSON(&answer); err == nil && answer.Type == "permission" {
+		send(map[string]any{"type": "permission_resolved", "requestId": answer.RequestID})
+	}
+	_ = conn.SetReadDeadline(time.Time{})
+
+	tail := "\n\n权限确认了，处理完成。"
+	event("agent_message", map[string]any{"text": tail})
+	seed.appendMessage("assistant", reply+tail, nil)
+	send(map[string]any{"type": "status", "busy": false})
+	send(map[string]any{"type": "done", "stopReason": "end_turn"})
+}
+
 type seedSession struct {
+	mu       sync.Mutex
 	session  map[string]any
 	messages []map[string]any
 	commands []map[string]any
+}
+
+// appendMessage stores a row produced by the scripted WS turn, so the
+// /messages refetch after `done` shows the same transcript the client saw live.
+func (s *seedSession) appendMessage(role, content string, meta map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	row := map[string]any{
+		"id":        fmt.Sprintf("m-%d-%d", time.Now().UnixNano(), len(s.messages)),
+		"sessionId": s.sessionID(),
+		"role":      role,
+		"content":   content,
+		"createdAt": time.Now().UTC().Format(time.RFC3339),
+	}
+	if meta != nil {
+		row["meta"] = meta
+	}
+	s.messages = append(s.messages, row)
+}
+
+// upsertToolMessage mirrors the control plane's streaming tool persistence.
+func (s *seedSession) upsertToolMessage(toolID string, meta map[string]any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, row := range s.messages {
+		m, _ := row["meta"].(map[string]any)
+		if m == nil || m["toolId"] != toolID {
+			continue
+		}
+		for k, v := range meta {
+			if str, ok := v.(string); ok && str == "" {
+				continue
+			}
+			if v == nil {
+				continue
+			}
+			m[k] = v
+		}
+		return
+	}
+	s.messages = append(s.messages, map[string]any{
+		"id":        fmt.Sprintf("tool-%d", time.Now().UnixNano()),
+		"sessionId": s.sessionID(),
+		"role":      "tool",
+		"content":   "",
+		"meta":      meta,
+		"createdAt": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func (s *seedSession) messageList() []map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]map[string]any, len(s.messages))
+	copy(out, s.messages)
+	return out
 }
 
 func (s *seedSession) sessionID() string {
