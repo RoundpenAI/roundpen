@@ -26,6 +26,8 @@ import {
 import { useAuth } from '../auth'
 import { useT, type MessageKey } from '../i18n'
 import { GitCredentialsPanel } from '../components/GitCredentialsPanel'
+import { LinkedAccountsPanel } from '../components/LinkedAccountsPanel'
+import { OAuthProvidersPanel } from '../components/OAuthProvidersPanel'
 import { AgentEnvironmentPanel } from '../components/AgentEnvironmentPanel'
 import { Loading } from '../components/Loading'
 import { resolveSettingsSection } from '../lib/appNav'
@@ -517,6 +519,10 @@ export function SettingsPage() {
         )}
 
         {section === 'git' && <GitCredentialsPanel />}
+
+        {section === 'accounts' && <LinkedAccountsPanel />}
+
+        {section === 'oauth' && isAdmin && <OAuthProvidersPanel />}
 
         {section === 'agent' && <AgentEnvironmentPanel />}
 
