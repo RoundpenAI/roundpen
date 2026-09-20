@@ -1,12 +1,26 @@
 # Git personal tokens
 
-统一用 **Personal Access Token**（不用 SSH 钥匙）。同一条 token 既给 `git clone` / `push`，也给后续 `tea` / `gh` / `glab` 管 issue、PR。
+统一用 **Personal Access Token / OAuth token**（不用 SSH 钥匙）。同一条 token 既给 `git clone` / `push`，
+也给 `tea` / `gh` / `glab` 管 issue、PR。
 
 ```
-用户填写 PAT  →  平台按用户存 PostgreSQL  →  EnsureAgent 注入该用户的 guest $HOME
+用户填写 PAT（Git 个人令牌）        ┐
+                                    ├→ 按 host 合并（PAT 优先）→ 注入该用户的 guest $HOME
+GitHub / Gitea OAuth 登录（关联账号）┘
 ```
 
 不把 token 打进镜像，也不从宿主机 `~/.ssh` 拷贝。
+
+## 与联合登录的关系
+
+OAuth 登录（见 [auth.md](auth.md)）拿到的 token 存在 `user_identities`，注入时与手填 PAT 按 **host**
+合并（`gitcred.MergeCreds`）：
+
+- **同一 host 上手填 PAT 优先**——用户显式配置的覆盖登录身份；解绑 OAuth 不会动 PAT。
+- 其余 host 用 OAuth token（用户名取该 provider 默认：GitHub `x-access-token`、Gitea `git`）。
+- Gitea 的 access token 默认 1 小时过期（`REFRESH_TOKEN_EXPIRATION_TIME` 控制 refresh token）：
+  注入时若 5 分钟内过期会先刷新；另有后台任务每 10 分钟刷新 30 分钟内过期的身份，并重跑运行中
+  Agent 沙箱的注入脚本。刷新失败沿用旧 token（git 会明确报认证失败），此时可改用 PAT。
 
 ## 用户
 
