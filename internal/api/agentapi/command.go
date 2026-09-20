@@ -14,6 +14,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/commands"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
@@ -27,19 +28,19 @@ const skillQueryTimeout = 5 * time.Second
 func (h *Handler) listCommands(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	sess, err := h.Store.Get(r.Context(), r.PathValue("id"))
 	if errors.Is(err, agentsession.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil || (sess.UserID != user.Username && user.Role != "admin") {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"commands": h.commandCatalog(r.Context(), sess)})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"commands": h.commandCatalog(r.Context(), sess)})
 }
 
 // commandCatalog assembles the catalog. Built-in actions and skills are

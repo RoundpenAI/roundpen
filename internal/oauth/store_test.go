@@ -95,7 +95,17 @@ func TestPgStoreProviderAndIdentityLifecycle(t *testing.T) {
 		t.Errorf("tokens = %q / %q, want the refresh token preserved", got.AccessToken, got.RefreshToken)
 	}
 
-	// A second identity for the same user+provider is rejected by the schema.
+	// A second identity for the same user+provider is rejected by the schema
+	// (unique (user_id, provider_id)): linking another remote account on the
+	// same provider requires disconnecting the first one.
+	if _, err := s.UpsertIdentity(ctx, IdentityUpsert{
+		UserID: user.Username, ProviderID: p.ID, Subject: "7", Login: "other", AccessToken: "at-4",
+	}); !errors.Is(err, ErrAlreadyLinked) {
+		t.Fatalf("second identity on the same provider: err = %v, want ErrAlreadyLinked", err)
+	}
+
+	// A different provider (e.g. another Gitea host) may still be linked; it
+	// also verifies the provider-delete cascade below.
 	second := p
 	second.ID = p.ID + "-two"
 	second.Host = "pg2.example.test"
@@ -103,11 +113,6 @@ func TestPgStoreProviderAndIdentityLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.DeleteProvider(ctx, second.ID) })
-	if _, err := s.UpsertIdentity(ctx, IdentityUpsert{
-		UserID: user.Username, ProviderID: second.ID, Subject: "7", Login: "other", AccessToken: "at-4",
-	}); !errors.Is(err, ErrAlreadyLinked) {
-		t.Fatalf("second identity on the same provider: err = %v, want ErrAlreadyLinked", err)
-	}
 
 	expiring, err := s.ListExpiringIdentities(ctx, time.Now().Add(2*time.Hour))
 	if err != nil {

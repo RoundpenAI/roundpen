@@ -1,7 +1,6 @@
 package llmgw
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -40,7 +39,7 @@ func (g *Gateway) Mount(mux *http.ServeMux) {
 func (g *Gateway) handleVirtualKeys(w http.ResponseWriter, r *http.Request) {
 	keys, err := g.store.ListVirtualKeys(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	type keyInfo struct {
@@ -52,7 +51,7 @@ func (g *Gateway) handleVirtualKeys(w http.ResponseWriter, r *http.Request) {
 	for _, vk := range keys {
 		out = append(out, keyInfo{Key: maskVirtualKey(vk.Key), Name: vk.Name, Enabled: vk.Enabled})
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (g *Gateway) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -64,10 +63,10 @@ func (g *Gateway) handleLogs(w http.ResponseWriter, r *http.Request) {
 		Offset:     parseIntDefault(q.Get("offset"), 0),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, logs)
+	httpx.WriteJSON(w, http.StatusOK, logs)
 }
 
 type logDetail struct {
@@ -83,16 +82,16 @@ type logDetail struct {
 func (g *Gateway) handleLogDetail(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		writeErr(w, http.StatusBadRequest, "invalid id")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid id")
 		return
 	}
 	tx, bodies, err := g.store.GetTransaction(r.Context(), id)
 	if errors.Is(err, storage.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	detail := logDetail{Transaction: tx}
@@ -104,16 +103,16 @@ func (g *Gateway) handleLogDetail(w http.ResponseWriter, r *http.Request) {
 		detail.ResponseTruncated = bodies.ResponseTruncated
 		detail.UpstreamRequestTruncated = bodies.UpstreamRequestTruncated
 	}
-	writeJSON(w, http.StatusOK, detail)
+	httpx.WriteJSON(w, http.StatusOK, detail)
 }
 
 func (g *Gateway) handleStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := g.store.Stats(r.Context(), r.URL.Query().Get("virtual_key"))
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, stats)
+	httpx.WriteJSON(w, http.StatusOK, stats)
 }
 
 type setupProvider struct {
@@ -139,12 +138,12 @@ type setupResponse struct {
 func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
 	upstreams, err := g.store.ListUpstreams(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	keys, err := g.store.ListVirtualKeys(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -174,7 +173,7 @@ func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
 		}
 		out.DownstreamModels[u.Provider] = downstreamModels(u)
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func downstreamModels(u Upstream) []setupModel {
@@ -202,16 +201,6 @@ func publicBaseURL(r *http.Request, configured string) string {
 		return u
 	}
 	return httpx.DefaultTrust.Scheme(r) + "://" + httpx.DefaultTrust.Host(r)
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"message": msg})
 }
 
 func parseIntDefault(s string, def int) int {

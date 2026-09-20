@@ -13,6 +13,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -40,11 +41,11 @@ type liveTarget struct {
 func (h *Handler) liveLink(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Envs == nil {
-		writeErr(w, http.StatusServiceUnavailable, "environments not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "environments not configured")
 		return
 	}
 	target, err := h.Envs.EnsureBrowser(r.Context(), user.Username)
@@ -52,12 +53,12 @@ func (h *Handler) liveLink(w http.ResponseWriter, r *http.Request) {
 		if runtime.WriteNotReady(w, err) {
 			return
 		}
-		writeErr(w, http.StatusBadGateway, err.Error())
+		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	switch target.Provider {
 	case config.CDPProviderDocker:
-		writeJSON(w, http.StatusOK, map[string]any{"mode": "managed", "url": liveRoutePrefix + "/"})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"mode": "managed", "url": liveRoutePrefix + "/"})
 	case config.CDPProviderRemote, config.CDPProviderCloud:
 		endpoint, token := "", ""
 		if h.Cfg != nil {
@@ -65,7 +66,7 @@ func (h *Handler) liveLink(w http.ResponseWriter, r *http.Request) {
 		}
 		u := strings.TrimRight(strings.TrimSpace(endpoint), "/")
 		if u == "" {
-			writeJSON(w, http.StatusOK, map[string]any{"mode": target.Provider, "url": ""})
+			httpx.WriteJSON(w, http.StatusOK, map[string]any{"mode": target.Provider, "url": ""})
 			return
 		}
 		// The instance token authorizes every session on the endpoint, so only
@@ -74,9 +75,9 @@ func (h *Handler) liveLink(w http.ResponseWriter, r *http.Request) {
 		if user.Role != storage.RoleAdmin {
 			token = ""
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"mode": target.Provider, "url": debuggerURL(u, token)})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"mode": target.Provider, "url": debuggerURL(u, token)})
 	default:
-		writeJSON(w, http.StatusOK, map[string]any{
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{
 			"mode": "host", "url": "",
 			"hint": "host Chrome has no live view; use the screenshot takeover panel",
 		})

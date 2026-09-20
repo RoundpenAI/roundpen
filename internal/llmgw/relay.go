@@ -144,7 +144,7 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 			StatusCode: http.StatusInternalServerError, RequestBytes: int64(len(reqRaw)),
 			Error: err.Error(), CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
 		}, bodiesIfLogged(logLimit, &reqLog))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal relay error", http.StatusInternalServerError)
 		return
 	}
 
@@ -159,7 +159,7 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 			StatusCode: http.StatusBadGateway, RequestBytes: int64(len(reqRaw)),
 			Error: err.Error(), CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
 		}, bodiesIfLogged(logLimit, &reqLog))
-		http.Error(w, "upstream proxy: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, "upstream proxy unavailable", http.StatusBadGateway)
 		return
 	}
 
@@ -171,7 +171,7 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 			StatusCode: http.StatusBadGateway, RequestBytes: int64(len(reqRaw)),
 			Error: err.Error(), CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
 		}, bodiesIfLogged(logLimit, &reqLog))
-		http.Error(w, "upstream error: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, "upstream request failed", http.StatusBadGateway)
 		return
 	}
 	defer upResp.Body.Close()

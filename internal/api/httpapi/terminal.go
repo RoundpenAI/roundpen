@@ -5,34 +5,18 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
 func (h *Handler) checkTerminalOrigin(r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return true
-	}
-	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	if strings.EqualFold(u.Host, r.Host) {
-		return true
-	}
-	if h.PublicURL != "" {
-		if pu, err := url.Parse(h.PublicURL); err == nil && strings.EqualFold(u.Host, pu.Host) {
-			return true
-		}
-	}
-	return false
+	return httpx.CheckSameOrigin(r, h.PublicURL)
 }
 
 // MountTerminal registers the interactive PTY WebSocket.

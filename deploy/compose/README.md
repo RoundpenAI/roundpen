@@ -5,7 +5,8 @@ End users do **not** need Node or Go. The console SPA is built inside
 
 ```bash
 # from repo root
-cp .env.compose.example .env   # optional
+cp .env.compose.example .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env   # required — no default DB password
 docker compose up -d --build
 # open http://127.0.0.1:9527 — admin password is in roundpend logs once
 docker compose logs roundpend | head

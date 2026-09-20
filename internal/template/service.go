@@ -50,7 +50,10 @@ func (s *Service) List(ctx context.Context) ([]Record, error) {
 }
 
 // Resolve maps a templateID string to image and resource limits.
-// Unknown refs fall back to treating templateID as a raw image when fallbackLegacy is enabled.
+// Unknown refs fall back to treating templateID as a raw image when
+// fallbackLegacy is enabled. Because that fallback pulls and runs an
+// arbitrary OCI image, it must only be reachable by admin-controlled
+// inputs (config defaults, admin-gated HTTP routes).
 func (s *Service) Resolve(ctx context.Context, templateID string) (Resolved, error) {
 	ref := ParseRef(templateID)
 	var (

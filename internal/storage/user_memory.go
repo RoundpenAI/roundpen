@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"strings"
 	"sync"
@@ -22,8 +23,10 @@ func NewMemoryUserStore() *MemoryUserStore {
 func (m *MemoryUserStore) GetByAPIKey(_ context.Context, apiKey string) (*User, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	hashed := HashAPIKey(apiKey)
 	for _, u := range m.users {
-		if u.APIKey == apiKey || u.APIKey == HashAPIKey(apiKey) {
+		if subtle.ConstantTimeCompare([]byte(u.APIKey), []byte(apiKey)) == 1 ||
+			subtle.ConstantTimeCompare([]byte(u.APIKey), []byte(hashed)) == 1 {
 			cp := u
 			return &cp, nil
 		}

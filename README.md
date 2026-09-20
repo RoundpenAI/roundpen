@@ -37,7 +37,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 
 | 层级 | 说明 |
 |------|------|
-| 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、`/v1/me/environments`。`policy` / `toolgw` 仍是空包 |
+| 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、策略边界（`policy`：网络 / 能力 / 目录 + 软拒绝）、`/v1/me/environments` |
 | 环境抽象 | Sandbox Manager + 用户槽位映射（`user_environments`） |
 | 后端 | **Agent / Browser → Docker**；**Desktop / Mobile 预留 QEMU**；`multi` 按 slot 路由 |
 | 镜像 | `internal/template`（slot）+ `images/code-agent/`（官方 OCI）+ `ghcr.io/browserless/chrome`（Browser，pull） |
@@ -79,7 +79,8 @@ make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver�
 控制台已嵌入二进制，宿主机**不必安装 Node / Go**：
 
 ```bash
-cp .env.compose.example .env   # 可选
+cp .env.compose.example .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env   # 必填：数据库口令（无默认弱口令）
 docker compose up -d --build
 # 浏览器打开 http://127.0.0.1:9527
 # 首次启动：docker compose logs roundpend | head   # admin 密码与 API Key 各打印一次

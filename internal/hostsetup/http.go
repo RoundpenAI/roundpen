@@ -8,6 +8,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 type Handler struct {
@@ -19,48 +20,48 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/setup/llm-ready", h.llmReady)
 	mux.HandleFunc("POST /v1/setup/plans", h.createPlan)
 	mux.HandleFunc("GET /v1/setup/plans/{id}", h.getPlan)
-	mux.HandleFunc("POST /v1/setup/plans/{id}/actions/{actionId}/confirm", h.confirm)
+	mux.HandleFunc("POST /v1/setup/plans/{id}/actions/{actionId}/confirm", auth.RequireAdmin(h.confirm))
 	mux.HandleFunc("POST /v1/setup/plans/{id}/actions/{actionId}/recheck", h.recheck)
-	mux.HandleFunc("POST /v1/setup/plans/{id}/actions/{actionId}/retry", h.retry)
+	mux.HandleFunc("POST /v1/setup/plans/{id}/actions/{actionId}/retry", auth.RequireAdmin(h.retry))
 }
 
 func (h *Handler) llmReady(w http.ResponseWriter, r *http.Request) {
 	if auth.GetUser(r.Context()) == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	ready, reason := LLMReady(h.Cfg)
-	writeJSON(w, http.StatusOK, map[string]any{"ready": ready, "reason": reason})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ready": ready, "reason": reason})
 }
 
 func (h *Handler) createPlan(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Svc == nil {
-		writeErr(w, http.StatusServiceUnavailable, "setup not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "setup not configured")
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 		return
 	}
 	var ctx WizardContext
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &ctx); err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid body")
+			httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
 			return
 		}
 	}
 	rec, err := h.Svc.CreatePlan(r.Context(), user.Username, ctx)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, rec)
+	httpx.WriteJSON(w, http.StatusOK, rec)
 }
 
 func (h *Handler) getPlan(w http.ResponseWriter, r *http.Request) {
@@ -84,30 +85,30 @@ func (h *Handler) retry(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) withPlan(w http.ResponseWriter, r *http.Request, fn func(user, id string) (*PlanRecord, error)) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Svc == nil {
-		writeErr(w, http.StatusServiceUnavailable, "setup not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "setup not configured")
 		return
 	}
 	id := r.PathValue("id")
 	rec, err := fn(user.Username, id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		httpx.WriteErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, rec)
+	httpx.WriteJSON(w, http.StatusOK, rec)
 }
 
 func (h *Handler) withAction(w http.ResponseWriter, r *http.Request, fn func(user, id, actionID string) (*PlanRecord, error)) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if h.Svc == nil {
-		writeErr(w, http.StatusServiceUnavailable, "setup not configured")
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "setup not configured")
 		return
 	}
 	id := r.PathValue("id")
@@ -119,18 +120,8 @@ func (h *Handler) withAction(w http.ResponseWriter, r *http.Request, fn func(use
 		if strings.Contains(msg, "not found") {
 			code = http.StatusNotFound
 		}
-		writeErr(w, code, msg)
+		httpx.WriteErr(w, code, msg)
 		return
 	}
-	writeJSON(w, http.StatusOK, rec)
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"error": msg})
+	httpx.WriteJSON(w, http.StatusOK, rec)
 }
