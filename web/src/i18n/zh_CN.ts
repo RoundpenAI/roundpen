@@ -7,7 +7,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'nav.workspace': '工作区',
   'nav.settings': '设置',
   'nav.admin': '系统管理',
-  'nav.registry': '镜像',
   'nav.menu': '菜单',
   'nav.expandPrimary': '展开一级菜单',
   'nav.collapsePrimary': '收起一级菜单',
@@ -39,8 +38,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.section.agent': 'Agent 环境',
   'settings.section.general': '通用',
   'settings.section.oauth': 'OAuth 登录',
-  'settings.section.preview': '预览',
-  'settings.section.builds': '构建',
   'settings.section.browser': '浏览器',
   'settings.section.llmgw': 'LLM 网关',
   'settings.section.webtools': 'Web 工具',
@@ -74,16 +71,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.general.defaultImage': '默认模板 / 镜像',
   'settings.general.defaultTtl': '默认沙箱 TTL',
 
-  'settings.preview.publicUrl': '公开预览基础 URL',
-  'settings.preview.tokenTtl': '预览令牌 TTL',
-
-  'settings.builds.engine': '模板构建引擎',
-
-  'settings.builder.disabled': '禁用（不在本地构建）',
-  'settings.builder.docker': '本地 Docker',
-  'settings.builder.ci': '远程 CI（在别处构建）',
-  'settings.builder.auto': '自动（根据后端检测）',
-
   'settings.cdp.auto':
     '自动（使用 Roundpen 托管容器 browserless）',
   'settings.cdp.docker': 'Roundpen 托管容器（browserless/chrome）',
@@ -98,7 +85,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.ttl.1h': '1 小时',
   'settings.ttl.2h': '2 小时',
   'settings.ttl.4h': '4 小时',
-  'settings.ttl.5m': '5 分钟',
   'settings.duration.1h': '1 小时',
   'settings.duration.nh': '{n} 小时',
   'settings.duration.1m': '1 分钟',
@@ -174,7 +160,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.system.httpAddr': 'HTTP 地址',
   'settings.system.dataRoot': '数据目录',
   'settings.system.dockerHost': 'Docker Host',
-  'settings.system.activeBuilder': '当前构建器',
   'settings.system.llmgw': 'LLM 网关',
   'settings.system.llmgwActive': '已启用',
   'settings.system.llmgwMounted': '已挂载（未启用）',
@@ -185,8 +170,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.system.hostChromeMissing': '不在 PATH',
   'settings.system.unavailable': '无法获取系统信息。',
   'settings.system.footer':
-    '数据库与监听地址需通过环境变量配置并重启进程。Agent 与 Browser 固定使用 Docker；Desktop / Mobile 预留 QEMU。Agent 镜像与 Browser 镜像在首次启动时从注册表拉取（或离线加载）。模板构建与 LLM 网关设置在运行时生效。',
-  'settings.system.disabled': '已禁用',
+    '数据库与监听地址需通过环境变量配置并重启进程。Agent 与 Browser 固定使用 Docker；Desktop / Mobile 预留 QEMU。Agent 镜像与 Browser 镜像在首次启动时从注册表拉取（或离线加载）。LLM 网关设置在运行时生效。',
 
   'git.title': 'Git 个人令牌',
   'git.desc':

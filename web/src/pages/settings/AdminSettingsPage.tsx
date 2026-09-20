@@ -18,10 +18,8 @@ import { OAuthProvidersPanel } from '../../components/OAuthProvidersPanel'
 import { SETTINGS_AREAS } from '../../lib/appNav'
 import {
   AUTOMODE_DEFAULTS_TOKEN,
-  BUILDER_OPTIONS,
   emptySettings,
   LOG_BODY_OPTIONS,
-  PREVIEW_TTL_OPTIONS,
   SANDBOX_TTL_OPTIONS,
   type AutoModeListKey,
 } from './constants'
@@ -33,10 +31,8 @@ import {
 } from './helpers'
 import { AutoModeDefaultsModal, AutoModeSection } from './AutoModeSection'
 import { BrowserSection } from './BrowserSection'
-import { BuildsSection } from './BuildsSection'
 import { GeneralSection } from './GeneralSection'
 import { LlmgwSection } from './LlmgwSection'
-import { PreviewSection } from './PreviewSection'
 import { ProxySection } from './ProxySection'
 import { SystemSection } from './SystemSection'
 import { WebtoolsSection } from './WebtoolsSection'
@@ -103,16 +99,6 @@ export function AdminSettingsPage() {
     return optionsWithCurrentValue(unique, form.defaultImage, currentSuffix)
   }, [templateList, form.defaultImage, currentSuffix])
 
-  const builderOptions = useMemo(
-    () =>
-      optionsWithCurrentValue(
-        BUILDER_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
-        form.templateBuilder,
-        currentSuffix,
-      ),
-    [form.templateBuilder, t, currentSuffix],
-  )
-
   const sandboxTtlOptions = useMemo(
     () =>
       ttlOptionsWithCurrent(
@@ -122,17 +108,6 @@ export function AdminSettingsPage() {
         t,
       ),
     [form.defaultTtlSeconds, t, currentSuffix],
-  )
-
-  const previewTtlOptions = useMemo(
-    () =>
-      ttlOptionsWithCurrent(
-        PREVIEW_TTL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
-        form.previewTokenTtlSeconds,
-        currentSuffix,
-        t,
-      ),
-    [form.previewTokenTtlSeconds, t, currentSuffix],
   )
 
   const logBodyOptions = useMemo(
@@ -270,28 +245,6 @@ export function AdminSettingsPage() {
           patch={patch}
           defaultImageOptions={defaultImageOptions}
           sandboxTtlOptions={sandboxTtlOptions}
-        />
-      )}
-
-      {section === 'preview' && (
-        <PreviewSection
-          isAdmin={isAdmin}
-          loading={loading}
-          t={t}
-          form={form}
-          patch={patch}
-          previewTtlOptions={previewTtlOptions}
-        />
-      )}
-
-      {section === 'builds' && (
-        <BuildsSection
-          isAdmin={isAdmin}
-          loading={loading}
-          t={t}
-          form={form}
-          patch={patch}
-          builderOptions={builderOptions}
         />
       )}
 

@@ -6,9 +6,6 @@ export const emptySettings: AppSettings = {
   allowPublicRegistration: false,
   defaultImage: 'host',
   defaultTtlSeconds: 1800,
-  previewPublicUrl: '',
-  previewTokenTtlSeconds: 900,
-  templateBuilder: '',
   llmgwEnabled: false,
   llmgwPublicUrl: '',
   llmgwLogBodyMaxBytes: 0,
@@ -69,13 +66,6 @@ export const AUTOMODE_LISTS: {
   },
 ]
 
-export const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
-  { value: '', labelKey: 'settings.builder.disabled' },
-  { value: 'docker', labelKey: 'settings.builder.docker' },
-  { value: 'ci', labelKey: 'settings.builder.ci' },
-  { value: 'auto', labelKey: 'settings.builder.auto' },
-]
-
 export const CDP_OPTIONS: { value: string; labelKey: MessageKey }[] = [
   { value: 'auto', labelKey: 'settings.cdp.auto' },
   { value: 'docker', labelKey: 'settings.cdp.docker' },
@@ -92,14 +82,6 @@ export const SANDBOX_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
   { value: 3600, labelKey: 'settings.ttl.1h' },
   { value: 7200, labelKey: 'settings.ttl.2h' },
   { value: 14400, labelKey: 'settings.ttl.4h' },
-]
-
-export const PREVIEW_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
-  { value: 300, labelKey: 'settings.ttl.5m' },
-  { value: 600, labelKey: 'settings.ttl.10m' },
-  { value: 900, labelKey: 'settings.ttl.15m' },
-  { value: 1800, labelKey: 'settings.ttl.30m' },
-  { value: 3600, labelKey: 'settings.ttl.1h' },
 ]
 
 export const LOG_BODY_OPTIONS: { value: number; labelKey: MessageKey }[] = [

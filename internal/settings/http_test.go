@@ -96,12 +96,10 @@ func TestAdminSettingsHTTP(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(settings.AppSettings{
-		DefaultImage:           "python",
-		DefaultTtlSeconds:      3600,
-		PreviewTokenTtlSeconds: 900,
-		TemplateBuilder:        "docker",
-		WebSearchEndpoint:      "https://search.internal.example",
-		WebSearchApiKey:        "tvly-db",
+		DefaultImage:      "python",
+		DefaultTtlSeconds: 3600,
+		WebSearchEndpoint: "https://search.internal.example",
+		WebSearchApiKey:   "tvly-db",
 	})
 	req = httptest.NewRequest(http.MethodPut, "/v1/admin/settings", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", "rp-admin")

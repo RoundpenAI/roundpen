@@ -26,7 +26,6 @@ describe('visiblePrimaryMenus', () => {
       'workspace',
       'settings',
       'admin',
-      'registry',
     ])
   })
 })
@@ -48,8 +47,6 @@ describe('settings sections', () => {
         'llmgw',
         'webtools',
         'browser',
-        'preview',
-        'builds',
         'proxy',
         'automode',
         'system',
@@ -119,7 +116,6 @@ describe('PRIMARY_MENUS paths', () => {
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'workspace')?.to, '/workspace')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'settings')?.to, '/settings')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'admin')?.to, '/admin/settings')
-    assert.equal(PRIMARY_MENUS.find((m) => m.id === 'registry')?.to, '/registry')
     assert.equal(
       PRIMARY_MENUS.find((m) => m.id === 'assistants')?.labelKey,
       'nav.assistants',

@@ -28,9 +28,6 @@ export type AppSettings = {
   allowPublicRegistration: boolean
   defaultImage: string
   defaultTtlSeconds: number
-  previewPublicUrl: string
-  previewTokenTtlSeconds: number
-  templateBuilder: string
   llmgwEnabled: boolean
   llmgwPublicUrl: string
   llmgwLogBodyMaxBytes: number
@@ -59,8 +56,6 @@ export type SystemInfo = {
   dockerHost: string
   dataRoot: string
   httpAddr: string
-  templateBuilderActive: string
-  templateBuilderHint?: string
   llmgwActive: boolean
   llmgwMounted: boolean
   cdpProviderActive: string

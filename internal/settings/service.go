@@ -9,7 +9,6 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/audit"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
-	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/template"
@@ -18,12 +17,9 @@ import (
 // RuntimeDeps are subsystems updated on PUT /v1/admin/settings.
 type RuntimeDeps struct {
 	AllowPublicReg   func(bool)
-	PreviewTokens    *preview.Store
-	PreviewHandler   *preview.Handler
 	Sandbox          *sandbox.Service
 	Templates        *template.Service
 	Probe            *runtime.Probe
-	ReattachBuilder  func() error
 	ReconfigureLLMGW func(context.Context) error
 	LlmgwMounted     bool
 }
@@ -111,22 +107,11 @@ func (s *Service) applyRuntime(ctx context.Context, v AppSettings) error {
 	if s.deps.AllowPublicReg != nil {
 		s.deps.AllowPublicReg(v.AllowPublicRegistration)
 	}
-	if s.deps.PreviewTokens != nil {
-		s.deps.PreviewTokens.SetTTL(time.Duration(v.PreviewTokenTtlSeconds) * time.Second)
-	}
-	if s.deps.PreviewHandler != nil {
-		s.deps.PreviewHandler.PublicURL = v.PreviewPublicURL
-	}
 	if s.deps.Sandbox != nil {
 		s.deps.Sandbox.SetDefaults(v.DefaultImage, time.Duration(v.DefaultTtlSeconds)*time.Second)
 	}
 	if s.deps.Templates != nil {
 		s.deps.Templates.SetDefaultImage(v.DefaultImage)
-	}
-	if s.deps.ReattachBuilder != nil {
-		if err := s.deps.ReattachBuilder(); err != nil {
-			return err
-		}
 	}
 	if s.deps.ReconfigureLLMGW != nil {
 		if err := s.deps.ReconfigureLLMGW(ctx); err != nil {

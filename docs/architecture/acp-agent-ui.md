@@ -143,4 +143,3 @@ internal/browser  # Playwright 引擎 + Hub + agent session browser API
 - 完整 policy / toolgw 产品化（registry 仅 System Agent 内）
 - computer-use / 宿主机键鼠（预留扩展点；takeover 仅 CDP Input）
 - 聊天内嵌浏览器实时视图 / WebRTC 视频流
-- 替换 Templates（镜像）运维页

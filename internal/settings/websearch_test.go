@@ -44,12 +44,10 @@ func TestWebSearchSecretMaskAndMerge(t *testing.T) {
 
 func TestWebSearchEndpointValidation(t *testing.T) {
 	base := AppSettings{
-		DefaultImage:           "ghcr.io/x/y:1",
-		DefaultTtlSeconds:      60,
-		PreviewTokenTtlSeconds: 60,
-		TemplateBuilder:        "docker",
-		CDPProvider:            "auto",
-		CDPPort:                3000,
+		DefaultImage:      "ghcr.io/x/y:1",
+		DefaultTtlSeconds: 60,
+		CDPProvider:       "auto",
+		CDPPort:           3000,
 	}
 	ok := base
 	ok.WebSearchEndpoint = "https://api.tavily.com"

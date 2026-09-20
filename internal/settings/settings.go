@@ -11,7 +11,6 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
-	"github.com/RoundpenAI/roundpen/internal/template"
 )
 
 const globalID = "global"
@@ -21,9 +20,6 @@ type AppSettings struct {
 	AllowPublicRegistration bool   `json:"allowPublicRegistration"`
 	DefaultImage            string `json:"defaultImage"`
 	DefaultTtlSeconds       int    `json:"defaultTtlSeconds"`
-	PreviewPublicURL        string `json:"previewPublicUrl"`
-	PreviewTokenTtlSeconds  int    `json:"previewTokenTtlSeconds"`
-	TemplateBuilder         string `json:"templateBuilder"`
 	LlmgwEnabled            bool   `json:"llmgwEnabled"`
 	LlmgwPublicURL          string `json:"llmgwPublicUrl"`
 	LlmgwLogBodyMaxBytes    int    `json:"llmgwLogBodyMaxBytes"`
@@ -144,8 +140,6 @@ type SystemInfo struct {
 	DockerHost            string `json:"dockerHost"`
 	DataRoot              string `json:"dataRoot"`
 	HTTPAddr              string `json:"httpAddr"`
-	TemplateBuilderActive string `json:"templateBuilderActive"`
-	TemplateBuilderHint   string `json:"templateBuilderHint,omitempty"`
 	LlmgwActive           bool   `json:"llmgwActive"`
 	LlmgwMounted          bool   `json:"llmgwMounted"`
 	CDPProviderActive     string `json:"cdpProviderActive"`
@@ -159,9 +153,6 @@ func FromConfig(cfg *config.Config) AppSettings {
 		AllowPublicRegistration: cfg.AllowPublicRegistration,
 		DefaultImage:            cfg.DefaultImage,
 		DefaultTtlSeconds:       int(cfg.DefaultTTL / time.Second),
-		PreviewPublicURL:        cfg.PreviewPublicURL,
-		PreviewTokenTtlSeconds:  int(cfg.PreviewTokenTTL / time.Second),
-		TemplateBuilder:         cfg.TemplateBuilder,
 		LlmgwEnabled:            cfg.LLMGW.Enabled,
 		LlmgwPublicURL:          cfg.LLMGW.PublicURL,
 		LlmgwLogBodyMaxBytes:    cfg.LLMGW.LogBodyMaxBytes,
@@ -230,9 +221,6 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.AllowPublicRegistration = s.AllowPublicRegistration
 	cfg.DefaultImage = strings.TrimSpace(s.DefaultImage)
 	cfg.DefaultTTL = time.Duration(s.DefaultTtlSeconds) * time.Second
-	cfg.PreviewPublicURL = strings.TrimSpace(s.PreviewPublicURL)
-	cfg.PreviewTokenTTL = time.Duration(s.PreviewTokenTtlSeconds) * time.Second
-	cfg.TemplateBuilder = strings.ToLower(strings.TrimSpace(s.TemplateBuilder))
 	if err := config.ApplyLLMGWSettings(
 		&cfg.LLMGW,
 		s.LlmgwEnabled,
@@ -271,14 +259,6 @@ func (s AppSettings) Validate() error {
 	}
 	if s.DefaultTtlSeconds <= 0 {
 		return fmt.Errorf("defaultTtlSeconds must be positive")
-	}
-	if s.PreviewTokenTtlSeconds <= 0 {
-		return fmt.Errorf("previewTokenTtlSeconds must be positive")
-	}
-	switch strings.ToLower(strings.TrimSpace(s.TemplateBuilder)) {
-	case "", "auto", "docker", "ci", "disabled":
-	default:
-		return fmt.Errorf("templateBuilder must be auto, docker, ci, disabled, or empty")
 	}
 	if s.LlmgwLogBodyMaxBytes < -1 {
 		return fmt.Errorf("llmgwLogBodyMaxBytes must be >= -1")
@@ -373,23 +353,17 @@ func (s AppSettings) Validate() error {
 
 // SystemFromConfig returns read-only system metadata.
 func SystemFromConfig(cfg *config.Config, llmgwMounted bool) SystemInfo {
-	active := cfg.ResolveTemplateBuilder()
-	info := SystemInfo{
-		Backend:               cfg.Backend,
-		DockerHost:            cfg.DockerHost,
-		DataRoot:              cfg.EffectiveDataRoot(),
-		HTTPAddr:              cfg.HTTPAddr,
-		TemplateBuilderActive: active,
-		LlmgwActive:           cfg.LLMGW.Enabled,
-		LlmgwMounted:          llmgwMounted,
-		CDPProviderActive:     config.ResolveCDPProvider(cfg, browser.ChromeOnPATH()),
-		CDPHostChromeFound:    browser.ChromeOnPATH(),
-		CDPHint:               config.CDPHint(cfg, browser.ChromeOnPATH()),
+	return SystemInfo{
+		Backend:            cfg.Backend,
+		DockerHost:         cfg.DockerHost,
+		DataRoot:           cfg.EffectiveDataRoot(),
+		HTTPAddr:           cfg.HTTPAddr,
+		LlmgwActive:        cfg.LLMGW.Enabled,
+		LlmgwMounted:       llmgwMounted,
+		CDPProviderActive:  config.ResolveCDPProvider(cfg, browser.ChromeOnPATH()),
+		CDPHostChromeFound: browser.ChromeOnPATH(),
+		CDPHint:            config.CDPHint(cfg, browser.ChromeOnPATH()),
 	}
-	if active == "" {
-		info.TemplateBuilderHint = template.BuilderUnavailableHint(cfg)
-	}
-	return info
 }
 
 func llmgwUpstreamBase(u *config.LLMGWUpstream) string {

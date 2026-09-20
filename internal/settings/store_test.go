@@ -48,7 +48,6 @@ func TestBootstrapSeedsFromConfig(t *testing.T) {
 		DefaultTTL:              45 * time.Minute,
 		PreviewPublicURL:        "http://preview.test",
 		PreviewTokenTTL:         10 * time.Minute,
-		TemplateBuilder:         "docker",
 	}
 
 	got, err := settings.Bootstrap(ctx, store, cfg)
@@ -87,10 +86,8 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 		PreviewTokenTTL: 15 * time.Minute,
 	}
 	want := settings.AppSettings{
-		DefaultImage:           "python",
-		DefaultTtlSeconds:      1200,
-		PreviewTokenTtlSeconds: 600,
-		TemplateBuilder:        "docker",
+		DefaultImage:      "python",
+		DefaultTtlSeconds: 1200,
 	}
 	if err := store.Upsert(ctx, want); err != nil {
 		t.Fatal(err)
@@ -110,10 +107,8 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 
 func TestAppSettingsValidate(t *testing.T) {
 	valid := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		TemplateBuilder:        "auto",
+		DefaultImage:      "host",
+		DefaultTtlSeconds: 1800,
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
@@ -133,10 +128,9 @@ func TestUpsertEncryptsSecretsAtRest(t *testing.T) {
 	store := settings.NewStore(db.SQL, box)
 
 	in := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		LlmgwOpenaiAPIKey:      "sk-openai-secret",
+		DefaultImage:         "host",
+		DefaultTtlSeconds:    1800,
+		LlmgwOpenaiAPIKey:    "sk-openai-secret",
 		LlmgwAnthropicAPIKey:   "sk-ant-secret",
 		CDPToken:               "cdp-secret",
 		WebSearchApiKey:        "ws-secret",

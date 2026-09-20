@@ -10,10 +10,9 @@ import (
 
 func TestDecodeAppSettingsKeepsFallbackLLMGW(t *testing.T) {
 	fallback := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		LlmgwEnabled:           true,
+		DefaultImage:       "host",
+		DefaultTtlSeconds:  1800,
+		LlmgwEnabled:       true,
 		LlmgwOpenaiBaseURL:     "https://api.openai.com",
 		LlmgwOpenaiAPIKey:      "sk-env",
 		CDPProvider:            "docker",
@@ -75,22 +74,6 @@ func TestDecodeAppSettingsMigratesLegacyCDPPort(t *testing.T) {
 				t.Fatalf("cdpPort = %d, want %d", got.CDPPort, tc.wantPort)
 			}
 		})
-	}
-}
-
-func TestDecodeAppSettingsMapsLegacyKaniko(t *testing.T) {
-	got, err := settings.DecodeAppSettings([]byte(`{
-		"defaultImage": "host",
-		"defaultTtlSeconds": 1800,
-		"previewTokenTtlSeconds": 900,
-		"templateBuilder": "kaniko",
-		"kanikoDestination": "git.example.com/roundpen"
-	}`), settings.AppSettings{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.TemplateBuilder != "docker" {
-		t.Fatalf("legacy kaniko should map to docker, got %q", got.TemplateBuilder)
 	}
 }
 

@@ -28,8 +28,11 @@
 | 分组 | 段落 |
 |------|------|
 | 用户与访问 | 通用（`general`）、OAuth 登录（`oauth`） |
-| 能力接入 | LLM 网关（`llmgw`）、Web 工具（`webtools`）、浏览器（`browser`）、预览（`preview`） |
-| 沙箱与运行时 | 构建（`builds`）、网络代理（`proxy`）、自动模式（`automode`）、系统（`system`） |
+| 能力接入 | LLM 网关（`llmgw`）、Web 工具（`webtools`）、浏览器（`browser`） |
+| 沙箱与运行时 | 网络代理（`proxy`）、自动模式（`automode`）、系统（`system`） |
+
+> 后续变更（2026-09-20，同日）：`preview`、`builds` 两个段落随 registry UI 与
+> 应用内构建链一并移除；预览公网 URL 与令牌 TTL 改由环境变量配置。
 
 默认段落 `general`。
 

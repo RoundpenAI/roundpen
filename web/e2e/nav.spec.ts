@@ -1,14 +1,6 @@
 import { expect, test } from './fixtures'
 import { loginViaApi, skipIfNoLivePassword } from './helpers'
 
-test('images registry lists templates', async ({ page }) => {
-  skipIfNoLivePassword()
-  await loginViaApi(page)
-  await page.goto('/registry')
-  await expect(page.getByRole('grid').getByText('browser', { exact: true })).toBeVisible()
-  await expect(page.getByRole('alert')).toHaveCount(0)
-})
-
 test('settings page loads for admin', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)

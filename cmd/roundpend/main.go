@@ -92,30 +92,10 @@ func main() {
 	store := storage.NewSandboxStore(db)
 	tplStore := template.NewStore(db.SQL)
 	tplSvc := template.NewService(tplStore, cfg.DefaultImage)
-	tplSvc.SetLogger(logger)
 	if err := tplSvc.Seed(ctx, cfg.Backend); err != nil {
 		logger.Error("template seed", slog.Any("err", err))
 		os.Exit(1)
 	}
-	var closeBuilder func()
-	reattachBuilder := func() error {
-		if closeBuilder != nil {
-			closeBuilder()
-			closeBuilder = nil
-		}
-		var err error
-		closeBuilder, err = template.AttachBuilder(cfg, tplSvc, logger)
-		return err
-	}
-	if err := reattachBuilder(); err != nil {
-		logger.Error("template builder", slog.Any("err", err))
-		os.Exit(1)
-	}
-	defer func() {
-		if closeBuilder != nil {
-			closeBuilder()
-		}
-	}()
 
 	browserHub := browser.NewHub(dataRoot, logger)
 	browserHub.SetConfig(cfg)
@@ -127,7 +107,7 @@ func main() {
 	sbSvc = bs.sandboxes
 	probe := bs.probe
 
-	mux, previewHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
+	mux := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
 
 	envSvc, envHandler, oauthSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
 
@@ -137,7 +117,7 @@ func main() {
 
 	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, logger)
 
-	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, previewHandler, sbSvc, tplSvc, probe, reattachBuilder, reconfigureLLMGW)
+	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, sbSvc, tplSvc, probe, reconfigureLLMGW)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)

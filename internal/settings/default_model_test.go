@@ -9,10 +9,9 @@ import (
 
 func TestDecodeAndMarshalDefaultModel(t *testing.T) {
 	fallback := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      60,
-		PreviewTokenTtlSeconds: 60,
-		LlmgwDefaultModel:      "from-fallback",
+		DefaultImage:      "host",
+		DefaultTtlSeconds: 60,
+		LlmgwDefaultModel: "from-fallback",
 	}
 	raw := []byte(`{
 		"defaultImage":"host",
@@ -45,7 +44,7 @@ func TestDecodeAndMarshalDefaultModel(t *testing.T) {
 
 	// Reload as if from DB with empty fallback (process restart, no env default).
 	again, err := settings.DecodeAppSettings(encoded, settings.AppSettings{
-		DefaultImage: "host", DefaultTtlSeconds: 60, PreviewTokenTtlSeconds: 60,
+		DefaultImage: "host", DefaultTtlSeconds: 60,
 	})
 	if err != nil {
 		t.Fatal(err)

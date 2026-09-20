@@ -6,7 +6,6 @@ export type PrimaryMenuId =
   | 'workspace'
   | 'settings'
   | 'admin'
-  | 'registry'
 
 export type PrimaryMenu = {
   id: PrimaryMenuId
@@ -21,7 +20,6 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
   { id: 'workspace', to: '/workspace', labelKey: 'nav.workspace' },
   { id: 'settings', to: '/settings', labelKey: 'nav.settings' },
   { id: 'admin', to: '/admin/settings', labelKey: 'nav.admin', admin: true },
-  { id: 'registry', to: '/registry', labelKey: 'nav.registry', admin: true },
 ]
 
 export type SettingsSectionKey =
@@ -34,8 +32,6 @@ export type SettingsSectionKey =
   | 'llmgw'
   | 'webtools'
   | 'browser'
-  | 'preview'
-  | 'builds'
   | 'proxy'
   | 'automode'
   | 'system'
@@ -85,8 +81,6 @@ export const ADMIN_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'llmgw', labelKey: 'settings.section.llmgw', group: 'integrations' },
   { key: 'webtools', labelKey: 'settings.section.webtools', group: 'integrations' },
   { key: 'browser', labelKey: 'settings.section.browser', group: 'integrations' },
-  { key: 'preview', labelKey: 'settings.section.preview', group: 'integrations' },
-  { key: 'builds', labelKey: 'settings.section.builds', group: 'sandbox' },
   { key: 'proxy', labelKey: 'settings.section.proxy', group: 'sandbox' },
   { key: 'automode', labelKey: 'settings.section.automode', group: 'sandbox' },
   { key: 'system', labelKey: 'settings.section.system', group: 'sandbox' },
@@ -175,6 +169,5 @@ export function matchPrimaryMenu(pathname: string): PrimaryMenuId {
   if (pathname.startsWith('/workspace')) return 'workspace'
   if (pathname.startsWith('/admin')) return 'admin'
   if (pathname.startsWith('/settings')) return 'settings'
-  if (pathname.startsWith('/registry')) return 'registry'
   return 'assistants'
 }

@@ -64,12 +64,8 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 }
 
 // normalizeLegacy maps pre-removal values onto their current equivalents so old
-// settings rows keep working. Removing kaniko from the validation set would
-// otherwise fail the row and reset settings from env.
+// settings rows keep working.
 func normalizeLegacy(s AppSettings) AppSettings {
-	if strings.EqualFold(strings.TrimSpace(s.TemplateBuilder), "kaniko") {
-		s.TemplateBuilder = "docker"
-	}
 	// Pre-browserless rows persist 9222, the old managed-container default. The
 	// container now serves browserless on config.DefaultCDPPort (3000), so a
 	// stale 9222 makes the hub dial a closed port. Migrate it for the providers

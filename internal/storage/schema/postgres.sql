@@ -181,9 +181,13 @@ CREATE INDEX IF NOT EXISTS memory_long_run_idx ON memory_long (source_session_id
 ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS cpu_count INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS memory_mb INTEGER NOT NULL DEFAULT 512;
 ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS disk_size_mb INTEGER NOT NULL DEFAULT 5120;
-ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS template_build_id TEXT NOT NULL DEFAULT '';
+-- Sandboxes no longer pin a template build: images are built in CI and the
+-- catalog row carries the artifact.
+ALTER TABLE sandboxes DROP COLUMN IF EXISTS template_build_id;
 
--- Template registry (T0: static builds; T1+ adds build pipeline)
+-- Image catalog. Rows are seeded at boot from ROUNDPEN_AGENT_IMAGE /
+-- ROUNDPEN_BROWSER_IMAGE; the in-app registry UI and build pipeline were
+-- removed 2026-09-20 and images are built in CI.
 CREATE TABLE IF NOT EXISTS templates (
     id              TEXT PRIMARY KEY,
     namespace       TEXT NOT NULL DEFAULT 'default',
@@ -197,7 +201,15 @@ CREATE TABLE IF NOT EXISTS templates (
     last_spawned_at TIMESTAMPTZ,
     created_by      TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    artifact_ref    TEXT NOT NULL DEFAULT '',
+    base_image      TEXT NOT NULL DEFAULT '',
+    cpu_count       INTEGER NOT NULL DEFAULT 1,
+    memory_mb       INTEGER NOT NULL DEFAULT 512,
+    disk_size_mb    INTEGER NOT NULL DEFAULT 5120,
+    envd_version    TEXT NOT NULL DEFAULT '0.0.0-roundpen',
+    start_cmd       TEXT NOT NULL DEFAULT '',
+    snapshot        BOOLEAN NOT NULL DEFAULT false
 );
 CREATE UNIQUE INDEX IF NOT EXISTS templates_namespace_name_uniq
     ON templates (namespace, name);
@@ -208,51 +220,41 @@ UPDATE templates SET slot = 'browser' WHERE lower(profile) = 'browser' AND (slot
 UPDATE templates SET slot = 'agent' WHERE slot IS NULL OR slot = '';
 CREATE INDEX IF NOT EXISTS templates_slot_idx ON templates (slot);
 
-CREATE TABLE IF NOT EXISTS template_builds (
-    id              TEXT PRIMARY KEY,
-    template_id     TEXT NOT NULL REFERENCES templates (id) ON DELETE CASCADE,
-    status          TEXT NOT NULL DEFAULT 'ready',
-    base_image      TEXT NOT NULL DEFAULT '',
-    artifact_ref    TEXT NOT NULL,
-    cpu_count       INTEGER NOT NULL DEFAULT 1,
-    memory_mb       INTEGER NOT NULL DEFAULT 512,
-    disk_size_mb    INTEGER NOT NULL DEFAULT 5120,
-    envd_version    TEXT NOT NULL DEFAULT '0.0.0-roundpen',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS template_builds_template_idx ON template_builds (template_id, created_at DESC);
+-- Artifact columns moved off the removed build tables onto the catalog row.
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS artifact_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS base_image TEXT NOT NULL DEFAULT '';
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS cpu_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS memory_mb INTEGER NOT NULL DEFAULT 512;
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS disk_size_mb INTEGER NOT NULL DEFAULT 5120;
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS envd_version TEXT NOT NULL DEFAULT '0.0.0-roundpen';
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS start_cmd TEXT NOT NULL DEFAULT '';
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS snapshot BOOLEAN NOT NULL DEFAULT false;
 
-CREATE TABLE IF NOT EXISTS template_tags (
-    template_id     TEXT NOT NULL REFERENCES templates (id) ON DELETE CASCADE,
-    tag             TEXT NOT NULL DEFAULT 'default',
-    build_id        TEXT NOT NULL REFERENCES template_builds (id) ON DELETE CASCADE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (template_id, tag)
-);
-CREATE INDEX IF NOT EXISTS template_tags_build_idx ON template_tags (build_id);
+-- One-time backfill from the pre-removal default-tag build, then drop the build
+-- tables. Guarded so the schema stays replayable once they are gone.
+DO $$
+BEGIN
+    IF to_regclass('template_tags') IS NOT NULL AND to_regclass('template_builds') IS NOT NULL THEN
+        UPDATE templates t SET
+            artifact_ref = b.artifact_ref,
+            base_image   = b.base_image,
+            cpu_count    = b.cpu_count,
+            memory_mb    = b.memory_mb,
+            disk_size_mb = b.disk_size_mb,
+            envd_version = b.envd_version,
+            start_cmd    = b.start_cmd,
+            snapshot     = b.snapshot
+        FROM template_tags tg
+        JOIN template_builds b ON b.id = tg.build_id
+        WHERE tg.template_id = t.id
+          AND tg.tag = 'default'
+          AND t.artifact_ref = '';
+    END IF;
+END $$;
 
--- T1/T2: build spec, cache, snapshot metadata
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS cache_key TEXT NOT NULL DEFAULT '';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS spec_json JSONB NOT NULL DEFAULT '{}';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS layers_json JSONB NOT NULL DEFAULT '[]';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS start_cmd TEXT NOT NULL DEFAULT '';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS ready_cmd TEXT NOT NULL DEFAULT '';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS snapshot BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS error_message TEXT NOT NULL DEFAULT '';
-CREATE INDEX IF NOT EXISTS template_builds_cache_key_idx ON template_builds (template_id, cache_key)
-    WHERE status = 'ready' AND cache_key <> '';
-
-CREATE TABLE IF NOT EXISTS template_build_logs (
-    id          BIGSERIAL PRIMARY KEY,
-    build_id    TEXT NOT NULL REFERENCES template_builds (id) ON DELETE CASCADE,
-    seq         INTEGER NOT NULL,
-    logged_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    level       TEXT NOT NULL DEFAULT 'info',
-    message     TEXT NOT NULL,
-    step        TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS template_build_logs_build_idx ON template_build_logs (build_id, seq);
+DROP TABLE IF EXISTS template_build_logs;
+DROP TABLE IF EXISTS template_tags;
+DROP TABLE IF EXISTS template_builds;
 
 -- Mutable app settings (admin UI; env seeds on first boot)
 CREATE TABLE IF NOT EXISTS app_settings (

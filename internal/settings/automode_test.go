@@ -77,7 +77,6 @@ func TestAutoModeValidateLimits(t *testing.T) {
 		s := settings.FromConfig(&config.Config{})
 		s.DefaultImage = "host"
 		s.DefaultTtlSeconds = 60
-		s.PreviewTokenTtlSeconds = 60
 		return s
 	}
 
@@ -150,9 +149,8 @@ func TestAdminAutoModeHTTP(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(settings.AppSettings{
-		DefaultImage:           "python",
-		DefaultTtlSeconds:      3600,
-		PreviewTokenTtlSeconds: 900,
+		DefaultImage:      "python",
+		DefaultTtlSeconds: 3600,
 		AutoMode: settings.AutoModeSettings{
 			Allow: []string{"  Mine  ", "", "Mine", "Another"},
 			Model: " fast-model ",

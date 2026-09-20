@@ -16,7 +16,6 @@ import { LoginPage } from './pages/LoginPage'
 import { SettingsLayout } from './pages/SettingsLayout'
 import { AdminSettingsPage } from './pages/settings/AdminSettingsPage'
 import { PersonalSettingsPage } from './pages/settings/PersonalSettingsPage'
-import { TemplatesPage } from './pages/TemplatesPage'
 import { WorkbenchPage } from './pages/WorkbenchPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 
@@ -61,7 +60,6 @@ export default function App() {
           <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/issues" element={<IssuesPage />} />
           <Route path="/issues/:key" element={<IssueDetailPage />} />
-          <Route path="/registry" element={<TemplatesPage />} />
         </Route>
         <Route path="/chats" element={<Navigate to="/a" replace />} />
         <Route path="/chats/*" element={<Navigate to="/a" replace />} />

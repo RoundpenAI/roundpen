@@ -72,14 +72,6 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/sandboxes/{sandboxID}/connect", h.connect)
 	mux.HandleFunc("POST /v1/sandboxes/{sandboxID}/refreshes", h.refreshes)
 	mux.HandleFunc("GET /v1/templates", h.listTemplates)
-	mux.HandleFunc("GET /v1/templates/{templateID}", h.getTemplate)
-	mux.HandleFunc("PATCH /v1/templates/{templateID}", auth.RequireAdmin(h.patchTemplate))
-	mux.HandleFunc("DELETE /v1/templates/{templateID}", auth.RequireAdmin(h.deleteTemplate))
-	mux.HandleFunc("POST /v1/templates", auth.RequireAdmin(h.createTemplateV3))
-	mux.HandleFunc("POST /v1/templates/{templateID}/builds", auth.RequireAdmin(h.createTemplateBuildV2))
-	mux.HandleFunc("POST /v1/templates/{templateID}/builds/{buildID}", auth.RequireAdmin(h.startTemplateBuildV2))
-	mux.HandleFunc("GET /v1/templates/{templateID}/builds/{buildID}/status", h.getTemplateBuildStatus)
-	mux.HandleFunc("POST /v1/templates/build", auth.RequireAdmin(h.buildTemplate))
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {

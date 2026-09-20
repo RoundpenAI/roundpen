@@ -14,7 +14,7 @@ roundpen/
 ├── images/                    # 镜像配方：code-agent（OCI）；Browser 用上游 browserless/chrome
 ├── internal/
 │   ├── api/
-│   │   ├── platform/          # /v1/sandboxes + /v1/templates（内部生命周期）
+│   │   ├── platform/          # /v1/sandboxes + 镜像目录列表（内部生命周期）
 │   │   ├── envapi/            # /v1/me/environments（固定槽位）
 │   │   ├── httpapi/           # exec / files / terminal
 │   │   ├── agentapi/          # Agent sessions + browser CDP UI
@@ -24,7 +24,7 @@ roundpen/
 │   ├── gitcred/               # 用户 git 凭据（手填 PAT + OAuth token 合并）与 guest 注入
 │   ├── httpx/                 # 可信代理、ClientIP / Scheme
 │   ├── userenv/               # 用户 → agent/browser 槽位映射
-│   ├── template/              # 槽位镜像（slot=agent|browser|mobile）
+│   ├── template/              # 槽位镜像目录（启动按 env 播种，slot=agent|browser|mobile）
 │   ├── sandbox/               # 环境生命周期 Manager（按属主隔离）
 │   ├── backend/
 │   │   ├── docker/            # Agent / Browser 容器
@@ -44,13 +44,13 @@ roundpen/
 
 | 包 | 职责 |
 |----|------|
-| `api/platform` | 内部沙箱/模板 HTTP（非对外多开 SDK）；模板写操作需 admin |
+| `api/platform` | 内部沙箱/镜像目录 HTTP（非对外多开 SDK）；沙箱写操作需 admin |
 | `api/envapi` | 固定环境 Ensure + Browser 实时视图反代 |
 | `authz` / `httpx` | 属主上下文；可信代理下的 IP / HTTPS 判定 |
 | `oauth` | 联合登录：`oauth_providers` / `user_identities` / `oauth_states` 三表，回调复用 `auth.IssueSession` |
 | `gitcred` | `MergeCreds` 合并 PAT（优先）与 OAuth token，`InstallScript` 写入 guest `$HOME` |
 | `userenv` | PG `user_environments` |
-| `template` | slot 镜像配方与构建产物 |
+| `template` | slot 镜像目录（env 播种的 artifact 与资源规格，创建沙箱时解析） |
 | `backend/qemu` | qcow2 生命周期、CDP hostfwd、VNC unix sock（Desktop/Mobile 落点） |
 | `backend/multi` | agent/browser→docker，mobile→qemu |
 

@@ -43,7 +43,7 @@ import (
 
 // newCoreMux creates the API mux and mounts the auth, platform, native HTTP,
 // browser and preview handlers.
-func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler) {
+func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) *http.ServeMux {
 	mux := http.NewServeMux()
 	auth.Mount(mux, userStore, sessionStore, allowRegistration)
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
@@ -57,7 +57,7 @@ func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Servic
 		PublicURL: cfg.PreviewPublicURL,
 	}
 	previewHandler.Mount(mux)
-	return mux, previewHandler
+	return mux
 }
 
 // mountEnvStack builds the user environment, git credential, OAuth, runtime and
@@ -162,15 +162,12 @@ func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cf
 }
 
 // newSettingsService builds the runtime settings service over the boot settings.
-func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAllowRegistration func(bool), previewHandler *preview.Handler, sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reattachBuilder func() error, reconfigureLLMGW func(context.Context) error) *settings.Service {
+func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAllowRegistration func(bool), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error) *settings.Service {
 	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
 		AllowPublicReg:   setAllowRegistration,
-		PreviewTokens:    previewHandler.Tokens,
-		PreviewHandler:   previewHandler,
 		Sandbox:          sbSvc,
 		Templates:        tplSvc,
 		Probe:            probe,
-		ReattachBuilder:  reattachBuilder,
 		ReconfigureLLMGW: reconfigureLLMGW,
 		LlmgwMounted:     true,
 	}, appSettings)

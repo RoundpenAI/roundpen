@@ -3,8 +3,6 @@ package template
 import (
 	"context"
 	"testing"
-
-	"github.com/google/uuid"
 )
 
 func TestService_Resolve_registeredAndLegacy(t *testing.T) {
@@ -25,26 +23,15 @@ func TestService_Resolve_registeredAndLegacy(t *testing.T) {
 		t.Fatalf("python resolve: err=%v res=%+v", err, res)
 	}
 
+	// A tag suffix still finds the catalog entry.
+	res, err = svc.Resolve(ctx, "default/python:1.0")
+	if err != nil || res.Image != "python:3.12-slim" {
+		t.Fatalf("tagged resolve: err=%v res=%+v", err, res)
+	}
+
 	res, err = svc.Resolve(ctx, "alpine:3.20")
 	if err != nil || res.Image != "alpine:3.20" {
 		t.Fatalf("legacy resolve: err=%v res=%+v", err, res)
-	}
-}
-
-func TestService_Exists(t *testing.T) {
-	store, _ := testStore(t)
-	ctx := context.Background()
-	svc := NewService(store, "ghcr.io/roundpenai/code-agent:0.1.0")
-	if err := svc.Seed(ctx, "docker"); err != nil {
-		t.Fatal(err)
-	}
-	ok, err := svc.Exists(ctx, "python")
-	if err != nil || !ok {
-		t.Fatalf("Exists python: ok=%v err=%v", ok, err)
-	}
-	ok, err = svc.Exists(ctx, "no-such-template")
-	if err != nil || ok {
-		t.Fatalf("Exists missing: ok=%v err=%v", ok, err)
 	}
 }
 
@@ -58,32 +45,5 @@ func TestService_List(t *testing.T) {
 	list, err := svc.List(ctx)
 	if err != nil || len(list) < 5 {
 		t.Fatalf("list: err=%v len=%d", err, len(list))
-	}
-}
-
-func TestService_ResolveByBuildID(t *testing.T) {
-	store, sqlDB := testStore(t)
-	ctx := context.Background()
-	svc := NewService(store, "ghcr.io/roundpenai/code-agent:0.1.0")
-
-	created, err := store.CreateTemplate(ctx, CreateTemplateRequest{Name: "resolve-build-" + uuid.NewString()[:8]})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { deleteTemplateByName(t, sqlDB, DefaultNamespace, created.Name) })
-	if err := store.FinishBuild(ctx, created.TemplateID, created.BuildID, "node:22-bookworm", "k", true, true); err != nil {
-		t.Fatal(err)
-	}
-
-	res, err := svc.Resolve(ctx, created.BuildID)
-	if err != nil || res.Image != "node:22-bookworm" || !res.UseImageCmd {
-		t.Fatalf("resolve by build id: err=%v res=%+v", err, res)
-	}
-}
-
-func TestService_BuildsSupported(t *testing.T) {
-	svc := NewService(nil, "ghcr.io/roundpenai/code-agent:0.1.0")
-	if svc.BuildsSupported() {
-		t.Fatal("expected false without builder")
 	}
 }

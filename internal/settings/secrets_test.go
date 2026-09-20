@@ -25,10 +25,9 @@ func TestSecretMasking(t *testing.T) {
 
 func TestAppSettingsSanitizeForResponse(t *testing.T) {
 	s := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		LlmgwOpenaiAPIKey:      "sk-openai",
+		DefaultImage:         "host",
+		DefaultTtlSeconds:    1800,
+		LlmgwOpenaiAPIKey:    "sk-openai",
 		LlmgwAnthropicAPIKey:   "sk-ant",
 		LlmgwVirtualKeys:       "vk-devsecret:dev",
 	}
@@ -57,10 +56,9 @@ func TestAppSettingsProxiesNeverSerializeAsNull(t *testing.T) {
 
 func TestAppSettingsLLMGWValidate(t *testing.T) {
 	valid := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		LlmgwOpenaiBaseURL:     "https://api.openai.com",
+		DefaultImage:         "host",
+		DefaultTtlSeconds:    1800,
+		LlmgwOpenaiBaseURL:   "https://api.openai.com",
 		LlmgwOpenaiAPIKey:      "sk-test",
 		LlmgwVirtualKeys:       "vk-dev:dev",
 	}

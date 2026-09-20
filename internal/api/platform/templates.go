@@ -86,7 +86,3 @@ func (h *Handler) listTemplates(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
-
-func (h *Handler) listTemplatesV2(w http.ResponseWriter, r *http.Request) {
-	h.listTemplates(w, r)
-}

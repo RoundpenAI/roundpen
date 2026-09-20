@@ -5,7 +5,6 @@ export const en = {
   'nav.workspace': 'Workspace',
   'nav.settings': 'Settings',
   'nav.admin': 'Administration',
-  'nav.registry': 'Images',
   'nav.menu': 'Menu',
   'nav.expandPrimary': 'Expand primary menu',
   'nav.collapsePrimary': 'Collapse primary menu',
@@ -38,8 +37,6 @@ export const en = {
   'settings.section.agent': 'Agent environment',
   'settings.section.general': 'General',
   'settings.section.oauth': 'OAuth login',
-  'settings.section.preview': 'Preview',
-  'settings.section.builds': 'Builds',
   'settings.section.browser': 'Browser',
   'settings.section.llmgw': 'LLM gateway',
   'settings.section.webtools': 'Web tools',
@@ -73,16 +70,6 @@ export const en = {
   'settings.general.defaultImage': 'Default template / image',
   'settings.general.defaultTtl': 'Default sandbox TTL',
 
-  'settings.preview.publicUrl': 'Public preview base URL',
-  'settings.preview.tokenTtl': 'Preview token TTL',
-
-  'settings.builds.engine': 'Template build engine',
-
-  'settings.builder.disabled': 'Disabled (no local builds)',
-  'settings.builder.docker': 'Local Docker',
-  'settings.builder.ci': 'Remote CI (build elsewhere)',
-  'settings.builder.auto': 'Auto (detect from backend)',
-
   'settings.cdp.auto':
     'Auto (Roundpen-managed browserless container)',
   'settings.cdp.docker': 'Roundpen-managed container (browserless/chrome)',
@@ -97,7 +84,6 @@ export const en = {
   'settings.ttl.1h': '1 hour',
   'settings.ttl.2h': '2 hours',
   'settings.ttl.4h': '4 hours',
-  'settings.ttl.5m': '5 minutes',
   'settings.duration.1h': '1 hour',
   'settings.duration.nh': '{n} hours',
   'settings.duration.1m': '1 minute',
@@ -175,7 +161,6 @@ export const en = {
   'settings.system.httpAddr': 'HTTP addr',
   'settings.system.dataRoot': 'Data root',
   'settings.system.dockerHost': 'Docker host',
-  'settings.system.activeBuilder': 'Active builder',
   'settings.system.llmgw': 'LLM gateway',
   'settings.system.llmgwActive': 'active',
   'settings.system.llmgwMounted': 'mounted (disabled)',
@@ -186,8 +171,7 @@ export const en = {
   'settings.system.hostChromeMissing': 'not on PATH',
   'settings.system.unavailable': 'System info unavailable.',
   'settings.system.footer':
-    'Database and listen address require environment variables and a process restart. Agent and Browser always run on Docker; Desktop/Mobile are reserved for QEMU. The Agent and Browser images are pulled from the registry (or loaded offline) on first start. Template builds and LLM gateway settings apply at runtime.',
-  'settings.system.disabled': 'disabled',
+    'Database and listen address require environment variables and a process restart. Agent and Browser always run on Docker; Desktop/Mobile are reserved for QEMU. The Agent and Browser images are pulled from the registry (or loaded offline) on first start. LLM gateway settings apply at runtime.',
 
   'git.title': 'Git personal tokens',
   'git.desc':
