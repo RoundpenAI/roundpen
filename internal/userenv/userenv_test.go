@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
@@ -28,6 +29,9 @@ func TestGatewayEnv(t *testing.T) {
 		t.Fatal("empty public URL should skip injection")
 	}
 	s.SetGateway("http://127.0.0.1:9527/", "vk-test")
+	s.Config.LLMEnv = func(string) agentenv.LLMEnv {
+		return agentenv.LLMEnv{AnthropicProvider: "anthropic", OpenAIProvider: "openai"}
+	}
 	env := s.gatewayEnv(ctx, "alice")
 	if env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:9527/llmgw/anthropic" {
 		t.Fatalf("anthropic: %s", env["ANTHROPIC_BASE_URL"])
@@ -41,7 +45,13 @@ func TestGatewayEnv(t *testing.T) {
 	if env["ANTHROPIC_MODEL"] != "" {
 		t.Fatalf("unexpected model: %q", env["ANTHROPIC_MODEL"])
 	}
-	s.Config.DefaultModel = func() string { return "nvidia/nemotron-3.5-lightning:free" }
+	s.Config.LLMEnv = func(string) agentenv.LLMEnv {
+		return agentenv.LLMEnv{
+			AnthropicProvider: "anthropic",
+			OpenAIProvider:    "openai",
+			Model:             "nvidia/nemotron-3.5-lightning:free",
+		}
+	}
 	env = s.gatewayEnv(ctx, "alice")
 	if env["ANTHROPIC_MODEL"] != "nvidia/nemotron-3.5-lightning:free" {
 		t.Fatalf("default model: %q", env["ANTHROPIC_MODEL"])
@@ -52,7 +62,9 @@ func TestGatewayEnvOwnModels(t *testing.T) {
 	ctx := context.Background()
 	s := &Service{}
 	s.SetGateway("http://127.0.0.1:9527/", "vk-test")
-	s.Config.DefaultModel = func() string { return "some-model" }
+	s.Config.LLMEnv = func(string) agentenv.LLMEnv {
+		return agentenv.LLMEnv{AnthropicProvider: "anthropic", OpenAIProvider: "openai", Model: "some-model"}
+	}
 	s.ModelSource = func(_ context.Context, userID string) string {
 		if userID == "alice" {
 			return storage.ModelSourceOwn

@@ -22,8 +22,12 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
+	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
-	"github.com/RoundpenAI/roundpen/internal/settings"
+	"github.com/RoundpenAI/roundpen/internal/search"
+	"github.com/RoundpenAI/roundpen/internal/settingitems"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
@@ -92,14 +96,73 @@ func main() {
 	(&envapi.Handler{
 		Envs:  envs,
 		Users: users,
-		Proxies: func() []settings.ProxyProfile {
-			return []settings.ProxyProfile{
-				{ID: "us", Name: "US egress", Description: "overseas"},
-				{ID: "jp", Name: "JP egress"},
-			}
-		},
-		Dial: liveDialer(strings.TrimPrefix(liveUpstream.URL, "http://")),
+		Dial:  liveDialer(strings.TrimPrefix(liveUpstream.URL, "http://")),
 	}).Mount(mux)
+	itemsReg, err := settingitems.NewRegistry(
+		[]settingitems.KindDef{userenv.ProxyKind(), search.Kind(), browser.Kind(), llmgw.Kind()},
+		append(append(append(userenv.ProxySlots(), search.Slots()...), browser.Slots()...), llmgw.Slots()...),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	itemsCat := settingitems.NewCatalog(settingitems.NewMemoryStore(nil), itemsReg)
+	seedItems := []struct{ id, name, description, url string }{
+		{"us", "US egress", "overseas", "socks5://10.0.0.9:1080"},
+		{"jp", "JP egress", "", "http://user:pass@10.0.0.8:8080"},
+	}
+	for i, seed := range seedItems {
+		if _, err := itemsCat.Save(context.Background(), settingitems.Item{
+			Kind:        settingitems.KindProxy,
+			ID:          seed.id,
+			Name:        seed.name,
+			Description: seed.description,
+			Enabled:     true,
+			Position:    i,
+			Config:      map[string]any{"url": seed.url},
+		}); err != nil {
+			log.Fatal(err)
+		}
+	}
+	for i, seed := range []struct{ id, protocol, base string }{
+		{"openai", "openai", "https://api.openai.com/v1"},
+		{"anthropic", "anthropic", "https://api.anthropic.com"},
+	} {
+		it, err := itemsCat.Save(context.Background(), settingitems.Item{
+			Kind: settingitems.KindLLM, ID: seed.id, Name: seed.id, Enabled: true, Position: i,
+			Config: map[string]any{"protocol": seed.protocol, "baseUrl": seed.base, "apiKey": "sk-uismoke-" + seed.id},
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := itemsCat.SetBinding(context.Background(), settingitems.Binding{
+			Scope: settingitems.GlobalScope, Slot: settingitems.SlotLLMDefault, ItemID: it.ID,
+		}); err != nil {
+			log.Fatal(err)
+		}
+	}
+	if _, err := itemsCat.Save(context.Background(), settingitems.Item{
+		Kind: settingitems.KindBrowser, ID: "managed", Name: "Managed Chrome", Enabled: true,
+		Config: map[string]any{"provider": "docker", "port": 3000},
+	}); err != nil {
+		log.Fatal(err)
+	}
+	if err := itemsCat.SetBinding(context.Background(), settingitems.Binding{
+		Scope: settingitems.GlobalScope, Slot: settingitems.SlotBrowserDefault, ItemID: "managed",
+	}); err != nil {
+		log.Fatal(err)
+	}
+	if _, err := itemsCat.Save(context.Background(), settingitems.Item{
+		Kind: settingitems.KindSearch, ID: "default", Name: "Tavily", Enabled: true,
+		Config: map[string]any{"endpoint": "https://api.tavily.com"},
+	}); err != nil {
+		log.Fatal(err)
+	}
+	if err := itemsCat.SetBinding(context.Background(), settingitems.Binding{
+		Scope: settingitems.GlobalScope, Slot: settingitems.SlotSearchDefault, ItemID: "default",
+	}); err != nil {
+		log.Fatal(err)
+	}
+	(&settingitems.Handler{Cat: itemsCat, Envs: envs}).Mount(mux)
 	mux.HandleFunc("GET /v1/ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ready"}`))
@@ -234,34 +297,23 @@ func main() {
 		"llmgwEnabled":            false,
 		"llmgwPublicUrl":          "",
 		"llmgwLogBodyMaxBytes":    -1,
-		"llmgwEmbeddingModel":     "text-embedding-3-small",
-		"llmgwDefaultModel":       "",
-		"llmgwOpenaiBaseUrl":      "",
-		"llmgwOpenaiApiKey":       "",
-		"llmgwAnthropicBaseUrl":   "",
-		"llmgwAnthropicApiKey":    "",
 		"llmgwVirtualKeys":        "",
-		"cdpProvider":             "auto",
-		"cdpEndpoint":             "",
-		"cdpToken":                "",
-		"cdpPort":                 9222,
 		"autoMode": map[string]any{
 			"environment": []string{"$defaults"},
 			"allow":       []string{"$defaults"},
 			"softDeny":    []string{"$defaults"},
 			"hardDeny":    []string{"$defaults"},
-			"model":       "",
 		},
 	}
 	stubSystem := map[string]any{
-		"backend":               "qemu",
-		"dockerHost":            "",
-		"dataRoot":              "/tmp/roundpen",
-		"httpAddr":              *listen,
-		"llmgwActive":           false,
-		"llmgwMounted":          false,
-		"cdpProviderActive":     "auto",
-		"cdpHostChromeFound":    false,
+		"backend":            "qemu",
+		"dockerHost":         "",
+		"dataRoot":           "/tmp/roundpen",
+		"httpAddr":           *listen,
+		"llmgwActive":        false,
+		"llmgwMounted":       false,
+		"cdpProviderActive":  "auto",
+		"cdpHostChromeFound": false,
 	}
 	mux.HandleFunc("GET /v1/admin/settings", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{"settings": stubSettings, "system": stubSystem})
@@ -574,6 +626,28 @@ func (s *slotEnvs) RecreateAgent(_ context.Context, _ string) (*userenv.UpgradeR
 // RecreateBrowser backs the browser proxy switch in the fake environment.
 func (s *slotEnvs) RecreateBrowser(_ context.Context, _ string) (*userenv.UpgradeResult, error) {
 	return &userenv.UpgradeResult{Status: "absent"}, nil
+}
+
+// BrowserProfileFor backs the live-view proxy in the fake environment.
+func (s *slotEnvs) BrowserProfileFor(string) browser.Profile {
+	return browser.Profile{Provider: config.CDPProviderDocker, Port: config.DefaultCDPPort}
+}
+
+// RebuildForSlot backs the setting-items binding switch in the fake
+// environment (settingitems.EnvRebuilder).
+func (s *slotEnvs) RebuildForSlot(ctx context.Context, username, slot string) (string, any, error) {
+	if slot == settingitems.SlotProxyBrowser {
+		res, err := s.RecreateBrowser(ctx, username)
+		if err != nil {
+			return "", nil, err
+		}
+		return res.Status, res.Environment, nil
+	}
+	res, err := s.RecreateAgent(ctx, username)
+	if err != nil {
+		return "", nil, err
+	}
+	return res.Status, res.Environment, nil
 }
 
 func writeJSONStatus(w http.ResponseWriter, status int, v any) {

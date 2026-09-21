@@ -34,7 +34,9 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/search"
 	"github.com/RoundpenAI/roundpen/internal/secretbox"
+	"github.com/RoundpenAI/roundpen/internal/settingitems"
 	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
@@ -116,7 +118,7 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 
 // mountLLMGateway builds the LLM gateway on the mux and returns it with its
 // config applier and per-user virtual key lookup.
-func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cfg *config.Config, secretBox *secretbox.Box, memStore *memory.PgStore, memSvc *memory.Service, logger *slog.Logger) (*llmgw.Gateway, func(context.Context) error, func(context.Context, string) string) {
+func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cfg *config.Config, secretBox *secretbox.Box, memStore *memory.PgStore, memSvc *memory.Service, items *settingitems.Catalog, logger *slog.Logger) (*llmgw.Gateway, func(context.Context) error, func(context.Context, string) string) {
 	gw := llmgw.New(db, llmgw.Options{
 		LogBodyMaxBytes: cfg.LLMGW.LogBodyMaxBytes,
 		PublicURL:       cfg.LLMGW.PublicURL,
@@ -136,21 +138,34 @@ func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cf
 	}
 	go memory.RunReembed(ctx, memStore, gw, logger, 2*time.Minute)
 
-	reconfigureLLMGW := func(ctx context.Context) error {
-		if err := gw.ApplyConfig(ctx, cfg.LLMGW); err != nil {
-			return err
+	// Providers live as setting items: project them into the relay, and the
+	// embedding slot into the embedder, on boot and after every change.
+	applyItems := func() {
+		gw.SetUpstreams(llmgw.UpstreamsFromSnapshot(items.Snapshot()))
+		target, ok := llmgw.Resolve(items.Snapshot(), settingitems.SlotLLMEmbedding, "")
+		if ok {
+			gw.SetEmbedding(target.ItemID, target.Model)
+		} else {
+			gw.SetEmbedding("", "")
 		}
-		if cfg.LLMGW.Enabled && cfg.LLMGW.OpenAI != nil {
+		if cfg.LLMGW.Enabled && ok {
 			memSvc.Embed = gw
 		} else {
 			memSvc.Embed = nil
 		}
+	}
+	items.OnReload(applyItems)
+
+	reconfigureLLMGW := func(ctx context.Context) error {
+		if err := gw.ApplyConfig(ctx, cfg.LLMGW); err != nil {
+			return err
+		}
+		applyItems()
+		upstreams := gw.Upstreams()
 		logger.Info("llmgw reconfigured",
 			slog.Bool("enabled", cfg.LLMGW.Enabled),
-			slog.Bool("openai", cfg.LLMGW.OpenAI != nil),
-			slog.Bool("anthropic", cfg.LLMGW.Anthropic != nil),
+			slog.Int("providers", len(upstreams)),
 			slog.Int("virtual_keys", len(cfg.LLMGW.VirtualKeys)),
-			slog.String("embedding_model", cfg.LLMGW.EmbeddingModel),
 		)
 		return nil
 	}
@@ -162,7 +177,7 @@ func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cf
 }
 
 // newSettingsService builds the runtime settings service over the boot settings.
-func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAllowRegistration func(bool), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error) *settings.Service {
+func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAllowRegistration func(bool), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error, items *settingitems.Catalog) *settings.Service {
 	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
 		AllowPublicReg:   setAllowRegistration,
 		Sandbox:          sbSvc,
@@ -170,6 +185,17 @@ func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSe
 		Probe:            probe,
 		ReconfigureLLMGW: reconfigureLLMGW,
 		LlmgwMounted:     true,
+		BrowserProfile: func(itemID string) (browser.Profile, bool) {
+			if itemID == "" {
+				return browser.Resolve(items.Snapshot(), settingitems.SlotBrowserDefault, "",
+					browser.DefaultProfile(cfg)), true
+			}
+			it, ok := items.Snapshot().Item(settingitems.KindBrowser, itemID)
+			if !ok {
+				return browser.Profile{}, false
+			}
+			return browser.ProfileFromItem(it), true
+		},
 	}, appSettings)
 	return settingsSvc
 }
@@ -190,87 +216,252 @@ func publicBaseURL(cfg *config.Config) string {
 }
 
 // newLLMPlanner returns the host-setup wizard's LLM planning hook.
-func newLLMPlanner(cfg *config.Config, publicURL string, gw *llmgw.Gateway) func(context.Context, hostsetup.WizardContext, hostsetup.HostFacts) (hostsetup.Plan, error) {
+func newLLMPlanner(cfg *config.Config, publicURL string, gw *llmgw.Gateway, items *settingitems.Catalog) func(context.Context, hostsetup.WizardContext, hostsetup.HostFacts) (hostsetup.Plan, error) {
 	return func(ctx context.Context, w hostsetup.WizardContext, f hostsetup.HostFacts) (hostsetup.Plan, error) {
-		if !cfg.LLMGW.Enabled || cfg.LLMGW.OpenAI == nil {
-			return hostsetup.Plan{}, fmt.Errorf("openai upstream not configured")
+		if !cfg.LLMGW.Enabled {
+			return hostsetup.Plan{}, fmt.Errorf("llm gateway is disabled")
+		}
+		target, ok := llmgw.Resolve(items.Snapshot(), settingitems.SlotLLMPlanner, "")
+		if !ok {
+			return hostsetup.Plan{}, fmt.Errorf("no provider selected for the setup planner")
 		}
 		p := &hostsetup.LLMPlanner{
-			BaseURL: publicURL,
+			BaseURL: publicURL + target.RelayPath(),
 			APIKey:  gw.InternalKey(),
-			Model:   cfg.LLMGW.DefaultModel,
+			Model:   target.Model,
 		}
 		return p.Plan(ctx, w, f)
 	}
 }
 
-// wireEnvService applies the late gateway, user and proxy wiring to the
-// environment service and returns the settings-driven proxy resolver.
-func wireEnvService(envSvc *userenv.Service, envHandler *envapi.Handler, settingsSvc *settings.Service, userStore storage.UserStore, publicURL string, gw *llmgw.Gateway, userVKey func(context.Context, string) string) func(string) string {
+// wireEnvService applies the late gateway and proxy wiring to the environment
+// service and returns the per-user egress proxy resolver used when starting
+// agent sessions.
+func wireEnvService(envSvc *userenv.Service, publicURL string, gw *llmgw.Gateway, userVKey func(context.Context, string) string, items *settingitems.Catalog) func(*storage.User) string {
 	envSvc.SetGateway(publicURL, gw.InternalKey())
 	envSvc.Config.UserVirtualKey = userVKey
-	envSvc.Config.DefaultModel = gw.DefaultModel
-	// Egress proxy resolution needs settingsSvc, which is built after the
-	// environment service; wire both selectors here.
-	envHandler.Proxies = func() []settings.ProxyProfile { return settingsSvc.Current().Proxies }
-	resolveProxy := func(id string) string {
-		p, ok := settingsSvc.Current().ProxyByID(id)
-		if !ok {
+	envSvc.Config.LLMEnv = llmEnvFor(items, publicURL)
+	// Egress proxies are catalog items: resolve the user's selection per call
+	// so admin and personal changes apply without a restart.
+	envSvc.Proxy = func(_ context.Context, userID, slot string) string {
+		return userenv.ProxyURL(items.Snapshot(), userenv.ProxySlotKey(slot), userID)
+	}
+	envSvc.BrowserProfile = func(userID string) browser.Profile {
+		return browser.Resolve(items.Snapshot(), settingitems.SlotBrowserDefault, userID, browser.DefaultProfile(envSvc.Cfg))
+	}
+	return func(u *storage.User) string {
+		if u == nil {
 			return ""
 		}
-		return p.URL
+		return userenv.ProxyURL(items.Snapshot(), settingitems.SlotProxyAgent, u.Username)
 	}
-	envSvc.Proxy = func(ctx context.Context, userID, slot string) string {
-		u, err := userStore.GetByUsername(ctx, userID)
-		if err != nil || u == nil {
-			return ""
-		}
-		if slot == userenv.SlotBrowser {
-			return resolveProxy(u.BrowserProxy)
-		}
-		return resolveProxy(u.AgentProxy)
-	}
-	return resolveProxy
 }
 
-// newAutoEvaluator builds the LLM-backed auto-mode classifier evaluator.
-func newAutoEvaluator(loopback string, settingsSvc *settings.Service, gw *llmgw.Gateway) *automode.LLMEvaluator {
-	autoEvaluator := &automode.LLMEvaluator{
-		BaseURL: strings.TrimRight(loopback, "/") + "/llmgw/openai",
-		APIKey:  gw.InternalKey(),
-		Model: func() string {
-			if m := settingsSvc.Current().AutoMode.ClassifierModel(); m != "" {
-				return m
-			}
-			return gw.DefaultModel()
+// envRebuilder recreates the sandbox a slot feeds after the user changes their
+// selection: sandbox environment variables are fixed at creation time.
+type envRebuilder struct{ svc *userenv.Service }
+
+func (e envRebuilder) RebuildForSlot(ctx context.Context, username, slot string) (string, any, error) {
+	var res *userenv.UpgradeResult
+	var err error
+	if slot == settingitems.SlotProxyBrowser {
+		res, err = e.svc.RecreateBrowser(ctx, username)
+	} else {
+		res, err = e.svc.RecreateAgent(ctx, username)
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	return res.Status, res.Environment, nil
+}
+
+// importLegacyItems seeds items and bindings from pre-item configuration: the
+// document an older release wrote plus the environment. It is a no-op once a
+// kind already has items, and per-user proxy selections arrive through the
+// schema migration that copies them out of the users table.
+func importLegacyItems(ctx context.Context, cat *settingitems.Catalog, legacy settings.LegacyDocument, logger *slog.Logger) error {
+	if len(legacy.Proxies) == 0 && legacy.WebSearchEndpoint == "" && legacy.WebSearchApiKey == "" &&
+		legacy.WebSearchProxy == "" && legacy.CDPEndpoint == "" && legacy.CDPToken == "" &&
+		legacy.LlmgwOpenaiAPIKey == "" && legacy.LlmgwAnthropicAPIKey == "" &&
+		(legacy.CDPProvider == "" || legacy.CDPProvider == "auto") {
+		return nil
+	}
+	rawURLs := []string{legacy.WebSearchProxy, legacy.LlmgwOpenaiProxy, legacy.LlmgwAnthropicProxy}
+	proxies := make([]settingitems.LegacyProxy, 0, len(legacy.Proxies))
+	for _, p := range legacy.Proxies {
+		proxies = append(proxies, settingitems.LegacyProxy{
+			ID: p.ID, Name: p.Name, URL: p.URL, Description: p.Description,
+		})
+	}
+	in := settingitems.LegacyInput{
+		Proxies:      proxies,
+		RawProxyURLs: rawURLs,
+	}
+	if legacy.WebSearchEndpoint != "" || legacy.WebSearchApiKey != "" || legacy.WebSearchProxy != "" {
+		in.Search = &settingitems.LegacySearch{
+			Endpoint: legacy.WebSearchEndpoint,
+			APIKey:   legacy.WebSearchApiKey,
+			ProxyURL: legacy.WebSearchProxy,
+		}
+	}
+	in.LLM = &settingitems.LegacyLLM{
+		OpenAI: settingitems.LegacyUpstream{
+			BaseURL:  legacy.LlmgwOpenaiBaseURL,
+			APIKey:   legacy.LlmgwOpenaiAPIKey,
+			ProxyURL: legacy.LlmgwOpenaiProxy,
 		},
-		Rules: func() automode.Rules { return settingsSvc.Current().AutoMode.Rules() },
+		Anthropic: settingitems.LegacyUpstream{
+			BaseURL:  legacy.LlmgwAnthropicBaseURL,
+			APIKey:   legacy.LlmgwAnthropicAPIKey,
+			ProxyURL: legacy.LlmgwAnthropicProxy,
+		},
+		DefaultModel:   legacy.LlmgwDefaultModel,
+		EmbeddingAlias: llmgw.EmbeddingModelAlias,
+		EmbeddingModel: legacy.LlmgwEmbeddingModel,
+	}
+	if legacy.CDPEndpoint != "" || legacy.CDPToken != "" || (legacy.CDPProvider != "" && legacy.CDPProvider != "auto") {
+		in.Browser = &settingitems.LegacyBrowser{
+			Provider: legacy.CDPProvider,
+			Endpoint: legacy.CDPEndpoint,
+			Token:    legacy.CDPToken,
+			Port:     legacy.CDPPort,
+		}
+	}
+	if err := settingitems.LegacyImport(ctx, cat, in); err != nil {
+		return err
+	}
+	logger.Info("setting items imported", slog.Int("proxies", len(proxies)))
+	return nil
+}
+
+// newAutoEvaluator builds the LLM-backed auto-mode classifier evaluator. The
+// endpoint is resolved per evaluation so binding the classifier to another
+// provider applies without a restart.
+func newAutoEvaluator(loopback string, settingsSvc *settings.Service, gw *llmgw.Gateway, items *settingitems.Catalog) *automode.LLMEvaluator {
+	base := strings.TrimRight(loopback, "/")
+	autoEvaluator := &automode.LLMEvaluator{
+		Endpoint: func() (string, string) {
+			target, ok := llmgw.Resolve(items.Snapshot(), settingitems.SlotLLMClassifier, "")
+			if !ok {
+				return "", ""
+			}
+			return base + target.RelayPath(), target.Model
+		},
+		APIKey: gw.InternalKey(),
+		Rules:  func() automode.Rules { return settingsSvc.Current().AutoMode.Rules() },
 	}
 	return autoEvaluator
 }
 
+// llmModeSlots are the per-mode bindings that pin a model and export provider
+// descriptors under ROUNDPEN_LLM_<MODE>_*.
+var llmModeSlots = []struct {
+	slot string
+	name string
+}{
+	{settingitems.SlotLLMPlan, "PLAN"},
+	{settingitems.SlotLLMVision, "VISION"},
+	{settingitems.SlotLLMCoding, "CODING"},
+}
+
+// llmEnvFor composes the relay env a user's agent sandbox receives: the agent
+// slot's provider for its protocol plus the first provider of the other
+// protocol, so Claude Code and OpenAI-compatible CLIs both have an endpoint.
+// Mode slots pin client variables only when they use the agent's provider —
+// ANTHROPIC_BASE_URL is single-valued, so another provider cannot route there.
+func llmEnvFor(items *settingitems.Catalog, loopback string) func(userID string) agentenv.LLMEnv {
+	return func(userID string) agentenv.LLMEnv {
+		snap := items.Snapshot()
+		target, ok := llmgw.Resolve(snap, settingitems.SlotLLMAgent, userID)
+		if !ok {
+			return agentenv.LLMEnv{}
+		}
+		env := agentenv.LLMEnv{
+			AnthropicProvider: strings.TrimPrefix(targetRelayPath(snap, target, llmgw.ProtocolAnthropic), "/llmgw/"),
+			OpenAIProvider:    strings.TrimPrefix(targetRelayPath(snap, target, llmgw.ProtocolOpenAI), "/llmgw/"),
+			Model:             target.Model,
+			ModeModels:        map[string]string{},
+			Extra: map[string]string{
+				"ROUNDPEN_LLM_PROVIDER": target.ItemID,
+				"ROUNDPEN_LLM_PROTOCOL": target.Protocol,
+				"ROUNDPEN_LLM_BASE_URL": loopback + target.RelayPath(),
+				"ROUNDPEN_LLM_MODEL":    target.Model,
+			},
+		}
+		for _, mode := range llmModeSlots {
+			resolved, ok := llmgw.Resolve(snap, mode.slot, userID)
+			if !ok {
+				continue
+			}
+			if resolved.ItemID == target.ItemID {
+				// Same provider: the mode can pin its model on the client.
+				if resolved.Model != "" {
+					env.ModeModels[mode.slot] = resolved.Model
+				}
+				continue
+			}
+			// Another provider: ANTHROPIC_BASE_URL cannot route there, so only
+			// export descriptors for consumers that read them.
+			env.Extra["ROUNDPEN_LLM_"+mode.name+"_PROVIDER"] = resolved.ItemID
+			env.Extra["ROUNDPEN_LLM_"+mode.name+"_MODEL"] = resolved.Model
+			env.Extra["ROUNDPEN_LLM_"+mode.name+"_BASE_URL"] = loopback + resolved.RelayPath()
+		}
+		if len(env.ModeModels) == 0 {
+			env.ModeModels = nil
+		}
+		return env
+	}
+}
+
+// targetRelayPath returns the relay path for protocol: the bound provider when
+// it speaks that protocol, otherwise the first provider that does.
+func targetRelayPath(snap *settingitems.Snapshot, bound llmgw.Target, protocol string) string {
+	if bound.Protocol == protocol {
+		return bound.RelayPath()
+	}
+	if fallback, ok := llmgw.ProtocolFallback(snap, protocol); ok {
+		return fallback.RelayPath()
+	}
+	return ""
+}
+
+// llmConfigFor resolves the System Agent's provider for a user.
+func llmConfigFor(items *settingitems.Catalog, loopback, key string) func(userID string) sysagent.LLMConfig {
+	base := strings.TrimRight(loopback, "/")
+	return func(userID string) sysagent.LLMConfig {
+		target, ok := llmgw.Resolve(items.Snapshot(), settingitems.SlotLLMSysAgent, userID)
+		if !ok {
+			return sysagent.LLMConfig{APIKey: key}
+		}
+		return sysagent.LLMConfig{
+			BaseURL: base + target.RelayPath(),
+			APIKey:  key,
+			Model:   target.Model,
+		}
+	}
+}
+
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback string, mgr sandbox.Manager, envSvc *userenv.Service, browserHub *browser.Hub, agentStore *agentsession.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback string, mgr sandbox.Manager, envSvc *userenv.Service, browserHub *browser.Hub, agentStore *agentsession.Store, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, logger *slog.Logger) *manager.Manager {
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
 		LoopbackBase: loopback,
 		LLMKey:       gw.InternalKey(),
-		DefaultModel: gw.DefaultModel,
+		LLM:          llmConfigFor(items, loopback, gw.InternalKey()),
 		AutoMode:     autoEvaluator,
 		BrowserHub:   browserHub,
 		BrowserSlots: envSvc,
 		AgentSlots:   envSvc,
 		History:      agentStore,
 
-		WebSearch: func() (string, string, string) {
-			s := settingsSvc.Current()
-			return s.WebSearchEndpoint, s.WebSearchApiKey, s.WebSearchProxy
+		WebSearch: func(userID string) search.Config {
+			return search.Resolve(items.Snapshot(), settingitems.SlotSearchDefault, userID)
 		},
 	})
 	return acpMgr
 }
 
 // newAgentAPI builds the agent API handler and its assist-ticket store.
-func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentStore *agentsession.Store, mgr sandbox.Manager, gw *llmgw.Gateway, browserHub *browser.Hub, envSvc *userenv.Service, acpMgr *manager.Manager, autoEvaluator *automode.LLMEvaluator, publicURL string, resolveProxy func(string) string, userVKey func(context.Context, string) string) (*agentapi.Handler, *assistticket.Store) {
+func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentStore *agentsession.Store, mgr sandbox.Manager, gw *llmgw.Gateway, browserHub *browser.Hub, envSvc *userenv.Service, acpMgr *manager.Manager, autoEvaluator *automode.LLMEvaluator, publicURL string, proxyForUser func(*storage.User) string, userVKey func(context.Context, string) string, items *settingitems.Catalog) (*agentapi.Handler, *assistticket.Store) {
 	provisioner := &agentenv.Provisioner{
 		Sandboxes: mgr,
 		Config: agentenv.Config{
@@ -280,25 +471,21 @@ func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentS
 		},
 	}
 	agentHandler := &agentapi.Handler{
-		Log:         logger,
-		Store:       agentStore,
-		PublicURL:   firstNonEmpty(cfg.PreviewPublicURL, cfg.LLMGW.PublicURL),
-		ACP:         acpMgr,
-		Provisioner: provisioner,
-		Sandboxes:   mgr,
-		LLMGW:       gw,
-		Hub:         browserHub,
-		Envs:        envSvc,
-		Tasks:       &browsetask.Store{DB: db.SQL},
-		Tickets:     nil, // set below after ticketStore
-		DestroySbx:  true,
-		AutoMode:    autoEvaluator,
-		ProxyURL: func(u *storage.User) string {
-			if u == nil {
-				return ""
-			}
-			return resolveProxy(u.AgentProxy)
-		},
+		Log:            logger,
+		Store:          agentStore,
+		PublicURL:      firstNonEmpty(cfg.PreviewPublicURL, cfg.LLMGW.PublicURL),
+		ACP:            acpMgr,
+		Provisioner:    provisioner,
+		Sandboxes:      mgr,
+		LLMGW:          gw,
+		Hub:            browserHub,
+		Envs:           envSvc,
+		Tasks:          &browsetask.Store{DB: db.SQL},
+		Tickets:        nil, // set below after ticketStore
+		DestroySbx:     true,
+		AutoMode:       autoEvaluator,
+		ProxyURL:       proxyForUser,
+		LLMEnv:         llmEnvFor(items, publicURL),
 		UserVirtualKey: userVKey,
 	}
 	ticketStore := &assistticket.Store{DB: db.SQL}

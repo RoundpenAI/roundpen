@@ -85,13 +85,9 @@ func (s *Store) Upsert(ctx context.Context, settings AppSettings) error {
 // secretFields lists every field that must never be persisted in plaintext.
 // Keep in sync with SanitizeForResponse / MergeSecrets.
 func secretFields(s *AppSettings) []*string {
-	return []*string{
-		&s.LlmgwOpenaiAPIKey,
-		&s.LlmgwAnthropicAPIKey,
-		&s.LlmgwVirtualKeys,
-		&s.CDPToken,
-		&s.WebSearchApiKey,
-	}
+	// Provider credentials and the CDP token moved to setting items, which seal
+	// their own secret fields.
+	return []*string{&s.LlmgwVirtualKeys}
 }
 
 func (s *Store) sealSecrets(in AppSettings) (AppSettings, error) {

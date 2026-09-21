@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/secretbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
@@ -45,11 +44,13 @@ type Gateway struct {
 	clientMu     sync.Mutex
 	proxyClients map[string]*http.Client // keyed by proxy URL
 
-	mu           sync.RWMutex
-	enabled      bool
-	logLimit     int
-	publicURL    string
-	defaultModel string
+	mu            sync.RWMutex
+	enabled       bool
+	logLimit      int
+	publicURL     string
+	upstreams     map[string]Upstream
+	embedProvider string
+	embedModel    string
 }
 
 // New builds a Gateway. Call SeedFromConfig after construction to bootstrap from env.
@@ -101,67 +102,6 @@ func (g *Gateway) clientFor(proxyURL string) (*http.Client, error) {
 
 // Store returns the underlying PG store (for tests / seed).
 func (g *Gateway) Store() *Store { return g.store }
-
-// SeedConfig holds optional bootstrap values written into PG on startup.
-type SeedConfig struct {
-	OpenAI    *UpstreamSeed
-	Anthropic *UpstreamSeed
-	Keys      []VirtualKey
-}
-
-// UpstreamSeed is env/bootstrap input for an upstream provider.
-type UpstreamSeed struct {
-	BaseURL       string
-	APIKey        string
-	ProxyURL      string
-	ModelMap      map[string]string
-	ModelPatterns []ModelPattern
-}
-
-// SeedFromConfig upserts upstreams and virtual keys from process config into PG.
-func (g *Gateway) SeedFromConfig(cfg SeedConfig) error {
-	now := time.Now().UTC()
-	for provider, seed := range map[string]*UpstreamSeed{
-		ProviderAnthropic: cfg.Anthropic,
-		ProviderOpenAI:    cfg.OpenAI,
-	} {
-		if seed == nil || seed.BaseURL == "" || seed.APIKey == "" {
-			continue
-		}
-		u := Upstream{
-			Provider:      provider,
-			BaseURL:       trimRightSlash(seed.BaseURL),
-			APIKey:        seed.APIKey,
-			ProxyURL:      strings.TrimSpace(seed.ProxyURL),
-			ModelMap:      seed.ModelMap,
-			ModelPatterns: seed.ModelPatterns,
-			Enabled:       true,
-			UpdatedAt:     now,
-		}
-		if u.ModelMap == nil {
-			u.ModelMap = map[string]string{}
-		}
-		if err := g.store.UpsertUpstream(u); err != nil {
-			return err
-		}
-	}
-	for _, vk := range cfg.Keys {
-		if vk.Key == "" {
-			continue
-		}
-		if vk.Name == "" {
-			vk.Name = vk.Key
-		}
-		vk.Enabled = true
-		if vk.CreatedAt.IsZero() {
-			vk.CreatedAt = now
-		}
-		if err := g.store.UpsertVirtualKey(vk); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 func trimRightSlash(s string) string {
 	for len(s) > 0 && s[len(s)-1] == '/' {

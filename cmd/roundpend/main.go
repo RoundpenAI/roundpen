@@ -23,11 +23,14 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/issue"
+	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/search"
 	"github.com/RoundpenAI/roundpen/internal/secretbox"
+	"github.com/RoundpenAI/roundpen/internal/settingitems"
 	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
@@ -81,6 +84,34 @@ func main() {
 	sessionStore := storage.NewSessionStore(db)
 	bootstrapAdmin(ctx, cfg, userStore, logger)
 
+	itemsReg, err := settingitems.NewRegistry(
+		[]settingitems.KindDef{userenv.ProxyKind(), search.Kind(), browser.Kind(), llmgw.Kind()},
+		append(append(append(userenv.ProxySlots(), search.Slots()...), browser.Slots()...), llmgw.Slots()...),
+	)
+	if err != nil {
+		logger.Error("setting items registry", slog.Any("err", err))
+		os.Exit(1)
+	}
+	itemsCat := settingitems.NewCatalog(settingitems.NewPGStore(db.SQL, secretBox), itemsReg)
+	if err := itemsCat.Reload(ctx); err != nil {
+		logger.Error("setting items load", slog.Any("err", err))
+		os.Exit(1)
+	}
+	// Configuration that used to live in the settings document now seeds items:
+	// the stored document wins where it has a value, the environment fills the
+	// rest (fresh installs have none of those keys).
+	storedLegacy, err := settingsStore.LoadLegacy(ctx)
+	if err != nil {
+		logger.Error("setting items legacy read", slog.Any("err", err))
+		os.Exit(1)
+	}
+	if err := importLegacyItems(ctx, itemsCat, storedLegacy.Overlay(settings.FromConfigLegacy(cfg)), logger); err != nil {
+		logger.Error("setting items legacy import", slog.Any("err", err))
+		os.Exit(1)
+	}
+	// Items may also be written by another daemon sharing this database.
+	go itemsCat.RefreshLoop(ctx, 30*time.Second)
+
 	wsFS, err := newWorkspaceFS(cfg, dataRoot, logger)
 	if err != nil {
 		logger.Error("workspace", slog.Any("err", err))
@@ -110,40 +141,46 @@ func main() {
 	mux := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
 
 	envSvc, envHandler, oauthSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
+	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)
 	memSvc := &memory.Service{Store: memStore, Logger: logger}
 	go memory.RunPurge(ctx, memStore, logger, time.Hour)
 
-	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, logger)
+	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, itemsCat, logger)
 
-	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, sbSvc, tplSvc, probe, reconfigureLLMGW)
+	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
 
 	publicURL := publicBaseURL(cfg)
 
-	setupSvc.PlanLLM = newLLMPlanner(cfg, publicURL, gw)
+	setupSvc.PlanLLM = newLLMPlanner(cfg, publicURL, gw, itemsCat)
 
-	resolveProxy := wireEnvService(envSvc, envHandler, settingsSvc, userStore, publicURL, gw, userVKey)
+	proxyForUser := wireEnvService(envSvc, publicURL, gw, userVKey, itemsCat)
+	// The hub attaches to whatever the control plane resolved for a key, so
+	// record the profile whenever a browser environment is resolved.
+	envHandler.BrowserProfiles = func(userID, key string) {
+		if key != "" {
+			browserHub.SetProfile(key, envSvc.BrowserProfileFor(userID))
+		}
+	}
 
 	agentStore := &agentsession.Store{DB: db.SQL}
 	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
-	if s := settingsSvc.Current(); s.WebSearchEndpoint != "" || s.WebSearchApiKey != "" {
-		endpoint := s.WebSearchEndpoint
+	if cfg := search.Resolve(itemsCat.Snapshot(), settingitems.SlotSearchDefault, ""); cfg.Endpoint != "" || cfg.APIKey != "" {
+		endpoint := cfg.Endpoint
 		if endpoint == "" {
 			endpoint = "(default)"
 		}
-		logger.Info("web search enabled",
-			"endpoint", endpoint,
-			"api_key_set", s.WebSearchApiKey != "")
+		logger.Info("web search enabled", "endpoint", endpoint, "api_key_set", cfg.APIKey != "")
 	}
-	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw)
+	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
-	acpMgr := newACPManager(loopback, mgr, envSvc, browserHub, agentStore, settingsSvc, gw, autoEvaluator, logger)
+	acpMgr := newACPManager(loopback, mgr, envSvc, browserHub, agentStore, gw, autoEvaluator, itemsCat, logger)
 
-	agentHandler, ticketStore := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, resolveProxy, userVKey)
+	agentHandler, ticketStore := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat)
 
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}

@@ -98,8 +98,7 @@ func TestAdminSettingsHTTP(t *testing.T) {
 	body, _ := json.Marshal(settings.AppSettings{
 		DefaultImage:      "python",
 		DefaultTtlSeconds: 3600,
-		WebSearchEndpoint: "https://search.internal.example",
-		WebSearchApiKey:   "tvly-db",
+		LlmgwVirtualKeys:  "vk-db:db",
 	})
 	req = httptest.NewRequest(http.MethodPut, "/v1/admin/settings", bytes.NewReader(body))
 	req.Header.Set("X-API-Key", "rp-admin")
@@ -111,8 +110,8 @@ func TestAdminSettingsHTTP(t *testing.T) {
 	if cfg.DefaultImage != "python" {
 		t.Fatalf("cfg not updated: %q", cfg.DefaultImage)
 	}
-	if cfg.WebTools.SearchEndpoint != "https://search.internal.example" || cfg.WebTools.SearchAPIKey != "tvly-db" {
-		t.Fatalf("cfg.WebTools = %+v", cfg.WebTools)
+	if len(cfg.LLMGW.VirtualKeys) != 1 || cfg.LLMGW.VirtualKeys[0].Key != "vk-db" {
+		t.Fatalf("cfg.LLMGW.VirtualKeys = %+v", cfg.LLMGW.VirtualKeys)
 	}
 
 	// GET 返回掩码后的 Key。
@@ -129,8 +128,9 @@ func TestAdminSettingsHTTP(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode GET: %v", err)
 	}
-	if envelope.Settings.WebSearchApiKey != settings.SecretMask {
-		t.Fatalf("GET must mask the stored key, got %q", envelope.Settings.WebSearchApiKey)
+	if !strings.Contains(envelope.Settings.LlmgwVirtualKeys, "vk-") ||
+		strings.Contains(envelope.Settings.LlmgwVirtualKeys, "vk-db") {
+		t.Fatalf("GET must mask the stored virtual key, got %q", envelope.Settings.LlmgwVirtualKeys)
 	}
 
 	// 掩码值原样 PUT 回来不得覆盖已存 Key。
@@ -142,7 +142,7 @@ func TestAdminSettingsHTTP(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("masked PUT status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if cfg.WebTools.SearchAPIKey != "tvly-db" {
+	if len(cfg.LLMGW.VirtualKeys) != 1 || cfg.LLMGW.VirtualKeys[0].Key != "vk-db" {
 		t.Fatalf("masked PUT must keep the stored key, got %q", cfg.WebTools.SearchAPIKey)
 	}
 }
@@ -155,7 +155,7 @@ func TestBrowserTestManagedUsesProbe(t *testing.T) {
 	svc := settings.NewService(nil, cfg,
 		settings.RuntimeDeps{Probe: &runtime.Probe{Cfg: cfg, DockerReady: true}},
 		settings.FromConfig(cfg))
-	res, err := svc.TestBrowser(ctx)
+	res, err := svc.TestBrowser(ctx, "")
 	if err != nil {
 		t.Fatalf("ready probe: err=%v", err)
 	}
@@ -167,7 +167,7 @@ func TestBrowserTestManagedUsesProbe(t *testing.T) {
 	svc = settings.NewService(nil, cfg,
 		settings.RuntimeDeps{Probe: &runtime.Probe{Cfg: cfg}},
 		settings.FromConfig(cfg))
-	if _, err := svc.TestBrowser(ctx); err == nil {
+	if _, err := svc.TestBrowser(ctx, ""); err == nil {
 		t.Fatal("docker down: expected error")
 	} else if !strings.Contains(err.Error(), "Docker") {
 		t.Fatalf("err=%v", err)

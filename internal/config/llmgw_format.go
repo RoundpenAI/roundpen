@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -24,53 +23,4 @@ func FormatVirtualKeys(keys []LLMGWVirtualKey) string {
 		}
 	}
 	return strings.Join(parts, ",")
-}
-
-// ApplyLLMGWSettings writes admin settings into LLMGWConfig.
-func ApplyLLMGWSettings(dst *LLMGWConfig, enabled bool, publicURL, embeddingModel, defaultModel string, logBodyMaxBytes int, openaiBase, openaiKey, openaiProxy, anthropicBase, anthropicKey, anthropicProxy, virtualKeysRaw string) error {
-	dst.Enabled = enabled
-	dst.PublicURL = strings.TrimSpace(publicURL)
-	dst.EmbeddingModel = strings.TrimSpace(embeddingModel)
-	if dst.EmbeddingModel == "" {
-		dst.EmbeddingModel = "text-embedding-3-small"
-	}
-	dst.DefaultModel = strings.TrimSpace(defaultModel)
-	dst.LogBodyMaxBytes = logBodyMaxBytes
-
-	openaiBase = strings.TrimSpace(openaiBase)
-	openaiKey = strings.TrimSpace(openaiKey)
-	if openaiBase != "" || openaiKey != "" {
-		if openaiBase == "" || openaiKey == "" {
-			return fmt.Errorf("llmgw openai base URL and API key must both be set")
-		}
-		dst.OpenAI = &LLMGWUpstream{
-			BaseURL:  openaiBase,
-			APIKey:   openaiKey,
-			ProxyURL: strings.TrimSpace(openaiProxy),
-		}
-	} else {
-		dst.OpenAI = nil
-	}
-
-	anthropicBase = strings.TrimSpace(anthropicBase)
-	anthropicKey = strings.TrimSpace(anthropicKey)
-	if anthropicBase != "" || anthropicKey != "" {
-		if anthropicBase == "" || anthropicKey == "" {
-			return fmt.Errorf("llmgw anthropic base URL and API key must both be set")
-		}
-		dst.Anthropic = &LLMGWUpstream{
-			BaseURL:  anthropicBase,
-			APIKey:   anthropicKey,
-			ProxyURL: strings.TrimSpace(anthropicProxy),
-		}
-	} else {
-		dst.Anthropic = nil
-	}
-
-	keys, err := ParseVirtualKeys(virtualKeysRaw)
-	if err != nil {
-		return err
-	}
-	dst.VirtualKeys = keys
-	return nil
 }

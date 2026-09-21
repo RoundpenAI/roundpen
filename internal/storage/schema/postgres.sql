@@ -16,15 +16,29 @@ CREATE TABLE IF NOT EXISTS users (
     -- own: the gateway env is withheld so agents use the user's own login
     -- (vendor subscription / free tier) inside the sandbox.
     model_source    TEXT NOT NULL DEFAULT 'gateway',
-    -- Admin proxy-profile ids selected per slot ('' = direct).
-    agent_proxy     TEXT NOT NULL DEFAULT '',
-    browser_proxy   TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS model_source TEXT NOT NULL DEFAULT 'gateway';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_proxy TEXT NOT NULL DEFAULT '';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS browser_proxy TEXT NOT NULL DEFAULT '';
+
+-- Per-user egress-proxy selections moved into setting_bindings. The copy runs
+-- once, while the columns still exist; a value that no longer matches an item
+-- id simply resolves to "no selection".
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'users' AND column_name = 'agent_proxy') THEN
+        INSERT INTO setting_bindings (scope, slot, kind, item_id)
+        SELECT 'user:' || username, 'proxy.agent', 'proxy', agent_proxy
+        FROM users WHERE coalesce(agent_proxy, '') <> ''
+        ON CONFLICT (scope, slot) DO NOTHING;
+        INSERT INTO setting_bindings (scope, slot, kind, item_id)
+        SELECT 'user:' || username, 'proxy.browser', 'proxy', browser_proxy
+        FROM users WHERE coalesce(browser_proxy, '') <> ''
+        ON CONFLICT (scope, slot) DO NOTHING;
+        ALTER TABLE users DROP COLUMN agent_proxy, DROP COLUMN browser_proxy;
+    END IF;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email
     ON users (lower(email))
@@ -83,19 +97,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS sandboxes_owner_category_default_uniq
     ON sandboxes (owner, lower(category))
     WHERE deleted_at IS NULL AND is_default AND category <> '';
 
--- LLM gateway (virtual keys, upstream vault, request log)
-CREATE TABLE IF NOT EXISTS llmgw_upstreams (
-    provider        TEXT PRIMARY KEY,
-    base_url        TEXT NOT NULL,
-    api_key         TEXT NOT NULL,
-    -- Optional egress proxy for this upstream (http/https/socks5 URL).
-    proxy_url       TEXT NOT NULL DEFAULT '',
-    model_map       JSONB NOT NULL DEFAULT '{}',
-    model_patterns  JSONB NOT NULL DEFAULT '[]',
-    enabled         BOOLEAN NOT NULL DEFAULT true,
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-ALTER TABLE llmgw_upstreams ADD COLUMN IF NOT EXISTS proxy_url TEXT NOT NULL DEFAULT '';
+-- LLM gateway (virtual keys, request log). Providers live in setting_items
+-- (kind 'llm') since the multi-provider rework; llmgw_upstreams is retired.
+DROP TABLE IF EXISTS llmgw_upstreams;
 
 CREATE TABLE IF NOT EXISTS llmgw_virtual_keys (
     key             TEXT PRIMARY KEY,
@@ -527,3 +531,38 @@ CREATE TABLE IF NOT EXISTS oauth_states (
     expires_at  TIMESTAMPTZ NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- setting_items: named, typed configuration entries ("items") grouped by kind.
+-- Usage sites ("slots") select one item via setting_bindings. Secret config
+-- values are sealed (AES-GCM "enc:v1:") in their own column; config holds only
+-- non-secret fields.
+CREATE TABLE IF NOT EXISTS setting_items (
+    kind        TEXT NOT NULL,
+    id          TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+    position    INTEGER NOT NULL DEFAULT 0,
+    config      JSONB NOT NULL DEFAULT '{}',
+    secrets     JSONB NOT NULL DEFAULT '{}',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, id)
+);
+CREATE INDEX IF NOT EXISTS setting_items_kind_pos_idx ON setting_items (kind, position, id);
+
+-- setting_bindings: which item a slot resolves to, per scope. scope is 'global'
+-- (admin default) or 'user:<username>' (personal override); item_id '' means
+-- inherit. Reference integrity is enforced in Go: deleting an item also
+-- deletes the bindings that pointed at it.
+CREATE TABLE IF NOT EXISTS setting_bindings (
+    scope      TEXT NOT NULL,
+    slot       TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    item_id    TEXT NOT NULL DEFAULT '',
+    params     JSONB NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (scope, slot),
+    CONSTRAINT setting_bindings_scope_ck CHECK (scope = 'global' OR scope LIKE 'user:%')
+);
+CREATE INDEX IF NOT EXISTS setting_bindings_item_idx ON setting_bindings (kind, item_id);
