@@ -3,10 +3,10 @@ import { Banner, Button, Modal, Radio, Select, Typography } from '@douyinfe/semi
 import {
   environments,
   modelSource,
-  slotProxies,
+  slotChoices,
   type EnvironmentView,
   type ModelSource,
-  type SlotProxyView,
+  type SlotChoice,
 } from '../api'
 import { useT, type MessageKey } from '../i18n'
 
@@ -27,7 +27,7 @@ export function AgentEnvironmentPanel() {
   const t = useT()
   const [view, setView] = useState<EnvironmentView | null>(null)
   const [source, setSource] = useState<ModelSource>('gateway')
-  const [proxyOptions, setProxyOptions] = useState<SlotProxyView[]>([])
+  const [proxyOptions, setProxyOptions] = useState<SlotChoice[]>([])
   const [agentProxy, setAgentProxy] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -35,15 +35,16 @@ export function AgentEnvironmentPanel() {
 
   const load = useCallback(async () => {
     try {
-      const [envRes, srcRes, proxyRes] = await Promise.all([
+      const [envRes, srcRes, proxyChoices, proxyCurrent] = await Promise.all([
         environments.list(),
         modelSource.get(),
-        slotProxies.get(),
+        slotChoices.options('proxy'),
+        slotChoices.current('proxy.agent'),
       ])
       setView((envRes.environments ?? []).find((v) => v.slot === 'agent') ?? null)
       setSource(srcRes.modelSource ?? 'gateway')
-      setProxyOptions(proxyRes.proxies ?? [])
-      setAgentProxy(proxyRes.agent ?? '')
+      setProxyOptions(proxyChoices)
+      setAgentProxy(proxyCurrent)
     } catch (e) {
       setError(e instanceof Error ? e.message : t('agentEnv.loadFailed'))
     }
@@ -108,8 +109,8 @@ export function AgentEnvironmentPanel() {
   )
 
   const changeProxy = useCallback(
-    (profileId: string) => {
-      if (profileId === agentProxy) {
+    (itemId: string) => {
+      if (itemId === agentProxy) {
         return
       }
       Modal.confirm({
@@ -120,8 +121,8 @@ export function AgentEnvironmentPanel() {
           setNotice(null)
           setError(null)
           try {
-            const res = await slotProxies.set('agent', profileId)
-            setAgentProxy(res.profileId)
+            const res = await slotChoices.select('proxy.agent', itemId)
+            setAgentProxy(res.itemId)
             if (res.rebuildError) {
               setError(`${t('agentEnv.proxy.rebuildFailed')} ${res.rebuildError}`)
             } else if (res.status && res.status !== 'absent') {

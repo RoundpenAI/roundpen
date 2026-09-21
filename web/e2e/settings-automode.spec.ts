@@ -25,14 +25,14 @@ test('auto mode custom rule round-trips through save', async ({ page }) => {
   await page.goto('/admin/settings/automode')
 
   // The first "新增规则" button belongs to the environment list; its entry
-  // input follows the classifier-model input in DOM order.
+  // input is the first text input on the page.
   await page.getByRole('button', { name: '新增规则' }).first().click()
   const rule = `Trusted staging bucket ${Date.now()}`
-  await page.locator('input.semi-input').nth(1).fill(rule)
+  await page.locator('input.semi-input').first().fill(rule)
 
   await page.getByRole('button', { name: '保存设置' }).click()
   await expect(page.getByText('设置已保存。')).toBeVisible()
 
   await page.reload()
-  await expect(page.locator('input.semi-input').nth(1)).toHaveValue(rule)
+  await expect(page.locator('input.semi-input').first()).toHaveValue(rule)
 })

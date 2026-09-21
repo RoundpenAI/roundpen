@@ -27,6 +27,7 @@ export type SettingsSectionKey =
   | 'password'
   | 'git'
   | 'agent'
+  | 'slots'
   | 'general'
   | 'oauth'
   | 'llmgw'
@@ -67,6 +68,7 @@ export const PERSONAL_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'password', labelKey: 'settings.section.password', group: 'account' },
   { key: 'git', labelKey: 'settings.section.git', group: 'workspace' },
   { key: 'agent', labelKey: 'settings.section.agent', group: 'workspace' },
+  { key: 'slots', labelKey: 'settings.section.slots', group: 'workspace' },
 ]
 
 export const ADMIN_SETTINGS_GROUPS: SettingsGroup[] = [

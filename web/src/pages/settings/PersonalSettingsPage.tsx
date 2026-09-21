@@ -3,6 +3,7 @@ import { AgentEnvironmentPanel } from '../../components/AgentEnvironmentPanel'
 import { ChangePasswordForm } from '../../components/ChangePasswordForm'
 import { GitCredentialsPanel } from '../../components/GitCredentialsPanel'
 import { LinkedAccountsPanel } from '../../components/LinkedAccountsPanel'
+import { PersonalSlotsPanel } from '../../components/PersonalSlotsPanel'
 import { useAuth } from '../../auth'
 import { isAdminSectionKey, SETTINGS_AREAS } from '../../lib/appNav'
 
@@ -39,6 +40,8 @@ export function PersonalSettingsPage() {
       {section === 'password' && <ChangePasswordForm />}
 
       {section === 'agent' && <AgentEnvironmentPanel />}
+
+      {section === 'slots' && <PersonalSlotsPanel />}
     </div>
   )
 }

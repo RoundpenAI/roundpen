@@ -8,7 +8,6 @@ import {
   type AppSettings,
   type AutoModeDefaults,
   type AutoModeSettings,
-  type ProxyProfile,
   type SettingsResponse,
   type Template,
 } from '../../api'
@@ -46,7 +45,6 @@ export function AdminSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
-  const [browserTest, setBrowserTest] = useState<string>('')
   const [templateList, setTemplateList] = useState<Template[]>([])
   const [defaultsOpen, setDefaultsOpen] = useState(false)
   const [defaultsLoading, setDefaultsLoading] = useState(false)
@@ -129,10 +127,6 @@ export function AdminSettingsPage() {
     setDirty(true)
   }
 
-  function patchProxy(index: number, next: Partial<ProxyProfile>) {
-    patch({ proxies: form.proxies.map((p, i) => (i === index ? { ...p, ...next } : p)) })
-  }
-
   function patchAutoMode(next: Partial<AutoModeSettings>) {
     patch({ autoMode: { ...form.autoMode, ...next } })
   }
@@ -188,24 +182,6 @@ export function AdminSettingsPage() {
     void load()
   }
 
-  async function testBrowser() {
-    setBrowserTest('…')
-    try {
-      const res = await adminSettings.browserTest()
-      if (!res.ok) {
-        setBrowserTest(res.error || 'connection failed')
-        return
-      }
-      const r = res.result
-      setBrowserTest(
-        r?.provider === 'host'
-          ? `host chrome: ${r.chromePath || 'not found'}`
-          : `provider=${r?.provider}${r?.version ? ` browserless=${r.version}` : ''}${r?.path ? ` path=${r.path}` : ''}`,
-      )
-    } catch (e) {
-      setBrowserTest(e instanceof Error ? e.message : 'connection failed')
-    }
-  }
 
   const sys = data?.system
 
@@ -249,16 +225,7 @@ export function AdminSettingsPage() {
       )}
 
       {section === 'browser' && (
-        <BrowserSection
-          isAdmin={isAdmin}
-          loading={loading}
-          t={t}
-          form={form}
-          patch={patch}
-          currentSuffix={currentSuffix}
-          browserTest={browserTest}
-          testBrowser={testBrowser}
-        />
+        <BrowserSection isAdmin={isAdmin} loading={loading} t={t} form={form} patch={patch} />
       )}
 
       {section === 'llmgw' && (
@@ -304,14 +271,7 @@ export function AdminSettingsPage() {
       />
 
       {section === 'proxy' && (
-        <ProxySection
-          isAdmin={isAdmin}
-          loading={loading}
-          t={t}
-          form={form}
-          patch={patch}
-          patchProxy={patchProxy}
-        />
+        <ProxySection isAdmin={isAdmin} loading={loading} t={t} form={form} patch={patch} />
       )}
 
       {section === 'system' && (

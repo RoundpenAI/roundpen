@@ -98,13 +98,11 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.logBody.64k': '64 KiB',
   'settings.logBody.256k': '256 KiB',
 
-  'settings.browser.cdpProvider': 'CDP 提供方',
-  'settings.browser.test': '测试连接',
-  'settings.browser.hostCdpUrl': '本机 CDP URL（可选；留空则启动本地 Chrome）',
-  'settings.browser.cdpEndpoint': 'CDP 端点 URL',
-  'settings.browser.cdpToken': 'CDP 令牌（可选）',
-  'settings.browser.guestPort': '访客 CDP 端口',
+  'settings.browser.intro':
+    '浏览器工具通过 DevTools websocket 接入。每种来源一条，在下方选择默认来源；用户也可以为自己覆盖。',
   'settings.browser.keepMasked': '保持掩码以保留当前值',
+  'settings.browser.test': '测试连接',
+  'settings.browser.testOk': '连接正常',
   'settings.browser.hint':
     '浏览器工具通过 DevTools WebSocket 连接。NAS 与 compose 应使用 Docker Chrome 或远程/云 CDP — 不要在 NAS 系统上安装 Chrome。本机 Chrome 仅用于笔记本调试。',
 
@@ -113,32 +111,18 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.llmgw.enable': '启用中继（Agent 对话与记忆嵌入所需）',
   'settings.llmgw.upstreamTitle': '1 · 上游提供商',
   'settings.llmgw.upstreamHint':
-    'Roundpen 转发请求的目标。这些 API 密钥保存在控制面数据库中，绝不会注入沙箱。',
-  'settings.llmgw.openaiBase': 'OpenAI 兼容 Base URL',
-  'settings.llmgw.openaiBaseHint':
-    '官方 OpenAI、Azure OpenAI，或任意 OpenAI 兼容代理。',
-  'settings.llmgw.openaiKey': 'OpenAI 兼容 API 密钥',
+    '每个 provider 一条；下面的每个使用点（Agent、对话、分类器、embedding）各选一个。provider 通过 /llmgw/<id> 转发并持有真实上游密钥。',
   'settings.llmgw.keepSecret': '保持掩码以保留已存储的密钥。',
-  'settings.llmgw.anthropicBase': 'Anthropic Base URL',
-  'settings.llmgw.anthropicBaseHint':
-    '可选。若只用 OpenAI 兼容模型可留空。',
-  'settings.llmgw.anthropicKey': 'Anthropic API 密钥',
   'settings.llmgw.agentsTitle': '2 · Agent 使用的配置',
   'settings.llmgw.agentsHint':
     '沙箱会得到指向本 Roundpen 的 OPENAI_BASE_URL / ANTHROPIC_BASE_URL，以及作为 OPENAI_API_KEY 的虚拟密钥。',
   'settings.llmgw.publicUrl': '控制面公网 URL',
   'settings.llmgw.publicUrlHint':
     '沙箱内 Agent 可访问的地址（如 http://host.docker.internal:9527 或局域网 IP）。不是上游 OpenAI URL。',
-  'settings.llmgw.defaultModel': '默认模型',
-  'settings.llmgw.defaultModelHint':
-    '当请求模型不在上游模型映射中（且不是上游目标名）时，用于 OpenAI 与 Anthropic 中继。留空则透传未知模型。',
   'settings.llmgw.virtualKeys': '虚拟密钥',
   'settings.llmgw.virtualKeysHint':
     '/llmgw 的客户端凭据。格式：vk-name:label 或 vk-name（逗号分隔）。例如：vk-dev:dev,vk-prod:prod。Agent 会自动选取非内部密钥。',
   'settings.llmgw.advanced': '高级',
-  'settings.llmgw.embedModel': '嵌入模型',
-  'settings.llmgw.embedModelHint':
-    '别名为 roundpen-embed、用于长期记忆检索的上游模型。',
   'settings.llmgw.logBody': '请求体日志',
   'settings.llmgw.logBodyHint':
     '审计时保存多少中继请求/响应正文。关闭 = 仅元数据。',
@@ -146,14 +130,9 @@ export const zh_CN: Record<MessageKey, string> = {
     '密钥存于 PostgreSQL 并以掩码显示。掩码字段不改则保留原值。保存立即生效，无需重启。',
 
   'settings.webtools.intro':
-    'Web 工具让 Agent 从控制面抓取网页并联网搜索。在下方配置 Tavily 兼容的搜索端点；WebFetch 无需配置。',
-  'settings.webtools.endpoint': '搜索端点',
-  'settings.webtools.endpointHint':
-    'Tavily 兼容 API 的 Base URL。留空使用 https://api.tavily.com。环回地址（127.0.0.1）在工具发起请求时会被拒绝。',
-  'settings.webtools.apiKey': '搜索 API 密钥',
-  'settings.webtools.keepSecret': '保持掩码以保留已存储的密钥。',
+    'Web 工具让 Agent 从控制面抓取网页并联网搜索。每个搜索后端一条；在下方选择默认后端。WebFetch 无需配置。',
   'settings.webtools.note':
-    '保存后对新开的 Agent 会话生效——重开会话即可看到 WebSearch 工具。两项都留空则关闭 WebSearch。',
+    '对新开的 Agent 会话生效——重开会话即可看到 WebSearch 工具。endpoint 与 key 都为空时该工具不注册。',
 
   'settings.system.title': '系统（只读）',
   'settings.system.backend': '后端',
@@ -282,26 +261,73 @@ export const zh_CN: Record<MessageKey, string> = {
   'agentEnv.proxy.failed': '更新代理失败。',
 
   'settings.proxy.intro':
-    '可命名的出口代理，用户按环境选择。URL 可带凭证（user:pass@host），普通用户只看得到 profile 名称。',
-  'settings.proxy.id': 'Profile ID',
-  'settings.proxy.idHint': '稳定标识，用户选择时引用。',
-  'settings.proxy.name': '显示名称',
-  'settings.proxy.url': '代理 URL',
+    '可命名的出口代理，用户按环境选择。URL 可带凭证（user:pass@host），普通用户只看得到条目名称。',
   'settings.proxy.urlHint': 'http / https / socks5 / socks5h。',
-  'settings.proxy.description': '描述',
-  'settings.proxy.add': '新增 profile',
-  'settings.proxy.remove': '删除',
   'settings.proxy.note':
-    '与下方设置一起保存。Chrome 不支持代理 URL 里的凭证，Browser 槽位请用免认证代理。',
-  'settings.llmgw.openaiProxy': 'OpenAI 上游代理',
-  'settings.llmgw.anthropicProxy': 'Anthropic 上游代理',
-  'settings.webtools.proxy': 'Web 工具代理',
+    'Chrome 不支持代理 URL 里的凭证，Browser 槽位请用免认证代理。',
+
+  'settings.items.group': '条目 {n}',
+  'settings.slots.intro':
+    '每个使用点的默认后端。条目从上方列表里选；选择「继承」则沿用内置默认。',
+  'settings.slots.inherit': '继承',
+  'settings.slots.loadFailed': '加载槽位默认值失败。',
+  'settings.slots.saveFailed': '保存槽位默认值失败。',
+  'settings.slotName.search.default': 'Web 搜索',
+  'settings.itemField.endpoint': '接口地址',
+  'settings.itemField.apiKey': 'API 密钥',
+  'settings.itemField.proxyId': '出口代理',
+  'settings.slotName.browser.default': '浏览器来源',
+  'settings.itemField.provider': '提供方',
+  'settings.itemField.token': '端点令牌',
+  'settings.itemField.port': 'CDP 端口',
+  'settings.slotName.llm.default': '默认 provider',
+  'settings.slotName.llm.agent': '沙箱 Agent',
+  'settings.slotName.llm.sysagent': '系统 Agent',
+  'settings.slotName.llm.classifier': 'Auto 模式分类器',
+  'settings.slotName.llm.planner': '装机规划器',
+  'settings.slotName.llm.embedding': 'Embedding',
+  'settings.itemField.protocol': '协议',
+  'settings.itemField.baseUrl': '接口地址',
+  'settings.itemField.defaultModel': '兜底模型',
+  'settings.itemField.modelMap': '模型别名（JSON）',
+  'settings.itemField.modelPatterns': '模型匹配规则（JSON）',
+  'settings.section.slots': '我的服务',
+  'personalSlots.title': '我的服务',
+  'personalSlots.intro':
+    '为每个使用点选择自己的后端，或继承平台默认。改动会影响沙箱的槽位会触发环境重建。',
+  'personalSlots.inherit': '继承平台默认',
+  'personalSlots.modelPlaceholder': '模型（留空 = provider 默认）',
+  'personalSlots.saved': '已保存；将在创建环境时生效。',
+  'personalSlots.rebuilt': '已保存，环境已重建。',
+  'personalSlots.loading': '正在加载我的服务…',
+  'personalSlots.loadFailed': '加载我的服务失败。',
+  'personalSlots.saveFailed': '保存选择失败。',
+  'settings.slotName.llm.plan': 'Plan 模式',
+  'settings.slotName.llm.vision': 'Vision 模式',
+  'settings.slotName.llm.coding': 'Coding 子代理',
+  'settings.slotName.proxy.agent': 'Agent 出口代理',
+  'settings.slotName.proxy.browser': 'Browser 出口代理',
+  'settings.items.id': 'ID',
+  'settings.items.idHint': '稳定的小写标识，用户选择时引用它。',
+  'settings.items.name': '显示名称',
+  'settings.items.description': '描述',
+  'settings.items.enabled': '启用',
+  'settings.items.add': '新增条目',
+  'settings.items.save': '保存',
+  'settings.items.remove': '删除',
+  'settings.items.saved': '条目已保存。',
+  'settings.items.empty': '暂无配置。',
+  'settings.items.none': '不指定',
+  'settings.items.advanced': '高级设置',
+  'settings.items.secretHint': '加密存储；保持原样即保留已保存的值。',
+  'settings.items.loadFailed': '加载条目失败。',
+  'settings.items.saveFailed': '保存条目失败。',
+  'settings.items.deleteFailed': '删除条目失败。',
+  'settings.items.unknownKind': '当前后端尚不支持这类条目。',
+  'settings.itemField.url': '代理 URL',
 
   'settings.automode.intro':
     '会话打开 Auto 后，每个需要授权的工具调用都会先经过分类器模型：安全操作直接执行，不可逆或向外的操作会被拦截并让模型换一种做法。规则是写给分类器的自然语言。',
-  'settings.automode.model': '分类器模型',
-  'settings.automode.modelHint':
-    '可选，经网关路由的模型名；留空使用网关默认模型。判定质量优先，建议用能力较强的模型。',
   'settings.automode.environment': '可信环境',
   'settings.automode.environmentHint': '定义什么算环境内、什么算环境外。',
   'settings.automode.allow': '放行规则',

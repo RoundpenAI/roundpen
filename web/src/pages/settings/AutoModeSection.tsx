@@ -21,14 +21,6 @@ export function AutoModeSection({ isAdmin, loading, t, form, patchAutoMode, setA
           <Typography.Text type="tertiary">
             {t('settings.automode.intro')}
           </Typography.Text>
-          <Field label={t('settings.automode.model')} hint={t('settings.automode.modelHint')}>
-            <Input
-              autoComplete="off"
-              placeholder={form.llmgwDefaultModel || 'default'}
-              value={form.autoMode.model ?? ''}
-              onChange={(v) => patchAutoMode({ model: v })}
-            />
-          </Field>
           {AUTOMODE_LISTS.map(({ key, labelKey, hintKey }) => {
             const withDefaults = form.autoMode[key].includes(AUTOMODE_DEFAULTS_TOKEN)
             const custom = form.autoMode[key].filter(
