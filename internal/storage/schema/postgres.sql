@@ -21,24 +21,6 @@ CREATE TABLE IF NOT EXISTS users (
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS model_source TEXT NOT NULL DEFAULT 'gateway';
 
--- Per-user egress-proxy selections moved into setting_bindings. The copy runs
--- once, while the columns still exist; a value that no longer matches an item
--- id simply resolves to "no selection".
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.columns
-               WHERE table_name = 'users' AND column_name = 'agent_proxy') THEN
-        INSERT INTO setting_bindings (scope, slot, kind, item_id)
-        SELECT 'user:' || username, 'proxy.agent', 'proxy', agent_proxy
-        FROM users WHERE coalesce(agent_proxy, '') <> ''
-        ON CONFLICT (scope, slot) DO NOTHING;
-        INSERT INTO setting_bindings (scope, slot, kind, item_id)
-        SELECT 'user:' || username, 'proxy.browser', 'proxy', browser_proxy
-        FROM users WHERE coalesce(browser_proxy, '') <> ''
-        ON CONFLICT (scope, slot) DO NOTHING;
-        ALTER TABLE users DROP COLUMN agent_proxy, DROP COLUMN browser_proxy;
-    END IF;
-END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email
     ON users (lower(email))
@@ -566,3 +548,22 @@ CREATE TABLE IF NOT EXISTS setting_bindings (
     CONSTRAINT setting_bindings_scope_ck CHECK (scope = 'global' OR scope LIKE 'user:%')
 );
 CREATE INDEX IF NOT EXISTS setting_bindings_item_idx ON setting_bindings (kind, item_id);
+
+-- Per-user egress-proxy selections moved into setting_bindings. The copy runs
+-- once, while the columns still exist; a value that no longer matches an item
+-- id simply resolves to "no selection".
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'users' AND column_name = 'agent_proxy') THEN
+        INSERT INTO setting_bindings (scope, slot, kind, item_id)
+        SELECT 'user:' || username, 'proxy.agent', 'proxy', agent_proxy
+        FROM users WHERE coalesce(agent_proxy, '') <> ''
+        ON CONFLICT (scope, slot) DO NOTHING;
+        INSERT INTO setting_bindings (scope, slot, kind, item_id)
+        SELECT 'user:' || username, 'proxy.browser', 'proxy', browser_proxy
+        FROM users WHERE coalesce(browser_proxy, '') <> ''
+        ON CONFLICT (scope, slot) DO NOTHING;
+        ALTER TABLE users DROP COLUMN agent_proxy, DROP COLUMN browser_proxy;
+    END IF;
+END $$;
