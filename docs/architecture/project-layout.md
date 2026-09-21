@@ -49,6 +49,8 @@ roundpen/
 | `authz` / `httpx` | 属主上下文；可信代理下的 IP / HTTPS 判定 |
 | `oauth` | 联合登录：`oauth_providers` / `user_identities` / `oauth_states` 三表，回调复用 `auth.IssueSession` |
 | `gitcred` | `MergeCreds` 合并 PAT（优先）与 OAuth token，`InstallScript` 写入 guest `$HOME` |
+| `settingitems` | 多 item 设置的通用机制：kind/item/slot/binding、原子快照解析、密钥逐字段密封（spec: `docs/superpowers/specs/2026-09-21-multi-item-settings-design.md`） |
+| `search` / `browser`（item） | 搜索后端与 CDP 来源作为 item 暴露给槽位（`search.Resolve`、`browser.Resolve`） |
 | `userenv` | PG `user_environments` |
 | `template` | slot 镜像目录（env 播种的 artifact 与资源规格，创建沙箱时解析） |
 | `backend/qemu` | qcow2 生命周期、CDP hostfwd、VNC unix sock（Desktop/Mobile 落点） |
@@ -56,7 +58,9 @@ roundpen/
 
 ## 装配
 
-`roundpend`：config → 可信代理 → PG migrate → seed templates → docker + optional qemu → multi → sandbox Manager → platform / envapi / agentapi / browser Hub。
+`roundpend`：config → 可信代理 → PG migrate → settings bootstrap → setting items（迁移旧配置为 item/binding）→ seed templates → docker + optional qemu → multi → sandbox Manager → platform / envapi / agentapi / browser Hub。
+
+集成类配置（LLM provider、出口代理、搜索后端、浏览器来源）是 `setting_items` 里的条目，使用点（槽位）通过 `setting_bindings` 选择：解析链为「用户覆盖 → 管理员全局默认 → 槽位默认 → 回退槽位」。LLM relay 按 `/llmgw/<item id>/...` 路由，`openai`/`anthropic` 是迁移时播种的默认 id。
 
 ## 演进
 
