@@ -270,7 +270,6 @@ export const en = {
   'settings.proxy.note':
     'Chrome ignores credentials in proxy URLs; use an auth-less proxy for the Browser slot.',
 
-  'settings.items.group': 'Item {n}',
   'settings.slots.intro':
     'Default backend for each usage point. Items are picked from the list above; "Inherit" leaves the built-in default.',
   'settings.slots.inherit': 'Inherit',
@@ -311,6 +310,58 @@ export const en = {
   'settings.slotName.llm.coding': 'Coding subagent',
   'settings.slotName.proxy.agent': 'Agent egress',
   'settings.slotName.proxy.browser': 'Browser egress',
+  'settings.items.edit': 'Edit',
+  'settings.items.cancel': 'Cancel',
+  'settings.items.disabled': 'Disabled',
+  'settings.items.newTitle': 'New item',
+  'settings.items.editTitle': 'Edit item',
+  'settings.items.idLocked': 'The id is fixed once the item exists.',
+  'settings.items.kindHint': 'Saved as a {kind} item and referenced by slot bindings.',
+  'settings.itemFieldHint.proxy.url':
+    'http / https / socks5 / socks5h; may embed user:pass.',
+  'settings.itemFieldHint.search.endpoint':
+    'Tavily-compatible search API. Empty uses https://api.tavily.com.',
+  'settings.itemFieldHint.search.apiKey': 'Sent as a bearer token.',
+  'settings.itemFieldHint.search.proxyId':
+    'Used for the search call, WebFetch and skill installs.',
+  'settings.itemFieldHint.browser.provider':
+    'auto/docker use the Roundpen-managed container; host runs local Chrome; remote/cloud dial an external browserless.',
+  'settings.itemFieldHint.browser.endpoint':
+    'Required for remote/cloud (ws://… or http://… of a browserless deployment).',
+  'settings.itemFieldHint.browser.token': 'Optional bearer token for remote/cloud.',
+  'settings.itemFieldHint.browser.port': 'Guest port of the managed container (default 3000).',
+  'settings.itemFieldHint.llm.protocol':
+    'Wire format of the upstream. Anthropic keeps x-api-key auth, OpenAI uses a bearer token.',
+  'settings.itemFieldHint.llm.baseUrl': 'Upstream address, including any path prefix.',
+  'settings.itemFieldHint.llm.apiKey': 'The real upstream key; stored encrypted.',
+  'settings.itemFieldHint.llm.proxyId': 'Egress proxy item this provider dials through.',
+  'settings.itemFieldHint.llm.defaultModel':
+    'Used when a request names a model this provider does not know.',
+  'settings.itemFieldHint.llm.modelMap':
+    'Exact alias → upstream model, e.g. {"roundpen-embed": "text-embedding-3-small"}.',
+  'settings.itemFieldHint.llm.modelPatterns':
+    'Glob/regex rules: [{"pattern": "claude-3-*", "target": "claude-3-5-sonnet"}].',
+  'settings.slotDesc.proxy.agent': "Proxy used for the agent sandbox's outbound traffic.",
+  'settings.slotDesc.proxy.browser': "Proxy used for the browser sandbox's outbound traffic.",
+  'settings.slotDesc.llm.default': 'Fallback for every slot that has no selection of its own.',
+  'settings.slotDesc.llm.agent':
+    'Provider injected into agent sandboxes: ANTHROPIC_MODEL / OPENAI_BASE_URL and friends.',
+  'settings.slotDesc.llm.sysagent':
+    'Provider of the in-process System Agent (chat and permissions).',
+  'settings.slotDesc.llm.classifier':
+    'Model that classifies tool calls behind the chat Auto toggle. Admin-only.',
+  'settings.slotDesc.llm.planner': 'Model behind the host-setup wizard. Admin-only.',
+  'settings.slotDesc.llm.plan':
+    'With the sandbox agent provider: pins ANTHROPIC_DEFAULT_OPUS_MODEL. Another provider only exports ROUNDPEN_LLM_PLAN_*.',
+  'settings.slotDesc.llm.vision':
+    'Same provider rule: pins ANTHROPIC_DEFAULT_HAIKU_MODEL / ANTHROPIC_SMALL_FAST_MODEL.',
+  'settings.slotDesc.llm.coding': 'Same provider rule: pins CLAUDE_CODE_SUBAGENT_MODEL.',
+  'settings.slotDesc.llm.embedding':
+    'Provider for memory embeddings. Must speak the OpenAI protocol and return 1024 dimensions.',
+  'settings.slotDesc.search.default':
+    'Backend of the WebSearch tool; its proxy also routes WebFetch and skill installs.',
+  'settings.slotDesc.browser.default':
+    'CDP source the browser sandbox and the live view attach to.',
   'settings.items.id': 'Id',
   'settings.items.idHint': 'Stable lowercase slug; user selections reference it.',
   'settings.items.name': 'Display name',

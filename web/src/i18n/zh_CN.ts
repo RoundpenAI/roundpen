@@ -266,7 +266,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.proxy.note':
     'Chrome 不支持代理 URL 里的凭证，Browser 槽位请用免认证代理。',
 
-  'settings.items.group': '条目 {n}',
   'settings.slots.intro':
     '每个使用点的默认后端。条目从上方列表里选；选择「继承」则沿用内置默认。',
   'settings.slots.inherit': '继承',
@@ -307,6 +306,50 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.slotName.llm.coding': 'Coding 子代理',
   'settings.slotName.proxy.agent': 'Agent 出口代理',
   'settings.slotName.proxy.browser': 'Browser 出口代理',
+  'settings.items.edit': '编辑',
+  'settings.items.cancel': '取消',
+  'settings.items.disabled': '已禁用',
+  'settings.items.newTitle': '新增条目',
+  'settings.items.editTitle': '编辑条目',
+  'settings.items.idLocked': '条目创建后 ID 不可修改。',
+  'settings.items.kindHint': '作为 {kind} 条目保存，并由槽位绑定引用。',
+  'settings.itemFieldHint.proxy.url': 'http / https / socks5 / socks5h，可带 user:pass。',
+  'settings.itemFieldHint.search.endpoint':
+    'Tavily 兼容的搜索接口；留空使用 https://api.tavily.com。',
+  'settings.itemFieldHint.search.apiKey': '以 Bearer 令牌发送。',
+  'settings.itemFieldHint.search.proxyId': '搜索、WebFetch 与技能安装共用这条出网代理。',
+  'settings.itemFieldHint.browser.provider':
+    'auto/docker 用平台托管的容器；host 跑本机 Chrome；remote/cloud 连外部 browserless。',
+  'settings.itemFieldHint.browser.endpoint':
+    'remote/cloud 必填（browserless 的 ws:// 或 http:// 地址）。',
+  'settings.itemFieldHint.browser.token': 'remote/cloud 的可选 Bearer 令牌。',
+  'settings.itemFieldHint.browser.port': '托管容器内的 CDP 端口（默认 3000）。',
+  'settings.itemFieldHint.llm.protocol':
+    '上游的线路格式：anthropic 用 x-api-key，openai 用 Bearer 令牌。',
+  'settings.itemFieldHint.llm.baseUrl': '上游地址，含路径前缀（如 /v1）。',
+  'settings.itemFieldHint.llm.apiKey': '上游真实密钥，加密存储。',
+  'settings.itemFieldHint.llm.proxyId': '该 provider 出网时走的代理条目。',
+  'settings.itemFieldHint.llm.defaultModel': '请求里的模型名不在本 provider 的别名或规则中时使用。',
+  'settings.itemFieldHint.llm.modelMap':
+    '精确别名 → 上游模型，例如 {"roundpen-embed": "text-embedding-3-small"}。',
+  'settings.itemFieldHint.llm.modelPatterns':
+    'glob/regex 规则：[{"pattern": "claude-3-*", "target": "claude-3-5-sonnet"}]。',
+  'settings.slotDesc.proxy.agent': 'Agent 沙箱出网走的代理。',
+  'settings.slotDesc.proxy.browser': 'Browser 沙箱出网走的代理。',
+  'settings.slotDesc.llm.default': '其它槽位没有单独选择时使用的 provider。',
+  'settings.slotDesc.llm.agent':
+    '注入 Agent 沙箱的 provider（ANTHROPIC_MODEL / OPENAI_BASE_URL 等）。',
+  'settings.slotDesc.llm.sysagent': '进程内系统 Agent（对话与权限判定）使用的 provider。',
+  'settings.slotDesc.llm.classifier': '对话 Auto 开关背后做工具调用分类的模型，仅管理员可改。',
+  'settings.slotDesc.llm.planner': '装机向导使用的模型，仅管理员可改。',
+  'settings.slotDesc.llm.plan':
+    '与沙箱 Agent 同一 provider 时固定 ANTHROPIC_DEFAULT_OPUS_MODEL；换成别的 provider 只导出 ROUNDPEN_LLM_PLAN_*。',
+  'settings.slotDesc.llm.vision':
+    '同样的同 provider 规则：固定 ANTHROPIC_DEFAULT_HAIKU_MODEL / ANTHROPIC_SMALL_FAST_MODEL。',
+  'settings.slotDesc.llm.coding': '同样的同 provider 规则：固定 CLAUDE_CODE_SUBAGENT_MODEL。',
+  'settings.slotDesc.llm.embedding': '记忆嵌入使用的 provider：需走 OpenAI 协议且返回 1024 维。',
+  'settings.slotDesc.search.default': 'WebSearch 工具的后端；它的代理同时用于 WebFetch 与技能安装。',
+  'settings.slotDesc.browser.default': 'Browser 沙箱与实时视图连接的 CDP 来源。',
   'settings.items.id': 'ID',
   'settings.items.idHint': '稳定的小写标识，用户选择时引用它。',
   'settings.items.name': '显示名称',

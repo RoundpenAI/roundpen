@@ -7,8 +7,8 @@ import {
   type SlotDef,
   type UserBindingEntry,
 } from '../api'
-import type { MessageKey } from '../i18n'
 import { useT } from '../i18n'
+import { slotDescription, slotLabel } from '../lib/settingItemLabels'
 import { Loading } from './Loading'
 
 /**
@@ -59,12 +59,6 @@ export function PersonalSlotsPanel() {
     void load()
   }, [load])
 
-  function labelFor(slot: SlotDef): string {
-    const key = `settings.slotName.${slot.key}` as MessageKey
-    const translated = t(key)
-    return translated === key ? slot.name : translated
-  }
-
   async function save(slot: SlotDef, itemId: string, model: string) {
     setBusy(true)
     setError(null)
@@ -109,12 +103,12 @@ export function PersonalSlotsPanel() {
           <div
             key={slot.key}
             role="group"
-            aria-label={labelFor(slot)}
+            aria-label={slotLabel(slot, t)}
             style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
           >
-            <Typography.Text strong>{labelFor(slot)}</Typography.Text>
+            <Typography.Text strong>{slotLabel(slot, t)}</Typography.Text>
             <Typography.Text type="tertiary" size="small">
-              {slot.description}
+              {slotDescription(slot, t)}
             </Typography.Text>
             <Select
               style={{ maxWidth: 360 }}

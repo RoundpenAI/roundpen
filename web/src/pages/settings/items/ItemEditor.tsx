@@ -1,10 +1,11 @@
 import { Input, InputNumber, Select, Switch, TextArea, Typography } from '@douyinfe/semi-ui-19'
-import type { ItemField, SettingItem } from '../../../api'
-import type { MessageKey } from '../../../i18n'
+import type { ItemField, ItemKind, SettingItem } from '../../../api'
 import { Field } from '../parts'
+import { fieldHint, fieldLabel } from '../../../lib/settingItemLabels'
 import type { Translate } from '../helpers'
 
 type Props = {
+  kind: ItemKind
   fields: ItemField[]
   config: Record<string, unknown>
   refs?: Record<string, SettingItem[]>
@@ -12,19 +13,11 @@ type Props = {
   onChange: (key: string, value: unknown) => void
 }
 
-function labelFor(field: ItemField, t: Translate): string {
-  const key = `settings.itemField.${field.key}` as MessageKey
-  const translated = t(key)
-  // The catalog falls back to the raw key when it has no entry, so an
-  // untranslated field still shows the backend-provided label.
-  return translated === key ? (field.label ?? field.key) : translated
-}
-
 /** Renders one item config value from its backend-declared field type. */
-export function ItemFieldInput({ field, config, refs, t, onChange }: Props & { field: ItemField }) {
+export function ItemFieldInput({ kind, field, config, refs, t, onChange }: Props & { field: ItemField }) {
   const value = config[field.key]
-  const label = labelFor(field, t)
-  const hint = field.hint
+  const label = fieldLabel(kind, field, t)
+  const hint = fieldHint(kind, field, t) || undefined
 
   switch (field.type) {
     case 'bool':
@@ -112,7 +105,7 @@ function parseJSONField(raw: string): unknown {
   }
 }
 
-export function ItemFields({ fields, config, refs, t, onChange }: Props) {
+export function ItemFields({ kind, fields, config, refs, t, onChange }: Props) {
   const visible = fields.filter((f) => !f.advanced)
   const advanced = fields.filter((f) => f.advanced)
   return (
@@ -120,6 +113,7 @@ export function ItemFields({ fields, config, refs, t, onChange }: Props) {
       {visible.map((field) => (
         <ItemFieldInput
           key={field.key}
+          kind={kind}
           field={field}
           fields={fields}
           config={config}
@@ -130,13 +124,16 @@ export function ItemFields({ fields, config, refs, t, onChange }: Props) {
       ))}
       {advanced.length > 0 && (
         <details>
-          <Typography.Text type="tertiary" size="small">
-            {t('settings.items.advanced')}
-          </Typography.Text>
+          <summary style={{ cursor: 'pointer' }}>
+            <Typography.Text type="tertiary" size="small">
+              {t('settings.items.advanced')}
+            </Typography.Text>
+          </summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingTop: 8 }}>
             {advanced.map((field) => (
               <ItemFieldInput
                 key={field.key}
+                kind={kind}
                 field={field}
                 fields={fields}
                 config={config}

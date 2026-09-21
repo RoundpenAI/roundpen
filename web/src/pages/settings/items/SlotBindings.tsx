@@ -7,8 +7,8 @@ import {
   type SettingBinding,
   type SlotDef,
 } from '../../../api'
-import type { MessageKey } from '../../../i18n'
 import { Loading } from '../../../components/Loading'
+import { slotDescription, slotLabel } from '../../../lib/settingItemLabels'
 import { sectionGap } from '../constants'
 import { Field } from '../parts'
 import type { Translate } from '../helpers'
@@ -16,14 +16,6 @@ import type { Translate } from '../helpers'
 type Props = {
   kind: ItemKind
   t: Translate
-}
-
-// The catalog falls back to the raw key, so compare against it to fall back to
-// the backend-provided slot name.
-function slotLabel(slot: SlotDef, t: Translate): string {
-  const key = `settings.slotName.${slot.key}` as MessageKey
-  const translated = t(key)
-  return translated === key ? slot.name : translated
 }
 
 /**
@@ -97,7 +89,7 @@ export function SlotBindings({ kind, t }: Props) {
         <Field
           key={slot.key}
           label={slotLabel(slot, t)}
-          hint={slot.description}
+          hint={slotDescription(slot, t)}
         >
           <Select
             style={{ maxWidth: 360 }}
