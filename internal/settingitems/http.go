@@ -367,11 +367,15 @@ func decodeItem(r *http.Request) (Item, error) {
 	return it, nil
 }
 
+// saveErrors maps failures caused by the request to 400, so a rejected value
+// answers with its message instead of an internal error.
+var saveErrors = map[error]int{
+	ErrInvalid:          http.StatusBadRequest,
+	ErrKindUnknown:      http.StatusBadRequest,
+	ErrSlotUnknown:      http.StatusBadRequest,
+	storage.ErrNotFound: http.StatusBadRequest,
+}
+
 func writeSaveErr(w http.ResponseWriter, r *http.Request, err error) {
-	switch {
-	case errors.Is(err, ErrKindUnknown), errors.Is(err, ErrSlotUnknown), errors.Is(err, storage.ErrNotFound):
-		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
-	default:
-		httpx.WriteErrOrInternal(w, r, err, nil)
-	}
+	httpx.WriteErrOrInternal(w, r, err, saveErrors)
 }

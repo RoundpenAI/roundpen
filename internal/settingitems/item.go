@@ -4,6 +4,7 @@
 package settingitems
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -139,6 +140,21 @@ type SlotDef struct {
 	DefaultItem   string   `json:"defaultItem,omitempty"`
 	// FallbackSlot resolves through another slot when this one is unbound.
 	FallbackSlot string `json:"-"`
+}
+
+// ErrInvalid marks an error caused by the submitted value rather than by the
+// server, so handlers can answer 400 with the message instead of 500.
+var ErrInvalid = errors.New("invalid setting item")
+
+// invalidError carries the message to the client while staying detectable.
+type invalidError struct{ msg string }
+
+func (e *invalidError) Error() string { return e.msg }
+
+func (e *invalidError) Unwrap() error { return ErrInvalid }
+
+func invalidf(format string, args ...any) error {
+	return &invalidError{msg: fmt.Sprintf(format, args...)}
 }
 
 // Item is one configured entry of a kind.
@@ -300,7 +316,7 @@ func NormalizeItem(def KindDef, it *Item) error {
 	}
 	if def.Normalize != nil {
 		if err := def.Normalize(it); err != nil {
-			return err
+			return invalidf("%s", err)
 		}
 	}
 	return nil
@@ -309,10 +325,10 @@ func NormalizeItem(def KindDef, it *Item) error {
 // ValidateItem checks generic rules then the kind's own rules.
 func ValidateItem(def KindDef, it Item) error {
 	if !ValidItemID(it.ID) {
-		return fmt.Errorf("id %q must be a lowercase slug ([a-z0-9._-], max 64 chars)", it.ID)
+		return invalidf("id %q must be a lowercase slug ([a-z0-9._-], max 64 chars)", it.ID)
 	}
 	if it.Name == "" {
-		return fmt.Errorf("name is required")
+		return invalidf("name is required")
 	}
 	for _, f := range def.Fields {
 		if !f.Required {
@@ -320,16 +336,18 @@ func ValidateItem(def KindDef, it Item) error {
 		}
 		if f.Type == FieldSecret {
 			if strings.TrimSpace(it.Secrets[f.Key]) == "" {
-				return fmt.Errorf("%s is required", f.Key)
+				return invalidf("%s is required", f.Key)
 			}
 			continue
 		}
 		if strings.TrimSpace(fmt.Sprint(it.Config[f.Key])) == "" {
-			return fmt.Errorf("%s is required", f.Key)
+			return invalidf("%s is required", f.Key)
 		}
 	}
 	if def.Validate != nil {
-		return def.Validate(&it)
+		if err := def.Validate(&it); err != nil {
+			return invalidf("%s", err)
+		}
 	}
 	return nil
 }

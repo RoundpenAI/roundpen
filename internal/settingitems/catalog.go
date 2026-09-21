@@ -204,24 +204,24 @@ func (c *Catalog) SetBinding(ctx context.Context, b Binding) error {
 		b.Scope = GlobalScope
 	}
 	if b.Scope != GlobalScope && !strings.HasPrefix(b.Scope, "user:") {
-		return fmt.Errorf("scope %q must be %q or user:<username>", b.Scope, GlobalScope)
+		return invalidf("scope %q must be %q or user:<username>", b.Scope, GlobalScope)
 	}
 	if b.Scope != GlobalScope && !def.UserOverride {
-		return fmt.Errorf("slot %q cannot be overridden per user", b.Slot)
+		return invalidf("slot %q cannot be overridden per user", b.Slot)
 	}
 	if b.ItemID != "" {
 		it, err := c.store.Get(ctx, def.Kind, b.ItemID)
 		if errors.Is(err, storage.ErrNotFound) {
-			return fmt.Errorf("unknown %s item %q", def.Kind, b.ItemID)
+			return invalidf("unknown %s item %q", def.Kind, b.ItemID)
 		}
 		if err != nil {
 			return err
 		}
 		if !it.Enabled {
-			return fmt.Errorf("%s item %q is disabled", def.Kind, b.ItemID)
+			return invalidf("%s item %q is disabled", def.Kind, b.ItemID)
 		}
 		if len(def.Protocols) > 0 && !containsString(def.Protocols, it.String("protocol")) {
-			return fmt.Errorf("%s item %q does not support this slot", def.Kind, b.ItemID)
+			return invalidf("%s item %q does not support this slot", def.Kind, b.ItemID)
 		}
 	}
 	b.Kind = def.Kind

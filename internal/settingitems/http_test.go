@@ -199,3 +199,61 @@ func TestSchemaEndpointAndGuard(t *testing.T) {
 		t.Fatalf("admin guard: %d", rec.Code)
 	}
 }
+
+// TestInvalidInputAnswersBadRequest keeps a rejected value on the 400 path:
+// it used to fall through to the internal-error branch and log a warning.
+func TestInvalidInputAnswersBadRequest(t *testing.T) {
+	_, mux := proxyCatalog(t, nil)
+
+	cases := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		wantText string
+	}{
+		{
+			name:     "missing name",
+			method:   http.MethodPut,
+			path:     "/v1/admin/setting-items/proxy/us",
+			body:     `{"kind":"proxy","id":"us","enabled":true,"config":{"url":"socks5://10.0.0.9:1080"}}`,
+			wantText: "name is required",
+		},
+		{
+			name:     "invalid proxy url",
+			method:   http.MethodPut,
+			path:     "/v1/admin/setting-items/proxy/us",
+			body:     `{"kind":"proxy","id":"us","name":"US egress","enabled":true,"config":{"url":"ftp://10.0.0.9"}}`,
+			wantText: "must use http, https, socks5 or socks5h",
+		},
+		{
+			name:     "missing url",
+			method:   http.MethodPut,
+			path:     "/v1/admin/setting-items/proxy/us",
+			body:     `{"kind":"proxy","id":"us","name":"US egress","enabled":true,"config":{}}`,
+			wantText: "url is required",
+		},
+		{
+			name:     "unknown item bound to a slot",
+			method:   http.MethodPut,
+			path:     "/v1/me/setting-bindings/proxy.agent",
+			body:     `{"itemId":"ghost"}`,
+			wantText: "unknown proxy item",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			user := adminUser
+			if tc.path == "/v1/me/setting-bindings/proxy.agent" {
+				user = plainUser
+			}
+			rec := do(t, mux, tc.method, tc.path, tc.body, user)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantText) {
+				t.Fatalf("body = %s, want %q", rec.Body.String(), tc.wantText)
+			}
+		})
+	}
+}

@@ -1,9 +1,44 @@
 import { useEffect, useState } from 'react'
 import { Banner, Button, Input, Modal, Switch, Typography } from '@douyinfe/semi-ui-19'
 import type { ItemKind, KindDef, SettingItem } from '../../../api'
+import { fieldLabel } from '../../../lib/settingItemLabels'
 import { Field } from '../parts'
 import type { Translate } from '../helpers'
 import { ItemFields } from './ItemEditor'
+
+// Mirrors the server's slug rules, so an id it would reject never leaves the
+// browser (and a value it would accept — "My proxy" — is not blocked here).
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._]+/g, '-')
+    .replace(/^[-._]+|[-._]+$/g, '')
+    .slice(0, 64)
+    .replace(/[-._]+$/, '')
+}
+
+// validate reports the first problem the server would reject, in the user's
+// language, so a missing field is answered without a round-trip.
+function validate(kind: ItemKind, def: KindDef, draft: SettingItem, t: Translate): string | null {
+  if (!slugify(draft.id)) return t('settings.items.idRequired')
+  if (!draft.name.trim()) return t('settings.items.nameRequired')
+  for (const f of def.fields) {
+    const value = draft.config[f.key]
+    const label = fieldLabel(kind, f, t)
+    if (f.required && (value === undefined || value === null || (typeof value === 'string' && !value.trim()))) {
+      return t('settings.items.fieldRequired', { field: label })
+    }
+    if (f.type === 'json' && typeof value === 'string' && value.trim() !== '') {
+      try {
+        JSON.parse(value)
+      } catch {
+        return t('settings.items.jsonInvalid', { field: label })
+      }
+    }
+  }
+  return null
+}
 
 type Props = {
   kind: ItemKind
@@ -44,6 +79,11 @@ export function ItemEditorModal({ kind, def, refs, t, item, onSave, onClose }: P
 
   async function submit() {
     if (!draft) return
+    const problem = validate(kind, def, draft, t)
+    if (problem) {
+      setError(problem)
+      return
+    }
     setBusy(true)
     setError(null)
     try {

@@ -362,6 +362,10 @@ export const en = {
     'Backend of the WebSearch tool; its proxy also routes WebFetch and skill installs.',
   'settings.slotDesc.browser.default':
     'CDP source the browser sandbox and the live view attach to.',
+  'settings.items.idRequired': 'Enter an id (it becomes a lowercase slug).',
+  'settings.items.nameRequired': 'Enter a display name.',
+  'settings.items.fieldRequired': '{field} is required.',
+  'settings.items.jsonInvalid': '{field} must be valid JSON.',
   'settings.items.id': 'Id',
   'settings.items.idHint': 'Stable lowercase slug; user selections reference it.',
   'settings.items.name': 'Display name',

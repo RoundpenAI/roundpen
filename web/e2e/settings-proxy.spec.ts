@@ -6,6 +6,15 @@ test('admin proxy items round-trip through save', async ({ page }) => {
   await loginViaApi(page)
   await page.goto('/admin/settings/proxy')
 
+  // A missing field is answered in the dialog, without a server round-trip.
+  await page.getByRole('button', { name: '新增条目' }).click()
+  const empty = page.getByRole('dialog')
+  await empty.getByPlaceholder('us-egress').fill('zz-blank')
+  await empty.getByRole('button', { name: '保存' }).click()
+  await expect(empty.getByText('请填写显示名称。')).toBeVisible()
+  await empty.getByRole('button', { name: '取消' }).click()
+  await expect(empty).toBeHidden()
+
   // Adding happens in an overlay; the page keeps a summary list.
   await page.getByRole('button', { name: '新增条目' }).click()
   const dialog = page.getByRole('dialog')
