@@ -2,14 +2,19 @@ package llmgw
 
 import "time"
 
-// Upstream is a provider endpoint and real API key (vault row).
+// Upstream is one configured LLM provider as the relay sees it: projected
+// from a setting item, held in memory, and keyed by the item id (which is the
+// /llmgw/<id>/ path segment and the value logged in transactions).
 type Upstream struct {
-	Provider      string            `json:"provider"`
+	Provider string `json:"provider"`
+	// Protocol is the wire format: openai | anthropic.
+	Protocol      string            `json:"protocol"`
 	BaseURL       string            `json:"base_url"`
 	APIKey        string            `json:"-"`
 	ProxyURL      string            `json:"proxy_url,omitempty"` // optional egress proxy
 	ModelMap      map[string]string `json:"model_map"`
 	ModelPatterns []ModelPattern    `json:"model_patterns"`
+	DefaultModel  string            `json:"default_model,omitempty"`
 	Enabled       bool              `json:"enabled"`
 	UpdatedAt     time.Time         `json:"updated_at"`
 }

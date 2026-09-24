@@ -61,8 +61,9 @@ func (h *Handler) liveLink(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{"mode": "managed", "url": liveRoutePrefix + "/"})
 	case config.CDPProviderRemote, config.CDPProviderCloud:
 		endpoint, token := "", ""
-		if h.Cfg != nil {
-			endpoint, token = h.Cfg.CDP.Endpoint, h.Cfg.CDP.Token
+		if h.Envs != nil {
+			profile := h.Envs.BrowserProfileFor(user.Username)
+			endpoint, token = profile.Endpoint, profile.Token
 		}
 		u := strings.TrimRight(strings.TrimSpace(endpoint), "/")
 		if u == "" {

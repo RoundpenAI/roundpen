@@ -1,62 +1,112 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  ADMIN_SETTINGS_SECTIONS,
+  PERSONAL_SETTINGS_SECTIONS,
   PRIMARY_MENUS,
-  SETTINGS_SECTIONS,
-  resolveSettingsSection,
-  visibleSettingsSections,
+  SETTINGS_AREAS,
+  isAdminSectionKey,
+  matchPrimaryMenu,
+  resolveAdminSection,
+  resolvePersonalSection,
   visiblePrimaryMenus,
 } from './appNav.ts'
 
 describe('visiblePrimaryMenus', () => {
-  it('hides registry for non-admin', () => {
+  it('hides the admin menus for non-admin', () => {
     const keys = visiblePrimaryMenus(false).map((m) => m.id)
     assert.deepEqual(keys, ['assistants', 'issues', 'workspace', 'settings'])
   })
 
-  it('shows registry for admin', () => {
+  it('shows the admin menus for admin', () => {
     const keys = visiblePrimaryMenus(true).map((m) => m.id)
     assert.deepEqual(keys, [
       'assistants',
       'issues',
       'workspace',
       'settings',
-      'registry',
+      'admin',
     ])
   })
 })
 
-describe('visibleSettingsSections', () => {
-  it('non-admin gets git and agent', () => {
+describe('settings sections', () => {
+  it('personal sections keep their grouped order', () => {
     assert.deepEqual(
-      visibleSettingsSections(false).map((s) => s.key),
-      ['git', 'agent'],
+      PERSONAL_SETTINGS_SECTIONS.map((s) => s.key),
+      ['accounts', 'password', 'git', 'agent'],
     )
   })
 
-  it('admin gets all sections in order', () => {
+  it('admin sections keep their grouped order', () => {
     assert.deepEqual(
-      visibleSettingsSections(true).map((s) => s.key),
-      SETTINGS_SECTIONS.map((s) => s.key),
+      ADMIN_SETTINGS_SECTIONS.map((s) => s.key),
+      [
+        'general',
+        'oauth',
+        'llmgw',
+        'webtools',
+        'browser',
+        'proxy',
+        'automode',
+        'system',
+      ],
     )
+  })
+
+  it('every section belongs to a declared group', () => {
+    for (const area of ['personal', 'admin'] as const) {
+      const cfg = SETTINGS_AREAS[area]
+      const groupKeys = new Set(cfg.groups.map((g) => g.key))
+      for (const s of cfg.sections) {
+        assert.ok(groupKeys.has(s.group), `${s.key} has an undeclared group`)
+      }
+    }
+  })
+
+  it('personal and admin sections do not overlap', () => {
+    const admin = new Set(ADMIN_SETTINGS_SECTIONS.map((s) => s.key))
+    for (const s of PERSONAL_SETTINGS_SECTIONS) {
+      assert.ok(!admin.has(s.key), `${s.key} appears in both areas`)
+    }
   })
 })
 
-describe('resolveSettingsSection', () => {
-  it('defaults to git', () => {
-    assert.equal(resolveSettingsSection(undefined, false), 'git')
-    assert.equal(resolveSettingsSection('', true), 'git')
+describe('resolvePersonalSection', () => {
+  it('defaults to accounts', () => {
+    assert.equal(resolvePersonalSection(undefined), 'accounts')
+    assert.equal(resolvePersonalSection(''), 'accounts')
   })
 
-  it('accepts known visible section', () => {
-    assert.equal(resolveSettingsSection('git', false), 'git')
-    assert.equal(resolveSettingsSection('agent', false), 'agent')
-    assert.equal(resolveSettingsSection('general', true), 'general')
+  it('accepts personal sections', () => {
+    assert.equal(resolvePersonalSection('git'), 'git')
+    assert.equal(resolvePersonalSection('agent'), 'agent')
   })
 
-  it('rejects unknown or unauthorized section', () => {
-    assert.equal(resolveSettingsSection('nope', true), 'git')
-    assert.equal(resolveSettingsSection('general', false), 'git')
+  it('rejects unknown and admin sections', () => {
+    assert.equal(resolvePersonalSection('nope'), 'accounts')
+    assert.equal(resolvePersonalSection('general'), 'accounts')
+  })
+})
+
+describe('resolveAdminSection', () => {
+  it('defaults to general', () => {
+    assert.equal(resolveAdminSection(undefined), 'general')
+    assert.equal(resolveAdminSection('nope'), 'general')
+  })
+
+  it('accepts admin sections and rejects personal ones', () => {
+    assert.equal(resolveAdminSection('automode'), 'automode')
+    assert.equal(resolveAdminSection('git'), 'general')
+  })
+})
+
+describe('isAdminSectionKey', () => {
+  it('separates platform sections from personal ones', () => {
+    assert.equal(isAdminSectionKey('automode'), true)
+    assert.equal(isAdminSectionKey('oauth'), true)
+    assert.equal(isAdminSectionKey('git'), false)
+    assert.equal(isAdminSectionKey(undefined), false)
   })
 })
 
@@ -65,7 +115,7 @@ describe('PRIMARY_MENUS paths', () => {
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'assistants')?.to, '/a')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'workspace')?.to, '/workspace')
     assert.equal(PRIMARY_MENUS.find((m) => m.id === 'settings')?.to, '/settings')
-    assert.equal(PRIMARY_MENUS.find((m) => m.id === 'registry')?.to, '/registry')
+    assert.equal(PRIMARY_MENUS.find((m) => m.id === 'admin')?.to, '/admin/settings')
     assert.equal(
       PRIMARY_MENUS.find((m) => m.id === 'assistants')?.labelKey,
       'nav.assistants',
@@ -74,9 +124,13 @@ describe('PRIMARY_MENUS paths', () => {
 })
 
 describe('matchPrimaryMenu', () => {
-  it('matches workspace path', async () => {
-    const { matchPrimaryMenu } = await import('./appNav.ts')
+  it('matches workspace path', () => {
     assert.equal(matchPrimaryMenu('/workspace'), 'workspace')
     assert.equal(matchPrimaryMenu('/a/x'), 'assistants')
+  })
+
+  it('matches the admin area ahead of the settings area', () => {
+    assert.equal(matchPrimaryMenu('/admin/settings/oauth'), 'admin')
+    assert.equal(matchPrimaryMenu('/settings/accounts'), 'settings')
   })
 })

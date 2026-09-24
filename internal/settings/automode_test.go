@@ -29,9 +29,6 @@ func TestFromConfigSeedsAutoModeDefaults(t *testing.T) {
 			t.Fatalf("%s = %v, want [$defaults]", name, list)
 		}
 	}
-	if got.AutoMode.Model != "" {
-		t.Fatalf("model = %q, want empty", got.AutoMode.Model)
-	}
 }
 
 func TestDecodeAppSettingsKeepsFallbackAutoMode(t *testing.T) {
@@ -67,9 +64,6 @@ func TestDecodeAppSettingsHonorsExplicitAutoMode(t *testing.T) {
 	if len(got.AutoMode.Environment) != 1 || got.AutoMode.Environment[0] != automode.DefaultsToken {
 		t.Fatalf("untouched list should keep fallback: %+v", got.AutoMode.Environment)
 	}
-	if got.AutoMode.ClassifierModel() != "fast-model" {
-		t.Fatalf("model = %q", got.AutoMode.ClassifierModel())
-	}
 }
 
 func TestAutoModeValidateLimits(t *testing.T) {
@@ -77,7 +71,6 @@ func TestAutoModeValidateLimits(t *testing.T) {
 		s := settings.FromConfig(&config.Config{})
 		s.DefaultImage = "host"
 		s.DefaultTtlSeconds = 60
-		s.PreviewTokenTtlSeconds = 60
 		return s
 	}
 
@@ -95,9 +88,9 @@ func TestAutoModeValidateLimits(t *testing.T) {
 		t.Fatalf("expected entry-length error, got %v", err)
 	}
 
-	longModel := base()
-	longModel.AutoMode.Model = strings.Repeat("m", 201)
-	if err := longModel.Validate(); err == nil || !strings.Contains(err.Error(), "autoMode.model") {
+	longRule := base()
+	longRule.AutoMode.Allow = []string{strings.Repeat("m", 801)}
+	if err := longRule.Validate(); err == nil || !strings.Contains(err.Error(), "autoMode") {
 		t.Fatalf("expected model-length error, got %v", err)
 	}
 
@@ -150,12 +143,10 @@ func TestAdminAutoModeHTTP(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(settings.AppSettings{
-		DefaultImage:           "python",
-		DefaultTtlSeconds:      3600,
-		PreviewTokenTtlSeconds: 900,
+		DefaultImage:      "python",
+		DefaultTtlSeconds: 3600,
 		AutoMode: settings.AutoModeSettings{
 			Allow: []string{"  Mine  ", "", "Mine", "Another"},
-			Model: " fast-model ",
 		},
 	})
 	req = httptest.NewRequest(http.MethodPut, "/v1/admin/settings", bytes.NewReader(body))
@@ -178,10 +169,7 @@ func TestAdminAutoModeHTTP(t *testing.T) {
 	if len(got.Environment) != 1 || got.Environment[0] != automode.DefaultsToken {
 		t.Fatalf("environment lost on partial update: %#v", got.Environment)
 	}
-	if got.ClassifierModel() != "fast-model" {
-		t.Fatalf("model = %q", got.ClassifierModel())
-	}
-	if svc.Current().AutoMode.ClassifierModel() != "fast-model" {
+	if len(svc.Current().AutoMode.Allow) != 2 {
 		t.Fatal("service snapshot not updated")
 	}
 }

@@ -49,7 +49,6 @@ type Sandbox struct {
 	CPUCount      int
 	MemoryMB      int
 	DiskSizeMB    int
-	TemplateBuild string
 	Owner         string // username that created the sandbox; empty = legacy/unowned
 }
 

@@ -88,14 +88,14 @@ func (f *fakeStore) GetIdentityBySubject(_ context.Context, providerID, subject 
 	return nil, storage.ErrNotFound
 }
 
-func (f *fakeStore) GetIdentityForProvider(_ context.Context, userID, providerID string) (*Identity, error) {
-	for _, id := range f.identities {
-		if id.UserID == userID && id.ProviderID == providerID {
-			cp := id
-			return &cp, nil
+func (f *fakeStore) DeleteIdentityForProvider(_ context.Context, userID, providerID string) error {
+	for i := range f.identities {
+		if f.identities[i].UserID == userID && f.identities[i].ProviderID == providerID {
+			f.identities = append(f.identities[:i], f.identities[i+1:]...)
+			return nil
 		}
 	}
-	return nil, storage.ErrNotFound
+	return storage.ErrNotFound
 }
 
 func (f *fakeStore) UpsertIdentity(_ context.Context, in IdentityUpsert) (*Identity, error) {
@@ -430,7 +430,7 @@ func TestCallbackLinkFlow(t *testing.T) {
 	}
 }
 
-func TestCallbackLinkFlowRejectsSecondAccountOnSameProvider(t *testing.T) {
+func TestCallbackLinkFlowReplacesAccountOnSameProvider(t *testing.T) {
 	f := newFlowFixture(t, &fakeRemote{
 		t:      t,
 		user:   `{"id":5,"login":"octo"}`,
@@ -439,13 +439,87 @@ func TestCallbackLinkFlowRejectsSecondAccountOnSameProvider(t *testing.T) {
 	f.addUser(t, storage.User{Username: "alice"})
 	if _, err := f.store.UpsertIdentity(context.Background(), IdentityUpsert{
 		UserID: "alice", ProviderID: f.prov.ID, Subject: "1", Login: "other",
+		AccessToken: "old-token",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	state := stateFromURL(t, f.start(t, StartInput{LinkUser: "alice"}))
 
-	if _, err := callback(t, f, state, "alice"); !errors.Is(err, ErrAlreadyLinked) {
-		t.Fatalf("err = %v, want ErrAlreadyLinked", err)
+	res, err := callback(t, f, state, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Linked || res.User.Username != "alice" {
+		t.Errorf("result = %+v", res)
+	}
+	idents, err := f.store.ListIdentities(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idents) != 1 || idents[0].Subject != "5" {
+		t.Fatalf("identities = %+v, want exactly the new account", idents)
+	}
+	if _, err := f.store.GetIdentityBySubject(context.Background(), f.prov.ID, "1"); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("replaced account still bound: err = %v", err)
+	}
+}
+
+func TestCallbackLinkFlowRefreshesExistingAccount(t *testing.T) {
+	f := newFlowFixture(t, &fakeRemote{
+		t:      t,
+		user:   `{"id":5,"login":"octo"}`,
+		emails: `[{"email":"octo@example.test","primary":true,"verified":true}]`,
+	})
+	f.addUser(t, storage.User{Username: "alice"})
+	if _, err := f.store.UpsertIdentity(context.Background(), IdentityUpsert{
+		UserID: "alice", ProviderID: f.prov.ID, Subject: "5", Login: "octo",
+		AccessToken: "stale-token",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state := stateFromURL(t, f.start(t, StartInput{LinkUser: "alice"}))
+
+	res, err := callback(t, f, state, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Linked || res.User.Username != "alice" {
+		t.Errorf("result = %+v", res)
+	}
+	idents, err := f.store.ListIdentities(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idents) != 1 || idents[0].AccessToken == "stale-token" {
+		t.Fatalf("identities = %+v, want the same account with fresh tokens", idents)
+	}
+}
+
+func TestCallbackLinkFlowRejectsSomeoneElsesAccount(t *testing.T) {
+	f := newFlowFixture(t, &fakeRemote{
+		t:      t,
+		user:   `{"id":5,"login":"octo"}`,
+		emails: `[{"email":"octo@example.test","primary":true,"verified":true}]`,
+	})
+	f.addUser(t, storage.User{Username: "alice"})
+	f.addUser(t, storage.User{Username: "bob"})
+	if _, err := f.store.UpsertIdentity(context.Background(), IdentityUpsert{
+		UserID: "alice", ProviderID: f.prov.ID, Subject: "5", Login: "octo",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state := stateFromURL(t, f.start(t, StartInput{LinkUser: "bob"}))
+
+	// A link flow must not hand bob alice's session, nor steal alice's binding.
+	if _, err := callback(t, f, state, "bob"); !errors.Is(err, ErrLinkedElsewhere) {
+		t.Fatalf("err = %v, want ErrLinkedElsewhere", err)
+	}
+	got, err := f.store.GetIdentityBySubject(context.Background(), f.prov.ID, "5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UserID != "alice" {
+		t.Errorf("identity moved to %q", got.UserID)
 	}
 }
 

@@ -17,6 +17,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
@@ -123,7 +124,7 @@ type Config struct {
 	// UserVirtualKey resolves a per-user llmgw virtual key for sandbox
 	// injection, so LLM usage is attributable and revocable per user.
 	UserVirtualKey func(ctx context.Context, userID string) string
-	DefaultModel   func() string
+	LLMEnv         func(userID string) agentenv.LLMEnv
 }
 
 // SetGateway records the public base URL and virtual key injected into new slots.
@@ -163,13 +164,8 @@ func (s *Service) gatewayEnv(ctx context.Context, userID string) map[string]stri
 		// than advertising LLM endpoints that cannot authenticate.
 		return env
 	}
-	env["OPENAI_BASE_URL"] = base + "/llmgw/openai"
-	env["ANTHROPIC_BASE_URL"] = base + "/llmgw/anthropic"
-	env["OPENAI_API_KEY"] = key
-	env["ANTHROPIC_API_KEY"] = key
-	env["ANTHROPIC_AUTH_TOKEN"] = key
-	if s.Config.DefaultModel != nil {
-		agentenv.ApplyDefaultModel(env, s.Config.DefaultModel())
+	if s.Config.LLMEnv != nil {
+		agentenv.ApplyLLMEnv(env, base, key, s.Config.LLMEnv(userID))
 	}
 	return env
 }
@@ -235,18 +231,29 @@ type Service struct {
 
 	// Proxy resolves a user's egress proxy URL for a slot ("" = direct).
 	Proxy func(ctx context.Context, userID, slot string) string
+	// BrowserProfile resolves the browser source for a user ("" = the global
+	// default). nil falls back to the process config, which is what an install
+	// with no browser items should do.
+	BrowserProfile func(userID string) browser.Profile
 
 	upgradeMu sync.Mutex // serializes agent upgrades per service
 }
 
-// cdpProvider returns the effective browser provider for this process.
-func (s *Service) cdpProvider() string {
-	// ResolveCDPProvider ignores the hostChromeFound hint today; skip the PATH scan.
-	return config.ResolveCDPProvider(s.Cfg, false)
+// browserProfile resolves the browser source for a user ("" = global default).
+func (s *Service) browserProfile(userID string) browser.Profile {
+	if s.BrowserProfile != nil {
+		return s.BrowserProfile(userID)
+	}
+	return browser.DefaultProfile(s.Cfg)
+}
+
+// BrowserProfileFor returns the browser source a user's sessions attach to.
+func (s *Service) BrowserProfileFor(userID string) browser.Profile {
+	return s.browserProfile(userID)
 }
 
 // Provider returns the effective browser provider (docker|remote|cloud|host).
-func (s *Service) Provider() string { return s.cdpProvider() }
+func (s *Service) Provider() string { return s.browserProfile("").EffectiveProvider() }
 
 // BrowserKey is the hub session key for an externally provided browser.
 func BrowserKey(userID string) string { return "browser-" + sanitizeUser(userID) }
@@ -262,18 +269,19 @@ func (s *Service) browserTemplate() string {
 // EnsureBrowser resolves the user's browser source. Managed (default) starts or
 // resumes the Roundpen browserless container; external providers need no sandbox.
 func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTarget, error) {
+	profile := s.browserProfile(userID)
 	// Probe before branching: RequireBrowser is provider-aware and rejects a
 	// remote/cloud endpoint that is missing and a host with no Chrome, not just
 	// a Docker-less managed provider.
 	if s.Probe != nil {
-		if err := s.Probe.RequireBrowser(); err != nil {
+		if err := s.Probe.RequireBrowser(profile); err != nil {
 			return nil, err
 		}
 	}
-	provider := s.cdpProvider()
+	provider := profile.EffectiveProvider()
 	if provider != config.CDPProviderDocker {
 		if provider == config.CDPProviderRemote || provider == config.CDPProviderCloud {
-			if s.Cfg == nil || strings.TrimSpace(s.Cfg.CDP.Endpoint) == "" {
+			if strings.TrimSpace(profile.Endpoint) == "" {
 				return nil, fmt.Errorf("browser provider %s needs a CDP endpoint", provider)
 			}
 		}
@@ -338,7 +346,7 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 			continue
 		}
 		if slot == SlotBrowser {
-			v.Provider = s.cdpProvider()
+			v.Provider = s.browserProfile("").EffectiveProvider()
 			// External providers own the browser: a container left from a
 			// previous provider must not be presented as the current source.
 			if v.Provider != config.CDPProviderDocker {

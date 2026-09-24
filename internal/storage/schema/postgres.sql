@@ -16,15 +16,11 @@ CREATE TABLE IF NOT EXISTS users (
     -- own: the gateway env is withheld so agents use the user's own login
     -- (vendor subscription / free tier) inside the sandbox.
     model_source    TEXT NOT NULL DEFAULT 'gateway',
-    -- Admin proxy-profile ids selected per slot ('' = direct).
-    agent_proxy     TEXT NOT NULL DEFAULT '',
-    browser_proxy   TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS model_source TEXT NOT NULL DEFAULT 'gateway';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_proxy TEXT NOT NULL DEFAULT '';
-ALTER TABLE users ADD COLUMN IF NOT EXISTS browser_proxy TEXT NOT NULL DEFAULT '';
+
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email
     ON users (lower(email))
@@ -83,19 +79,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS sandboxes_owner_category_default_uniq
     ON sandboxes (owner, lower(category))
     WHERE deleted_at IS NULL AND is_default AND category <> '';
 
--- LLM gateway (virtual keys, upstream vault, request log)
-CREATE TABLE IF NOT EXISTS llmgw_upstreams (
-    provider        TEXT PRIMARY KEY,
-    base_url        TEXT NOT NULL,
-    api_key         TEXT NOT NULL,
-    -- Optional egress proxy for this upstream (http/https/socks5 URL).
-    proxy_url       TEXT NOT NULL DEFAULT '',
-    model_map       JSONB NOT NULL DEFAULT '{}',
-    model_patterns  JSONB NOT NULL DEFAULT '[]',
-    enabled         BOOLEAN NOT NULL DEFAULT true,
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-ALTER TABLE llmgw_upstreams ADD COLUMN IF NOT EXISTS proxy_url TEXT NOT NULL DEFAULT '';
+-- LLM gateway (virtual keys, request log). Providers live in setting_items
+-- (kind 'llm') since the multi-provider rework; llmgw_upstreams is retired.
+DROP TABLE IF EXISTS llmgw_upstreams;
 
 CREATE TABLE IF NOT EXISTS llmgw_virtual_keys (
     key             TEXT PRIMARY KEY,
@@ -181,9 +167,13 @@ CREATE INDEX IF NOT EXISTS memory_long_run_idx ON memory_long (source_session_id
 ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS cpu_count INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS memory_mb INTEGER NOT NULL DEFAULT 512;
 ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS disk_size_mb INTEGER NOT NULL DEFAULT 5120;
-ALTER TABLE sandboxes ADD COLUMN IF NOT EXISTS template_build_id TEXT NOT NULL DEFAULT '';
+-- Sandboxes no longer pin a template build: images are built in CI and the
+-- catalog row carries the artifact.
+ALTER TABLE sandboxes DROP COLUMN IF EXISTS template_build_id;
 
--- Template registry (T0: static builds; T1+ adds build pipeline)
+-- Image catalog. Rows are seeded at boot from ROUNDPEN_AGENT_IMAGE /
+-- ROUNDPEN_BROWSER_IMAGE; the in-app registry UI and build pipeline were
+-- removed 2026-09-20 and images are built in CI.
 CREATE TABLE IF NOT EXISTS templates (
     id              TEXT PRIMARY KEY,
     namespace       TEXT NOT NULL DEFAULT 'default',
@@ -197,7 +187,15 @@ CREATE TABLE IF NOT EXISTS templates (
     last_spawned_at TIMESTAMPTZ,
     created_by      TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    artifact_ref    TEXT NOT NULL DEFAULT '',
+    base_image      TEXT NOT NULL DEFAULT '',
+    cpu_count       INTEGER NOT NULL DEFAULT 1,
+    memory_mb       INTEGER NOT NULL DEFAULT 512,
+    disk_size_mb    INTEGER NOT NULL DEFAULT 5120,
+    envd_version    TEXT NOT NULL DEFAULT '0.0.0-roundpen',
+    start_cmd       TEXT NOT NULL DEFAULT '',
+    snapshot        BOOLEAN NOT NULL DEFAULT false
 );
 CREATE UNIQUE INDEX IF NOT EXISTS templates_namespace_name_uniq
     ON templates (namespace, name);
@@ -208,51 +206,41 @@ UPDATE templates SET slot = 'browser' WHERE lower(profile) = 'browser' AND (slot
 UPDATE templates SET slot = 'agent' WHERE slot IS NULL OR slot = '';
 CREATE INDEX IF NOT EXISTS templates_slot_idx ON templates (slot);
 
-CREATE TABLE IF NOT EXISTS template_builds (
-    id              TEXT PRIMARY KEY,
-    template_id     TEXT NOT NULL REFERENCES templates (id) ON DELETE CASCADE,
-    status          TEXT NOT NULL DEFAULT 'ready',
-    base_image      TEXT NOT NULL DEFAULT '',
-    artifact_ref    TEXT NOT NULL,
-    cpu_count       INTEGER NOT NULL DEFAULT 1,
-    memory_mb       INTEGER NOT NULL DEFAULT 512,
-    disk_size_mb    INTEGER NOT NULL DEFAULT 5120,
-    envd_version    TEXT NOT NULL DEFAULT '0.0.0-roundpen',
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS template_builds_template_idx ON template_builds (template_id, created_at DESC);
+-- Artifact columns moved off the removed build tables onto the catalog row.
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS artifact_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS base_image TEXT NOT NULL DEFAULT '';
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS cpu_count INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS memory_mb INTEGER NOT NULL DEFAULT 512;
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS disk_size_mb INTEGER NOT NULL DEFAULT 5120;
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS envd_version TEXT NOT NULL DEFAULT '0.0.0-roundpen';
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS start_cmd TEXT NOT NULL DEFAULT '';
+ALTER TABLE templates ADD COLUMN IF NOT EXISTS snapshot BOOLEAN NOT NULL DEFAULT false;
 
-CREATE TABLE IF NOT EXISTS template_tags (
-    template_id     TEXT NOT NULL REFERENCES templates (id) ON DELETE CASCADE,
-    tag             TEXT NOT NULL DEFAULT 'default',
-    build_id        TEXT NOT NULL REFERENCES template_builds (id) ON DELETE CASCADE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (template_id, tag)
-);
-CREATE INDEX IF NOT EXISTS template_tags_build_idx ON template_tags (build_id);
+-- One-time backfill from the pre-removal default-tag build, then drop the build
+-- tables. Guarded so the schema stays replayable once they are gone.
+DO $$
+BEGIN
+    IF to_regclass('template_tags') IS NOT NULL AND to_regclass('template_builds') IS NOT NULL THEN
+        UPDATE templates t SET
+            artifact_ref = b.artifact_ref,
+            base_image   = b.base_image,
+            cpu_count    = b.cpu_count,
+            memory_mb    = b.memory_mb,
+            disk_size_mb = b.disk_size_mb,
+            envd_version = b.envd_version,
+            start_cmd    = b.start_cmd,
+            snapshot     = b.snapshot
+        FROM template_tags tg
+        JOIN template_builds b ON b.id = tg.build_id
+        WHERE tg.template_id = t.id
+          AND tg.tag = 'default'
+          AND t.artifact_ref = '';
+    END IF;
+END $$;
 
--- T1/T2: build spec, cache, snapshot metadata
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS cache_key TEXT NOT NULL DEFAULT '';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS spec_json JSONB NOT NULL DEFAULT '{}';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS layers_json JSONB NOT NULL DEFAULT '[]';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS start_cmd TEXT NOT NULL DEFAULT '';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS ready_cmd TEXT NOT NULL DEFAULT '';
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS snapshot BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE template_builds ADD COLUMN IF NOT EXISTS error_message TEXT NOT NULL DEFAULT '';
-CREATE INDEX IF NOT EXISTS template_builds_cache_key_idx ON template_builds (template_id, cache_key)
-    WHERE status = 'ready' AND cache_key <> '';
-
-CREATE TABLE IF NOT EXISTS template_build_logs (
-    id          BIGSERIAL PRIMARY KEY,
-    build_id    TEXT NOT NULL REFERENCES template_builds (id) ON DELETE CASCADE,
-    seq         INTEGER NOT NULL,
-    logged_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    level       TEXT NOT NULL DEFAULT 'info',
-    message     TEXT NOT NULL,
-    step        TEXT NOT NULL DEFAULT ''
-);
-CREATE INDEX IF NOT EXISTS template_build_logs_build_idx ON template_build_logs (build_id, seq);
+DROP TABLE IF EXISTS template_build_logs;
+DROP TABLE IF EXISTS template_tags;
+DROP TABLE IF EXISTS template_builds;
 
 -- Mutable app settings (admin UI; env seeds on first boot)
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -525,3 +513,57 @@ CREATE TABLE IF NOT EXISTS oauth_states (
     expires_at  TIMESTAMPTZ NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- setting_items: named, typed configuration entries ("items") grouped by kind.
+-- Usage sites ("slots") select one item via setting_bindings. Secret config
+-- values are sealed (AES-GCM "enc:v1:") in their own column; config holds only
+-- non-secret fields.
+CREATE TABLE IF NOT EXISTS setting_items (
+    kind        TEXT NOT NULL,
+    id          TEXT NOT NULL,
+    name        TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    enabled     BOOLEAN NOT NULL DEFAULT TRUE,
+    position    INTEGER NOT NULL DEFAULT 0,
+    config      JSONB NOT NULL DEFAULT '{}',
+    secrets     JSONB NOT NULL DEFAULT '{}',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (kind, id)
+);
+CREATE INDEX IF NOT EXISTS setting_items_kind_pos_idx ON setting_items (kind, position, id);
+
+-- setting_bindings: which item a slot resolves to, per scope. scope is 'global'
+-- (admin default) or 'user:<username>' (personal override); item_id '' means
+-- inherit. Reference integrity is enforced in Go: deleting an item also
+-- deletes the bindings that pointed at it.
+CREATE TABLE IF NOT EXISTS setting_bindings (
+    scope      TEXT NOT NULL,
+    slot       TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    item_id    TEXT NOT NULL DEFAULT '',
+    params     JSONB NOT NULL DEFAULT '{}',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (scope, slot),
+    CONSTRAINT setting_bindings_scope_ck CHECK (scope = 'global' OR scope LIKE 'user:%')
+);
+CREATE INDEX IF NOT EXISTS setting_bindings_item_idx ON setting_bindings (kind, item_id);
+
+-- Per-user egress-proxy selections moved into setting_bindings. The copy runs
+-- once, while the columns still exist; a value that no longer matches an item
+-- id simply resolves to "no selection".
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'users' AND column_name = 'agent_proxy') THEN
+        INSERT INTO setting_bindings (scope, slot, kind, item_id)
+        SELECT 'user:' || username, 'proxy.agent', 'proxy', agent_proxy
+        FROM users WHERE coalesce(agent_proxy, '') <> ''
+        ON CONFLICT (scope, slot) DO NOTHING;
+        INSERT INTO setting_bindings (scope, slot, kind, item_id)
+        SELECT 'user:' || username, 'proxy.browser', 'proxy', browser_proxy
+        FROM users WHERE coalesce(browser_proxy, '') <> ''
+        ON CONFLICT (scope, slot) DO NOTHING;
+        ALTER TABLE users DROP COLUMN agent_proxy, DROP COLUMN browser_proxy;
+    END IF;
+END $$;

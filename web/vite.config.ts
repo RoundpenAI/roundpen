@@ -17,5 +17,13 @@ export default defineConfig({
   build: {
     outDir: '../internal/ui/dist',
     emptyOutDir: true,
+    rollupOptions: {
+      onLog(level, log, defaultHandler) {
+        // lottie-web evals expression animations; it reaches the graph only through
+        // semi-foundation's Lottie component, which this app never renders.
+        if (log.code === 'EVAL' && log.id?.includes('node_modules/lottie-web')) return
+        defaultHandler(level, log)
+      },
+    },
   },
 })

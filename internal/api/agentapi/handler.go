@@ -53,6 +53,10 @@ type Handler struct {
 	// ProxyURL resolves a user's agent-slot egress proxy ("" = direct).
 	ProxyURL func(user *storage.User) string
 
+	// LLMEnv resolves the relay endpoints and model pins for a user's agent
+	// sandbox (nil = inject no model configuration).
+	LLMEnv func(userID string) agentenv.LLMEnv
+
 	// UserVirtualKey resolves the per-user llmgw virtual key injected into
 	// newly provisioned agent sandboxes.
 	UserVirtualKey func(ctx context.Context, username string) string
@@ -182,7 +186,9 @@ func (h *Handler) startSession(ctx context.Context, user *storage.User, title, p
 			prov.Config.TemplateID = provMeta.TemplateID
 		}
 		if h.LLMGW != nil {
-			prov.Config.DefaultModel = h.LLMGW.DefaultModel()
+			if h.LLMEnv != nil {
+				prov.Config.LLMEnv = h.LLMEnv(user.Username)
+			}
 		}
 		res, err := prov.Provision(ctx, sess.ID, providerID, user.Username)
 		if err != nil {

@@ -44,10 +44,6 @@ export function SystemSection({ isAdmin, loading, t, sys }: Props) {
               <SystemRow label={t('settings.system.dataRoot')} value={sys.dataRoot} />
               <SystemRow label={t('settings.system.dockerHost')} value={sys.dockerHost} />
               <SystemRow
-                label={t('settings.system.activeBuilder')}
-                value={sys.templateBuilderActive || t('settings.system.disabled')}
-              />
-              <SystemRow
                 label={t('settings.system.llmgw')}
                 value={
                   sys.llmgwActive
@@ -66,15 +62,6 @@ export function SystemSection({ isAdmin, loading, t, sys }: Props) {
                 value={sys.cdpHostChromeFound ? t('settings.system.hostChromeFound') : t('settings.system.hostChromeMissing')}
               />
             </dl>
-            {sys.templateBuilderHint && (
-              <Typography.Text
-                type="tertiary"
-                size="small"
-                style={{ display: 'block', marginTop: 12 }}
-              >
-                {sys.templateBuilderHint}
-              </Typography.Text>
-            )}
             {sys.cdpHint && (
               <Typography.Text
                 type="tertiary"

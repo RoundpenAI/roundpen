@@ -17,12 +17,18 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
-func (g *Gateway) serveAnthropic(w http.ResponseWriter, r *http.Request) {
-	g.forward(w, r, ProviderAnthropic)
-}
-
-func (g *Gateway) serveOpenAI(w http.ResponseWriter, r *http.Request) {
-	g.forward(w, r, ProviderOpenAI)
+// serveRelay routes /llmgw/<provider id>/... to the matching upstream item.
+// The two historical ids (openai, anthropic) keep working because the
+// migration seeds items with exactly those ids.
+func (g *Gateway) serveRelay(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/llmgw/")
+	id, _, _ := strings.Cut(rest, "/")
+	id = strings.TrimSpace(id)
+	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	g.forward(w, r, id)
 }
 
 func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider string) {
@@ -52,8 +58,8 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 		return
 	}
 
-	upstream, err := g.store.GetUpstream(ctx, provider)
-	if errors.Is(err, storage.ErrNotFound) {
+	upstream, ok := g.Upstream(provider)
+	if !ok {
 		msg := provider + " upstream not configured"
 		g.logTransaction(ctx, Transaction{
 			RequestID: requestID, VirtualKey: vk.Key, VirtualName: vk.Name,
@@ -62,11 +68,6 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 			CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
 		}, nil)
 		http.Error(w, msg, http.StatusServiceUnavailable)
-		return
-	}
-	if err != nil {
-		g.logger.Error("llmgw get upstream", "err", err, "provider", provider)
-		http.Error(w, "upstream lookup failed", http.StatusInternalServerError)
 		return
 	}
 
@@ -115,7 +116,7 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 	}
 
 	upstreamBody := reqRaw
-	defaultModel := g.defaultModelName()
+	defaultModel := upstream.DefaultModel
 	if (matcher.Enabled() || defaultModel != "") && len(reqRaw) > 0 {
 		mapped, err := mapModel(reqRaw, matcher, defaultModel)
 		if err != nil {
@@ -149,7 +150,7 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 	}
 
 	copyHeaders(upReq.Header, r.Header)
-	setUpstreamAuth(upReq.Header, provider, upstream.APIKey)
+	setUpstreamAuth(upReq.Header, upstream.Protocol, upstream.APIKey)
 
 	client, err := g.clientFor(upstream.ProxyURL)
 	if err != nil {
@@ -258,13 +259,17 @@ func extractVirtualKey(r *http.Request) string {
 	return ""
 }
 
-func setUpstreamAuth(h http.Header, provider, apiKey string) {
+// setUpstreamAuth replaces the client's virtual key with the upstream
+// credential the item's protocol expects.
+func setUpstreamAuth(h http.Header, protocol, apiKey string) {
 	h.Del("Authorization")
 	h.Del("x-api-key")
-	switch provider {
-	case ProviderAnthropic:
+	switch protocol {
+	case ProtocolAnthropic:
 		h.Set("x-api-key", apiKey)
-	case ProviderOpenAI:
+	case ProtocolOpenAI:
+		h.Set("Authorization", "Bearer "+apiKey)
+	default:
 		h.Set("Authorization", "Bearer "+apiKey)
 	}
 }

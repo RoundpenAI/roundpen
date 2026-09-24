@@ -8,11 +8,10 @@ import { ThemeToggle } from './ThemeToggle'
 export type AppSection =
   | 'assistants'
   | 'browser'
-  | 'templates'
   | 'settings'
 
 /** Top nav for advanced pages outside AppShell (/browser).
- *  Primary product nav (助手 / 设置 / 镜像) lives in AppShell. */
+ *  Primary product nav (助手 / 设置) lives in AppShell. */
 export const NAV: {
   id: AppSection
   to: string
@@ -23,7 +22,6 @@ export const NAV: {
   { id: 'assistants', to: '/a', label: '助手' },
   { id: 'settings', to: '/settings', label: '设置' },
   { id: 'browser', to: '/browser', label: '浏览器', advanced: true },
-  { id: 'templates', to: '/registry', label: '镜像', admin: true },
 ]
 
 type Props = {

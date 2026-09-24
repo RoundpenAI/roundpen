@@ -43,10 +43,10 @@ type store interface {
 
 	ListIdentities(ctx context.Context, userID string) ([]Identity, error)
 	GetIdentityBySubject(ctx context.Context, providerID, subject string) (*Identity, error)
-	GetIdentityForProvider(ctx context.Context, userID, providerID string) (*Identity, error)
 	UpsertIdentity(ctx context.Context, in IdentityUpsert) (*Identity, error)
 	SaveIdentityTokens(ctx context.Context, id, access, refresh string, expires *time.Time) error
 	DeleteIdentity(ctx context.Context, userID, id string) error
+	DeleteIdentityForProvider(ctx context.Context, userID, providerID string) error
 	ListExpiringIdentities(ctx context.Context, before time.Time) ([]Identity, error)
 
 	CreateState(ctx context.Context, st State) error
@@ -207,6 +207,11 @@ func (s *Service) HandleCallback(ctx context.Context, in CallbackInput) (*Callba
 	if err != nil {
 		return nil, err
 	}
+	// A link flow reports Linked even when it only refreshed the tokens of an
+	// existing binding, so the console shows its "linked" notice either way.
+	if st.LinkUser != "" {
+		linked = true
+	}
 	if _, err := s.Store.UpsertIdentity(ctx, IdentityUpsert{
 		UserID:       user.Username,
 		ProviderID:   p.ID,
@@ -227,11 +232,17 @@ func (s *Service) HandleCallback(ctx context.Context, in CallbackInput) (*Callba
 
 // resolveUser applies the account-mapping rules: an existing binding wins,
 // then an explicit link, then a verified-email match, then (only when public
-// registration is on) a brand-new account.
+// registration is on) a brand-new account. A link flow replaces the remote
+// account the user had bound to that provider.
 func (s *Service) resolveUser(ctx context.Context, p Provider, st *State, prof Profile) (*storage.User, bool, error) {
 	ident, err := s.Store.GetIdentityBySubject(ctx, p.ID, prof.Subject)
 	switch {
 	case err == nil:
+		// Signed in as someone else: linking never reassigns the identity, and
+		// it must not sign this session in as its owner either.
+		if st.LinkUser != "" && ident.UserID != st.LinkUser {
+			return nil, false, ErrLinkedElsewhere
+		}
 		user, uerr := s.Users.GetByUsername(ctx, ident.UserID)
 		if uerr != nil {
 			return nil, false, uerr
@@ -246,12 +257,10 @@ func (s *Service) resolveUser(ctx context.Context, p Provider, st *State, prof P
 		if uerr != nil {
 			return nil, false, uerr
 		}
-		existing, eerr := s.Store.GetIdentityForProvider(ctx, user.Username, p.ID)
-		switch {
-		case eerr == nil && existing.Subject != prof.Subject:
-			return nil, false, ErrAlreadyLinked
-		case eerr != nil && !errors.Is(eerr, storage.ErrNotFound):
-			return nil, false, eerr
+		// No identity carries this subject (checked above), so whatever this
+		// provider was bound to is the account being replaced.
+		if derr := s.Store.DeleteIdentityForProvider(ctx, user.Username, p.ID); derr != nil && !errors.Is(derr, storage.ErrNotFound) {
+			return nil, false, derr
 		}
 		return user, true, nil
 	}

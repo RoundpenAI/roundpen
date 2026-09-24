@@ -205,19 +205,22 @@ func (s *Store) GetIdentityBySubject(ctx context.Context, providerID, subject st
 	return &id, nil
 }
 
-func (s *Store) GetIdentityForProvider(ctx context.Context, userID, providerID string) (*Identity, error) {
+// DeleteIdentityForProvider drops the user's binding on one provider, freeing
+// the slot for a re-authorization with another remote account.
+func (s *Store) DeleteIdentityForProvider(ctx context.Context, userID, providerID string) error {
 	if s == nil || s.DB == nil {
-		return nil, storage.ErrNotFound
+		return fmt.Errorf("oauth store not configured")
 	}
-	row := s.DB.QueryRowContext(ctx, `
-		SELECT `+identityCols+`
-		FROM user_identities i JOIN oauth_providers p ON p.id = i.provider_id
-		WHERE i.user_id=$1 AND i.provider_id=$2`, userID, providerID)
-	id, err := scanIdentity(row)
+	res, err := s.DB.ExecContext(ctx,
+		`DELETE FROM user_identities WHERE user_id=$1 AND provider_id=$2`, userID, providerID)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return &id, nil
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return storage.ErrNotFound
+	}
+	return nil
 }
 
 // UpsertIdentity binds the remote account to in.UserID. It refuses to steal an

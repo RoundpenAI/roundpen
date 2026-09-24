@@ -4,7 +4,7 @@ export const en = {
   'nav.issues': 'Issues',
   'nav.workspace': 'Workspace',
   'nav.settings': 'Settings',
-  'nav.registry': 'Images',
+  'nav.admin': 'Administration',
   'nav.menu': 'Menu',
   'nav.expandPrimary': 'Expand primary menu',
   'nav.collapsePrimary': 'Collapse primary menu',
@@ -25,13 +25,18 @@ export const en = {
   'workspace.deleteConfirm': 'Delete {name}?',
 
   'settings.title': 'Settings',
+  'settings.adminTitle': 'Administration',
+  'settings.group.account': 'Account & security',
+  'settings.group.workspace': 'Work environment',
+  'settings.group.access': 'Users & access',
+  'settings.group.integrations': 'Integrations',
+  'settings.group.sandbox': 'Sandbox & runtime',
   'settings.section.git': 'Git personal tokens',
   'settings.section.accounts': 'Linked accounts',
+  'settings.section.password': 'Password',
   'settings.section.agent': 'Agent environment',
   'settings.section.general': 'General',
   'settings.section.oauth': 'OAuth login',
-  'settings.section.preview': 'Preview',
-  'settings.section.builds': 'Builds',
   'settings.section.browser': 'Browser',
   'settings.section.llmgw': 'LLM gateway',
   'settings.section.webtools': 'Web tools',
@@ -49,26 +54,21 @@ export const en = {
   'settings.reload': 'Reload',
   'settings.currentSuffix': '{value} (current)',
 
+  'settings.password.title': 'Change password',
+  'settings.password.intro': 'Other sessions will be signed out after you save.',
+  'settings.password.current': 'Current password',
+  'settings.password.new': 'New password',
+  'settings.password.confirm': 'Confirm new password',
+  'settings.password.submit': 'Save password',
+  'settings.password.cancel': 'Cancel',
+  'settings.password.done': 'Password changed. Other sessions were signed out.',
+  'settings.password.tooShort': 'New password must be at least 8 characters',
+  'settings.password.mismatch': 'New passwords do not match',
+  'settings.password.failed': 'failed to change password',
+
   'settings.general.allowRegistration': 'Allow public registration',
   'settings.general.defaultImage': 'Default template / image',
   'settings.general.defaultTtl': 'Default sandbox TTL',
-
-  'settings.preview.publicUrl': 'Public preview base URL',
-  'settings.preview.tokenTtl': 'Preview token TTL',
-
-  'settings.builds.engine': 'Template build engine',
-
-  'settings.builder.disabled': 'Disabled (no local builds)',
-  'settings.builder.docker': 'Local Docker',
-  'settings.builder.ci': 'Remote CI (build elsewhere)',
-  'settings.builder.auto': 'Auto (detect from backend)',
-
-  'settings.cdp.auto':
-    'Auto (Roundpen-managed browserless container)',
-  'settings.cdp.docker': 'Roundpen-managed container (browserless/chrome)',
-  'settings.cdp.host': 'Chrome on the roundpend host',
-  'settings.cdp.remote': 'LAN / self-hosted browserless',
-  'settings.cdp.cloud': 'Commercial cloud browser (CDP URL + token)',
 
   'settings.ttl.10m': '10 minutes',
   'settings.ttl.15m': '15 minutes',
@@ -77,7 +77,6 @@ export const en = {
   'settings.ttl.1h': '1 hour',
   'settings.ttl.2h': '2 hours',
   'settings.ttl.4h': '4 hours',
-  'settings.ttl.5m': '5 minutes',
   'settings.duration.1h': '1 hour',
   'settings.duration.nh': '{n} hours',
   'settings.duration.1m': '1 minute',
@@ -91,16 +90,13 @@ export const en = {
   'settings.logBody.64k': '64 KiB',
   'settings.logBody.256k': '256 KiB',
 
-  'settings.browser.cdpProvider': 'CDP provider',
-  'settings.browser.test': 'Test connection',
-  'settings.browser.hostCdpUrl':
-    'Host CDP URL (optional; empty starts local Chrome)',
-  'settings.browser.cdpEndpoint': 'CDP endpoint URL',
-  'settings.browser.cdpToken': 'CDP token (optional)',
-  'settings.browser.guestPort': 'Guest CDP port',
+  'settings.browser.intro':
+    'Browser tools attach to a DevTools websocket. Add one item per source and pick the default below; users may override it for their own browser.',
   'settings.browser.keepMasked': 'Leave masked to keep current',
+  'settings.browser.test': 'Test connection',
+  'settings.browser.testOk': 'reachable',
   'settings.browser.hint':
-    'Browser tools attach to a DevTools websocket. NAS and compose should use Docker Chrome or a remote/cloud CDP — do not install Chrome on the NAS OS. Host Chrome is for laptop debugging only.',
+    'NAS and compose should use Docker Chrome or a remote/cloud CDP — do not install Chrome on the NAS OS. Host Chrome is for laptop debugging only.',
 
   'settings.llmgw.intro':
     'Roundpen relays model calls so Agents never hold your real OpenAI / Anthropic keys. Configure upstream credentials below; Agents and Chats only receive a virtual key that calls /llmgw on this control plane.',
@@ -108,32 +104,18 @@ export const en = {
     'Enable relay (required for Agent Chats & memory embeddings)',
   'settings.llmgw.upstreamTitle': '1 · Upstream providers',
   'settings.llmgw.upstreamHint':
-    'Where Roundpen forwards requests. These API keys stay in the control-plane database — they are never injected into sandboxes.',
-  'settings.llmgw.openaiBase': 'OpenAI-compatible base URL',
-  'settings.llmgw.openaiBaseHint':
-    'Official OpenAI, Azure OpenAI, or any OpenAI-compatible proxy.',
-  'settings.llmgw.openaiKey': 'OpenAI-compatible API key',
+    'One item per provider; every usage point below (agents, chats, classifier, embeddings) picks one. Providers are relayed at /llmgw/<id> and hold the real upstream key.',
   'settings.llmgw.keepSecret': 'Leave masked to keep the stored secret.',
-  'settings.llmgw.anthropicBase': 'Anthropic base URL',
-  'settings.llmgw.anthropicBaseHint':
-    'Optional. Leave empty if you only use OpenAI-compatible models.',
-  'settings.llmgw.anthropicKey': 'Anthropic API key',
   'settings.llmgw.agentsTitle': '2 · What Agents use',
   'settings.llmgw.agentsHint':
     'Sandboxes get OPENAI_BASE_URL / ANTHROPIC_BASE_URL pointing at this Roundpen, plus a virtual key as OPENAI_API_KEY.',
   'settings.llmgw.publicUrl': 'Control-plane public URL',
   'settings.llmgw.publicUrlHint':
     'URL Agents inside sandboxes can reach (e.g. http://host.docker.internal:9527 or your LAN IP). Not the upstream OpenAI URL.',
-  'settings.llmgw.defaultModel': 'Default model',
-  'settings.llmgw.defaultModelHint':
-    'Used for both OpenAI and Anthropic relays when the request model is not in the upstream model map (and is not already an upstream target name). Leave empty to pass unknown models through.',
   'settings.llmgw.virtualKeys': 'Virtual keys',
   'settings.llmgw.virtualKeysHint':
     'Client credentials for /llmgw. Format: vk-name:label or vk-name (comma-separated). Example: vk-dev:dev,vk-prod:prod. Agents pick a non-internal key automatically.',
   'settings.llmgw.advanced': 'Advanced',
-  'settings.llmgw.embedModel': 'Embedding model',
-  'settings.llmgw.embedModelHint':
-    'Upstream model aliased as roundpen-embed for long-term memory search.',
   'settings.llmgw.logBody': 'Request body logging',
   'settings.llmgw.logBodyHint':
     'How much of each relayed request/response to store for audit. Off = metadata only.',
@@ -141,21 +123,15 @@ export const en = {
     'Secrets are stored in PostgreSQL and shown masked. Leave a masked field unchanged to keep the existing value. Saves apply immediately — no restart.',
 
   'settings.webtools.intro':
-    'Web tools let Agents fetch pages and search the web from the control plane. Configure the Tavily-compatible search endpoint below; WebFetch needs no configuration.',
-  'settings.webtools.endpoint': 'Search endpoint',
-  'settings.webtools.endpointHint':
-    'Tavily-compatible API base URL. Leave empty to use https://api.tavily.com. Loopback addresses (127.0.0.1) are rejected when the tool makes a request.',
-  'settings.webtools.apiKey': 'Search API key',
-  'settings.webtools.keepSecret': 'Leave masked to keep the stored secret.',
+    'Web tools let Agents fetch pages and search the web from the control plane. Add one item per search backend; pick the default below. WebFetch needs no configuration.',
   'settings.webtools.note':
-    'Saving applies to new Agent sessions — reopen a session to see the WebSearch tool. Leave both empty to disable WebSearch.',
+    'Applies to new Agent sessions — reopen a session to see the WebSearch tool. With no endpoint and no key the tool stays unregistered.',
 
   'settings.system.title': 'System (read-only)',
   'settings.system.backend': 'Backend',
   'settings.system.httpAddr': 'HTTP addr',
   'settings.system.dataRoot': 'Data root',
   'settings.system.dockerHost': 'Docker host',
-  'settings.system.activeBuilder': 'Active builder',
   'settings.system.llmgw': 'LLM gateway',
   'settings.system.llmgwActive': 'active',
   'settings.system.llmgwMounted': 'mounted (disabled)',
@@ -166,8 +142,7 @@ export const en = {
   'settings.system.hostChromeMissing': 'not on PATH',
   'settings.system.unavailable': 'System info unavailable.',
   'settings.system.footer':
-    'Database and listen address require environment variables and a process restart. Agent and Browser always run on Docker; Desktop/Mobile are reserved for QEMU. The Agent and Browser images are pulled from the registry (or loaded offline) on first start. Template builds and LLM gateway settings apply at runtime.',
-  'settings.system.disabled': 'disabled',
+    'Database and listen address require environment variables and a process restart. Agent and Browser always run on Docker; Desktop/Mobile are reserved for QEMU. The Agent and Browser images are pulled from the registry (or loaded offline) on first start. LLM gateway settings apply at runtime.',
 
   'git.title': 'Git personal tokens',
   'git.desc':
@@ -195,9 +170,13 @@ export const en = {
   'accounts.connectFailed': 'failed to start the authorization',
   'accounts.unlinkFailed': 'disconnect failed',
   'accounts.confirmUnlink': 'Disconnect this account? The token leaves the sandbox at its next start.',
-  'accounts.remove': 'Disconnect',
-  'accounts.empty': 'No linked accounts yet.',
-  'accounts.connect': 'Connect',
+  'accounts.remove': 'Unbind',
+  'accounts.relink': 'Re-authorize',
+  'accounts.notLinked': 'Not linked',
+  'accounts.empty': 'No account type is configured to bind yet.',
+  'accounts.emptyHint': 'Ask an admin to configure a provider under OAuth login.',
+  'accounts.configure': 'Configure OAuth login',
+  'accounts.connect': 'Bind account',
   'accounts.linked': 'Account linked.',
   'accounts.unlinked': 'Account disconnected.',
   'accounts.expires': 'Token expires',
@@ -279,26 +258,145 @@ export const en = {
   'agentEnv.proxy.failed': 'Failed to update the proxy.',
 
   'settings.proxy.intro':
-    'Named egress proxies users can pick per environment. URLs may embed credentials (user:pass@host); profile names are all users see.',
-  'settings.proxy.id': 'Profile id',
-  'settings.proxy.idHint': 'Stable id referenced by user selections.',
-  'settings.proxy.name': 'Display name',
-  'settings.proxy.url': 'Proxy URL',
+    'Named egress proxies users can pick per environment. URLs may embed credentials (user:pass@host); item names are all users see.',
   'settings.proxy.urlHint': 'http, https, socks5 or socks5h URL.',
-  'settings.proxy.description': 'Description',
-  'settings.proxy.add': 'Add profile',
-  'settings.proxy.remove': 'Remove',
   'settings.proxy.note':
-    'Saved with the settings below. Chrome ignores credentials in proxy URLs; use an auth-less proxy for the Browser slot.',
-  'settings.llmgw.openaiProxy': 'OpenAI upstream proxy',
-  'settings.llmgw.anthropicProxy': 'Anthropic upstream proxy',
-  'settings.webtools.proxy': 'Web tools proxy',
+    'Chrome ignores credentials in proxy URLs; use an auth-less proxy for the Browser slot.',
+
+  'settings.slots.intro':
+    'Default backend for each usage point. Items are picked from the list above; "Inherit" leaves the built-in default.',
+  'settings.slots.inherit': 'Inherit',
+  'settings.slots.loadFailed': 'Failed to load the slot defaults.',
+  'settings.slots.saveFailed': 'Failed to save the slot default.',
+  'settings.slotName.search.default': 'Web search',
+  'settings.itemField.endpoint': 'Endpoint',
+  'settings.itemField.apiKey': 'API key',
+  'settings.itemField.proxyId': 'Egress proxy',
+  'settings.slotName.browser.default': 'Browser source',
+  'settings.itemField.provider': 'Provider',
+  'settings.itemField.token': 'Endpoint token',
+  'settings.itemField.port': 'CDP port',
+  'settings.slotName.llm.default': 'Default provider',
+  'settings.slotName.llm.agent': 'Sandbox agent',
+  'settings.slotName.llm.sysagent': 'System agent',
+  'settings.slotName.llm.classifier': 'Auto-mode classifier',
+  'settings.slotName.llm.planner': 'Setup planner',
+  'settings.slotName.llm.embedding': 'Embeddings',
+  'settings.itemField.protocol': 'Protocol',
+  'settings.itemField.baseUrl': 'Base URL',
+  'settings.itemField.defaultModel': 'Fallback model',
+  'settings.itemField.modelMap': 'Model aliases (JSON)',
+  'settings.itemField.modelPatterns': 'Model patterns (JSON)',
+  'settings.section.slots': 'My services',
+  'personalSlots.title': 'My services',
+  'personalSlots.intro':
+    'Pick your own provider for a usage point, or inherit the platform default. Changing a sandbox-backed slot rebuilds its environment.',
+  'personalSlots.inherit': 'Inherit platform default',
+  'personalSlots.modelPlaceholder': 'Model (empty = provider default)',
+  'personalSlots.saved': 'Selection saved; it applies when the environment is created.',
+  'personalSlots.rebuilt': 'Selection saved; the environment was rebuilt.',
+  'personalSlots.loading': 'Loading your services…',
+  'personalSlots.loadFailed': 'Failed to load your services.',
+  'personalSlots.saveFailed': 'Failed to save the selection.',
+  'settings.slotName.llm.plan': 'Plan mode',
+  'settings.slotName.llm.vision': 'Vision mode',
+  'settings.slotName.llm.coding': 'Coding subagent',
+  'settings.slotName.proxy.agent': 'Agent egress',
+  'settings.slotName.proxy.browser': 'Browser egress',
+  'settings.items.edit': 'Edit',
+  'settings.items.cancel': 'Cancel',
+  'settings.items.disabled': 'Disabled',
+  'settings.items.newTitle': 'New item',
+  'settings.items.editTitle': 'Edit item',
+  'settings.items.idLocked': 'The id is fixed once the item exists.',
+  'settings.items.kindHint': 'Saved as a {kind} item and referenced by slot bindings.',
+  'settings.itemFieldHint.proxy.url':
+    'http / https / socks5 / socks5h; may embed user:pass.',
+  'settings.itemFieldHint.search.endpoint':
+    'Tavily-compatible search API. Empty uses https://api.tavily.com.',
+  'settings.itemFieldHint.search.apiKey': 'Sent as a bearer token.',
+  'settings.itemFieldHint.search.proxyId':
+    'Used for the search call, WebFetch and skill installs.',
+  'settings.itemFieldHint.browser.provider':
+    'Where Chrome runs. Each source needs different fields; the text under the picker explains the selected one.',
+  'settings.itemFieldHint.browser.endpoint':
+    'remote/cloud: required. host: attaches to this address instead of launching local Chrome. auto/docker: ignored. Accepts http(s):// or ws(s)://, path and query allowed.',
+  'settings.itemFieldHint.browser.token':
+    'Used by remote/cloud (and host with an endpoint): appended as ?token=, and sent as a bearer on probes. auto/docker use the sandbox token — leave empty.',
+  'settings.itemFieldHint.browser.port':
+    'auto/docker only: guest CDP port of the managed container (browserless default 3000).',
+  'settings.itemOption.browser.provider.auto': 'Auto (recommended)',
+  'settings.itemOption.browser.provider.docker': 'Roundpen-managed container (browserless)',
+  'settings.itemOption.browser.provider.host': 'Chrome on the roundpend host (debug only)',
+  'settings.itemOption.browser.provider.remote': 'LAN / self-hosted browserless',
+  'settings.itemOption.browser.provider.cloud': 'Cloud browser service',
+  'settings.itemOptionHint.browser.provider.auto':
+    'Resolves to the platform default, which today is docker: one managed browserless/chrome container per user, dialled over CDP, with a working live view.\nNeeds Docker on the roundpend host. Leave the fields below at their defaults — pick this if unsure.',
+  'settings.itemOptionHint.browser.provider.docker':
+    'Starts a Roundpen-managed browserless/chrome container per user (the Browser environment) and dials its guest CDP port through the sandbox.\nNeeds Docker on the roundpend host. Only change the port if you use another image or container port; leave endpoint and token empty.',
+  'settings.itemOptionHint.browser.provider.host':
+    'Runs Chrome/Chromium installed on the roundpend host (CHROME_PATH, or on PATH). Laptop debugging only: all users share that one browser and there is no live view — you get the screenshot takeover panel instead. Do not install Chrome on a NAS for this.\nEmpty endpoint launches the host Chrome; a CDP URL attaches to that address instead (token optional).',
+  'settings.itemOptionHint.browser.provider.remote':
+    'Attaches to a self-hosted browserless on your LAN (browserless/chrome, chromium, …).\nEndpoint is required: http(s)://host:port or ws(s)://…; without a path the platform tries /chrome, /chromium, then /. Token is optional and is appended as ?token=.\nEvery user bound to this endpoint shares it — isolate sessions on that host yourself.',
+  'settings.itemOptionHint.browser.provider.cloud':
+    'Attaches to a commercial cloud browser (Browserbase, Steel, Browserless cloud, …).\nEndpoint is required: paste the CDP/session URL the provider gives you (wss://…, query allowed, e.g. connect.browserbase.com/?signingKey=…). Token is optional and is appended as ?token=.\nSession lifetime and billing are the provider’s; the endpoint is shared by every user bound to it.',
+  'settings.itemFieldHint.llm.protocol':
+    'Wire format of the upstream. Anthropic keeps x-api-key auth, OpenAI uses a bearer token.',
+  'settings.itemFieldHint.llm.baseUrl': 'Upstream address, including any path prefix.',
+  'settings.itemFieldHint.llm.apiKey': 'The real upstream key; stored encrypted.',
+  'settings.itemFieldHint.llm.proxyId': 'Egress proxy item this provider dials through.',
+  'settings.itemFieldHint.llm.defaultModel':
+    'Used when a request names a model this provider does not know.',
+  'settings.itemFieldHint.llm.modelMap':
+    'Exact alias → upstream model, e.g. {"roundpen-embed": "text-embedding-3-small"}.',
+  'settings.itemFieldHint.llm.modelPatterns':
+    'Glob/regex rules: [{"pattern": "claude-3-*", "target": "claude-3-5-sonnet"}].',
+  'settings.slotDesc.proxy.agent': "Proxy used for the agent sandbox's outbound traffic.",
+  'settings.slotDesc.proxy.browser': "Proxy used for the browser sandbox's outbound traffic.",
+  'settings.slotDesc.llm.default': 'Fallback for every slot that has no selection of its own.',
+  'settings.slotDesc.llm.agent':
+    'Provider injected into agent sandboxes: ANTHROPIC_MODEL / OPENAI_BASE_URL and friends.',
+  'settings.slotDesc.llm.sysagent':
+    'Provider of the in-process System Agent (chat and permissions).',
+  'settings.slotDesc.llm.classifier':
+    'Model that classifies tool calls behind the chat Auto toggle. Admin-only.',
+  'settings.slotDesc.llm.planner': 'Model behind the host-setup wizard. Admin-only.',
+  'settings.slotDesc.llm.plan':
+    'With the sandbox agent provider: pins ANTHROPIC_DEFAULT_OPUS_MODEL. Another provider only exports ROUNDPEN_LLM_PLAN_*.',
+  'settings.slotDesc.llm.vision':
+    'Same provider rule: pins ANTHROPIC_DEFAULT_HAIKU_MODEL / ANTHROPIC_SMALL_FAST_MODEL.',
+  'settings.slotDesc.llm.coding': 'Same provider rule: pins CLAUDE_CODE_SUBAGENT_MODEL.',
+  'settings.slotDesc.llm.embedding':
+    'Provider for memory embeddings. Must speak the OpenAI protocol and return 1024 dimensions.',
+  'settings.slotDesc.search.default':
+    'Backend of the WebSearch tool; its proxy also routes WebFetch and skill installs.',
+  'settings.slotDesc.browser.default':
+    'CDP source the browser sandbox and the live view attach to.',
+  'settings.items.idRequired': 'Enter an id (it becomes a lowercase slug).',
+  'settings.items.nameHint': 'Optional — the id stands in when left empty.',
+  'settings.items.fieldRequired': '{field} is required.',
+  'settings.items.jsonInvalid': '{field} must be valid JSON.',
+  'settings.items.id': 'Id',
+  'settings.items.idHint': 'Stable lowercase slug; user selections reference it.',
+  'settings.items.name': 'Display name',
+  'settings.items.description': 'Description',
+  'settings.items.enabled': 'Enabled',
+  'settings.items.add': 'Add item',
+  'settings.items.save': 'Save',
+  'settings.items.remove': 'Remove',
+  'settings.items.saved': 'Item saved.',
+  'settings.items.empty': 'Nothing configured yet.',
+  'settings.items.none': 'None',
+  'settings.items.advanced': 'Advanced',
+  'settings.items.secretHint': 'Stored encrypted. Leave as-is to keep the saved value.',
+  'settings.items.loadFailed': 'Failed to load items.',
+  'settings.items.saveFailed': 'Failed to save the item.',
+  'settings.items.deleteFailed': 'Failed to delete the item.',
+  'settings.items.unknownKind': 'This backend does not support this kind yet.',
+  'settings.itemField.url': 'Proxy URL',
 
   'settings.automode.intro':
     'While a chat has Auto on, a classifier model reviews every tool call that needs permission: safe calls run, destructive or outbound ones are blocked and the model is told to find another approach. Rules are prose read by the classifier.',
-  'settings.automode.model': 'Classifier model',
-  'settings.automode.modelHint':
-    'Optional model name routed through the gateway; empty uses the gateway default. Judge quality matters, so prefer a capable model.',
   'settings.automode.environment': 'Trusted environment',
   'settings.automode.environmentHint':
     'What counts as inside vs outside the trusted environment.',

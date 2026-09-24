@@ -15,7 +15,9 @@ import (
 	acpclient "github.com/RoundpenAI/roundpen/internal/acp/client"
 	"github.com/RoundpenAI/roundpen/internal/acp/manager"
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
+	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/search"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
@@ -97,7 +99,9 @@ func TestManager_SysadminPromptNoSandbox(t *testing.T) {
 	m := manager.New(slog.Default(), noopMgr{}, providers.Default(), manager.SysDeps{
 		LoopbackBase: llm.URL,
 		LLMKey:       "vk-test",
-		DefaultModel: func() string { return "gpt-test" },
+		LLM: func(string) sysagent.LLMConfig {
+			return sysagent.LLMConfig{BaseURL: llm.URL + "/llmgw/openai", APIKey: "vk-test", Model: "gpt-test"}
+		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -154,10 +158,15 @@ func TestStartReadsWebSearchGetter(t *testing.T) {
 	m := manager.New(slog.Default(), noopMgr{}, providers.Default(), manager.SysDeps{
 		LoopbackBase: llm.URL,
 		LLMKey:       "vk-test",
-		DefaultModel: func() string { return "gpt-test" },
-		WebSearch: func() (string, string, string) {
+		LLM: func(string) sysagent.LLMConfig {
+			return sysagent.LLMConfig{BaseURL: llm.URL + "/llmgw/openai", APIKey: "vk-test", Model: "gpt-test"}
+		},
+		WebSearch: func(userID string) search.Config {
 			calls.Add(1)
-			return "https://api.tavily.com", "tvly-test", ""
+			if userID != "u" {
+				t.Errorf("resolver must receive the session user, got %q", userID)
+			}
+			return search.Config{Endpoint: "https://api.tavily.com", APIKey: "tvly-test"}
 		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -171,6 +180,6 @@ func TestStartReadsWebSearchGetter(t *testing.T) {
 	defer m.Stop("sess-web")
 
 	if calls.Load() == 0 {
-		t.Fatal("WebSearch getter must be read when a runtime starts")
+		t.Fatal("WebSearch resolver must be read when a runtime starts")
 	}
 }

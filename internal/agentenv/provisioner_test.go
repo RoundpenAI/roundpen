@@ -29,21 +29,39 @@ func TestConfigDefaults(t *testing.T) {
 	}
 }
 
-func TestApplyDefaultModel(t *testing.T) {
+func TestApplyLLMEnv(t *testing.T) {
 	env := map[string]string{"ANTHROPIC_DEFAULT_SONNET_MODEL": "keep-me"}
-	agentenv.ApplyDefaultModel(env, " nvidia/nemotron-3.5-lightning:free ")
+	agentenv.ApplyLLMEnv(env, "http://127.0.0.1:19001/", "vk-test", agentenv.LLMEnv{
+		AnthropicProvider: "glimm-anthropic",
+		OpenAIProvider:    "deepseek",
+		Model:             " nvidia/nemotron-3.5-lightning:free ",
+		ModeModels:        map[string]string{"llm.plan": "planner-model"},
+		Extra:             map[string]string{"ROUNDPEN_LLM_PROVIDER": "deepseek"},
+	})
+	if env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:19001/llmgw/glimm-anthropic" {
+		t.Fatalf("anthropic base: %q", env["ANTHROPIC_BASE_URL"])
+	}
+	if env["OPENAI_BASE_URL"] != "http://127.0.0.1:19001/llmgw/deepseek" {
+		t.Fatalf("openai base: %q", env["OPENAI_BASE_URL"])
+	}
 	if env["ANTHROPIC_MODEL"] != "nvidia/nemotron-3.5-lightning:free" {
 		t.Fatalf("model: %q", env["ANTHROPIC_MODEL"])
 	}
 	if env["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "keep-me" {
 		t.Fatalf("preserved: %q", env["ANTHROPIC_DEFAULT_SONNET_MODEL"])
 	}
-	if env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "nvidia/nemotron-3.5-lightning:free" {
-		t.Fatalf("opus: %q", env["ANTHROPIC_DEFAULT_OPUS_MODEL"])
+	if env["ANTHROPIC_DEFAULT_OPUS_MODEL"] != "planner-model" {
+		t.Fatalf("plan pin: %q", env["ANTHROPIC_DEFAULT_OPUS_MODEL"])
 	}
-	agentenv.ApplyDefaultModel(env, "")
-	if env["ANTHROPIC_MODEL"] != "nvidia/nemotron-3.5-lightning:free" {
-		t.Fatal("empty model should not clear")
+	if env["ROUNDPEN_LLM_PROVIDER"] != "deepseek" {
+		t.Fatalf("extra: %q", env["ROUNDPEN_LLM_PROVIDER"])
+	}
+
+	// An empty env plan leaves whatever the operator set alone.
+	untouched := map[string]string{"ANTHROPIC_BASE_URL": "http://elsewhere"}
+	agentenv.ApplyLLMEnv(untouched, "http://127.0.0.1:19001", "vk", agentenv.LLMEnv{})
+	if untouched["ANTHROPIC_BASE_URL"] != "http://elsewhere" {
+		t.Fatalf("empty plan must not write: %q", untouched["ANTHROPIC_BASE_URL"])
 	}
 }
 
@@ -89,10 +107,10 @@ func TestProvisionUsesUserWorkspace(t *testing.T) {
 func TestProvisionOwnModelsWithholdsGatewayEnv(t *testing.T) {
 	stub := &stubSandboxes{}
 	p := &agentenv.Provisioner{Sandboxes: stub, Config: agentenv.Config{
-		PublicURL:    "http://127.0.0.1:19001",
-		VirtualKey:   "vk-test",
-		DefaultModel: "some-model",
-		ModelSource:  storage.ModelSourceOwn,
+		PublicURL:   "http://127.0.0.1:19001",
+		VirtualKey:  "vk-test",
+		LLMEnv:      agentenv.LLMEnv{OpenAIProvider: "openai", Model: "some-model"},
+		ModelSource: storage.ModelSourceOwn,
 	}}
 	res, err := p.Provision(context.Background(), "sess-1", "claude", "Admin")
 	if err != nil {

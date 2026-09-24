@@ -75,7 +75,7 @@ func NewSandboxStore(db *DB) *SandboxStore {
 
 const sandboxCols = `id, container_id, image, status, workspace_id, workspace_path,
 	metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at, name, category, is_default,
-	cpu_count, memory_mb, disk_size_mb, template_build_id, COALESCE(owner, '')`
+	cpu_count, memory_mb, disk_size_mb, COALESCE(owner, '')`
 
 // Insert creates a sandbox row.
 func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
@@ -92,8 +92,8 @@ func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
 		INSERT INTO sandboxes (
 			id, container_id, image, status, workspace_id, workspace_path,
 			metadata, ttl_seconds, expires_at, last_active_at, created_at, updated_at,
-			name, category, is_default, cpu_count, memory_mb, disk_size_mb, template_build_id, owner
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+			name, category, is_default, cpu_count, memory_mb, disk_size_mb, owner
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
 		ON CONFLICT (id) DO UPDATE SET
 			container_id=EXCLUDED.container_id,
 			image=EXCLUDED.image,
@@ -112,13 +112,12 @@ func (s *SandboxStore) Insert(ctx context.Context, sb *sandbox.Sandbox) error {
 			cpu_count=EXCLUDED.cpu_count,
 			memory_mb=EXCLUDED.memory_mb,
 			disk_size_mb=EXCLUDED.disk_size_mb,
-			template_build_id=EXCLUDED.template_build_id,
 			owner=EXCLUDED.owner,
 			deleted_at=NULL
 		WHERE sandboxes.deleted_at IS NOT NULL`,
 		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
 		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.CreatedAt, sb.UpdatedAt,
-		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild, sb.Owner,
+		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.Owner,
 	)
 	if err != nil {
 		return mapUniqueViolation(err)
@@ -143,11 +142,11 @@ func (s *SandboxStore) Update(ctx context.Context, sb *sandbox.Sandbox) error {
 			container_id=$2, image=$3, status=$4, workspace_id=$5, workspace_path=$6,
 			metadata=$7, ttl_seconds=$8, expires_at=$9, last_active_at=$10, updated_at=$11,
 			name=$12, category=$13, is_default=$14, cpu_count=$15, memory_mb=$16,
-			disk_size_mb=$17, template_build_id=$18, owner=$19
+			disk_size_mb=$17, owner=$18
 		WHERE id=$1 AND deleted_at IS NULL`,
 		sb.ID, sb.ContainerID, sb.Image, string(sb.Status), sb.WorkspaceID, sb.WorkspacePath,
 		meta, sb.TTLSeconds, nullTime(sb.ExpiresAt), sb.LastActiveAt, sb.UpdatedAt,
-		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.TemplateBuild, sb.Owner,
+		sb.Name, sb.Category, sb.IsDefault, sb.CPUCount, sb.MemoryMB, sb.DiskSizeMB, sb.Owner,
 	)
 	if err != nil {
 		return mapUniqueViolation(err)
@@ -295,7 +294,7 @@ func scanSandbox(row scannable) (*sandbox.Sandbox, error) {
 	err := row.Scan(
 		&sb.ID, &sb.ContainerID, &sb.Image, &status, &sb.WorkspaceID, &sb.WorkspacePath,
 		&metaRaw, &sb.TTLSeconds, &expires, &sb.LastActiveAt, &sb.CreatedAt, &sb.UpdatedAt,
-		&sb.Name, &sb.Category, &sb.IsDefault, &sb.CPUCount, &sb.MemoryMB, &sb.DiskSizeMB, &sb.TemplateBuild, &sb.Owner,
+		&sb.Name, &sb.Category, &sb.IsDefault, &sb.CPUCount, &sb.MemoryMB, &sb.DiskSizeMB, &sb.Owner,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, sandbox.ErrNotFound

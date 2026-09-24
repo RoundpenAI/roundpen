@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,32 +29,33 @@ func withAdminMux(mux http.Handler) http.Handler {
 	})
 }
 
-func TestGatewaySeedFromConfig(t *testing.T) {
+func TestGatewayUpstreamsFromCatalog(t *testing.T) {
 	gw := llmgw.New(testDB(t), llmgw.Options{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	if err := gw.SeedFromConfig(llmgw.SeedConfig{
-		OpenAI: &llmgw.UpstreamSeed{
-			BaseURL:  "https://api.example.com/",
-			APIKey:   "sk-x",
-			ModelMap: map[string]string{"a": "b"},
-		},
-		Keys: []llmgw.VirtualKey{{Key: "vk-a", Name: ""}},
-	}); err != nil {
-		t.Fatal(err)
+	gw.SetUpstreams([]llmgw.Upstream{{
+		Provider: "deepseek",
+		Protocol: llmgw.ProtocolOpenAI,
+		BaseURL:  "https://api.example.com",
+		APIKey:   "sk-x",
+		Enabled:  true,
+	}})
+	up, ok := gw.Upstream("deepseek")
+	if !ok || up.BaseURL != "https://api.example.com" {
+		t.Fatalf("upstream: ok=%v up=%+v", ok, up)
 	}
-	ctx := context.Background()
-	up, err := gw.Store().GetUpstream(ctx, llmgw.ProviderOpenAI)
-	if err != nil || up.BaseURL != "https://api.example.com" {
-		t.Fatalf("upstream: err=%v base=%q", err, up.BaseURL)
+	if _, ok := gw.Upstream("missing"); ok {
+		t.Fatal("unknown provider must not resolve")
 	}
-	vk, err := gw.Store().GetVirtualKey(ctx, "vk-a")
-	if err != nil || vk.Name != "vk-a" {
-		t.Fatalf("virtual key: err=%v vk=%#v", err, vk)
+
+	// Disabled providers are invisible to the relay.
+	gw.SetUpstreams([]llmgw.Upstream{{Provider: "off", Protocol: llmgw.ProtocolOpenAI, Enabled: false}})
+	if _, ok := gw.Upstream("off"); ok {
+		t.Fatal("disabled provider must not resolve")
 	}
 }
 
 func TestEnsureInternalWithoutOpenAI(t *testing.T) {
 	gw := llmgw.New(testDB(t), llmgw.Options{})
-	if err := gw.EnsureInternal(context.Background(), ""); err != nil {
+	if err := gw.EnsureInternal(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	vk, err := gw.Store().GetVirtualKey(context.Background(), gw.InternalKey())
@@ -194,14 +196,14 @@ func TestRelayOpenAIForward(t *testing.T) {
 
 	gw := llmgw.New(testDB(t), llmgw.Options{LogBodyMaxBytes: 256})
 	ctx := context.Background()
-	if err := gw.SeedFromConfig(llmgw.SeedConfig{
-		OpenAI: &llmgw.UpstreamSeed{
-			BaseURL:  upstream.URL,
-			APIKey:   "sk-openai",
-			ModelMap: map[string]string{"gpt-alias": "gpt-real"},
-		},
-		Keys: []llmgw.VirtualKey{{Key: "vk-relay", Name: "relay"}},
-	}); err != nil {
+	seedUpstream(t, gw, llmgw.Upstream{
+		Provider: "openai",
+		Protocol: llmgw.ProtocolOpenAI,
+		BaseURL:  upstream.URL,
+		APIKey:   "sk-openai",
+		ModelMap: map[string]string{"gpt-alias": "gpt-real"},
+	})
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-relay", Name: "relay", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -302,15 +304,14 @@ func TestEmbedViaMockUpstream(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	gw := llmgw.New(testDB(t), llmgw.Options{})
-	if err := gw.SeedFromConfig(llmgw.SeedConfig{
-		OpenAI: &llmgw.UpstreamSeed{
-			BaseURL:  upstream.URL,
-			APIKey:   "sk-embed",
-			ModelMap: map[string]string{llmgw.EmbeddingModelAlias: "text-embedding-3-small"},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedUpstream(t, gw, llmgw.Upstream{
+		Provider: "openai",
+		Protocol: llmgw.ProtocolOpenAI,
+		BaseURL:  upstream.URL,
+		APIKey:   "sk-embed",
+		ModelMap: map[string]string{llmgw.EmbeddingModelAlias: "text-embedding-3-small"},
+	})
+	gw.SetEmbedding("openai", llmgw.EmbeddingModelAlias)
 
 	vecs, err := gw.Embed(context.Background(), []string{"hello"})
 	if err != nil {
@@ -335,13 +336,19 @@ func TestEmbedUpstreamError(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	gw := llmgw.New(testDB(t), llmgw.Options{})
-	if err := gw.SeedFromConfig(llmgw.SeedConfig{
-		OpenAI: &llmgw.UpstreamSeed{BaseURL: upstream.URL, APIKey: "sk-x"},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedUpstream(t, gw, llmgw.Upstream{
+		Provider: "openai", Protocol: llmgw.ProtocolOpenAI,
+		BaseURL: upstream.URL, APIKey: "sk-x",
+	})
+	gw.SetEmbedding("openai", llmgw.DefaultEmbeddingModel)
 	if _, err := gw.Embed(context.Background(), []string{"x"}); err == nil {
 		t.Fatal("expected embed error")
+	}
+
+	// Without a selected embedding provider the call fails closed.
+	bare := llmgw.New(testDB(t), llmgw.Options{})
+	if _, err := bare.Embed(context.Background(), []string{"x"}); err == nil {
+		t.Fatal("expected an error without an embedding provider")
 	}
 }
 
@@ -352,10 +359,10 @@ func TestRelayWithoutBodyLogging(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	gw := llmgw.New(testDB(t), llmgw.Options{LogBodyMaxBytes: 0})
-	if err := gw.SeedFromConfig(llmgw.SeedConfig{
-		OpenAI: &llmgw.UpstreamSeed{BaseURL: upstream.URL, APIKey: "sk-x"},
-		Keys:   []llmgw.VirtualKey{{Key: "vk-nolog", Name: "nolog"}},
-	}); err != nil {
+	seedUpstream(t, gw, llmgw.Upstream{
+		Provider: "openai", Protocol: llmgw.ProtocolOpenAI, BaseURL: upstream.URL, APIKey: "sk-x",
+	})
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-nolog", Name: "nolog", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
@@ -401,11 +408,9 @@ func TestHTTPSetupUsesForwardedHeaders(t *testing.T) {
 	}
 
 	gw2 := llmgw.New(testDB(t), llmgw.Options{})
-	if err := gw2.SeedFromConfig(llmgw.SeedConfig{
-		OpenAI: &llmgw.UpstreamSeed{BaseURL: "https://api.test", APIKey: "sk"},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedUpstream(t, gw2, llmgw.Upstream{
+		Provider: "openai", Protocol: llmgw.ProtocolOpenAI, BaseURL: "https://api.test", APIKey: "sk",
+	})
 	mux2 := http.NewServeMux()
 	gw2.Mount(mux2)
 	srv2 := httptest.NewServer(withAdminMux(mux2))
@@ -471,5 +476,69 @@ func TestHTTPLogDetailNotFound(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status=%s", resp.Status)
+	}
+}
+
+func TestRelayRoutesEachProviderByID(t *testing.T) {
+	var hits atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("upstream path = %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-deepseek" {
+			t.Errorf("authorization = %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	gw := llmgw.New(testDB(t), llmgw.Options{})
+	seedUpstream(t, gw,
+		llmgw.Upstream{Provider: "openai", Protocol: llmgw.ProtocolOpenAI, BaseURL: "https://up.example", APIKey: "sk-openai"},
+		llmgw.Upstream{Provider: "deepseek", Protocol: llmgw.ProtocolOpenAI, BaseURL: upstream.URL, APIKey: "sk-deepseek"},
+	)
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-two", Name: "two", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	gw.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	// A provider introduced after the original two is reachable at its own path.
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/llmgw/deepseek/v1/chat/completions",
+		strings.NewReader(`{"model":"deepseek-chat"}`))
+	req.Header.Set("Authorization", "Bearer vk-two")
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("relay status = %d body=%s", res.StatusCode, body)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("upstream hits = %d", hits.Load())
+	}
+
+	// An unknown provider id answers 503 with the same shape as before.
+	req2, _ := http.NewRequest(http.MethodPost, srv.URL+"/llmgw/ghost/v1/chat/completions", strings.NewReader(`{}`))
+	req2.Header.Set("Authorization", "Bearer vk-two")
+	res2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	if res2.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("unknown provider status = %d", res2.StatusCode)
+	}
+	body, _ := io.ReadAll(res2.Body)
+	if !strings.Contains(string(body), "ghost upstream not configured") {
+		t.Fatalf("unknown provider body = %s", body)
 	}
 }

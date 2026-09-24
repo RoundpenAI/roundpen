@@ -173,7 +173,11 @@ CREATE TABLE IF NOT EXISTS oauth_states (
 
 - `POST /v1/me/identities/link/{provider}`（session）→ `{authorizeUrl}`，state 里带 `link_user`；
   前端拿到后 `window.location.assign(url)`。
-- 回调复用 3.1 的第 2 步；成功后回跳 `redirect_to`（设置页）并带 `?oauth_linked=1`。
+- 回调复用 3.1 的第 2 步；成功后回跳 `redirect_to`（设置页）并带 `?oauth_linked=1`（重新授权
+  同一个账号、或换一个远端账号都算成功，都带这个参数）。
+- 一个用户在同一 provider 下只保留一条身份：link 流程换账号时**替换**旧绑定（先按 provider 删除，
+  不需要先解绑）；目标远端账号已绑给别的用户则报 `already_linked`，link 流程**不会**把会话切成
+  那个账号的所有者。
 - `DELETE /v1/me/identities/{id}`（session）→ 204。只删身份，**不碰** PAT 行；guest 里的文件由
   下一次 `EnsureAgent` 的注入脚本重写（脚本每次全量重写 credentials/config/env）。
 
@@ -233,9 +237,11 @@ agent 沙箱才 exec，绝不拉容器）。Gitea 默认 1 小时 token，没有
 - **登录页**（`web/src/pages/LoginPage.tsx`，文案保持硬编码英文，与现状一致）：密码表单下方渲染
   provider 按钮（`GET /v1/auth/oauth/providers`，为空则不渲染），点击跳 `start`；
   读 `?oauth_error=` 显示错误 Banner。
-- **设置 → 关联账号**（新 section `accounts`，非 admin）：`LinkedAccountsPanel` 列出已绑定身份
-  （provider 标签、远端 login/email、token 到期时间），可解绑；未绑定的 enabled provider 显示
-  "Connect" 按钮走 link 流程。
+- **设置 → 关联账号**（新 section `accounts`，非 admin）：`LinkedAccountsPanel` 按 provider 一行
+  （Gitea / GitHub 同等对待）：已绑定显示远端 login/email、token 到期时间 + 「重新授权」（重走
+  link 流程，可换账号或续期）+「解除绑定」；未绑定显示「未绑定」+「去绑定」。provider 被禁用后
+  行还在（只剩「解除绑定」），因为解绑入口不能随之一块消失。一个 provider 都没有（也没绑定）时
+  空态不能是死胡同：管理员给「配置 OAuth 登录」入口，普通用户给提示文案。
 - **设置 → OAuth 登录**（新 section `oauth`，admin）：provider 列表 + 表单（kind/host/label/
   client_id/client_secret/scopes/enabled/三个 URL 覆盖），展示回调地址供复制；secret 用
   `settings.MaskSecret` 同款脱敏（提交掩码表示不改）。
@@ -279,7 +285,7 @@ agent 沙箱才 exec，绝不拉容器）。Gitea 默认 1 小时 token，没有
 - `internal/api/auth`：`isPublicPath` 新增路径的放行与写方法不放行。
 - `internal/oauth`（PG，`DATABASE_URL` 门控）：providers/identities/states 三表 CRUD 与唯一约束。
 - 前端：`tests/uismoke` 增加 `/v1/auth/oauth/providers`、`/v1/me/identities`、`/v1/admin/oauth/providers`
-  三个 stub；Playwright 新 spec 覆盖登录页按钮渲染 + 点击跳转、关联账号列表与解绑、
+  三个 stub；Playwright 新 spec 覆盖登录页按钮渲染 + 点击跳转、关联账号行的绑定/重新授权/解绑、
   admin provider 表单保存。
 - 手工验收：`make dev`，用真实 GitHub OAuth App 与 Gitea 实例各跑一遍登录 → 沙箱内
   `git clone/push`、`gh auth status` / `tea` 确认身份；再验证同 host 填 PAT 后 PAT 优先生效。

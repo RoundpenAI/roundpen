@@ -50,20 +50,28 @@ type Evaluator interface {
 
 // LLMEvaluator classifies calls through the llmgw OpenAI-compatible API.
 type LLMEvaluator struct {
-	BaseURL string // e.g. http://127.0.0.1:19001/llmgw/openai
-	APIKey  string
-	Model   func() string
-	Rules   func() Rules
-	Client  *http.Client
+	// Endpoint returns the relay base URL and model for the classifier; it is
+	// called per evaluation so provider changes apply without a restart.
+	Endpoint func() (baseURL, model string)
+	APIKey   string
+	Rules    func() Rules
+	Client   *http.Client
 }
 
 // Evaluate asks the classifier model for a verdict. Infrastructure failures
 // return a soft_deny verdict together with the error so callers can log the
 // cause; a blocked call is always the safe outcome.
 func (e *LLMEvaluator) Evaluate(ctx context.Context, req Request) (Verdict, error) {
-	if e == nil || strings.TrimSpace(e.BaseURL) == "" {
+	baseURL, model := "", ""
+	if e != nil && e.Endpoint != nil {
+		baseURL, model = e.Endpoint()
+	}
+	if strings.TrimSpace(baseURL) == "" {
 		err := errors.New("not configured")
 		return failClosed(err), err
+	}
+	if strings.TrimSpace(model) == "" {
+		model = "default"
 	}
 	rules := Rules{}
 	if e.Rules != nil {
@@ -73,13 +81,6 @@ func (e *LLMEvaluator) Evaluate(ctx context.Context, req Request) (Verdict, erro
 	if client == nil {
 		client = &http.Client{Timeout: 20 * time.Second}
 	}
-	model := "default"
-	if e.Model != nil {
-		if m := strings.TrimSpace(e.Model()); m != "" {
-			model = m
-		}
-	}
-
 	body := map[string]any{
 		"model": model,
 		"messages": []map[string]string{
@@ -93,7 +94,7 @@ func (e *LLMEvaluator) Evaluate(ctx context.Context, req Request) (Verdict, erro
 	if err != nil {
 		return failClosed(err), err
 	}
-	url := strings.TrimRight(e.BaseURL, "/") + "/v1/chat/completions"
+	url := strings.TrimRight(baseURL, "/") + "/v1/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(raw))
 	if err != nil {
 		return failClosed(err), err

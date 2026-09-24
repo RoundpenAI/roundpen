@@ -9,17 +9,15 @@ const (
 	EnvdVersion      = "0.0.0-roundpen"
 )
 
-// BuildStatus is the status of a template build.
+// BuildStatus is the status of a template's image; the catalog is seeded from
+// configuration and images are built in CI, so every entry reports ready.
 type BuildStatus string
 
 const (
-	BuildReady    BuildStatus = "ready"
-	BuildBuilding BuildStatus = "building"
-	BuildWaiting  BuildStatus = "waiting"
-	BuildError    BuildStatus = "error"
+	BuildReady BuildStatus = "ready"
 )
 
-// Record is a template with its latest ready build metadata for listing.
+// Record is a registered template for listing.
 type Record struct {
 	TemplateID    string
 	BuildID       string
@@ -48,7 +46,6 @@ type Record struct {
 type Resolved struct {
 	RequestRef  string
 	TemplateID  string // internal UUID
-	BuildID     string
 	Alias       string // user-facing ref, e.g. host or default/python
 	Image       string // artifact_ref passed to backend
 	Profile     string

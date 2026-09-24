@@ -75,14 +75,3 @@ func readRepoSchemaSQL() (string, error) {
 	}
 }
 
-func deleteTemplateByName(t *testing.T, db *sql.DB, ns, name string) {
-	t.Helper()
-	res, err := db.Exec(`DELETE FROM templates WHERE namespace=$1 AND name=$2`, ns, name)
-	if err != nil {
-		t.Errorf("cleanup delete %s/%s: %v", ns, name, err)
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		t.Logf("cleanup: no template deleted for %s/%s", ns, name)
-	}
-}

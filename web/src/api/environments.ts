@@ -57,28 +57,6 @@ export const modelSource = {
     }),
 }
 
-export type SlotProxyView = {
-  id: string
-  name: string
-  description?: string
-}
-
-export const slotProxies = {
-  get: () =>
-    api<{ proxies: SlotProxyView[]; agent: string; browser: string }>('/v1/me/proxies'),
-  set: (slot: 'agent' | 'browser', profileId: string) =>
-    api<{
-      slot: string
-      profileId: string
-      status?: string
-      environment?: EnvironmentView
-      rebuildError?: string
-    }>('/v1/me/proxy', {
-      method: 'PUT',
-      body: JSON.stringify({ slot, profileId }),
-    }),
-}
-
 export type SetupPrivilege = 'auto' | 'manual'
 
 export type SetupActionRun = {

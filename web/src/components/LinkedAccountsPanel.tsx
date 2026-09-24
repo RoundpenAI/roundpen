@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Banner, Button, Modal, Typography } from '@douyinfe/semi-ui-19'
 import {
   identities,
@@ -6,6 +7,7 @@ import {
   type Identity,
   type OAuthProviderOption,
 } from '../api'
+import { useAuth } from '../auth'
 import { useT } from '../i18n'
 
 const sectionGap: CSSProperties = {
@@ -32,13 +34,25 @@ function expiryText(iso: string | undefined, noExpiry: string): string {
   return at.toLocaleString()
 }
 
+type AccountRow = {
+  key: string
+  label: string
+  host: string
+  identity?: Identity
+  provider?: OAuthProviderOption
+}
+
 export function LinkedAccountsPanel() {
   const t = useT()
+  const auth = useAuth()
+  const navigate = useNavigate()
+  const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
   const [list, setList] = useState<Identity[]>([])
   const [providers, setProviders] = useState<OAuthProviderOption[]>([])
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
 
   const load = useCallback(async () => {
     setError(null)
@@ -51,6 +65,8 @@ export function LinkedAccountsPanel() {
       setProviders(available.providers ?? [])
     } catch (e) {
       setError(e instanceof Error ? e.message : t('accounts.loadFailed'))
+    } finally {
+      setLoaded(true)
     }
   }, [t])
 
@@ -108,9 +124,20 @@ export function LinkedAccountsPanel() {
     })
   }
 
-  const unlinked = providers.filter(
-    (p) => !list.some((i) => i.providerId === p.id),
-  )
+  // One row per provider: the bound account, or an entry to bind one. A
+  // disabled provider keeps its row (and its unbind entry) while it still
+  // holds a binding.
+  const linkedRows: AccountRow[] = list.map((identity) => ({
+    key: identity.providerId,
+    label: identity.providerLabel,
+    host: identity.providerHost,
+    identity,
+    provider: providers.find((p) => p.id === identity.providerId),
+  }))
+  const unlinkedRows: AccountRow[] = providers
+    .filter((p) => !list.some((i) => i.providerId === p.id))
+    .map((p) => ({ key: p.id, label: p.label, host: p.host, provider: p }))
+  const rows = [...linkedRows, ...unlinkedRows]
 
   return (
     <section style={sectionGap}>
@@ -140,7 +167,7 @@ export function LinkedAccountsPanel() {
           />
         </div>
       ) : null}
-      {list.length > 0 ? (
+      {rows.length > 0 ? (
         <ul
           style={{
             listStyle: 'none',
@@ -151,55 +178,99 @@ export function LinkedAccountsPanel() {
             gap: 8,
           }}
         >
-          {list.map((identity) => (
-            <li key={identity.id} style={rowStyle}>
-              <div style={{ minWidth: 0 }}>
-                <Typography.Text
-                  style={{
-                    fontFamily: 'var(--semi-font-family-code)',
-                    fontSize: 12,
-                  }}
-                >
-                  {identity.providerLabel} · {identity.providerHost}
-                </Typography.Text>
-                <Typography.Text
-                  type="tertiary"
-                  size="small"
-                  style={{ display: 'block' }}
-                >
-                  {identity.login}
-                  {identity.email ? ` · ${identity.email}` : ''}
-                </Typography.Text>
-                <Typography.Text type="tertiary" size="small">
-                  {`${t('accounts.expires')}: ${expiryText(identity.expiresAt, t('accounts.noExpiry'))}`}
-                </Typography.Text>
-              </div>
-              <Button
-                type="tertiary"
-                size="small"
-                onClick={() => unlink(identity.id)}
-              >
-                {t('accounts.remove')}
-              </Button>
-            </li>
-          ))}
+          {rows.map((row) => {
+            const identity = row.identity
+            return (
+              <li key={row.key} style={rowStyle}>
+                <div style={{ minWidth: 0 }}>
+                  <Typography.Text
+                    style={{
+                      fontFamily: 'var(--semi-font-family-code)',
+                      fontSize: 12,
+                    }}
+                  >
+                    {row.label} · {row.host}
+                  </Typography.Text>
+                  {identity ? (
+                    <>
+                      <Typography.Text
+                        type="tertiary"
+                        size="small"
+                        style={{ display: 'block' }}
+                      >
+                        {identity.login}
+                        {identity.email ? ` · ${identity.email}` : ''}
+                      </Typography.Text>
+                      <Typography.Text type="tertiary" size="small">
+                        {`${t('accounts.expires')}: ${expiryText(identity.expiresAt, t('accounts.noExpiry'))}`}
+                      </Typography.Text>
+                    </>
+                  ) : (
+                    <Typography.Text
+                      type="tertiary"
+                      size="small"
+                      style={{ display: 'block' }}
+                    >
+                      {t('accounts.notLinked')}
+                    </Typography.Text>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {identity ? (
+                    <>
+                      {row.provider ? (
+                        <Button
+                          type="tertiary"
+                          size="small"
+                          loading={busy === row.key}
+                          onClick={() => void connect(row.key)}
+                        >
+                          {t('accounts.relink')}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="tertiary"
+                        size="small"
+                        onClick={() => unlink(identity.id)}
+                      >
+                        {t('accounts.remove')}
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="small"
+                      loading={busy === row.key}
+                      onClick={() => void connect(row.key)}
+                    >
+                      {t('accounts.connect')}
+                    </Button>
+                  )}
+                </div>
+              </li>
+            )
+          })}
         </ul>
-      ) : (
-        <Typography.Text type="tertiary" size="small">
-          {t('accounts.empty')}
-        </Typography.Text>
-      )}
-      {unlinked.length > 0 ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {unlinked.map((p) => (
-            <Button
-              key={p.id}
-              loading={busy === p.id}
-              onClick={() => void connect(p.id)}
-            >
-              {`${t('accounts.connect')} ${p.label}`}
+      ) : loaded && !error ? (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: 8,
+          }}
+        >
+          <Typography.Text type="tertiary" size="small">
+            {t('accounts.empty')}
+          </Typography.Text>
+          {isAdmin ? (
+            <Button size="small" onClick={() => navigate('/admin/settings/oauth')}>
+              {t('accounts.configure')}
             </Button>
-          ))}
+          ) : (
+            <Typography.Text type="tertiary" size="small">
+              {t('accounts.emptyHint')}
+            </Typography.Text>
+          )}
         </div>
       ) : null}
     </section>

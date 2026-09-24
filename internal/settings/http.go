@@ -1,8 +1,10 @@
 package settings
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/automode"
@@ -70,7 +72,11 @@ func (h *Handler) autoModeDefaults(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) browserTest(w http.ResponseWriter, r *http.Request) {
-	res, err := h.Svc.TestBrowser(r.Context())
+	var body struct {
+		ItemID string `json:"itemId"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	res, err := h.Svc.TestBrowser(r.Context(), strings.TrimSpace(body.ItemID))
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "result": res})
 		return

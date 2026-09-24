@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
-
-	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
 // Internal virtual key naming. The key value itself is random per instance
@@ -39,12 +37,10 @@ const (
 // per-user keys from UserKeyManager instead.
 func (g *Gateway) InternalKey() string { return g.internalKey }
 
-// EnsureInternal seeds the Roundpen-internal virtual key and the
-// roundpen-embed → embeddingModel alias on the OpenAI upstream (when present).
-func (g *Gateway) EnsureInternal(ctx context.Context, embeddingModel string) error {
-	if embeddingModel == "" {
-		embeddingModel = DefaultEmbeddingModel
-	}
+// EnsureInternal seeds the Roundpen-internal virtual key used by control-plane
+// services. The embedding provider and model are selected through the
+// llm.embedding slot (see SetEmbedding) rather than baked into an upstream.
+func (g *Gateway) EnsureInternal(ctx context.Context) error {
 	now := time.Now().UTC()
 
 	if g.internalKey == "" {
@@ -60,22 +56,6 @@ func (g *Gateway) EnsureInternal(ctx context.Context, embeddingModel string) err
 	}
 	if err := g.store.DeleteVirtualKey(ctx, LegacyInternalVirtualKey); err != nil {
 		return fmt.Errorf("retire legacy internal virtual key: %w", err)
-	}
-
-	u, err := g.store.GetUpstream(ctx, ProviderOpenAI)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			return nil // openai not configured yet
-		}
-		return err
-	}
-	if u.ModelMap == nil {
-		u.ModelMap = map[string]string{}
-	}
-	u.ModelMap[EmbeddingModelAlias] = embeddingModel
-	u.UpdatedAt = now
-	if err := g.store.UpsertUpstream(*u); err != nil {
-		return fmt.Errorf("seed embedding model alias: %w", err)
 	}
 	return nil
 }
@@ -93,26 +73,30 @@ type embedResponse struct {
 	} `json:"data"`
 }
 
-// Embed generates embeddings via the OpenAI upstream using the roundpen-embed
-// alias (mapped to the configured embedding model). texts must be non-empty.
+// Embed generates embeddings through the provider the llm.embedding slot
+// selected. texts must be non-empty.
 func (g *Gateway) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, fmt.Errorf("llmgw: embed: empty input")
 	}
-	u, err := g.store.GetUpstream(ctx, ProviderOpenAI)
-	if err != nil {
-		return nil, fmt.Errorf("llmgw: embed: openai upstream: %w", err)
+	u, boundModel, ok := g.embeddingTarget()
+	if !ok {
+		return nil, fmt.Errorf("llmgw: embed: no embedding provider configured")
 	}
 	matcher, err := NewModelMatcher(u.ModelMap, u.ModelPatterns)
 	if err != nil {
 		return nil, err
 	}
-	model := EmbeddingModelAlias
+	model := strings.TrimSpace(boundModel)
+	if model == "" {
+		model = u.DefaultModel
+	}
 	if mapped, ok := matcher.Map(model); ok {
 		model = mapped
-	} else if target, ok := u.ModelMap[EmbeddingModelAlias]; ok && target != "" {
+	} else if target, ok := u.ModelMap[EmbeddingModelAlias]; ok && target != "" && model == "" {
 		model = target
-	} else {
+	}
+	if model == "" {
 		model = DefaultEmbeddingModel
 	}
 
