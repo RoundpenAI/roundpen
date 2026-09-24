@@ -202,6 +202,22 @@ func TestSchemaEndpointAndGuard(t *testing.T) {
 
 // TestInvalidInputAnswersBadRequest keeps a rejected value on the 400 path:
 // it used to fall through to the internal-error branch and log a warning.
+// A blank display name is not an error: the item takes its id, which is what
+// the console lists and what the slot pickers show.
+func TestSaveWithoutNameUsesItemID(t *testing.T) {
+	cat, mux := proxyCatalog(t, nil)
+
+	rec := do(t, mux, http.MethodPut, "/v1/admin/setting-items/proxy/us",
+		`{"kind":"proxy","id":"us","enabled":true,"config":{"url":"socks5://10.0.0.9:1080"}}`, adminUser)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save without a name: %d %s", rec.Code, rec.Body.String())
+	}
+	it, ok := cat.Snapshot().Item(settingitems.KindProxy, "us")
+	if !ok || it.Name != "us" {
+		t.Fatalf("want the id as the display name, got %+v", it)
+	}
+}
+
 func TestInvalidInputAnswersBadRequest(t *testing.T) {
 	_, mux := proxyCatalog(t, nil)
 
@@ -212,13 +228,6 @@ func TestInvalidInputAnswersBadRequest(t *testing.T) {
 		body     string
 		wantText string
 	}{
-		{
-			name:     "missing name",
-			method:   http.MethodPut,
-			path:     "/v1/admin/setting-items/proxy/us",
-			body:     `{"kind":"proxy","id":"us","enabled":true,"config":{"url":"socks5://10.0.0.9:1080"}}`,
-			wantText: "name is required",
-		},
 		{
 			name:     "invalid proxy url",
 			method:   http.MethodPut,

@@ -308,6 +308,10 @@ func NormalizeItem(def KindDef, it *Item) error {
 		it.ID = SlugifyID(it.ID)
 	}
 	it.Name = strings.TrimSpace(it.Name)
+	if it.Name == "" {
+		// A display name is optional: the id reads as one on its own.
+		it.Name = it.ID
+	}
 	it.Description = strings.TrimSpace(it.Description)
 	for _, f := range def.Fields {
 		if s, ok := it.Config[f.Key].(string); ok {
@@ -326,9 +330,6 @@ func NormalizeItem(def KindDef, it *Item) error {
 func ValidateItem(def KindDef, it Item) error {
 	if !ValidItemID(it.ID) {
 		return invalidf("id %q must be a lowercase slug ([a-z0-9._-], max 64 chars)", it.ID)
-	}
-	if it.Name == "" {
-		return invalidf("name is required")
 	}
 	for _, f := range def.Fields {
 		if !f.Required {

@@ -157,9 +157,16 @@ export function ItemListSection({ kind, introKey, noteKey, t, renderItemAction }
           <div style={rowInfoStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Typography.Text strong>{item.name || item.id}</Typography.Text>
-              <Typography.Text type="tertiary" size="small" style={{ fontFamily: 'var(--semi-font-family-code)' }}>
-                {item.id}
-              </Typography.Text>
+              {/* A nameless item shows its id as the title, so skip the echo. */}
+              {item.name && item.name !== item.id && (
+                <Typography.Text
+                  type="tertiary"
+                  size="small"
+                  style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                >
+                  {item.id}
+                </Typography.Text>
+              )}
               {!item.enabled && (
                 <Tag color="grey" size="small">
                   {t('settings.items.disabled')}

@@ -233,7 +233,8 @@ func TestLegacyImport(t *testing.T) {
 		Proxies: []settingitems.LegacyProxy{
 			{ID: "US Egress", Name: "US egress", URL: "socks5://10.0.0.9:1080"},
 			{ID: "jp", Name: "JP egress", URL: "http://user:pass@10.0.0.8:8080"},
-			{ID: "bad", Name: "", URL: "socks5://10.0.0.7:1080"},
+			// Rows the kind rejects are skipped, not imported.
+			{ID: "bad-url", Name: "Bad", URL: "ftp://10.0.0.7:1080"},
 		},
 		UserProxies: []settingitems.LegacyUserProxy{
 			{Username: "bob", Slot: settingitems.SlotProxyAgent, ItemID: "jp"},

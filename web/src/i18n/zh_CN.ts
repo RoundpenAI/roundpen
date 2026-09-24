@@ -71,13 +71,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.general.defaultImage': '默认模板 / 镜像',
   'settings.general.defaultTtl': '默认沙箱 TTL',
 
-  'settings.cdp.auto':
-    '自动（使用 Roundpen 托管容器 browserless）',
-  'settings.cdp.docker': 'Roundpen 托管容器（browserless/chrome）',
-  'settings.cdp.host': 'roundpend 主机上的 Chrome',
-  'settings.cdp.remote': '局域网 / 自建 browserless',
-  'settings.cdp.cloud': '商业云浏览器（CDP 地址 + token）',
-
   'settings.ttl.10m': '10 分钟',
   'settings.ttl.15m': '15 分钟',
   'settings.ttl.20m': '20 分钟',
@@ -319,11 +312,28 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.itemFieldHint.search.apiKey': '以 Bearer 令牌发送。',
   'settings.itemFieldHint.search.proxyId': '搜索、WebFetch 与技能安装共用这条出网代理。',
   'settings.itemFieldHint.browser.provider':
-    'auto/docker 用平台托管的容器；host 跑本机 Chrome；remote/cloud 连外部 browserless。',
+    '决定浏览器跑在哪里。每种来源要填的字段不同，下拉框下方的说明写的就是所选项。',
   'settings.itemFieldHint.browser.endpoint':
-    'remote/cloud 必填（browserless 的 ws:// 或 http:// 地址）。',
-  'settings.itemFieldHint.browser.token': 'remote/cloud 的可选 Bearer 令牌。',
-  'settings.itemFieldHint.browser.port': '托管容器内的 CDP 端口（默认 3000）。',
+    'remote/cloud 必填；host 填了就连该地址、不再启动本机 Chrome；auto/docker 忽略。支持 http(s):// 或 ws(s)://，可带路径与查询串。',
+  'settings.itemFieldHint.browser.token':
+    'remote/cloud（以及带 endpoint 的 host）会用到：作为 ?token= 附加到 CDP 地址，并作为探测请求的 Bearer。auto/docker 用沙箱自身的令牌，留空即可。',
+  'settings.itemFieldHint.browser.port':
+    '仅 auto/docker 生效：托管容器内的 CDP 端口，browserless 默认 3000。',
+  'settings.itemOption.browser.provider.auto': '自动（推荐）',
+  'settings.itemOption.browser.provider.docker': '平台托管容器（browserless）',
+  'settings.itemOption.browser.provider.host': '本机 Chrome（仅调试）',
+  'settings.itemOption.browser.provider.remote': '局域网 / 自建 browserless',
+  'settings.itemOption.browser.provider.cloud': '云浏览器服务',
+  'settings.itemOptionHint.browser.provider.auto':
+    '交给平台解析，目前等同于 docker：每个用户一个托管的 browserless/chrome 容器，控制面直连其 CDP 端口，实时视图可用。\n需要 roundpend 主机上有 Docker。其余字段保持默认即可，不确定就选这个。',
+  'settings.itemOptionHint.browser.provider.docker':
+    '为每个用户启动一个 Roundpen 托管的 browserless/chrome 容器（Browser 环境），控制面经沙箱通道连到容器内的 CDP 端口。\n需要 roundpend 主机上有 Docker。只有换了镜像或改了容器端口才需要改端口；endpoint 与 token 留空。',
+  'settings.itemOptionHint.browser.provider.host':
+    '直接用 roundpend 主机上安装的 Chrome/Chromium（CHROME_PATH，或 PATH 上的 google-chrome / chromium）。仅适合笔记本本机调试：所有用户共用这一个浏览器，而且没有实时视图，只能用截图接管面板操作；NAS 上不要为此安装 Chrome。\nendpoint 留空 = 启动本机 Chrome；填了 CDP 地址则改为连接该地址（token 可选）。',
+  'settings.itemOptionHint.browser.provider.remote':
+    '连接局域网里自建的 browserless（browserless/chrome、chromium 等）。\nendpoint 必填：http(s)://主机:端口 或 ws(s)://…；不带路径时平台依次尝试 /chrome、/chromium、/。token 可选，会作为 ?token= 附加到 CDP 地址。\n注意：该端点被所有选到它的用户共用，会话隔离要由那台机器自己做。',
+  'settings.itemOptionHint.browser.provider.cloud':
+    '连接商业云浏览器（Browserbase、Steel、Browserless 云等）。\nendpoint 必填：粘贴服务商给的 CDP / 会话地址（wss://…，可带 query，如 connect.browserbase.com/?signingKey=…）。token 可选，会追加为 ?token=。\n会话的创建、超时与计费由服务商管；该端点同样为所有选到它的用户共用。',
   'settings.itemFieldHint.llm.protocol':
     '上游的线路格式：anthropic 用 x-api-key，openai 用 Bearer 令牌。',
   'settings.itemFieldHint.llm.baseUrl': '上游地址，含路径前缀（如 /v1）。',
@@ -351,7 +361,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.slotDesc.search.default': 'WebSearch 工具的后端；它的代理同时用于 WebFetch 与技能安装。',
   'settings.slotDesc.browser.default': 'Browser 沙箱与实时视图连接的 CDP 来源。',
   'settings.items.idRequired': '请填写 ID（会规范化为小写 slug）。',
-  'settings.items.nameRequired': '请填写显示名称。',
+  'settings.items.nameHint': '可留空，留空则直接显示 ID。',
   'settings.items.fieldRequired': '请填写{field}。',
   'settings.items.jsonInvalid': '{field} 需要是合法 JSON。',
   'settings.items.id': 'ID',

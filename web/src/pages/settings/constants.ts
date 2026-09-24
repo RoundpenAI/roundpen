@@ -49,14 +49,6 @@ export const AUTOMODE_LISTS: {
   },
 ]
 
-export const CDP_OPTIONS: { value: string; labelKey: MessageKey }[] = [
-  { value: 'auto', labelKey: 'settings.cdp.auto' },
-  { value: 'docker', labelKey: 'settings.cdp.docker' },
-  { value: 'host', labelKey: 'settings.cdp.host' },
-  { value: 'remote', labelKey: 'settings.cdp.remote' },
-  { value: 'cloud', labelKey: 'settings.cdp.cloud' },
-]
-
 export const SANDBOX_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
   { value: 600, labelKey: 'settings.ttl.10m' },
   { value: 900, labelKey: 'settings.ttl.15m' },

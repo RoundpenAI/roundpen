@@ -22,7 +22,6 @@ function slugify(value: string): string {
 // language, so a missing field is answered without a round-trip.
 function validate(kind: ItemKind, def: KindDef, draft: SettingItem, t: Translate): string | null {
   if (!slugify(draft.id)) return t('settings.items.idRequired')
-  if (!draft.name.trim()) return t('settings.items.nameRequired')
   for (const f of def.fields) {
     const value = draft.config[f.key]
     const label = fieldLabel(kind, f, t)
@@ -123,7 +122,7 @@ export function ItemEditorModal({ kind, def, refs, t, item, onSave, onClose }: P
               onChange={(v) => patch({ id: v })}
             />
           </Field>
-          <Field label={t('settings.items.name')}>
+          <Field label={t('settings.items.name')} hint={t('settings.items.nameHint')}>
             <Input autoComplete="off" value={draft.name} onChange={(v) => patch({ name: v })} />
           </Field>
           <Field label={t('settings.items.description')}>

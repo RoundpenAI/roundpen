@@ -29,3 +29,19 @@ export function fieldLabel(kind: ItemKind, field: ItemField, t: Label): string {
 export function fieldHint(kind: ItemKind, field: ItemField, t: Label): string {
   return translate(`settings.itemFieldHint.${kind}.${field.key}`, field.hint ?? '', t)
 }
+
+/** Display label of one enum option; falls back to the raw option id. */
+export function optionLabel(kind: ItemKind, field: ItemField, option: string, t: Label): string {
+  const shared = translate(`settings.itemOption.${field.key}.${option}`, option, t)
+  return translate(`settings.itemOption.${kind}.${field.key}.${option}`, shared, t)
+}
+
+/** What the selected option means and what it needs; empty when unannotated. */
+export function optionDescription(
+  kind: ItemKind,
+  field: ItemField,
+  option: string,
+  t: Label,
+): string {
+  return translate(`settings.itemOptionHint.${kind}.${field.key}.${option}`, '', t)
+}

@@ -95,6 +95,8 @@ PUT/DELETE /v1/me/setting-bindings/{slot}      个人覆盖；RebuildsEnv 的 sl
 - 槽位的**全局默认**选择器（`SlotBindings`）随 P2 提前落地：每种 kind 的 items 列表下面直接就是它的槽位选择，管理员不用等到 P5 才能让某个后端生效。条目本身在列表里只显示名称/id/状态/操作，新增与编辑放在浮层（`ItemEditorModal`）里，避免多字段表单铺满页面。
 - 个人覆盖在个人设置新增的「我的服务」分区（`/settings/slots`），按槽位列出可覆盖项，沙箱类槽位保存后回带重建结果。
 - `llm.classifier` 的模型折进了绑定参数，`autoMode.model` 字段随之删除（automode 页面不再有模型输入）。
+- 显示名称可选：`NormalizeItem` 在 name 为空时用规范化后的 id 兜底（旧数据里 name 为空的行因此由「跳过」变为可导入），前端不再拦空名，列表在 name 等于 id 时不再重复渲染 id。
+- 枚举字段的选项文案走 i18n：`settings.itemOption[.kind].<字段>.<值>` 给下拉标签、`settings.itemOptionHint.<kind>.<字段>.<值>` 给选中后的说明（缺失时分别回落到原始值与字段 hint）。browser 的 provider 五档即用它写清「这个来源要填什么、有什么前提」。多行说明用 `\n`，`Field` 的 hint 按 `pre-line` 渲染。
 - 旧库迁移不读 `users` 列：schema 里用一段幂等 `DO $$` 把 `agent_proxy`/`browser_proxy` 复制进 `setting_bindings` 后再删列，同时 `DROP TABLE llmgw_upstreams`。settings 文档里退休的字段由 `settings.Store.LoadLegacy` 读原始 payload 读取，环境变量作为新装种子（`settings.FromConfigLegacy`）。
 
 ## 10. 已知限制

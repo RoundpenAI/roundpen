@@ -70,13 +70,6 @@ export const en = {
   'settings.general.defaultImage': 'Default template / image',
   'settings.general.defaultTtl': 'Default sandbox TTL',
 
-  'settings.cdp.auto':
-    'Auto (Roundpen-managed browserless container)',
-  'settings.cdp.docker': 'Roundpen-managed container (browserless/chrome)',
-  'settings.cdp.host': 'Chrome on the roundpend host',
-  'settings.cdp.remote': 'LAN / self-hosted browserless',
-  'settings.cdp.cloud': 'Commercial cloud browser (CDP URL + token)',
-
   'settings.ttl.10m': '10 minutes',
   'settings.ttl.15m': '15 minutes',
   'settings.ttl.20m': '20 minutes',
@@ -325,11 +318,28 @@ export const en = {
   'settings.itemFieldHint.search.proxyId':
     'Used for the search call, WebFetch and skill installs.',
   'settings.itemFieldHint.browser.provider':
-    'auto/docker use the Roundpen-managed container; host runs local Chrome; remote/cloud dial an external browserless.',
+    'Where Chrome runs. Each source needs different fields; the text under the picker explains the selected one.',
   'settings.itemFieldHint.browser.endpoint':
-    'Required for remote/cloud (ws://… or http://… of a browserless deployment).',
-  'settings.itemFieldHint.browser.token': 'Optional bearer token for remote/cloud.',
-  'settings.itemFieldHint.browser.port': 'Guest port of the managed container (default 3000).',
+    'remote/cloud: required. host: attaches to this address instead of launching local Chrome. auto/docker: ignored. Accepts http(s):// or ws(s)://, path and query allowed.',
+  'settings.itemFieldHint.browser.token':
+    'Used by remote/cloud (and host with an endpoint): appended as ?token=, and sent as a bearer on probes. auto/docker use the sandbox token — leave empty.',
+  'settings.itemFieldHint.browser.port':
+    'auto/docker only: guest CDP port of the managed container (browserless default 3000).',
+  'settings.itemOption.browser.provider.auto': 'Auto (recommended)',
+  'settings.itemOption.browser.provider.docker': 'Roundpen-managed container (browserless)',
+  'settings.itemOption.browser.provider.host': 'Chrome on the roundpend host (debug only)',
+  'settings.itemOption.browser.provider.remote': 'LAN / self-hosted browserless',
+  'settings.itemOption.browser.provider.cloud': 'Cloud browser service',
+  'settings.itemOptionHint.browser.provider.auto':
+    'Resolves to the platform default, which today is docker: one managed browserless/chrome container per user, dialled over CDP, with a working live view.\nNeeds Docker on the roundpend host. Leave the fields below at their defaults — pick this if unsure.',
+  'settings.itemOptionHint.browser.provider.docker':
+    'Starts a Roundpen-managed browserless/chrome container per user (the Browser environment) and dials its guest CDP port through the sandbox.\nNeeds Docker on the roundpend host. Only change the port if you use another image or container port; leave endpoint and token empty.',
+  'settings.itemOptionHint.browser.provider.host':
+    'Runs Chrome/Chromium installed on the roundpend host (CHROME_PATH, or on PATH). Laptop debugging only: all users share that one browser and there is no live view — you get the screenshot takeover panel instead. Do not install Chrome on a NAS for this.\nEmpty endpoint launches the host Chrome; a CDP URL attaches to that address instead (token optional).',
+  'settings.itemOptionHint.browser.provider.remote':
+    'Attaches to a self-hosted browserless on your LAN (browserless/chrome, chromium, …).\nEndpoint is required: http(s)://host:port or ws(s)://…; without a path the platform tries /chrome, /chromium, then /. Token is optional and is appended as ?token=.\nEvery user bound to this endpoint shares it — isolate sessions on that host yourself.',
+  'settings.itemOptionHint.browser.provider.cloud':
+    'Attaches to a commercial cloud browser (Browserbase, Steel, Browserless cloud, …).\nEndpoint is required: paste the CDP/session URL the provider gives you (wss://…, query allowed, e.g. connect.browserbase.com/?signingKey=…). Token is optional and is appended as ?token=.\nSession lifetime and billing are the provider’s; the endpoint is shared by every user bound to it.',
   'settings.itemFieldHint.llm.protocol':
     'Wire format of the upstream. Anthropic keeps x-api-key auth, OpenAI uses a bearer token.',
   'settings.itemFieldHint.llm.baseUrl': 'Upstream address, including any path prefix.',
@@ -363,7 +373,7 @@ export const en = {
   'settings.slotDesc.browser.default':
     'CDP source the browser sandbox and the live view attach to.',
   'settings.items.idRequired': 'Enter an id (it becomes a lowercase slug).',
-  'settings.items.nameRequired': 'Enter a display name.',
+  'settings.items.nameHint': 'Optional — the id stands in when left empty.',
   'settings.items.fieldRequired': '{field} is required.',
   'settings.items.jsonInvalid': '{field} must be valid JSON.',
   'settings.items.id': 'Id',

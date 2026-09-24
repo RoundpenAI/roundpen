@@ -6,14 +6,18 @@ test('admin proxy items round-trip through save', async ({ page }) => {
   await loginViaApi(page)
   await page.goto('/admin/settings/proxy')
 
-  // A missing field is answered in the dialog, without a server round-trip.
+  // A missing required field is answered in the dialog, without a server
+  // round-trip; the display name is optional and falls back to the id.
   await page.getByRole('button', { name: '新增条目' }).click()
-  const empty = page.getByRole('dialog')
-  await empty.getByPlaceholder('us-egress').fill('zz-blank')
-  await empty.getByRole('button', { name: '保存' }).click()
-  await expect(empty.getByText('请填写显示名称。')).toBeVisible()
-  await empty.getByRole('button', { name: '取消' }).click()
-  await expect(empty).toBeHidden()
+  const blank = page.getByRole('dialog')
+  const nameless = `zz-nameless-${Date.now()}`
+  await blank.getByPlaceholder('us-egress').fill(nameless)
+  await blank.getByRole('button', { name: '保存' }).click()
+  await expect(blank.getByText('请填写代理 URL。')).toBeVisible()
+  await blank.locator('input[type="password"]').fill('http://127.0.0.1:3128')
+  await blank.getByRole('button', { name: '保存' }).click()
+  await expect(blank).toBeHidden()
+  await expect(page.getByRole('group', { name: nameless })).toBeVisible()
 
   // Adding happens in an overlay; the page keeps a summary list.
   await page.getByRole('button', { name: '新增条目' }).click()

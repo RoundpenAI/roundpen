@@ -1,7 +1,7 @@
 import { Input, InputNumber, Select, Switch, TextArea, Typography } from '@douyinfe/semi-ui-19'
 import type { ItemField, ItemKind, SettingItem } from '../../../api'
 import { Field } from '../parts'
-import { fieldHint, fieldLabel } from '../../../lib/settingItemLabels'
+import { fieldHint, fieldLabel, optionDescription, optionLabel } from '../../../lib/settingItemLabels'
 import type { Translate } from '../helpers'
 
 type Props = {
@@ -35,16 +35,24 @@ export function ItemFieldInput({ kind, field, config, refs, t, onChange }: Props
           />
         </Field>
       )
-    case 'enum':
+    case 'enum': {
+      // The selected option's description replaces the field hint: an enum
+      // usually needs different fields filled in per option.
+      const selected = typeof value === 'string' ? value : ''
+      const describes = optionDescription(kind, field, selected, t)
       return (
-        <Field label={label} hint={hint}>
+        <Field label={label} hint={describes || hint}>
           <Select
-            value={typeof value === 'string' ? value : undefined}
+            value={selected || undefined}
             onChange={(v) => onChange(field.key, v)}
-            optionList={(field.options ?? []).map((o) => ({ value: o, label: o }))}
+            optionList={(field.options ?? []).map((o) => ({
+              value: o,
+              label: optionLabel(kind, field, o, t),
+            }))}
           />
         </Field>
       )
+    }
     case 'itemRef': {
       const options = (refs?.[field.refKind ?? ''] ?? []).filter((i) => i.enabled)
       return (
