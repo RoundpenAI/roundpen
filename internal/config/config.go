@@ -16,6 +16,8 @@ type Config struct {
 	APIKey                  string // seeds the bootstrap admin API key; empty = generate one
 	AllowPublicRegistration bool
 	BootstrapAdmin          bool
+	BootstrapAdminPassword  string // pins the admin password on every boot (local dev); empty = random when unset
+	IMEnabled               bool   // start IM channel engines; off unless set (secondary/test instances must not race the primary one for chat connections)
 	DatabaseURL             string
 	DataRoot                string
 	SecretKey               string // master key (hex/base64, 32 bytes) sealing DB secrets; empty = auto-generated file under DataRoot
@@ -46,6 +48,8 @@ func Load() (*Config, error) {
 		APIKey:                  os.Getenv("ROUNDPEN_API_KEY"),
 		AllowPublicRegistration: getenvBool("ROUNDPEN_ALLOW_PUBLIC_REGISTRATION", false),
 		BootstrapAdmin:          getenvBool("ROUNDPEN_BOOTSTRAP_ADMIN", true),
+		BootstrapAdminPassword:  os.Getenv("ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD"),
+		IMEnabled:               getenvBool("ROUNDPEN_IM_ENABLED", false),
 		DatabaseURL:             os.Getenv("DATABASE_URL"),
 		DataRoot:                getenv("ROUNDPEN_DATA_ROOT", "./data"),
 		SecretKey:               os.Getenv("ROUNDPEN_SECRET_KEY"),

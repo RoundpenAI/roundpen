@@ -174,20 +174,26 @@ func main() {
 
 	lang, imDataDir, imProvider := imconnect.EnvDefaults()
 	var imSup *imconnect.Supervisor
-	imSup, err = imconnect.NewSupervisor(imconnect.Deps{
-		Assistants:  assistantStore,
-		Store:       agentStore,
-		ACP:         acpMgr,
-		Users:       userStore,
-		Provisioner: provisioner,
-		LLMGW:       gw,
-		Provider:    imProvider,
-		Lang:        lang,
-		DataDir:     imDataDir,
-	})
-	if err != nil {
-		logger.Error("imconnect supervisor", slog.Any("err", err))
-		imSup = nil
+	if cfg.IMEnabled {
+		imSup, err = imconnect.NewSupervisor(imconnect.Deps{
+			Assistants:  assistantStore,
+			Store:       agentStore,
+			ACP:         acpMgr,
+			Users:       userStore,
+			Provisioner: provisioner,
+			LLMGW:       gw,
+			Provider:    imProvider,
+			Lang:        lang,
+			DataDir:     imDataDir,
+		})
+		if err != nil {
+			logger.Error("imconnect supervisor", slog.Any("err", err))
+			imSup = nil
+		}
+	} else {
+		// Secondary instances sharing a DB must not race the primary one for the
+		// same chat platform connections.
+		logger.Info("ROUNDPEN_IM_ENABLED is off — IM engines skipped (set it to true to start them)")
 	}
 
 	asstHandler := &assistant.Handler{
