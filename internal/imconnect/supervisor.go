@@ -27,9 +27,10 @@ type Deps struct {
 	Users       storage.UserStore
 	Provisioner *agentenv.Provisioner
 	LLMGW       *llmgw.Gateway
-	Provider    string // default "sysadmin"
-	Lang        string // "en" | "zh"
-	DataDir     string // root for per-assistant session maps
+	LLMEnv      func(userID string) agentenv.LLMEnv // per-user model pins for provisioned sandboxes
+	Provider    string                              // default "sysadmin"
+	Lang        string                              // "en" | "zh"
+	DataDir     string                              // root for per-assistant session maps
 }
 
 // Supervisor owns one cc-connect Engine per assistant that has IM channels.
@@ -127,9 +128,12 @@ func (s *Supervisor) buildEngine(a *assistant.Assistant) (*Engine, error) {
 	}
 
 	role := string(storage.RoleUser)
+	apiKey, modelSource := "", ""
 	if s.deps.Users != nil {
 		if u, err := s.deps.Users.GetByUsername(context.Background(), a.UserID); err == nil && u != nil {
 			role = string(u.Role)
+			apiKey = u.APIKey
+			modelSource = u.ModelSource
 		}
 	}
 
@@ -138,10 +142,13 @@ func (s *Supervisor) buildEngine(a *assistant.Assistant) (*Engine, error) {
 		ACP:         s.deps.ACP,
 		Provisioner: s.deps.Provisioner,
 		LLMGW:       s.deps.LLMGW,
+		LLMEnv:      s.deps.LLMEnv,
 		ProviderID:  s.deps.Provider,
 		UserID:      a.UserID,
 		AssistantID: a.ID,
 		Role:        role,
+		APIKey:      apiKey,
+		ModelSource: modelSource,
 	}
 
 	dir := filepath.Join(s.deps.DataDir, a.ID)

@@ -40,11 +40,13 @@ type Agent struct {
 	ACP         *manager.Manager
 	Provisioner *agentenv.Provisioner
 	LLMGW       *llmgw.Gateway
-	ProviderID  string // default "sysadmin"
-	UserID      string // Roundpen user owning the created agent sessions
-	AssistantID string // stamps Create / ListByAssistant
+	LLMEnv      func(userID string) agentenv.LLMEnv // per-user model pins for provisioned sandboxes
+	ProviderID  string                              // default "sysadmin"
+	UserID      string                              // Roundpen user owning the created agent sessions
+	AssistantID string                              // stamps Create / ListByAssistant
 	Role        string
 	APIKey      string
+	ModelSource string // storage.ModelSource*; "own" withholds the llmgw env
 
 	mu       sync.Mutex
 	sessions map[string]*agentSession
@@ -109,11 +111,12 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 		prov := *a.Provisioner
 		prov.Config.APIKey = a.APIKey
 		prov.Config.VirtualKey = a.pickVirtualKey(ctx)
+		prov.Config.ModelSource = a.ModelSource
 		if provMeta.TemplateID != "" {
 			prov.Config.TemplateID = provMeta.TemplateID
 		}
-		if a.LLMGW != nil {
-			prov.Config.DefaultModel = a.LLMGW.DefaultModel()
+		if a.LLMEnv != nil {
+			prov.Config.LLMEnv = a.LLMEnv(userID)
 		}
 		res, err := prov.Provision(ctx, sess.ID, providerID, userID)
 		if err != nil {
