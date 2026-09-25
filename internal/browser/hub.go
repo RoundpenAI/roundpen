@@ -150,6 +150,12 @@ func (h *Hub) CloseSandbox(id string) {
 	sess := h.sessions[id]
 	delete(h.sessions, id)
 	h.mu.Unlock()
+	disposeSession(sess)
+}
+
+// disposeSession releases a session already removed from the hub map. Closing
+// talks to the browser, so it must never run under h.mu.
+func disposeSession(sess *Session) {
 	if sess == nil {
 		return
 	}
@@ -190,7 +196,9 @@ type SessionStatus struct {
 	Takeover bool
 }
 
-// StatusEx reports attachment and takeover without starting a browser.
+// StatusEx reports attachment and takeover without starting a browser. A
+// session whose upstream browser is gone reads as detached, matching what the
+// next Ensure will do (re-attach) instead of advertising a dead page.
 func (h *Hub) StatusEx(id string) SessionStatus {
 	if h == nil {
 		return SessionStatus{}
@@ -199,6 +207,9 @@ func (h *Hub) StatusEx(id string) SessionStatus {
 	defer h.mu.Unlock()
 	sess := h.sessions[id]
 	if sess == nil || sess.Engine == nil {
+		return SessionStatus{}
+	}
+	if !engineConnected(sess.Engine) {
 		return SessionStatus{}
 	}
 	return SessionStatus{
@@ -248,31 +259,49 @@ func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
 	if id == "" {
 		return nil, fmt.Errorf("sandbox id is required")
 	}
-	h.mu.Lock()
-	if sess := h.sessions[id]; sess != nil && sess.Engine != nil {
-		h.mu.Unlock()
-		return sess, nil
+	live, stale := h.cachedSession(id)
+	if live != nil {
+		return live, nil
 	}
-	h.mu.Unlock()
+	if stale != nil {
+		disposeSession(stale)
+		h.logger.Info("browser session dropped", slog.String("sandbox", id),
+			slog.String("reason", "upstream browser is gone"))
+	}
 
 	sess, err := h.attachReady(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	h.mu.Lock()
-	if existing := h.sessions[id]; existing != nil && existing.Engine != nil {
+	if existing := h.sessions[id]; existing != nil && existing.Engine != nil && engineConnected(existing.Engine) {
 		h.mu.Unlock()
-		if sess.release != nil {
-			sess.release()
-		}
-		if sess.Engine != nil {
-			_ = sess.Engine.Close()
-		}
+		disposeSession(sess)
 		return existing, nil
 	}
+	replaced := h.sessions[id]
 	h.sessions[id] = sess
 	h.mu.Unlock()
+	disposeSession(replaced)
 	h.logger.Info("browser session started", slog.String("sandbox", id))
+	return sess, nil
+}
+
+// cachedSession returns the session recorded for id when its engine still
+// talks to an upstream browser. A session that lost its browser (an idle
+// remote browserless reaped it) is removed and reported as stale instead, so
+// Ensure re-attaches rather than handing out an engine that can only fail.
+func (h *Hub) cachedSession(id string) (live, stale *Session) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	sess := h.sessions[id]
+	if sess == nil || sess.Engine == nil {
+		return nil, nil
+	}
+	if !engineConnected(sess.Engine) {
+		delete(h.sessions, id)
+		return nil, sess
+	}
 	return sess, nil
 }
 

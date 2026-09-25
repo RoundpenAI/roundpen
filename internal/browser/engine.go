@@ -28,6 +28,21 @@ type Engine interface {
 	Close() error
 }
 
+// connectedEngine is implemented by engines that can tell whether their
+// upstream browser is still attached. A remote browserless reaps an idle
+// browser, which leaves a cached engine permanently failing.
+type connectedEngine interface{ IsConnected() bool }
+
+// engineConnected reports upstream liveness. Engines that cannot tell are
+// assumed connected, so they keep the hub's previous behaviour.
+func engineConnected(e Engine) bool {
+	c, ok := e.(connectedEngine)
+	if !ok {
+		return true
+	}
+	return c.IsConnected()
+}
+
 // Snapshot is a compact accessibility-ish view of the current page.
 type Snapshot struct {
 	URL    string     `json:"url"`
