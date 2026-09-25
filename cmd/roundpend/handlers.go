@@ -99,12 +99,20 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		Cfg:   cfg,
 		Dial:  sbSvc,
 	}
+	// Credential edits must reach a sandbox that is already running: a token
+	// that never expires would otherwise only land there after a rebuild. The
+	// request context is detached because the browser is already redirecting.
+	reinject := func(ctx context.Context, userID string) {
+		envSvc.ReinjectGit(context.WithoutCancel(ctx), userID)
+	}
+	oauthSvc.OnIdentityChange = reinject
+
 	envHandler.Mount(mux)
 	(&workspaceapi.Handler{
 		Envs:  envSvc,
 		Files: sbSvc,
 	}).Mount(mux)
-	(&gitcred.Handler{Store: gitStore}).Mount(mux)
+	(&gitcred.Handler{Store: gitStore, OnChange: reinject}).Mount(mux)
 	(&oauth.Handler{Svc: oauthSvc, Sessions: sessionStore}).Mount(mux)
 	(&runtime.Handler{Probe: probe}).Mount(mux)
 

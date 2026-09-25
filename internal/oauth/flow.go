@@ -59,6 +59,10 @@ type Service struct {
 	Users             storage.UserStore
 	AllowRegistration func() bool
 	StateTTL          time.Duration
+	// OnIdentityChange, when set, is called with the local user after an
+	// identity is linked (or refreshed by a login) and after an unlink, so a
+	// running sandbox gets the new token without waiting for a refresh.
+	OnIdentityChange func(ctx context.Context, userID string)
 	// Now is overridable in tests.
 	Now func() time.Time
 }
@@ -124,7 +128,17 @@ func (s *Service) Identities(ctx context.Context, userID string) ([]Identity, er
 
 // Unlink removes one linked account; the next injection drops its token.
 func (s *Service) Unlink(ctx context.Context, userID, id string) error {
-	return s.Store.DeleteIdentity(ctx, userID, id)
+	if err := s.Store.DeleteIdentity(ctx, userID, id); err != nil {
+		return err
+	}
+	s.identityChanged(ctx, userID)
+	return nil
+}
+
+func (s *Service) identityChanged(ctx context.Context, userID string) {
+	if s.OnIdentityChange != nil {
+		s.OnIdentityChange(ctx, userID)
+	}
 }
 
 func (s *Service) now() time.Time {
@@ -227,6 +241,7 @@ func (s *Service) HandleCallback(ctx context.Context, in CallbackInput) (*Callba
 	}); err != nil {
 		return nil, err
 	}
+	s.identityChanged(ctx, user.Username)
 	return &CallbackResult{User: user, RedirectTo: safeRedirect(st.RedirectTo), Linked: linked}, nil
 }
 
