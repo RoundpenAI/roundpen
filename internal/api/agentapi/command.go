@@ -169,7 +169,7 @@ func (r *runner) command(name, args string) {
 		"command":     name,
 		"commandArgs": strings.TrimSpace(args),
 		"display":     commandDisplay(name, args),
-	})
+	}, "")
 }
 
 // expandSkill resolves name against the session owner's agent home when that
@@ -203,8 +203,10 @@ func (r *runner) help() {
 func (r *runner) requestClear() {
 	r.mu.Lock()
 	busy := r.busy
+	var dropped []pendingItem
 	if busy {
 		r.clearPending = true
+		dropped = r.pending
 		r.pending = nil
 	} else {
 		r.busy = true
@@ -216,6 +218,14 @@ func (r *runner) requestClear() {
 	}
 	r.mu.Unlock()
 	if busy {
+		// The reset abandons the queue; mark the rows cancelled so model
+		// context projections skip them.
+		for _, it := range dropped {
+			_ = r.handler.Store.CancelMessage(r.ctx, r.session.ID, it.ID)
+		}
+		if len(dropped) > 0 {
+			r.broadcast(r.queueFrame())
+		}
 		_ = r.acp.Cancel(r.ctx, r.session.ID)
 		return
 	}

@@ -742,3 +742,69 @@ button {
   color: var(--semi-color-text-0);
 }
 
+/* Queued user message: badge line above the bubble + pull-back link */
+.chat-queue-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.chat-queue-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--semi-color-text-2, #6b7280);
+}
+
+.chat-queue-tag {
+  padding: 0 0.35rem;
+  border-radius: 0.5rem;
+  background: var(--semi-color-warning-light-default, rgba(255, 193, 7, 0.16));
+  color: var(--semi-color-warning, #b45309);
+}
+
+.chat-queue-undo {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--semi-color-link, #0064fa);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.chat-queue-undo:hover {
+  text-decoration: underline;
+}
+
+.chat-queue-wrap.is-cancelled {
+  opacity: 0.55;
+}
+
+.chat-queue-wrap.is-cancelled .chat-queue-tag {
+  background: var(--semi-color-fill-0, rgba(0, 0, 0, 0.05));
+  color: var(--semi-color-text-2, #6b7280);
+}
+
+/* Mid-turn send key next to the stop key while generating */
+.chat-midturn-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--semi-color-primary, #0064fa);
+  color: var(--semi-color-white, #fff);
+  cursor: pointer;
+}
+
+.chat-midturn-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+

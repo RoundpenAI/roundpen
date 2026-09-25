@@ -198,3 +198,29 @@ func TestSystemPromptOmitsWebSearchWhenUnconfigured(t *testing.T) {
 		t.Fatalf("system prompt must not promise WebSearch when it is not registered: %q", msgs[0].Content)
 	}
 }
+
+func TestProjectHistorySkipsCancelledRows(t *testing.T) {
+	cancelled, _ := json.Marshal(map[string]string{"type": "user", "state": "cancelled"})
+	normal, _ := json.Marshal(map[string]string{"type": "user"})
+	rows := []*agentsession.Message{
+		{Role: agentsession.RoleUser, Content: "keep me", Meta: normal},
+		{Role: agentsession.RoleAssistant, Content: "ok"},
+		{Role: agentsession.RoleUser, Content: "pulled back", Meta: cancelled},
+		{Role: agentsession.RoleUser, Content: "next", Meta: normal},
+	}
+	got := projectHistory(rows)
+	if formatRoles(got) != "user,assistant,user" {
+		t.Fatalf("roles: %s", formatRoles(got))
+	}
+	for _, m := range got {
+		if strings.Contains(m.Content, "pulled back") {
+			t.Fatalf("cancelled row leaked into model context: %+v", got)
+		}
+	}
+
+	// The same projection feeds the stdio restore preamble.
+	out := RestorePreamble(rows, "current")
+	if strings.Contains(out, "pulled back") {
+		t.Fatalf("cancelled row leaked into the restore preamble: %q", out)
+	}
+}

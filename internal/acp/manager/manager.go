@@ -3,6 +3,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,6 +24,10 @@ import (
 )
 
 const maxConcurrentPrompts = 3
+
+// ErrSteerUnsupported reports that a provider cannot inject mid-turn messages;
+// callers fall back to queueing.
+var ErrSteerUnsupported = errors.New("steer unsupported by provider")
 
 // Actor is the user identity for System Agent tools.
 type Actor = tools.Actor
@@ -69,6 +74,10 @@ type Runtime struct {
 	// setSysAuto flips classifier-based auto approval on the in-process
 	// System Agent; nil for external (stdio) runtimes.
 	setSysAuto func(bool)
+
+	// steerFunc injects a mid-turn user message into the running turn; nil for
+	// providers without mid-turn injection (external agents).
+	steerFunc func(string) error
 
 	gen    uint64
 	cancel context.CancelFunc
@@ -276,6 +285,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	if sysAgent != nil {
 		sid := string(sess.SessionId)
 		rt.setSysAuto = func(on bool) { sysAgent.SetAutoMode(sid, on) }
+		rt.steerFunc = func(text string) error { return sysAgent.SteerSession(sid, text) }
 	}
 	m.mu.Lock()
 	m.runtimes[sessionID] = rt
@@ -319,6 +329,30 @@ func (rt *Runtime) SetAutoMode(v bool) {
 	if rt.setSysAuto != nil {
 		rt.setSysAuto(v)
 	}
+}
+
+// SteerCapable reports whether the runtime can inject mid-turn messages.
+// Nil-safe so callers can query a runner that has no runtime yet.
+func (rt *Runtime) SteerCapable() bool { return rt != nil && rt.steerFunc != nil }
+
+// Steer injects a user message into the running turn. The error is either
+// ErrSteerUnsupported or a transient condition (no active turn, inbox full);
+// callers queue the message in both cases.
+func (rt *Runtime) Steer(text string) error {
+	if rt == nil || rt.steerFunc == nil {
+		return ErrSteerUnsupported
+	}
+	return rt.steerFunc(text)
+}
+
+// Steer is the manager-level entry point for mid-turn injection. It bypasses
+// the prompt gate: steering is not a new turn.
+func (m *Manager) Steer(_ context.Context, sessionID, text string) error {
+	rt, ok := m.Get(sessionID)
+	if !ok {
+		return fmt.Errorf("runtime not found")
+	}
+	return rt.Steer(text)
 }
 
 // Prompt sends a user message (respects global concurrency gate).

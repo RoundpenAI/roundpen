@@ -340,6 +340,10 @@ type wsIn struct {
 	OptionID  string `json:"optionId,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
 	Enabled   bool   `json:"enabled"`
+	// ID is a queue item reference (unqueue); ClientMsgID echoes the sender's
+	// optimistic row so the queue snapshot can be matched per client.
+	ID          string `json:"id,omitempty"`
+	ClientMsgID string `json:"clientMsgId,omitempty"`
 }
 
 type wsOut struct {
@@ -486,7 +490,11 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 		_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
 		switch strings.ToLower(in.Type) {
 		case "prompt":
-			run.prompt(in.Text)
+			run.prompt(in.Text, in.ClientMsgID)
+		case "steer":
+			run.steer(in.Text, in.ClientMsgID)
+		case "unqueue":
+			run.unqueue(in.ID, client)
 		case "command":
 			run.command(in.Name, in.Args)
 		case "cancel":

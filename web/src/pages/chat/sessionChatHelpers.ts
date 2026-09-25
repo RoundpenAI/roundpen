@@ -1,5 +1,4 @@
 import type { AgentCommand, AgentMessage } from '../../api'
-import { chatDialogueRenderConfig } from '../../components/chatDialogueRender'
 
 export type PermReq = {
   requestId: string
@@ -13,8 +12,6 @@ export const ROLE_CONFIG = {
   assistant: { name: '' },
   system: { name: '' },
 }
-
-export const DIALOGUE_RENDER = chatDialogueRenderConfig()
 
 export function readAutoMode(): boolean {
   try {

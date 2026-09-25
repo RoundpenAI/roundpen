@@ -385,7 +385,7 @@ func TestRunnerClearDefersUntilTurnEnds(t *testing.T) {
 	r, _ := commandTestRunner(t)
 	r.mu.Lock()
 	r.busy = true
-	r.pending = []string{"queued while clearing"}
+	r.pending = []pendingItem{{Text: "queued while clearing"}}
 	r.mu.Unlock()
 
 	r.command("clear", "")

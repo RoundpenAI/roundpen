@@ -54,8 +54,9 @@ type Agent struct {
 
 // compile-time interface checks.
 var (
-	_ core.Agent        = (*Agent)(nil)
-	_ core.AgentSession = (*agentSession)(nil)
+	_ core.Agent                 = (*Agent)(nil)
+	_ core.AgentSession          = (*agentSession)(nil)
+	_ core.AgentSessionCanceller = (*agentSession)(nil)
 )
 
 // Name identifies the agent to the cc-connect engine.
@@ -246,12 +247,17 @@ type agentSession struct {
 	// EventText emissions so IM platforms (esp. Weixin, which cannot edit
 	// messages) do not send one bubble per token.
 	textBuf strings.Builder
+	// busy tracks a turn in flight; pending holds mid-turn input (/ps) that
+	// could not be steered and runs once the turn ends.
+	busy    bool
+	pending []string
 	dead    bool
 }
 
 // Send runs one agent turn. Manager.Prompt blocks until the turn completes, so
 // the prompt runs in its own goroutine while the engine drains the event
-// channel.
+// channel. A message that arrives mid-turn (cc-connect /ps) is steered into
+// the running turn when the provider supports it.
 func (s *agentSession) Send(prompt string, _ string, _ []core.ImageAttachment, _ []core.FileAttachment) error {
 	if !s.Alive() {
 		return fmt.Errorf("imconnect: session is closed")
@@ -261,6 +267,31 @@ func (s *agentSession) Send(prompt string, _ string, _ []core.ImageAttachment, _
 	}
 	bg := context.Background()
 	_, _ = s.agent.Store.AddMessage(bg, s.sess.ID, agentsession.RoleUser, prompt, map[string]string{"type": "user", "via": "im"})
+
+	s.mu.Lock()
+	if !s.busy {
+		s.busy = true
+		s.mu.Unlock()
+		go s.runTurn(prompt)
+		return nil
+	}
+	s.mu.Unlock()
+
+	if err := s.agent.ACP.Steer(bg, s.sess.ID, prompt); err == nil {
+		return nil
+	}
+	// Not steerable (provider without mid-turn injection, no live turn, or
+	// full inbox): hold the message. finishTurn starts it when the current
+	// turn ends; when the turn ended between our check and the steer, the
+	// re-check below starts it right away.
+	s.mu.Lock()
+	if s.busy {
+		s.pending = append(s.pending, prompt)
+		s.mu.Unlock()
+		return nil
+	}
+	s.busy = true
+	s.mu.Unlock()
 	go s.runTurn(prompt)
 	return nil
 }
@@ -286,6 +317,7 @@ func (s *agentSession) runTurn(prompt string) {
 
 	if err != nil {
 		s.emit(core.Event{Type: core.EventError, SessionID: s.sess.ID, Content: err.Error(), Error: err, Done: true})
+		s.finishTurn()
 		return
 	}
 	if text == "" {
@@ -294,6 +326,33 @@ func (s *agentSession) runTurn(prompt string) {
 	_, _ = s.agent.Store.AddMessage(context.Background(), s.sess.ID, agentsession.RoleAssistant, text,
 		map[string]string{"type": "assistant", "stopReason": string(stop)})
 	s.emit(core.Event{Type: core.EventResult, SessionID: s.sess.ID, Content: text, Done: true})
+	s.finishTurn()
+}
+
+// finishTurn releases the busy slot and starts the next held message. Held
+// messages only exist because steering failed, so running them now is what the
+// IM user asked for; the engine's unsolicited reader relays the output.
+func (s *agentSession) finishTurn() {
+	s.mu.Lock()
+	var next string
+	if len(s.pending) > 0 {
+		next = s.pending[0]
+		s.pending = s.pending[1:]
+	}
+	// Keep the slot reserved when handing over to a held message so a
+	// concurrent Send cannot interleave.
+	s.busy = next != ""
+	s.mu.Unlock()
+	if next != "" {
+		go s.runTurn(next)
+	}
+}
+
+// CancelTurn interrupts the running turn and keeps the session alive for the
+// next message (cc-connect's AgentSessionCanceller): the engine's /stop and
+// /cancel call it instead of tearing the session down.
+func (s *agentSession) CancelTurn() error {
+	return s.agent.ACP.Cancel(s.ctx, s.sess.ID)
 }
 
 // onEvent converts ACP bridge events to cc-connect core.Events.

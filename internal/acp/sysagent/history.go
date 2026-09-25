@@ -119,6 +119,9 @@ func projectHistory(rows []*agentsession.Message) []chatMessage {
 		if m == nil {
 			continue
 		}
+		if agentsession.IsCancelled(m) {
+			continue
+		}
 		switch m.Role {
 		case agentsession.RoleUser:
 			flushTools()

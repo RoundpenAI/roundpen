@@ -36,6 +36,15 @@ type permWait struct {
 	cancelOnce sync.Once
 }
 
+// pendingItem is a user message queued while a turn is in flight. ID is the
+// persisted agent_messages row (used for pull-back and UI reconciliation);
+// ClientMsgID is opaque to the server and echoes the sender's optimistic row.
+type pendingItem struct {
+	ID          string `json:"id"`
+	Text        string `json:"text"`
+	ClientMsgID string `json:"clientMsgId,omitempty"`
+}
+
 // runner owns the ACP turn lifecycle for one agent session: prompt execution,
 // reply/thought buffering, permission handling, message persistence, and event
 // fan-out to all connected WebSocket clients.  Closing a tab or switching tabs
@@ -56,8 +65,9 @@ type runner struct {
 	clients      map[*wsClient]struct{}
 	busy         bool
 	auto         bool
-	clearPending bool     // /clear arrived mid-turn; reset once the turn ends
-	pending      []string // queued prompts while a turn is in progress
+	clearPending bool          // /clear arrived mid-turn; reset once the turn ends
+	pending      []pendingItem // queued prompts while a turn is in progress
+	queueVer     uint64        // monotonic queue-snapshot version (frame ordering)
 
 	reply   strings.Builder
 	thought strings.Builder
@@ -103,6 +113,20 @@ type statusSnapshot struct {
 	Reply   string        `json:"reply,omitempty"`
 	Thought string        `json:"thought,omitempty"`
 	Perm    *permSnapshot `json:"perm,omitempty"`
+	Pending []pendingItem `json:"pending,omitempty"`
+	// Steer reports whether this runtime accepts mid-turn injection; false
+	// tells the composer to queue instead.
+	Steer    bool   `json:"steer"`
+	QueueVer uint64 `json:"queueVersion"`
+}
+
+// queueSnapshot is the full queue state broadcast on every change. Clients
+// keep the highest version so frames that arrive out of order are dropped.
+type queueSnapshot struct {
+	Type    string        `json:"type"` // "queue"
+	Steer   bool          `json:"steer"`
+	Version uint64        `json:"version"`
+	Items   []pendingItem `json:"items"`
 }
 
 type permSnapshot struct {
@@ -115,11 +139,16 @@ type permSnapshot struct {
 func (r *runner) snapshot() statusSnapshot {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	items := make([]pendingItem, len(r.pending))
+	copy(items, r.pending)
 	s := statusSnapshot{
-		Type:    "status",
-		Busy:    r.busy,
-		Reply:   r.reply.String(),
-		Thought: r.thought.String(),
+		Type:     "status",
+		Busy:     r.busy,
+		Reply:    r.reply.String(),
+		Thought:  r.thought.String(),
+		Pending:  items,
+		Steer:    r.rt.SteerCapable(),
+		QueueVer: r.queueVer,
 	}
 	for reqID, pw := range r.perms {
 		s.Perm = &permSnapshot{
@@ -133,9 +162,39 @@ func (r *runner) snapshot() statusSnapshot {
 	return s
 }
 
+// queueFrame builds a fresh queue snapshot; safe to call without the lock.
+func (r *runner) queueFrame() queueSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.queueFrameLocked()
+}
+
+// queueFrameLocked bumps the snapshot version and copies the queue.
+// Caller must hold r.mu.
+func (r *runner) queueFrameLocked() queueSnapshot {
+	r.queueVer++
+	items := make([]pendingItem, len(r.pending))
+	copy(items, r.pending)
+	return queueSnapshot{
+		Type:    "queue",
+		Steer:   r.rt.SteerCapable(),
+		Version: r.queueVer,
+		Items:   items,
+	}
+}
+
 // persist saves a row in the session transcript.
 func (r *runner) persist(role, content string, meta any) {
 	_, _ = r.handler.Store.AddMessage(r.ctx, r.session.ID, role, content, meta)
+}
+
+// persistUser writes a user row and returns its id ("" when unpersisted).
+func (r *runner) persistUser(text string, meta any) string {
+	msg, err := r.handler.Store.AddMessage(r.ctx, r.session.ID, agentsession.RoleUser, text, meta)
+	if err != nil || msg == nil {
+		return ""
+	}
+	return msg.ID
 }
 
 // flushThought persists any buffered reasoning text as a thought row and resets
@@ -226,27 +285,82 @@ func (r *runner) onEvent(ev acpclient.Event) {
 }
 
 // prompt queues a new user message and starts a turn if the runner is idle.
-func (r *runner) prompt(text string) {
-	r.startUserTurn(text, map[string]string{"type": "user"})
+func (r *runner) prompt(text, clientMsgID string) {
+	r.startUserTurn(text, map[string]string{"type": "user"}, clientMsgID)
 }
 
 // startUserTurn persists a user turn and runs it, or queues it while busy.
 // meta carries the row's display information: plain prompts use
 // {"type":"user"}, slash commands add the command name and the text the user
 // typed (the persisted content is the expanded instruction text).
-func (r *runner) startUserTurn(text string, meta any) {
+func (r *runner) startUserTurn(text string, meta any, clientMsgID string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
 	}
-	r.persist(agentsession.RoleUser, text, meta)
+	id := r.persistUser(text, meta)
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.busy {
-		r.pending = append(r.pending, text)
+		r.pending = append(r.pending, pendingItem{ID: id, Text: text, ClientMsgID: clientMsgID})
+		r.mu.Unlock()
+		r.broadcast(r.queueFrame())
 		return
 	}
 	r.beginTurnLocked(text)
+	r.mu.Unlock()
+}
+
+// steer injects a user message into the running turn, falling back to the
+// queue when the provider cannot steer or the turn ended under us. The row is
+// persisted first, so neither path can lose it.
+func (r *runner) steer(text, clientMsgID string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	id := r.persistUser(text, map[string]string{"type": "user"})
+	r.mu.Lock()
+	if !r.busy {
+		// Nothing in flight to steer into: run it as a normal turn.
+		r.beginTurnLocked(text)
+		r.mu.Unlock()
+		return
+	}
+	if err := r.rt.Steer(text); err == nil {
+		r.mu.Unlock()
+		return
+	}
+	// Unsupported provider, no active turn, or a full inbox: queue instead.
+	r.pending = append(r.pending, pendingItem{ID: id, Text: text, ClientMsgID: clientMsgID})
+	r.mu.Unlock()
+	r.broadcast(r.queueFrame())
+}
+
+// unqueue pulls a queued message back before it runs. The store call runs
+// under the lock so a message can never be drained into a turn between the
+// queue removal and the cancelled marker.
+func (r *runner) unqueue(messageID string, c *wsClient) {
+	r.mu.Lock()
+	idx := -1
+	for i, it := range r.pending {
+		if it.ID == messageID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		r.mu.Unlock()
+		c.write(wsOut{Type: "error", Message: "消息已开始执行，无法撤回"})
+		return
+	}
+	if err := r.handler.Store.CancelMessage(r.ctx, r.session.ID, messageID); err != nil {
+		r.mu.Unlock()
+		c.write(wsOut{Type: "error", Message: "撤回失败，请重试"})
+		return
+	}
+	r.pending = append(r.pending[:idx], r.pending[idx+1:]...)
+	r.mu.Unlock()
+	r.broadcast(r.queueFrame())
 }
 
 func (r *runner) beginTurnLocked(text string) {
@@ -303,7 +417,7 @@ func (r *runner) finishTurn() {
 	if len(r.pending) > 0 {
 		next := r.pending[0]
 		r.pending = r.pending[1:]
-		r.beginTurnLocked(next)
+		r.beginTurnLocked(next.Text)
 	}
 	r.mu.Unlock()
 	// Post-`done` snapshot: if a queued turn began, busy is already true again
