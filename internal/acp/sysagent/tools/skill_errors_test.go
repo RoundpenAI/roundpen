@@ -4,22 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
+	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
-
-// errFiles fails every read with a non-not-exist error, to prove storage
-// failures surface instead of masquerading as "skill absent".
-type errFiles struct{ memFiles }
-
-func (e *errFiles) ReadFile(context.Context, string, string) (io.ReadCloser, error) {
-	return nil, errors.New("disk on fire")
-}
 
 func skillArgs(t *testing.T, v any) json.RawMessage {
 	t.Helper()
@@ -42,7 +34,7 @@ func TestAskUserQuestionBoundsExported(t *testing.T) {
 func TestSkillInvoke_StorageErrorSurfaces(t *testing.T) {
 	binder := &tools.AgentBinder{
 		Slots: &stubAgentSlots{id: "sb"},
-		Files: &errFiles{},
+		Exec:  &stubExec{fail: errors.New("disk on fire")},
 	}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
@@ -55,12 +47,12 @@ func TestSkillInvoke_StorageErrorSurfaces(t *testing.T) {
 	}
 }
 
-func TestSkillInvoke_FilesNotConfigured(t *testing.T) {
+func TestSkillInvoke_ExecNotConfigured(t *testing.T) {
 	binder := &tools.AgentBinder{Slots: &stubAgentSlots{id: "sb"}}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	_, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", skillArgs(t, map[string]any{"skill": "commit"}))
-	if err == nil || !strings.Contains(err.Error(), "workspace files not configured") {
+	if err == nil || !strings.Contains(err.Error(), "workspace exec not configured") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -85,7 +77,7 @@ func TestSkillInstallFromServerErrors(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	binder, _, _ := skillBinder()
+	binder, _ := skillBinder()
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, tools.NewWebHTTPClient(tools.WebClientOptions{AllowLoopback: true}))
 	actor := tools.Actor{Username: "alice"}
@@ -102,14 +94,12 @@ func TestSkillInstallFromServerErrors(t *testing.T) {
 	}
 
 	// No name in frontmatter and no skill argument → derived from URL basename.
-	_, err := reg.Call(ctx, actor, "Skill", skillArgs(t, map[string]any{"action": "install", "url": ts.URL + "/no-name.md"}))
+	out, err := reg.Call(ctx, actor, "Skill", skillArgs(t, map[string]any{"action": "install", "url": ts.URL + "/no-name.md"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Reinstall path hits the overwrite confirmation.
-	out, err := reg.Call(confirmCtx(t, "Cancel"), actor, "Skill", skillArgs(t, map[string]any{"action": "install", "url": ts.URL + "/no-name.md"}))
-	if err != nil || !strings.Contains(out, "not installed") {
-		t.Fatalf("out=%q err=%v", out, err)
+	if !strings.Contains(out, `Installed skill "no-name"`) {
+		t.Fatalf("out=%q", out)
 	}
 
 	// Basename with invalid skill-name characters cannot be deduced.
@@ -126,7 +116,7 @@ func TestSkillInstallFromServerErrors(t *testing.T) {
 }
 
 func TestSkillInstallContentErrors(t *testing.T) {
-	binder, _, _ := skillBinder()
+	binder, _ := skillBinder()
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	actor := tools.Actor{Username: "alice"}
@@ -166,8 +156,8 @@ func TestSkillInstallContentErrors(t *testing.T) {
 }
 
 func TestSkillInstallOverwriteNeedsInteractor(t *testing.T) {
-	binder, fs, _ := skillBinder()
-	fs.data[".roundpen/skills/commit.md"] = []byte("---\ndescription: x.\n---\nDo it.\n")
+	binder, ex := skillBinder()
+	ex.queue = []*sandbox.ExecResult{execStdout("---\ndescription: x.\n---\nDo it.\n")}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	// No interactor on the context → confirmation cannot be asked.
@@ -185,7 +175,8 @@ func TestSkillRemoveErrors(t *testing.T) {
 	ctx := confirmCtx(t, "Remove")
 
 	// Removing a built-in skill that is not shadowed.
-	binder, _, _ := skillBinder()
+	binder, ex := skillBinder()
+	ex.queue = []*sandbox.ExecResult{notFound()}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	_, err := reg.Call(ctx, actor, "Skill", skillArgs(t, map[string]any{"action": "remove", "skill": "commit"}))
@@ -194,26 +185,28 @@ func TestSkillRemoveErrors(t *testing.T) {
 	}
 
 	// Unknown skill.
-	_, err = reg.Call(ctx, actor, "Skill", skillArgs(t, map[string]any{"action": "remove", "skill": "ghost"}))
+	binder2, ex2 := skillBinder()
+	ex2.queue = []*sandbox.ExecResult{notFound()}
+	reg2 := tools.NewRegistry()
+	tools.RegisterSkill(reg2, binder2, nil)
+	_, err = reg2.Call(ctx, actor, "Skill", skillArgs(t, map[string]any{"action": "remove", "skill": "ghost"}))
 	if err == nil || !strings.Contains(err.Error(), "no skill") {
 		t.Fatalf("err = %v", err)
 	}
 
-	// Exec not configured: the delete cannot run.
-	noExec := &tools.AgentBinder{Slots: &stubAgentSlots{id: "sb"}, Files: &memFiles{data: map[string][]byte{
-		".roundpen/skills/gsync.md": []byte("---\ndescription: x.\n---\nDo it.\n"),
-	}}}
-	reg2 := tools.NewRegistry()
-	tools.RegisterSkill(reg2, noExec, nil)
-	_, err = reg2.Call(ctx, actor, "Skill", skillArgs(t, map[string]any{"action": "remove", "skill": "gsync"}))
+	// Exec not configured: the existence check cannot run.
+	noExec := &tools.AgentBinder{Slots: &stubAgentSlots{id: "sb"}}
+	reg3 := tools.NewRegistry()
+	tools.RegisterSkill(reg3, noExec, nil)
+	_, err = reg3.Call(ctx, actor, "Skill", skillArgs(t, map[string]any{"action": "remove", "skill": "gsync"}))
 	if err == nil || !strings.Contains(err.Error(), "workspace exec not configured") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestSkillListErrors(t *testing.T) {
-	// Exec not configured → listing workspace skills fails.
-	noExec := &tools.AgentBinder{Slots: &stubAgentSlots{id: "sb"}, Files: &memFiles{}}
+	// Exec not configured → listing installed skills fails.
+	noExec := &tools.AgentBinder{Slots: &stubAgentSlots{id: "sb"}}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, noExec, nil)
 	_, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", skillArgs(t, map[string]any{"action": "list"}))
@@ -223,7 +216,7 @@ func TestSkillListErrors(t *testing.T) {
 }
 
 func TestSkillUnknownAction(t *testing.T) {
-	binder, _, _ := skillBinder()
+	binder, _ := skillBinder()
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	_, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", skillArgs(t, map[string]any{"action": "explode"}))
@@ -233,7 +226,7 @@ func TestSkillUnknownAction(t *testing.T) {
 }
 
 func TestSkillInstallNotBothNameSources(t *testing.T) {
-	binder, _, _ := skillBinder()
+	binder, _ := skillBinder()
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	_, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", skillArgs(t, map[string]any{

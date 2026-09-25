@@ -11,12 +11,18 @@ import {
 describe('visiblePrimaryMenus', () => {
   it('hides registry for non-admin', () => {
     const keys = visiblePrimaryMenus(false).map((m) => m.id)
-    assert.deepEqual(keys, ['assistants', 'workspace', 'settings'])
+    assert.deepEqual(keys, ['assistants', 'issues', 'workspace', 'settings'])
   })
 
   it('shows registry for admin', () => {
     const keys = visiblePrimaryMenus(true).map((m) => m.id)
-    assert.deepEqual(keys, ['assistants', 'workspace', 'settings', 'registry'])
+    assert.deepEqual(keys, [
+      'assistants',
+      'issues',
+      'workspace',
+      'settings',
+      'registry',
+    ])
   })
 })
 

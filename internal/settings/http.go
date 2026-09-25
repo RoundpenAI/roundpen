@@ -1,11 +1,12 @@
 package settings
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/automode"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 // Handler serves admin settings endpoints.
@@ -23,11 +24,12 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/admin/settings", auth.RequireAdmin(h.get))
 	mux.HandleFunc("PUT /v1/admin/settings", auth.RequireAdmin(h.put))
 	mux.HandleFunc("POST /v1/admin/settings/browser/test", auth.RequireAdmin(h.browserTest))
+	mux.HandleFunc("GET /v1/admin/settings/automode/defaults", auth.RequireAdmin(h.autoModeDefaults))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	settings, system := h.Svc.Response()
-	writeJSON(w, http.StatusOK, settingsResp{
+	httpx.WriteJSON(w, http.StatusOK, settingsResp{
 		Settings: settings,
 		System:   system,
 	})
@@ -36,40 +38,42 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 	raw, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	next, err := DecodeAppSettings(raw, h.Svc.Current())
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if err := h.Svc.Update(r.Context(), next); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	settings, system := h.Svc.Response()
-	writeJSON(w, http.StatusOK, settingsResp{
+	httpx.WriteJSON(w, http.StatusOK, settingsResp{
 		Settings: settings,
 		System:   system,
+	})
+}
+
+// autoModeDefaults returns the built-in classifier rules so the settings UI
+// can show what "$defaults" expands to.
+func (h *Handler) autoModeDefaults(w http.ResponseWriter, r *http.Request) {
+	def := automode.Defaults()
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"environment": def.Environment,
+		"allow":       def.Allow,
+		"softDeny":    def.SoftDeny,
+		"hardDeny":    def.HardDeny,
 	})
 }
 
 func (h *Handler) browserTest(w http.ResponseWriter, r *http.Request) {
 	res, err := h.Svc.TestBrowser(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "result": res})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "result": res})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"message": msg})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "result": res})
 }

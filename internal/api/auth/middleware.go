@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -39,6 +40,14 @@ func GetAPIKey(ctx context.Context) string {
 	return ""
 }
 
+// GetSessionID retrieves the session id from context (empty for API-key auth).
+func GetSessionID(ctx context.Context) string {
+	if v, ok := ctx.Value(sessionIDContextKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
 func isPublicPath(r *http.Request) bool {
 	path := r.URL.Path
 	if path == "/health" || path == "/v1/ready" {
@@ -56,6 +65,11 @@ func isPublicPath(r *http.Request) bool {
 		case "/v1/auth/register", "/v1/auth/login":
 			return true
 		}
+	}
+	// Federated login: provider discovery, redirect to the remote authorize
+	// endpoint and its callback. Writes live elsewhere and stay authenticated.
+	if r.Method == http.MethodGet && strings.HasPrefix(path, "/v1/auth/oauth/") {
+		return true
 	}
 	// Console SPA + static assets (auth enforced in the browser).
 	if isConsolePath(r) {
@@ -93,11 +107,17 @@ func extractAPIKey(r *http.Request) string {
 		got = r.Header.Get("X-API-KEY")
 	}
 	if got == "" {
-		if a := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(a), "bearer ") {
-			got = strings.TrimSpace(a[7:])
-		}
+		got = extractBearer(r)
 	}
 	return got
+}
+
+func extractBearer(r *http.Request) string {
+	a := r.Header.Get("Authorization")
+	if !strings.HasPrefix(strings.ToLower(a), "bearer ") {
+		return ""
+	}
+	return strings.TrimSpace(a[7:])
 }
 
 // Middleware authenticates Cookie session, then X-API-Key / Bearer.
@@ -112,7 +132,7 @@ func Middleware(users storage.UserStore, sessions storage.SessionStore) func(htt
 			user, key, sessionID := resolveAuth(r, users, sessions)
 			if user == nil && !isPublicPath(r) {
 				slog.Warn("unauthorized", slog.String("path", r.URL.Path), slog.String("remote", r.RemoteAddr))
-				writeErr(w, http.StatusUnauthorized, "unauthorized")
+				httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
@@ -150,6 +170,18 @@ func resolveAuth(r *http.Request, users storage.UserStore, sessions storage.Sess
 	if key == "" {
 		return nil, "", ""
 	}
+	// API keys are always minted with APIKeyPrefix; a non-prefixed credential in
+	// Authorization: Bearer is a native client's session token (it has no cookie
+	// jar).  X-API-Key never carries a session token.
+	if bearer := extractBearer(r); bearer != "" && bearer == key && !strings.HasPrefix(bearer, APIKeyPrefix) && sessions != nil {
+		if sess, err := sessions.GetByTokenHash(r.Context(), HashSessionToken(bearer)); err == nil {
+			if user, err := users.GetByUsername(r.Context(), sess.UserID); err == nil {
+				_ = sessions.Touch(r.Context(), sess.ID)
+				return user, user.APIKey, sess.ID
+			}
+		}
+		return nil, "", ""
+	}
 	user, err := users.GetByAPIKey(r.Context(), key)
 	if err == nil {
 		return user, key, ""
@@ -162,7 +194,7 @@ func RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user := GetUser(r.Context())
 		if user == nil || user.Role != storage.RoleAdmin {
-			writeErr(w, http.StatusForbidden, "forbidden")
+			httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 			return
 		}
 		next(w, r)

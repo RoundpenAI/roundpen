@@ -1,7 +1,7 @@
 // Package gitcred stores per-user personal tokens (PAT) and injects them into
-// Agent workspaces. One token per host covers git + tea/gh/glab. Secrets never
+// Agent sandboxes. One token per host covers git + tea/gh/glab. Secrets never
 // go into images: user provides, platform stores, EnsureAgent writes
-// /workspace/.roundpen/git.
+// /home/roundpen/.roundpen/git (outside the /workspace project tree).
 package gitcred
 
 import (
@@ -31,6 +31,17 @@ type Cred struct {
 	HasToken  bool      `json:"hasToken"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// TokenCred builds a credential from a token obtained by logging in (OAuth).
+// The username stays empty so authUsername applies the provider's default
+// (x-access-token / oauth2 / git).
+func TokenCred(provider, host, token string) Cred {
+	return Cred{
+		Provider: normalizeProvider(provider),
+		Host:     credKey(host),
+		Token:    strings.TrimSpace(token),
+	}
 }
 
 // SanitizeForResponse masks the token.

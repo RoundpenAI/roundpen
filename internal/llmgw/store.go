@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/secretbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -48,13 +50,17 @@ func maskVirtualKey(key string) string {
 }
 
 // Store persists llmgw vault rows and transaction logs in PostgreSQL.
+// Upstream API keys are sealed at the storage boundary (AES-GCM, "enc:v1:"
+// prefix); legacy plaintext rows stay readable and are re-encrypted on the
+// next upsert. A nil box disables encryption (tests, single-user dev).
 type Store struct {
-	db *storage.DB
+	db  *storage.DB
+	box *secretbox.Box
 }
 
 // NewStore wraps a Roundpen DB.
-func NewStore(db *storage.DB) *Store {
-	return &Store{db: db}
+func NewStore(db *storage.DB, box *secretbox.Box) *Store {
+	return &Store{db: db, box: box}
 }
 
 // UpsertUpstream inserts or updates a provider vault row.
@@ -73,17 +79,24 @@ func (s *Store) UpsertUpstream(u Upstream) error {
 	if patterns == nil {
 		patterns = []byte("[]")
 	}
+	apiKey := u.APIKey
+	if s.box != nil {
+		if apiKey, err = s.box.Seal(apiKey); err != nil {
+			return err
+		}
+	}
 	_, err = s.db.SQL.Exec(`
-		INSERT INTO llmgw_upstreams (provider, base_url, api_key, model_map, model_patterns, enabled, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		INSERT INTO llmgw_upstreams (provider, base_url, api_key, proxy_url, model_map, model_patterns, enabled, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (provider) DO UPDATE SET
 			base_url=EXCLUDED.base_url,
 			api_key=EXCLUDED.api_key,
+			proxy_url=EXCLUDED.proxy_url,
 			model_map=EXCLUDED.model_map,
 			model_patterns=EXCLUDED.model_patterns,
 			enabled=EXCLUDED.enabled,
 			updated_at=EXCLUDED.updated_at`,
-		u.Provider, u.BaseURL, u.APIKey, modelMap, patterns, u.Enabled, u.UpdatedAt.UTC(),
+		u.Provider, u.BaseURL, apiKey, u.ProxyURL, modelMap, patterns, u.Enabled, u.UpdatedAt.UTC(),
 	)
 	return err
 }
@@ -91,15 +104,15 @@ func (s *Store) UpsertUpstream(u Upstream) error {
 // GetUpstream returns an enabled upstream by provider.
 func (s *Store) GetUpstream(ctx context.Context, provider string) (*Upstream, error) {
 	row := s.db.SQL.QueryRowContext(ctx, `
-		SELECT provider, base_url, api_key, model_map, model_patterns, enabled, updated_at
+		SELECT provider, base_url, api_key, proxy_url, model_map, model_patterns, enabled, updated_at
 		FROM llmgw_upstreams WHERE provider=$1 AND enabled=true`, provider)
-	return scanUpstream(row)
+	return s.scanUpstream(row)
 }
 
 // ListUpstreams returns all upstream rows (including disabled).
 func (s *Store) ListUpstreams(ctx context.Context) ([]Upstream, error) {
 	rows, err := s.db.SQL.QueryContext(ctx, `
-		SELECT provider, base_url, api_key, model_map, model_patterns, enabled, updated_at
+		SELECT provider, base_url, api_key, proxy_url, model_map, model_patterns, enabled, updated_at
 		FROM llmgw_upstreams ORDER BY provider`)
 	if err != nil {
 		return nil, err
@@ -107,7 +120,7 @@ func (s *Store) ListUpstreams(ctx context.Context) ([]Upstream, error) {
 	defer rows.Close()
 	var out []Upstream
 	for rows.Next() {
-		u, err := scanUpstream(rows)
+		u, err := s.scanUpstream(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -116,19 +129,28 @@ func (s *Store) ListUpstreams(ctx context.Context) ([]Upstream, error) {
 	return out, rows.Err()
 }
 
-func scanUpstream(row interface{ Scan(dest ...any) error }) (*Upstream, error) {
+func (s *Store) scanUpstream(row interface{ Scan(dest ...any) error }) (*Upstream, error) {
 	var (
 		u         Upstream
 		modelMap  []byte
 		patterns  []byte
 		updatedAt time.Time
 	)
-	err := row.Scan(&u.Provider, &u.BaseURL, &u.APIKey, &modelMap, &patterns, &u.Enabled, &updatedAt)
+	err := row.Scan(&u.Provider, &u.BaseURL, &u.APIKey, &u.ProxyURL, &modelMap, &patterns, &u.Enabled, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, storage.ErrNotFound
 	}
 	if err != nil {
 		return nil, err
+	}
+	if s.box != nil {
+		// Fail hard: relaying with a corrupt key would surface as a
+		// confusing upstream 401 instead of a local decryption error.
+		plain, derr := s.box.Open(u.APIKey)
+		if derr != nil {
+			return nil, fmt.Errorf("llmgw: decrypt upstream %q api key: %w", u.Provider, derr)
+		}
+		u.APIKey = plain
 	}
 	u.UpdatedAt = updatedAt.UTC()
 	u.ModelMap = map[string]string{}
@@ -154,6 +176,18 @@ func (s *Store) UpsertVirtualKey(vk VirtualKey) error {
 	return err
 }
 
+// SeedVirtualKey inserts a virtual key unless its (hashed) key row already
+// exists; unlike UpsertVirtualKey it never re-enables a key an admin disabled.
+func (s *Store) SeedVirtualKey(vk VirtualKey) error {
+	_, err := s.db.SQL.Exec(`
+		INSERT INTO llmgw_virtual_keys (key, name, enabled, created_at)
+		VALUES ($1,$2,$3,$4)
+		ON CONFLICT (key) DO NOTHING`,
+		storedVirtualKey(vk.Key), vk.Name, vk.Enabled, vk.CreatedAt.UTC(),
+	)
+	return err
+}
+
 // GetVirtualKey returns an enabled virtual key.
 func (s *Store) GetVirtualKey(ctx context.Context, key string) (*VirtualKey, error) {
 	row := s.db.SQL.QueryRowContext(ctx, `
@@ -170,6 +204,14 @@ func (s *Store) GetVirtualKey(ctx context.Context, key string) (*VirtualKey, err
 	}
 	vk.CreatedAt = created.UTC()
 	return &vk, nil
+}
+
+// DeleteVirtualKey removes a virtual key row, matching the plaintext or its
+// stored hash form.
+func (s *Store) DeleteVirtualKey(ctx context.Context, key string) error {
+	_, err := s.db.SQL.ExecContext(ctx,
+		`DELETE FROM llmgw_virtual_keys WHERE key=$1 OR key=$2`, key, hashVirtualKey(key))
+	return err
 }
 
 // ListVirtualKeys returns all virtual keys.

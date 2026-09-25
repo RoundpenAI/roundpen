@@ -7,12 +7,13 @@ import (
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 func (h *Handler) weixinBegin(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if _, err := h.ownedAssistant(r.Context(), user, r.PathValue("id")); err != nil {
@@ -25,16 +26,16 @@ func (h *Handler) weixinBegin(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body)
 	begin, err := WeixinBeginQR(r.Context(), body.APIURL)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, begin)
+	httpx.WriteJSON(w, http.StatusOK, begin)
 }
 
 func (h *Handler) weixinPoll(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := r.PathValue("id")
@@ -45,7 +46,7 @@ func (h *Handler) weixinPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	var body struct {
@@ -53,20 +54,20 @@ func (h *Handler) weixinPoll(w http.ResponseWriter, r *http.Request) {
 		APIURL string `json:"apiUrl"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil || strings.TrimSpace(body.QRKey) == "" {
-		writeErr(w, http.StatusBadRequest, "qrKey required")
+		httpx.WriteErr(w, http.StatusBadRequest, "qrKey required")
 		return
 	}
 	st, err := WeixinPollQR(r.Context(), body.APIURL, body.QRKey)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	if st.Status != "confirmed" {
-		writeJSON(w, http.StatusOK, map[string]any{"status": st.Status})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"status": st.Status})
 		return
 	}
 	if st.BotToken == "" {
-		writeErr(w, http.StatusBadGateway, "weixin: confirmed without token")
+		httpx.WriteErr(w, http.StatusBadGateway, "weixin: confirmed without token")
 		return
 	}
 
@@ -91,11 +92,11 @@ func (h *Handler) weixinPoll(w http.ResponseWriter, r *http.Request) {
 	channels["weixin"] = ch
 	updated, err := h.Store.Update(r.Context(), id, UpdateInput{ImChannels: &channels})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	h.syncIM(r.Context(), updated)
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"status":     "confirmed",
 		"connected":  true,
 		"accountId":  st.IlinkBotID,

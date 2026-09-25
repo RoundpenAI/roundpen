@@ -12,9 +12,19 @@ CREATE TABLE IF NOT EXISTS users (
     role            TEXT NOT NULL DEFAULT 'user',
     password_hash   TEXT,
     auth_provider   TEXT NOT NULL DEFAULT 'local',
+    -- gateway: sandbox agents call llmgw with a platform virtual key.
+    -- own: the gateway env is withheld so agents use the user's own login
+    -- (vendor subscription / free tier) inside the sandbox.
+    model_source    TEXT NOT NULL DEFAULT 'gateway',
+    -- Admin proxy-profile ids selected per slot ('' = direct).
+    agent_proxy     TEXT NOT NULL DEFAULT '',
+    browser_proxy   TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS model_source TEXT NOT NULL DEFAULT 'gateway';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS agent_proxy TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS browser_proxy TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email
     ON users (lower(email))
@@ -78,11 +88,14 @@ CREATE TABLE IF NOT EXISTS llmgw_upstreams (
     provider        TEXT PRIMARY KEY,
     base_url        TEXT NOT NULL,
     api_key         TEXT NOT NULL,
+    -- Optional egress proxy for this upstream (http/https/socks5 URL).
+    proxy_url       TEXT NOT NULL DEFAULT '',
     model_map       JSONB NOT NULL DEFAULT '{}',
     model_patterns  JSONB NOT NULL DEFAULT '[]',
     enabled         BOOLEAN NOT NULL DEFAULT true,
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE llmgw_upstreams ADD COLUMN IF NOT EXISTS proxy_url TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS llmgw_virtual_keys (
     key             TEXT PRIMARY KEY,
@@ -331,7 +344,7 @@ CREATE TABLE IF NOT EXISTS browser_tasks (
 );
 CREATE INDEX IF NOT EXISTS browser_tasks_user_idx ON browser_tasks (user_id, created_at DESC);
 
--- Per-user git tokens (never baked into images). Injected into /workspace/.roundpen/git.
+-- Per-user git tokens (never baked into images). Injected into guest $HOME/.roundpen/git.
 CREATE TABLE IF NOT EXISTS user_git_credentials (
     id           TEXT PRIMARY KEY,
     user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
@@ -387,3 +400,129 @@ CREATE TABLE IF NOT EXISTS policy_denials (
 CREATE INDEX IF NOT EXISTS policy_denials_assistant_idx
     ON policy_denials (assistant_id, created_at DESC);
 
+-- Issues & tasks: durable work items created in conversation, with versioned spec/plan docs.
+-- Short keys (ISS-12 / TSK-34 / DOC-88) come from per-install sequences so humans and the
+-- agent can reference work items by name; uuid stays the primary key like other tables.
+
+CREATE SEQUENCE IF NOT EXISTS issue_key_seq;
+CREATE SEQUENCE IF NOT EXISTS task_key_seq;
+CREATE SEQUENCE IF NOT EXISTS issue_doc_key_seq;
+
+CREATE TABLE IF NOT EXISTS issues (
+    id           TEXT PRIMARY KEY,
+    key          TEXT NOT NULL UNIQUE,
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    assistant_id TEXT REFERENCES assistants (id) ON DELETE SET NULL,
+    session_id   TEXT NOT NULL DEFAULT '',
+    title        TEXT NOT NULL,
+    summary      TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'drafting'
+        CHECK (status IN ('drafting', 'specced', 'planned', 'in_progress', 'done', 'cancelled')),
+    origin       TEXT NOT NULL DEFAULT 'chat'
+        CHECK (origin IN ('chat', 'console')),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    closed_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS issues_user_status_idx ON issues (user_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS issues_assistant_idx ON issues (assistant_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS issues_session_idx ON issues (session_id) WHERE session_id <> '';
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id           TEXT PRIMARY KEY,
+    key          TEXT NOT NULL UNIQUE,
+    issue_id     TEXT NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    position     INTEGER NOT NULL DEFAULT 0,
+    title        TEXT NOT NULL,
+    detail       TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'todo'
+        CHECK (status IN ('todo', 'in_progress', 'done', 'blocked', 'cancelled')),
+    session_id   TEXT NOT NULL DEFAULT '',
+    assistant_id TEXT REFERENCES assistants (id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    done_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS tasks_issue_position_idx ON tasks (issue_id, position, created_at);
+CREATE INDEX IF NOT EXISTS tasks_user_status_idx ON tasks (user_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS tasks_session_idx ON tasks (session_id) WHERE session_id <> '';
+
+CREATE TABLE IF NOT EXISTS issue_docs (
+    id           TEXT PRIMARY KEY,
+    key          TEXT NOT NULL UNIQUE,
+    issue_id     TEXT NOT NULL REFERENCES issues (id) ON DELETE CASCADE,
+    task_id      TEXT REFERENCES tasks (id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL CHECK (kind IN ('spec', 'plan')),
+    version      INTEGER NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'current', 'superseded')),
+    title        TEXT NOT NULL DEFAULT '',
+    content_md   TEXT NOT NULL,
+    author_type  TEXT NOT NULL DEFAULT 'assistant' CHECK (author_type IN ('user', 'assistant')),
+    assistant_id TEXT REFERENCES assistants (id) ON DELETE SET NULL,
+    session_id   TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (issue_id, kind, version)
+);
+CREATE INDEX IF NOT EXISTS issue_docs_issue_kind_idx ON issue_docs (issue_id, kind, version DESC);
+CREATE INDEX IF NOT EXISTS issue_docs_task_idx ON issue_docs (task_id) WHERE task_id IS NOT NULL;
+
+-- tasks.plan_doc_id -> issue_docs(id): added after both tables exist (circular reference).
+-- ADD COLUMN IF NOT EXISTS keeps the embedded schema re-executable on every boot.
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS plan_doc_id TEXT REFERENCES issue_docs (id) ON DELETE SET NULL;
+
+
+-- OAuth2 federated login (GitHub / self-hosted Gitea).
+-- oauth_providers: one row per remote OAuth app (a Gitea instance = one row).
+CREATE TABLE IF NOT EXISTS oauth_providers (
+    id            TEXT PRIMARY KEY,
+    kind          TEXT NOT NULL DEFAULT 'gitea',
+    scheme        TEXT NOT NULL DEFAULT 'https',
+    host          TEXT NOT NULL,
+    label         TEXT NOT NULL DEFAULT '',
+    client_id     TEXT NOT NULL DEFAULT '',
+    client_secret TEXT NOT NULL DEFAULT '',
+    scopes        TEXT NOT NULL DEFAULT '',
+    auth_url      TEXT NOT NULL DEFAULT '',
+    token_url     TEXT NOT NULL DEFAULT '',
+    api_url       TEXT NOT NULL DEFAULT '',
+    enabled       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (kind, host)
+);
+
+-- user_identities: remote account linked to a local user; holds the tokens that
+-- are projected into the guest git credentials (a manual PAT wins per host).
+CREATE TABLE IF NOT EXISTS user_identities (
+    id               TEXT PRIMARY KEY,
+    user_id          TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    provider_id      TEXT NOT NULL REFERENCES oauth_providers (id) ON DELETE CASCADE,
+    subject          TEXT NOT NULL,
+    login            TEXT NOT NULL DEFAULT '',
+    name             TEXT NOT NULL DEFAULT '',
+    email            TEXT NOT NULL DEFAULT '',
+    access_token     TEXT NOT NULL DEFAULT '',
+    refresh_token    TEXT NOT NULL DEFAULT '',
+    token_expires_at TIMESTAMPTZ,
+    scopes           TEXT NOT NULL DEFAULT '',
+    last_login_at    TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (provider_id, subject),
+    UNIQUE (user_id, provider_id)
+);
+CREATE INDEX IF NOT EXISTS user_identities_user_idx ON user_identities (user_id);
+
+-- oauth_states: single-use authorization state (PKCE verifier + link-flow owner).
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state       TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    verifier    TEXT NOT NULL DEFAULT '',
+    link_user    TEXT NOT NULL DEFAULT '',
+    redirect_uri TEXT NOT NULL DEFAULT '',
+    redirect_to  TEXT NOT NULL DEFAULT '',
+    expires_at  TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);

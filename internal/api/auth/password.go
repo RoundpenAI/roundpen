@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sync"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -33,6 +34,23 @@ func CheckPassword(hash, plain string) bool {
 	}
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
 }
+
+// dummyPasswordHash is a bcrypt hash of a random, never-accepted password.
+// Login compares against it when the real hash is absent (unknown user, or an
+// OAuth-only account) so every path spends one cost-12 comparison and response
+// timing cannot reveal whether an account exists. Built lazily so package init
+// and tests that never log in do not pay the hashing cost.
+var dummyPasswordHash = sync.OnceValue(func() string {
+	plain, err := randomPassword(16)
+	if err != nil {
+		panic(err)
+	}
+	hash, err := HashPassword(plain)
+	if err != nil {
+		panic(err)
+	}
+	return hash
+})
 
 // assignLoginPassword hashes requested (or a generated password) onto user.
 // Empty requested generates a 16-char password. Plaintext is returned once.

@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	acp "github.com/coder/acp-go-sdk"
 	"github.com/chenhg5/cc-connect/core"
+	acp "github.com/coder/acp-go-sdk"
 
 	acpclient "github.com/RoundpenAI/roundpen/internal/acp/client"
 	"github.com/RoundpenAI/roundpen/internal/acp/manager"
@@ -139,8 +139,6 @@ func (a *Agent) StartSession(ctx context.Context, sessionID string) (core.AgentS
 			Role:     a.Role,
 			APIKey:   a.APIKey,
 		},
-		// Permissions surface as chat buttons; never auto-approve.
-		AutoApprove: false,
 	})
 	if err != nil {
 		if existing, ok := a.ACP.Get(sess.ID); ok {
@@ -173,7 +171,7 @@ func (a *Agent) pickVirtualKey(ctx context.Context) string {
 		return ""
 	}
 	for _, k := range keys {
-		if k.Key == llmgw.InternalVirtualKey || !k.Enabled {
+		if k.Key == a.LLMGW.InternalKey() || !k.Enabled {
 			continue
 		}
 		return k.Key

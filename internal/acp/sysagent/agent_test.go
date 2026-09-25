@@ -31,6 +31,7 @@ type captureClient struct {
 	mu          sync.Mutex
 	texts       []string
 	toolUpdates []toolUpdate
+	permCount   int
 }
 
 type toolUpdate struct {
@@ -50,7 +51,16 @@ func (c *captureClient) textsSnapshot() []string {
 	return append([]string(nil), c.texts...)
 }
 
+func (c *captureClient) permissionRequests() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.permCount
+}
+
 func (c *captureClient) RequestPermission(context.Context, acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	c.mu.Lock()
+	c.permCount++
+	c.mu.Unlock()
 	allow := acp.PermissionOptionId("allow")
 	return acp.RequestPermissionResponse{
 		Outcome: acp.RequestPermissionOutcome{

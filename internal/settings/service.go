@@ -84,6 +84,7 @@ func (s *Service) Update(ctx context.Context, next AppSettings) error {
 	prev := s.Current()
 	next.MergeSecrets(prev)
 	next.normalizeCDP()
+	next.normalizeAutoMode()
 	if err := next.Validate(); err != nil {
 		return err
 	}

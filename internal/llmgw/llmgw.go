@@ -3,11 +3,15 @@
 package llmgw
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/secretbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -23,13 +27,23 @@ type Options struct {
 	LogBodyMaxBytes int
 	PublicURL       string
 	Logger          *slog.Logger
+	// InternalKeyFile persists the per-instance internal virtual key (0600).
+	// Empty means an ephemeral random key (dev/test).
+	InternalKeyFile string
+	// SecretBox seals upstream API keys at rest. Nil stores them plaintext
+	// (tests, single-user dev).
+	SecretBox *secretbox.Box
 }
 
 // Gateway serves LLM relay and admin HTTP endpoints backed by PostgreSQL.
 type Gateway struct {
-	store      *Store
-	logger     *slog.Logger
-	httpClient *http.Client
+	store       *Store
+	logger      *slog.Logger
+	httpClient  *http.Client
+	internalKey string
+
+	clientMu     sync.Mutex
+	proxyClients map[string]*http.Client // keyed by proxy URL
 
 	mu           sync.RWMutex
 	enabled      bool
@@ -49,15 +63,40 @@ func New(db *storage.DB, opts Options) *Gateway {
 		logger = slog.Default()
 	}
 	return &Gateway{
-		store:     NewStore(db),
-		enabled:   true,
-		logLimit:  limit,
-		publicURL: opts.PublicURL,
-		logger:    logger,
+		store:        NewStore(db, opts.SecretBox),
+		enabled:      true,
+		logLimit:     limit,
+		publicURL:    opts.PublicURL,
+		logger:       logger,
+		internalKey:  loadOrGenerateInternalKey(opts.InternalKeyFile, logger),
+		proxyClients: map[string]*http.Client{},
 		httpClient: &http.Client{
 			Timeout: 0, // streaming
 		},
 	}
+}
+
+// clientFor returns an HTTP client honoring the upstream's egress proxy,
+// cached per proxy URL. An empty proxy URL means the shared direct client.
+func (g *Gateway) clientFor(proxyURL string) (*http.Client, error) {
+	proxyURL = strings.TrimSpace(proxyURL)
+	if proxyURL == "" {
+		return g.httpClient, nil
+	}
+	g.clientMu.Lock()
+	defer g.clientMu.Unlock()
+	if c, ok := g.proxyClients[proxyURL]; ok {
+		return c, nil
+	}
+	u, err := url.Parse(proxyURL)
+	if err != nil || u.Host == "" {
+		return nil, fmt.Errorf("invalid upstream proxy URL %q", proxyURL)
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = http.ProxyURL(u)
+	c := &http.Client{Transport: tr, Timeout: 0} // streaming
+	g.proxyClients[proxyURL] = c
+	return c, nil
 }
 
 // Store returns the underlying PG store (for tests / seed).
@@ -74,6 +113,7 @@ type SeedConfig struct {
 type UpstreamSeed struct {
 	BaseURL       string
 	APIKey        string
+	ProxyURL      string
 	ModelMap      map[string]string
 	ModelPatterns []ModelPattern
 }
@@ -92,6 +132,7 @@ func (g *Gateway) SeedFromConfig(cfg SeedConfig) error {
 			Provider:      provider,
 			BaseURL:       trimRightSlash(seed.BaseURL),
 			APIKey:        seed.APIKey,
+			ProxyURL:      strings.TrimSpace(seed.ProxyURL),
 			ModelMap:      seed.ModelMap,
 			ModelPatterns: seed.ModelPatterns,
 			Enabled:       true,

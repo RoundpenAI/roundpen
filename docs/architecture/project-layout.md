@@ -1,6 +1,8 @@
 # Roundpen 项目结构
 
-单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 与 Browser 槽位固定 Docker**（官方 `code-agent` OCI 镜像 / `browserless/chrome` 容器），**Desktop / Mobile 槽位预留 QEMU**。`policy` / `toolgw` 仍是空包。
+单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 与 Browser 槽位固定 Docker**（官方 `code-agent` OCI 镜像 / `browserless/chrome` 容器），**Desktop / Mobile 槽位预留 QEMU**。
+
+两个前端工程互不引用、各自独立依赖管理：`web/`（控制台 SPA，npm）与 `mobile/`（移动端控制台，Flutter/Dart，pub）。注意后者与上文的 **Mobile 槽位**（QEMU Agent 环境）无关，只是名字相近，文档里一律写全称「移动端控制台」。
 
 ## 目录树
 
@@ -8,6 +10,7 @@
 roundpen/
 ├── cmd/roundpend/             # 控制面守护进程（嵌入 UI）
 ├── web/                       # 控制台 SPA（Chats / Browser / Images）
+├── mobile/                    # 移动端控制台（Flutter 客户端），非 Mobile 槽位
 ├── images/                    # 镜像配方：code-agent（OCI）；Browser 用上游 browserless/chrome
 ├── internal/
 │   ├── api/
@@ -17,6 +20,8 @@ roundpen/
 │   │   ├── agentapi/          # Agent sessions + browser CDP UI
 │   │   └── auth/
 │   ├── authz/                 # 请求 Actor（属主 / admin）
+│   ├── oauth/                 # GitHub / Gitea 联合登录（provider 配置、授权流程、身份→git 凭据）
+│   ├── gitcred/               # 用户 git 凭据（手填 PAT + OAuth token 合并）与 guest 注入
 │   ├── httpx/                 # 可信代理、ClientIP / Scheme
 │   ├── userenv/               # 用户 → agent/browser 槽位映射
 │   ├── template/              # 槽位镜像（slot=agent|browser|mobile）
@@ -42,6 +47,8 @@ roundpen/
 | `api/platform` | 内部沙箱/模板 HTTP（非对外多开 SDK）；模板写操作需 admin |
 | `api/envapi` | 固定环境 Ensure + Browser 实时视图反代 |
 | `authz` / `httpx` | 属主上下文；可信代理下的 IP / HTTPS 判定 |
+| `oauth` | 联合登录：`oauth_providers` / `user_identities` / `oauth_states` 三表，回调复用 `auth.IssueSession` |
+| `gitcred` | `MergeCreds` 合并 PAT（优先）与 OAuth token，`InstallScript` 写入 guest `$HOME` |
 | `userenv` | PG `user_environments` |
 | `template` | slot 镜像配方与构建产物 |
 | `backend/qemu` | qcow2 生命周期、CDP hostfwd、VNC unix sock（Desktop/Mobile 落点） |

@@ -140,11 +140,21 @@ func TestMergeGuestEnvRewritesAndFills(t *testing.T) {
 	if env["OPENAI_BASE_URL"] != "http://10.0.2.2:19001/llmgw/openai" {
 		t.Fatalf("openai: %s", env["OPENAI_BASE_URL"])
 	}
-	if env["ANTHROPIC_API_KEY"] != defaultVKey || env["ANTHROPIC_AUTH_TOKEN"] != defaultVKey {
-		t.Fatalf("vkey: %+v", env)
+	if _, ok := env["ANTHROPIC_API_KEY"]; ok {
+		t.Fatalf("expected no injected api key, got: %+v", env)
 	}
 	if env["ROUNDPEN_SLOT"] != "agent" {
 		t.Fatalf("slot: %s", env["ROUNDPEN_SLOT"])
+	}
+}
+
+func TestMergeGuestEnvCarriesProvidedKey(t *testing.T) {
+	env := mergeGuestEnv(backend.CreateOpts{Env: map[string]string{
+		"ROUNDPEN_URL":      "http://127.0.0.1:19001",
+		"ANTHROPIC_API_KEY": "vk-user-test",
+	}})
+	if env["OPENAI_API_KEY"] != "vk-user-test" || env["ANTHROPIC_AUTH_TOKEN"] != "vk-user-test" {
+		t.Fatalf("vkey: %+v", env)
 	}
 }
 
@@ -166,7 +176,7 @@ func TestWriteGuestEnv(t *testing.T) {
 	path := filepath.Join(dir, "guest.env")
 	if err := writeGuestEnv(path, map[string]string{
 		"ANTHROPIC_BASE_URL": "http://10.0.2.2:9527/llmgw/anthropic",
-		"ANTHROPIC_API_KEY":  defaultVKey,
+		"ANTHROPIC_API_KEY":  "vk-user-test",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +188,7 @@ func TestWriteGuestEnv(t *testing.T) {
 	if !strings.Contains(body, "ANTHROPIC_BASE_URL=http://10.0.2.2:9527/llmgw/anthropic") {
 		t.Fatalf("body: %s", body)
 	}
-	if !strings.Contains(body, "ANTHROPIC_API_KEY="+defaultVKey) {
+	if !strings.Contains(body, "ANTHROPIC_API_KEY=vk-user-test") {
 		t.Fatalf("key: %s", body)
 	}
 }
@@ -315,7 +325,7 @@ func TestResolveImageAbs(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 	_, err = resolveImage(filepath.Join(dir, "missing.qcow2"))
-	if err == nil || !strings.Contains(err.Error(), "build.sh") {
+	if err == nil || !strings.Contains(err.Error(), "build the qcow2 artifact") {
 		t.Fatalf("missing: %v", err)
 	}
 }

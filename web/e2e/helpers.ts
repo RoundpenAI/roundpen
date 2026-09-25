@@ -15,7 +15,10 @@ export async function loginViaUi(page: Page) {
   await page.goto('/login')
   await page.getByLabel('Username or email').fill(ADMIN.user)
   await page.getByLabel('Password', { exact: true }).fill(ADMIN.password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  // Leaving /login means the session cookie is set; navigating before the
+  // login POST completes aborts it and bounces the next goto back to /login.
+  await page.waitForURL((url) => !url.pathname.startsWith('/login'))
 }
 
 export async function loginViaApi(page: Page) {

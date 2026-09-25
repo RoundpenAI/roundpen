@@ -10,11 +10,13 @@ import (
 type WebToolsConfig struct {
 	SearchEndpoint string // ROUNDPEN_WEB_SEARCH_ENDPOINT；空 = 默认 https://api.tavily.com
 	SearchAPIKey   string // ROUNDPEN_WEB_SEARCH_API_KEY
+	SearchProxyURL string // ROUNDPEN_WEB_SEARCH_PROXY_URL；空 = 直连/env 默认
 }
 
 func loadWebTools() WebToolsConfig {
 	return WebToolsConfig{
 		SearchEndpoint: strings.TrimSpace(os.Getenv("ROUNDPEN_WEB_SEARCH_ENDPOINT")),
 		SearchAPIKey:   strings.TrimSpace(os.Getenv("ROUNDPEN_WEB_SEARCH_API_KEY")),
+		SearchProxyURL: strings.TrimSpace(os.Getenv("ROUNDPEN_WEB_SEARCH_PROXY_URL")),
 	}
 }

@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
   AIChatDialogue,
@@ -13,6 +20,7 @@ import type { MessageContent } from '@douyinfe/semi-ui-19/lib/es/aiChatInput/int
 import {
   agents,
   assistantsApi,
+  type AgentCommand,
   type AgentMessage,
   type AgentSession,
   ApiError,
@@ -23,252 +31,33 @@ import {
   agentMessagesToSemi,
   type SemiChatMessage,
 } from '../lib/semiChatAdapter'
-import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
 import {
-  WS_CONNECT_TIMEOUT_MS,
   wsCanSendProp,
-  wsCloseDetail,
-  wsConnectTimeoutDetail,
   wsInputPlaceholder,
-  wsReconnectDelayMs,
   wsStatusLabel,
   type WsUiStatus,
 } from '../lib/sessionWsUi'
+import { enqueueOutbox, outboxWaitingHint } from '../lib/sessionOutbox'
 import {
-  drainOutbox,
-  enqueueOutbox,
-  outboxWaitingHint,
-} from '../lib/sessionOutbox'
+  buildSendPayload,
+  contentsHaveSendableText,
+} from '../lib/slashCommand'
 import {
-  detachSocket,
-  shouldApplySocketOpen,
-  socketLooksOpen,
-} from '../lib/sessionWsConnect'
-
-type PermReq = {
-  requestId: string
-  title: string
-  options: { optionId: string; name: string; kind?: string }[]
-  ticketId?: string
-}
-
-const ROLE_CONFIG = {
-  user: { name: '' },
-  assistant: { name: '' },
-  system: { name: '' },
-}
-
-const DIALOGUE_RENDER = chatDialogueRenderConfig()
-
-function pickOrdinaryAllow(
-  options: { optionId: string; kind?: string }[],
-): string | null {
-  const once = options.find(
-    (o) =>
-      o.kind === 'allow_once' ||
-      o.optionId === 'allow_once' ||
-      o.optionId === 'allow',
-  )
-  if (once) return once.optionId
-  return options.find((o) => o.optionId === 'allow_tool')?.optionId ?? null
-}
-
-function readAutoMode(): boolean {
-  try {
-    const v = localStorage.getItem('roundpen.chat.auto')
-    return v !== '0'
-  } catch {
-    return true
-  }
-}
-
-function isBrowserTool(title: string): boolean {
-  return title.startsWith('browser_')
-}
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
-
-function isStreamingMessage(m: AgentMessage): boolean {
-  return m.meta?.status === 'in_progress' || m.meta?.status === 'pending'
-}
-
-function clearStreaming(prev: AgentMessage[]): AgentMessage[] {
-  return prev.map((m) =>
-    isStreamingMessage(m)
-      ? { ...m, meta: { ...m.meta, status: 'completed' } }
-      : m,
-  )
-}
-
-function upsertToolMessage(
-  prev: AgentMessage[],
-  sessionId: string,
-  patch: {
-    toolId: string
-    title?: string
-    status?: string
-    kind?: string
-    input?: unknown
-    output?: unknown
-  },
-): AgentMessage[] {
-  const idx = prev.findIndex((m) => m.meta?.toolId === patch.toolId)
-  if (idx >= 0) {
-    const cur = prev[idx]
-    const next = [...prev]
-    next[idx] = {
-      ...cur,
-      content:
-        typeof patch.output === 'string'
-          ? patch.output
-          : patch.output !== undefined
-            ? formatUnknown(patch.output)
-            : cur.content,
-      meta: {
-        ...cur.meta,
-        type: 'tool_call',
-        toolId: patch.toolId,
-        title: patch.title || cur.meta?.title,
-        status: patch.status || cur.meta?.status,
-        kind: patch.kind || cur.meta?.kind,
-        input: patch.input !== undefined ? patch.input : cur.meta?.input,
-        output: patch.output !== undefined ? patch.output : cur.meta?.output,
-      },
-    }
-    return next
-  }
-  return [
-    ...prev,
-    {
-      id: `tool-${patch.toolId}`,
-      sessionId,
-      role: 'tool',
-      content:
-        typeof patch.output === 'string'
-          ? patch.output
-          : patch.output !== undefined
-            ? formatUnknown(patch.output)
-            : '',
-      meta: {
-        type: 'tool_call',
-        toolId: patch.toolId,
-        title: patch.title || patch.toolId,
-        status: patch.status || 'pending',
-        kind: patch.kind,
-        input: patch.input,
-        output: patch.output,
-      },
-      createdAt: nowIso(),
-    },
-  ]
-}
-
-function formatUnknown(value: unknown): string {
-  if (value == null) return ''
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch {
-    return String(value)
-  }
-}
-
-function appendThoughtMessage(
-  prev: AgentMessage[],
-  sessionId: string,
-  text: string,
-): AgentMessage[] {
-  for (let i = prev.length - 1; i >= 0; i--) {
-    const m = prev[i]
-    const typ = m.meta?.type || m.role
-    if (
-      m.role === 'user' ||
-      typ === 'agent_message' ||
-      (m.role === 'assistant' && typ !== 'thought' && typ !== 'reasoning')
-    ) {
-      break
-    }
-    if (typ === 'thought' || m.role === 'thought') {
-      const next = [...prev]
-      next[i] = {
-        ...m,
-        content: m.content + text,
-        meta: { ...m.meta, type: 'thought', status: 'in_progress' },
-      }
-      return next
-    }
-  }
-  return [
-    ...prev,
-    {
-      id: `thought-${Date.now()}`,
-      sessionId,
-      role: 'assistant',
-      content: text,
-      meta: { type: 'thought', status: 'in_progress' },
-      createdAt: nowIso(),
-    },
-  ]
-}
-
-function shouldShowInDialogue(m: AgentMessage): boolean {
-  const typ = m.meta?.type || m.role
-  if (typ === 'permission' || m.role === 'permission') {
-    const outcome = m.meta?.outcome
-    if (outcome === 'requested' || outcome === 'auto') return false
-  }
-  return true
-}
-
-function messageContentToPlainText(payload: MessageContent): string {
-  const parts = payload.inputContents ?? []
-  return parts
-    .map((c) => (typeof c.text === 'string' ? c.text : ''))
-    .join('')
-    .trim()
-}
-
-function contentsHaveSendableText(
-  contents: Array<{ [key: string]: unknown }> | undefined,
-): boolean {
-  if (!contents?.length) return false
-  return contents.some(
-    (c) => typeof c.text === 'string' && c.text.trim().length > 0,
-  )
-}
-
-const sentPending = new Set<string>()
-
-function pendingKey(sessionId: string) {
-  return `roundpen.pendingPrompt.${sessionId}`
-}
-
-function stashPendingPrompt(sessionId: string, text: string) {
-  if (!sessionId || !text) return
-  try {
-    sessionStorage.setItem(pendingKey(sessionId), text)
-  } catch {
-    /* ignore */
-  }
-}
-
-function readPendingPrompt(sessionId: string): string {
-  try {
-    return sessionStorage.getItem(pendingKey(sessionId)) ?? ''
-  } catch {
-    return ''
-  }
-}
-
-function clearPendingPrompt(sessionId: string) {
-  try {
-    sessionStorage.removeItem(pendingKey(sessionId))
-  } catch {
-    /* ignore */
-  }
-}
+  clearPendingPrompt,
+  clearStreaming,
+  DIALOGUE_RENDER,
+  isStreamingMessage,
+  nowIso,
+  readAutoMode,
+  readPendingPrompt,
+  ROLE_CONFIG,
+  sentPending,
+  shouldShowInDialogue,
+  stashPendingPrompt,
+  toSkillItem,
+  type PermReq,
+} from './chat/sessionChatHelpers'
+import { connectChatSocket } from './chat/sessionSocket'
 
 export function ChatSessionPage() {
   const { id = '', assistantId: assistantIdParam } = useParams<{
@@ -297,6 +86,7 @@ export function ChatSessionPage() {
   const [autoMode, setAutoMode] = useState(readAutoMode)
   const [composerFocused, setComposerFocused] = useState(false)
   const [composerHasText, setComposerHasText] = useState(false)
+  const [commands, setCommands] = useState<AgentCommand[]>([])
   const busyRef = useRef(false)
   useEffect(() => {
     busyRef.current = busy
@@ -308,6 +98,22 @@ export function ChatSessionPage() {
     () => agentMessagesToSemi(messages.filter(shouldShowInDialogue)),
     [messages],
   )
+
+  const skillItems = useMemo(() => commands.map(toSkillItem), [commands])
+
+  // Catalog drives the "/" menu; a failure just means the composer behaves as
+  // a plain prompt box.
+  const refreshCommands = useCallback(() => {
+    if (!id) return
+    agents
+      .commands(id)
+      .then((res) => setCommands(res.commands ?? []))
+      .catch(() => undefined)
+  }, [id])
+
+  useEffect(() => {
+    refreshCommands()
+  }, [refreshCommands])
 
   useEffect(() => {
     const incoming =
@@ -347,456 +153,25 @@ export function ChatSessionPage() {
     outboxRef.current = []
   }, [id])
 
-  useEffect(() => {
-    if (!id) return
-    let disposed = false
-    let attempt = 0
-    let retryTimer: number | null = null
-    let openTimer: number | null = null
-    let pollTimer: number | null = null
-    let announcedOpen = false
-    let ws: WebSocket | null = null
-    // Reset before connect so Strict Mode remount cannot leave chrome on
-    // 「已连接」while the live socket is still connecting / null.
-    setWsStatus('connecting')
-    setWsDetail(null)
-
-    const clearOpenTimer = () => {
-      if (openTimer != null) {
-        window.clearTimeout(openTimer)
-        openTimer = null
-      }
-    }
-
-    const clearPollTimer = () => {
-      if (pollTimer != null) {
-        window.clearInterval(pollTimer)
-        pollTimer = null
-      }
-    }
-
-    /** @returns true only on the connecting → open transition */
-    const markOpen = (socket: WebSocket) => {
-      if (!shouldApplySocketOpen(disposed, wsRef.current, socket)) return false
-      if (!socketLooksOpen(socket)) return false
-      clearOpenTimer()
-      clearPollTimer()
-      attempt = 0
-      setError(null)
-      setWsDetail(null)
-      setWsStatus('open')
-      if (announcedOpen) return false
-      announcedOpen = true
-      return true
-    }
-
-    const scheduleReconnect = (detail: string) => {
-      setWsStatus('error')
-      setWsDetail(detail)
-      // Do NOT clear busy here: an in-flight turn on the server keeps running
-      // while this tab reconnects; the status snapshot will reconcile it.
-      if (!busyRef.current) {
-        setStatusHint(outboxWaitingHint(outboxRef.current.length))
-      }
-      const delay = wsReconnectDelayMs(attempt)
-      attempt += 1
-      if (retryTimer != null) {
-        window.clearTimeout(retryTimer)
-      }
-      retryTimer = window.setTimeout(connect, delay)
-    }
-
-    const flushOutbox = (socket: WebSocket) => {
-      const { remaining, items } = drainOutbox(outboxRef.current)
-      outboxRef.current = remaining
-      for (const text of items) {
-        setBusy(true)
-        setStatusHint('Working…')
-        setError(null)
-        socket.send(JSON.stringify({ type: 'prompt', text }))
-      }
-    }
-
-    const refetchMessages = () => {
-      agents
-        .messages(id)
-        .then((res) => {
-          if (disposed || !wsRef.current) return
-          setMessages(res.messages ?? [])
-        })
-        .catch(() => undefined)
-    }
-
-    // Re-seed the live assistant bubble from the server's authoritative
-    // snapshot after a reconnect, so a partial reply is never doubled.
-    const restoreStreamingReply = (reply: string) => {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1]
-        const lastTyp = last?.meta?.type
-        const isLiveAssistant =
-          last &&
-          last.role === 'assistant' &&
-          !last.meta?.toolId &&
-          isStreamingMessage(last) &&
-          (lastTyp === 'agent_message' || !lastTyp)
-        if (isLiveAssistant) {
-          return [
-            ...prev.slice(0, -1),
-            {
-              ...last,
-              content: reply,
-              meta: {
-                ...last.meta,
-                type: 'agent_message',
-                status: 'in_progress',
-              },
-            },
-          ]
-        }
-        return [
-          ...prev,
-          {
-            id: `stream-${Date.now()}`,
-            sessionId: id,
-            role: 'assistant',
-            content: reply,
-            meta: { type: 'agent_message', status: 'in_progress' },
-            createdAt: nowIso(),
-          },
-        ]
-      })
-    }
-
-    const bind = (socket: WebSocket) => {
-      socket.onmessage = (ev) => {
-        // Any server frame means the upgrade completed — sync UI even if
-        // onopen was missed (seen with Vite proxy + slow ACP Start).
-        if (markOpen(socket)) {
-          try {
-            socket.send(
-              JSON.stringify({ type: 'auto', enabled: readAutoMode() }),
-            )
-          } catch {
-            /* ignore */
-          }
-        }
-        try {
-          const msg = JSON.parse(String(ev.data)) as {
-            type: string
-            event?: {
-              type?: string
-              text?: string
-              title?: string
-              status?: string
-              kind?: string
-              toolId?: string
-              input?: unknown
-              output?: unknown
-            }
-            message?: string
-            stopReason?: string
-            requestId?: string
-            title?: string
-            options?: { optionId: string; name: string; kind?: string }[]
-            busy?: boolean
-            reply?: string
-            thought?: string
-            perm?: {
-              requestId?: string
-              title?: string
-              options?: { optionId: string; name: string; kind?: string }[]
-              ticketId?: string
-            }
-          }
-          if (msg.type === 'hello') {
-            return
-          }
-          // Server snapshot of the runner: reconcile busy/reply/thought/perm
-          // so a reconnect into an in-flight turn is seamless.
-          if (msg.type === 'status') {
-            if (msg.busy) {
-              setBusy(true)
-              setError(null)
-              setStatusHint(msg.thought || '工作中')
-              if (msg.reply) {
-                restoreStreamingReply(msg.reply)
-              }
-              if (msg.perm) {
-                setPerm({
-                  requestId: msg.perm.requestId ?? '',
-                  title: msg.perm.title ?? 'Permission',
-                  options: msg.perm.options ?? [],
-                  ticketId: msg.perm.ticketId,
-                })
-              } else {
-                setPerm(null)
-              }
-            } else {
-              setBusy(false)
-              setStatusHint(null)
-              setPerm(null)
-              setMessages((prev) => clearStreaming(prev))
-              refetchMessages()
-              flushOutbox(socket)
-            }
-            return
-          }
-          if (msg.type === 'event' && msg.event) {
-            const e = msg.event
-            if (e.type === 'agent_message' && e.text) {
-              setStatusHint(null)
-              setMessages((prev) => {
-                const last = prev[prev.length - 1]
-                const lastTyp = last?.meta?.type
-                if (
-                  last &&
-                  last.role === 'assistant' &&
-                  (lastTyp === 'agent_message' || !lastTyp) &&
-                  isStreamingMessage(last) &&
-                  !last.meta?.toolId
-                ) {
-                  return [
-                    ...prev.slice(0, -1),
-                    { ...last, content: last.content + e.text },
-                  ]
-                }
-                return [
-                  ...prev,
-                  {
-                    id: `stream-${Date.now()}`,
-                    sessionId: id,
-                    role: 'assistant',
-                    content: e.text ?? '',
-                    meta: { type: 'agent_message', status: 'in_progress' },
-                    createdAt: nowIso(),
-                  },
-                ]
-              })
-              return
-            }
-            if (e.type === 'agent_thought' && e.text) {
-              setStatusHint(e.text)
-              setMessages((prev) => appendThoughtMessage(prev, id, e.text ?? ''))
-              return
-            }
-            if (e.type === 'permission') {
-              if ((e.status || 'auto') === 'auto') return
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `perm-${Date.now()}`,
-                  sessionId: id,
-                  role: 'permission',
-                  content:
-                    [e.title, e.text].filter(Boolean).join(' · ') ||
-                    'permission',
-                  meta: {
-                    type: 'permission',
-                    title: e.title,
-                    optionId: e.text,
-                    outcome: e.status || 'auto',
-                  },
-                  createdAt: nowIso(),
-                },
-              ])
-              return
-            }
-            if (e.type === 'tool_call' || e.type === 'tool_call_update') {
-              const toolId = (e.toolId ?? '').trim() || `anon-${Date.now()}`
-              const title = (e.title ?? '').trim()
-              const status = (e.status ?? '').trim()
-              if (isBrowserTool(title)) {
-                setBrowserSeen(true)
-              }
-              setStatusHint('工作中')
-              setMessages((prev) =>
-                upsertToolMessage(prev, id, {
-                  toolId,
-                  title: title || undefined,
-                  status: status || undefined,
-                  kind: e.kind,
-                  input: e.input,
-                  output: e.output,
-                }),
-              )
-              return
-            }
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `${Date.now()}-${prev.length}`,
-                sessionId: id,
-                role: 'system',
-                content: e.text ?? e.type ?? '',
-                meta: { type: 'event' },
-                createdAt: nowIso(),
-              },
-            ])
-          } else if (msg.type === 'permission_request') {
-            const options = msg.options ?? []
-            const autoOpt = readAutoMode() ? pickOrdinaryAllow(options) : null
-            if (autoOpt && wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(
-                JSON.stringify({
-                  type: 'permission',
-                  requestId: msg.requestId ?? '',
-                  optionId: autoOpt,
-                }),
-              )
-              return
-            }
-            setStatusHint('等待你处理协助单…')
-            setPerm({
-              requestId: msg.requestId ?? '',
-              title: msg.title ?? 'Permission',
-              options,
-              ticketId: (msg as { ticketId?: string }).ticketId,
-            })
-          } else if (msg.type === 'permission_resolved') {
-            setPerm((cur) =>
-              cur && cur.requestId === msg.requestId ? null : cur,
-            )
-            return
-          } else if (msg.type === 'done') {
-            setBusy(false)
-            setStatusHint(null)
-            setPerm(null)
-            setMessages((prev) => clearStreaming(prev))
-            refetchMessages()
-            flushOutbox(socket)
-          } else if (msg.type === 'error') {
-            setBusy(false)
-            setStatusHint(null)
-            setMessages((prev) => clearStreaming(prev))
-            const msgText = msg.message ?? 'error'
-            setError(msgText)
-            setWsStatus('error')
-            setWsDetail(msgText)
-            refetchMessages()
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-      socket.onerror = () => {
-        if (!disposed && wsRef.current === socket) {
-          setWsDetail('WebSocket 错误')
-        }
-      }
-      socket.onclose = (ev) => {
-        clearOpenTimer()
-        if (disposed) return
-        if (wsRef.current !== socket) return
-        wsRef.current = null
-        scheduleReconnect(wsCloseDetail(ev.code, ev.reason || ''))
-      }
-    }
-
-    const connect = () => {
-      if (disposed) return
-      if (retryTimer != null) {
-        window.clearTimeout(retryTimer)
-        retryTimer = null
-      }
-      clearOpenTimer()
-      clearPollTimer()
-      announcedOpen = false
-      setWsStatus('connecting')
-      if (attempt === 0) setWsDetail(null)
-
-      const prev = ws
-      ws = null
-      if (wsRef.current === prev) {
-        wsRef.current = null
-      }
-      detachSocket(prev)
-
-      const socket = new WebSocket(agents.sessionWsUrl(id))
-      ws = socket
-      wsRef.current = socket
-
-      const onBecameOpen = () => {
-        if (!markOpen(socket)) return
-        try {
-          socket.send(
-            JSON.stringify({ type: 'auto', enabled: readAutoMode() }),
-          )
-        } catch {
-          /* ignore */
-        }
-      }
-
-      socket.onopen = onBecameOpen
-      bind(socket)
-
-      if (socketLooksOpen(socket)) {
-        onBecameOpen()
-      }
-      pollTimer = window.setInterval(() => {
-        if (disposed || wsRef.current !== socket) {
-          clearPollTimer()
-          return
-        }
-        if (socketLooksOpen(socket)) {
-          onBecameOpen()
-        }
-      }, 100)
-
-      openTimer = window.setTimeout(() => {
-        openTimer = null
-        clearPollTimer()
-        if (disposed || wsRef.current !== socket) return
-        // Heal: socket is live but UI missed onopen.
-        if (socketLooksOpen(socket)) {
-          onBecameOpen()
-          return
-        }
-        detachSocket(socket)
-        if (wsRef.current === socket) {
-          wsRef.current = null
-        }
-        if (ws === socket) {
-          ws = null
-        }
-        scheduleReconnect(wsConnectTimeoutDetail())
-      }, WS_CONNECT_TIMEOUT_MS)
-    }
-
-    const reconnectNowIfNeeded = () => {
-      if (disposed) return
-      if (document.visibilityState === 'hidden') return
-      const cur = wsRef.current ?? ws
-      if (
-        cur &&
-        (cur.readyState === WebSocket.OPEN ||
-          cur.readyState === WebSocket.CONNECTING)
-      ) {
-        return
-      }
-      attempt = 0
-      connect()
-    }
-
-    document.addEventListener('visibilitychange', reconnectNowIfNeeded)
-
-    connect()
-    return () => {
-      disposed = true
-      document.removeEventListener('visibilitychange', reconnectNowIfNeeded)
-      clearOpenTimer()
-      clearPollTimer()
-      if (retryTimer != null) {
-        window.clearTimeout(retryTimer)
-        retryTimer = null
-      }
-      const s = ws
-      ws = null
-      if (wsRef.current === s) {
-        wsRef.current = null
-      }
-      detachSocket(s)
-    }
-  }, [id])
+  useEffect(
+    () =>
+      connectChatSocket({
+        id,
+        wsRef,
+        outboxRef,
+        busyRef,
+        setBusy,
+        setError,
+        setMessages,
+        setPerm,
+        setStatusHint,
+        setWsStatus,
+        setWsDetail,
+        setBrowserSeen,
+        refreshCommands,
+      }),
+    [id, refreshCommands],
+  )
 
   useEffect(() => {
     initialScrollDone.current = false
@@ -879,19 +254,38 @@ export function ChatSessionPage() {
     ws.send(JSON.stringify({ type: 'prompt', text }))
   }
 
+  const sendCommand = (ws: WebSocket, name: string, args: string) => {
+    setBusy(true)
+    setStatusHint('Working…')
+    setError(null)
+    appendLocalUser(`/${name}${args ? ` ${args}` : ''}`)
+    ws.send(JSON.stringify({ type: 'command', name, args }))
+  }
+
   const handleMessageSend = (payload: MessageContent) => {
-    const text = messageContentToPlainText(payload)
-    if (!text) return
+    const out = buildSendPayload(payload.inputContents, commands)
+    if (!out) return
     setComposerHasText(false)
     setComposerFocused(false)
     const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      sendPrompt(ws, text)
+    const open = ws && ws.readyState === WebSocket.OPEN
+    if (out.kind === 'command') {
+      // Commands are never queued offline: the runner cancels the current turn
+      // and resets the runtime, which only makes sense against a live session.
+      if (open) {
+        sendCommand(ws, out.name, out.args)
+      } else {
+        setError('连接断开，命令未发送：请等待重连后再试')
+      }
+      return
+    }
+    if (open) {
+      sendPrompt(ws, out.text)
       return
     }
     // WeChat-style: show the bubble immediately; deliver when WS is ready.
-    appendLocalUser(text)
-    outboxRef.current = enqueueOutbox(outboxRef.current, text)
+    appendLocalUser(out.text)
+    outboxRef.current = enqueueOutbox(outboxRef.current, out.text)
     setStatusHint(outboxWaitingHint(outboxRef.current.length))
     setError(null)
   }
@@ -1006,7 +400,7 @@ export function ChatSessionPage() {
           style={{ marginLeft: 'auto' }}
           title={
             autoMode
-              ? '自动批准常见工具权限'
+              ? '自动模式：分类器放行安全操作，拦截危险操作'
               : '工具权限需你确认（协助单）'
           }
           onClick={toggleAuto}
@@ -1080,17 +474,6 @@ export function ChatSessionPage() {
                   <Spin size="small" />
                   <Typography.Text ellipsis style={{ minWidth: 0 }}>
                     {statusHint ?? '工作中'}
-                    {session?.assistantId && (
-                      <>
-                        {' · '}
-                        <Link
-                          to={`/a/${session.assistantId}`}
-                          style={{ color: 'var(--semi-color-link)' }}
-                        >
-                          查看此刻
-                        </Link>
-                      </>
-                    )}
                   </Typography.Text>
                 </div>
               )}
@@ -1122,6 +505,23 @@ export function ChatSessionPage() {
                   const sendBtn = menuItem[menuItem.length - 1]
                   return <div className={className}>{sendBtn}</div>
                 }}
+                skills={skillItems}
+                skillHotKey="/"
+                renderSkillItem={({ skill, className, onClick, onMouseEnter }) => (
+                  <div
+                    className={className}
+                    onClick={onClick}
+                    onMouseEnter={onMouseEnter}
+                    role="button"
+                    tabIndex={-1}
+                  >
+                    <span className="chat-skill-name">/{skill.label ?? skill.value}</span>
+                    <span className="chat-skill-desc">{skill.description ?? ''}</span>
+                    {skill.source === 'installed' && (
+                      <span className="chat-skill-tag">已安装</span>
+                    )}
+                  </div>
+                )}
                 onFocus={() => setComposerFocused(true)}
                 onBlur={() => setComposerFocused(false)}
                 onContentChange={(contents) => {

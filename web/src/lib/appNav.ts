@@ -1,6 +1,11 @@
 import type { MessageKey } from '../i18n/translate'
 
-export type PrimaryMenuId = 'assistants' | 'workspace' | 'settings' | 'registry'
+export type PrimaryMenuId =
+  | 'assistants'
+  | 'issues'
+  | 'workspace'
+  | 'settings'
+  | 'registry'
 
 export type PrimaryMenu = {
   id: PrimaryMenuId
@@ -11,6 +16,7 @@ export type PrimaryMenu = {
 
 export const PRIMARY_MENUS: PrimaryMenu[] = [
   { id: 'assistants', to: '/a', labelKey: 'nav.assistants' },
+  { id: 'issues', to: '/issues', labelKey: 'nav.issues' },
   { id: 'workspace', to: '/workspace', labelKey: 'nav.workspace' },
   { id: 'settings', to: '/settings', labelKey: 'nav.settings' },
   { id: 'registry', to: '/registry', labelKey: 'nav.registry', admin: true },
@@ -18,13 +24,17 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
 
 export type SettingsSectionKey =
   | 'git'
+  | 'accounts'
   | 'agent'
   | 'general'
+  | 'oauth'
   | 'preview'
   | 'builds'
   | 'browser'
   | 'llmgw'
   | 'webtools'
+  | 'automode'
+  | 'proxy'
   | 'system'
 
 export type SettingsSection = {
@@ -35,13 +45,17 @@ export type SettingsSection = {
 
 export const SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'git', labelKey: 'settings.section.git' },
+  { key: 'accounts', labelKey: 'settings.section.accounts' },
   { key: 'agent', labelKey: 'settings.section.agent' },
   { key: 'general', labelKey: 'settings.section.general', admin: true },
+  { key: 'oauth', labelKey: 'settings.section.oauth', admin: true },
   { key: 'preview', labelKey: 'settings.section.preview', admin: true },
   { key: 'builds', labelKey: 'settings.section.builds', admin: true },
   { key: 'browser', labelKey: 'settings.section.browser', admin: true },
   { key: 'llmgw', labelKey: 'settings.section.llmgw', admin: true },
   { key: 'webtools', labelKey: 'settings.section.webtools', admin: true },
+  { key: 'automode', labelKey: 'settings.section.automode', admin: true },
+  { key: 'proxy', labelKey: 'settings.section.proxy', admin: true },
   { key: 'system', labelKey: 'settings.section.system', admin: true },
 ]
 
@@ -83,6 +97,7 @@ export function writePrimaryCollapsed(collapsed: boolean): void {
 
 /** Which primary menu matches the current pathname. */
 export function matchPrimaryMenu(pathname: string): PrimaryMenuId {
+  if (pathname.startsWith('/issues')) return 'issues'
   if (pathname.startsWith('/workspace')) return 'workspace'
   if (pathname.startsWith('/settings')) return 'settings'
   if (pathname.startsWith('/registry')) return 'registry'

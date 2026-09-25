@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/mail"
 	"regexp"
@@ -51,16 +52,16 @@ type registerRequest struct {
 
 func (h *SessionHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if !h.allowRegistration() {
-		writeErr(w, http.StatusForbidden, "public registration is disabled")
+		httpx.WriteErr(w, http.StatusForbidden, "public registration is disabled")
 		return
 	}
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if len(req.Password) < minPasswordLen {
-		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
+		httpx.WriteErr(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
 
@@ -69,14 +70,14 @@ func (h *SessionHandler) Register(w http.ResponseWriter, r *http.Request) {
 		var err error
 		email, err = normalizeEmail(req.Email)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "invalid email")
+			httpx.WriteErr(w, http.StatusBadRequest, "invalid email")
 			return
 		}
 		if _, err := h.users.GetByEmail(r.Context(), email); err == nil {
-			writeErr(w, http.StatusConflict, "email already registered")
+			httpx.WriteErr(w, http.StatusConflict, "email already registered")
 			return
 		} else if err != storage.ErrNotFound {
-			writeErr(w, http.StatusInternalServerError, "internal server error")
+			httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 			return
 		}
 	}
@@ -86,23 +87,23 @@ func (h *SessionHandler) Register(w http.ResponseWriter, r *http.Request) {
 		username = usernameFromEmail(email)
 	}
 	if !validUsername.MatchString(username) {
-		writeErr(w, http.StatusBadRequest, "invalid username")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid username")
 		return
 	}
 	username, err := uniqueUsername(r.Context(), h.users, username)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 
 	hash, err := HashPassword(req.Password)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	id, err := NewID()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	user := storage.User{
@@ -115,16 +116,16 @@ func (h *SessionHandler) Register(w http.ResponseWriter, r *http.Request) {
 		AuthProvider: "local",
 	}
 	if err := h.users.Upsert(r.Context(), user); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	if err := h.issueSession(w, r, &user); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+	if _, err := h.issueSession(w, r, &user); err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	masked := user
 	masked.APIKey = maskAPIKey(masked.APIKey)
-	writeJSON(w, http.StatusCreated, masked)
+	httpx.WriteJSON(w, http.StatusCreated, masked)
 }
 
 type loginRequest struct {
@@ -132,47 +133,69 @@ type loginRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// ReturnSessionToken echoes the freshly issued session token in the body.
+	// Native clients have no cookie jar and present it as a Bearer credential.
+	ReturnSessionToken bool `json:"returnSessionToken"`
 }
 
 func (h *SessionHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
-	if h.limiter.blocked(ip) {
-		writeErr(w, http.StatusTooManyRequests, "too many login attempts")
+	ipKey := loginLimitKeyIP(ip)
+	if h.limiter.blocked(ipKey) {
+		httpx.WriteErr(w, http.StatusTooManyRequests, "too many login attempts")
 		return
 	}
 	var req loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	ident := strings.TrimSpace(firstNonEmpty(req.User, req.Username, req.Email))
 	if ident == "" || req.Password == "" {
-		writeErr(w, http.StatusBadRequest, "user and password are required")
+		httpx.WriteErr(w, http.StatusBadRequest, "user and password are required")
+		return
+	}
+	userKey := loginLimitKeyUser(ident)
+	if h.limiter.blocked(userKey) {
+		httpx.WriteErr(w, http.StatusTooManyRequests, "too many login attempts")
 		return
 	}
 	user, err := lookupLoginUser(r.Context(), h.users, ident)
 	if err != nil {
-		h.limiter.fail(ip)
-		writeErr(w, http.StatusUnauthorized, "invalid user or password")
+		// Spend a bcrypt comparison so a missing user is indistinguishable
+		// from a wrong password by response time.
+		CheckPassword(dummyPasswordHash(), req.Password)
+		h.limiter.fail(ipKey, userKey)
+		httpx.WriteErr(w, http.StatusUnauthorized, "invalid user or password")
 		return
 	}
-	if user.PasswordHash == "" {
-		writeErr(w, http.StatusUnauthorized, "password not set; ask an admin to reset")
+	hash := user.PasswordHash
+	if hash == "" {
+		// OAuth-only account with no local password: compare against the dummy
+		// hash so timing and the response match a wrong-password attempt rather
+		// than revealing that the account exists.
+		hash = dummyPasswordHash()
+	}
+	if !CheckPassword(hash, req.Password) {
+		h.limiter.fail(ipKey, userKey)
+		httpx.WriteErr(w, http.StatusUnauthorized, "invalid user or password")
 		return
 	}
-	if !CheckPassword(user.PasswordHash, req.Password) {
-		h.limiter.fail(ip)
-		writeErr(w, http.StatusUnauthorized, "invalid user or password")
-		return
-	}
-	h.limiter.clear(ip)
-	if err := h.issueSession(w, r, user); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+	h.limiter.clear(ipKey, userKey)
+	token, err := h.issueSession(w, r, user)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	masked := *user
 	masked.APIKey = maskAPIKey(masked.APIKey)
-	writeJSON(w, http.StatusOK, map[string]any{"user": masked})
+	body := map[string]any{"user": masked}
+	if req.ReturnSessionToken && token != "" {
+		body["sessionToken"] = token
+		slog.Info("auth.login", slog.String("user", user.Username), slog.String("ip", ip),
+			slog.Bool("return_session_token", true))
+	}
+	httpx.WriteJSON(w, http.StatusOK, body)
 }
 
 func lookupLoginUser(ctx context.Context, users storage.UserStore, ident string) (*storage.User, error) {
@@ -202,9 +225,14 @@ func lookupLoginUser(ctx context.Context, users storage.UserStore, ident string)
 }
 
 func (h *SessionHandler) Logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" && h.sessions != nil {
-		if sess, err := h.sessions.GetByTokenHash(r.Context(), HashSessionToken(c.Value)); err == nil {
-			_ = h.sessions.Delete(r.Context(), sess.ID)
+	if h.sessions != nil {
+		// Bearer-authenticated (native) requests carry no cookie.
+		if sid := GetSessionID(r.Context()); sid != "" {
+			_ = h.sessions.Delete(r.Context(), sid)
+		} else if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" {
+			if sess, err := h.sessions.GetByTokenHash(r.Context(), HashSessionToken(c.Value)); err == nil {
+				_ = h.sessions.Delete(r.Context(), sess.ID)
+			}
 		}
 	}
 	clearSessionCookie(w, r)
@@ -219,42 +247,42 @@ type changePasswordRequest struct {
 func (h *SessionHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var req changePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	if len(req.NewPassword) < minPasswordLen {
-		writeErr(w, http.StatusBadRequest, "password must be at least 8 characters")
+		httpx.WriteErr(w, http.StatusBadRequest, "password must be at least 8 characters")
 		return
 	}
 	fresh, err := h.users.GetByUsername(r.Context(), user.Username)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if fresh.PasswordHash != "" && !CheckPassword(fresh.PasswordHash, req.CurrentPassword) {
-		writeErr(w, http.StatusUnauthorized, "current password is incorrect")
+		httpx.WriteErr(w, http.StatusUnauthorized, "current password is incorrect")
 		return
 	}
 	hash, err := HashPassword(req.NewPassword)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	fresh.PasswordHash = hash
 	if err := h.users.Upsert(r.Context(), *fresh); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	if h.sessions != nil {
 		_ = h.sessions.DeleteByUser(r.Context(), fresh.Username)
 	}
-	if err := h.issueSession(w, r, fresh); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+	if _, err := h.issueSession(w, r, fresh); err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -263,58 +291,34 @@ func (h *SessionHandler) ChangePassword(w http.ResponseWriter, r *http.Request) 
 func (h *SessionHandler) RotateAPIKey(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	fresh, err := h.users.GetByUsername(r.Context(), user.Username)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	id, err := NewID()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
 	fresh.APIKey = APIKeyPrefix + id
 	if err := h.users.Upsert(r.Context(), *fresh); err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal server error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
 		"username": fresh.Username,
 		"apiKey":   fresh.APIKey,
 	})
 }
 
-func (h *SessionHandler) issueSession(w http.ResponseWriter, r *http.Request, user *storage.User) error {
-	if h.sessions == nil {
-		return nil
-	}
-	plain, hash, err := NewSessionToken()
-	if err != nil {
-		return err
-	}
-	id, err := NewID()
-	if err != nil {
-		return err
-	}
-	now := time.Now()
-	sess := storage.Session{
-		ID:         id,
-		UserID:     user.Username,
-		TokenHash:  hash,
-		ExpiresAt:  now.Add(SessionTTL),
-		CreatedAt:  now,
-		LastSeenAt: now,
-		UserAgent:  r.UserAgent(),
-		IP:         clientIP(r),
-	}
-	if err := h.sessions.Create(r.Context(), sess); err != nil {
-		return err
-	}
-	setSessionCookie(w, r, plain, int(SessionTTL.Seconds()))
-	return nil
+// issueSession creates a session for the handler's store and returns the
+// plaintext token so callers that need it (native login) can hand it over.
+func (h *SessionHandler) issueSession(w http.ResponseWriter, r *http.Request, user *storage.User) (string, error) {
+	return IssueSession(w, r, h.sessions, user)
 }
 
 func normalizeEmail(raw string) (string, error) {
@@ -345,15 +349,26 @@ func usernameFromEmail(email string) string {
 	if i := strings.Index(email, "@"); i > 0 {
 		local = email[:i]
 	}
-	s := nonUsername.ReplaceAllString(local, "_")
+	return SanitizeUsername(local)
+}
+
+// SanitizeUsername maps an arbitrary string (a remote login, an email local
+// part) onto the charset local usernames allow.
+func SanitizeUsername(raw string) string {
+	s := nonUsername.ReplaceAllString(strings.TrimSpace(raw), "_")
 	s = strings.Trim(s, "._-")
+	if len(s) > 64 {
+		s = strings.Trim(s[:64], "._-")
+	}
 	if s == "" || !validUsername.MatchString(s) {
 		s = "user"
 	}
-	if len(s) > 64 {
-		s = s[:64]
-	}
 	return s
+}
+
+// UniqueUsername returns base, or base-2, base-3, … when already taken.
+func UniqueUsername(ctx context.Context, users storage.UserStore, base string) (string, error) {
+	return uniqueUsername(ctx, users, base)
 }
 
 func uniqueUsername(ctx context.Context, users storage.UserStore, base string) (string, error) {
@@ -400,29 +415,51 @@ func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{fails: make(map[string][]time.Time)}
 }
 
-func (l *loginLimiter) blocked(ip string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.pruneLocked(ip)
-	return len(l.fails[ip]) >= loginFailLimit
+// loginLimitKeyIP namespaces the per-source-IP bucket.
+func loginLimitKeyIP(ip string) string { return "ip:" + ip }
+
+// loginLimitKeyUser namespaces the per-account bucket, so an attacker rotating
+// IPs cannot brute-force a single username without tripping this dimension.
+func loginLimitKeyUser(ident string) string {
+	return "user:" + strings.ToLower(strings.TrimSpace(ident))
 }
 
-func (l *loginLimiter) fail(ip string) {
+// blocked reports whether any of the given buckets has hit the limit.
+func (l *loginLimiter) blocked(keys ...string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.pruneLocked(ip)
-	l.fails[ip] = append(l.fails[ip], time.Now())
+	for _, k := range keys {
+		l.pruneLocked(k)
+		if len(l.fails[k]) >= loginFailLimit {
+			return true
+		}
+	}
+	return false
 }
 
-func (l *loginLimiter) clear(ip string) {
+// fail records an attempt against every bucket at once.
+func (l *loginLimiter) fail(keys ...string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	delete(l.fails, ip)
+	now := time.Now()
+	for _, k := range keys {
+		l.pruneLocked(k)
+		l.fails[k] = append(l.fails[k], now)
+	}
 }
 
-func (l *loginLimiter) pruneLocked(ip string) {
+// clear drops every bucket (called on a successful login).
+func (l *loginLimiter) clear(keys ...string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, k := range keys {
+		delete(l.fails, k)
+	}
+}
+
+func (l *loginLimiter) pruneLocked(key string) {
 	cutoff := time.Now().Add(-loginFailWindow)
-	times := l.fails[ip]
+	times := l.fails[key]
 	i := 0
 	for _, t := range times {
 		if t.After(cutoff) {
@@ -431,8 +468,8 @@ func (l *loginLimiter) pruneLocked(ip string) {
 		}
 	}
 	if i == 0 {
-		delete(l.fails, ip)
+		delete(l.fails, key)
 		return
 	}
-	l.fails[ip] = times[:i]
+	l.fails[key] = times[:i]
 }

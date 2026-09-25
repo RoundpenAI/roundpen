@@ -8,6 +8,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
@@ -21,12 +22,13 @@ func TestSanitizeUser(t *testing.T) {
 }
 
 func TestGatewayEnv(t *testing.T) {
+	ctx := context.Background()
 	s := &Service{}
-	if s.gatewayEnv() != nil {
+	if s.gatewayEnv(ctx, "alice") != nil {
 		t.Fatal("empty public URL should skip injection")
 	}
 	s.SetGateway("http://127.0.0.1:9527/", "vk-test")
-	env := s.gatewayEnv()
+	env := s.gatewayEnv(ctx, "alice")
 	if env["ANTHROPIC_BASE_URL"] != "http://127.0.0.1:9527/llmgw/anthropic" {
 		t.Fatalf("anthropic: %s", env["ANTHROPIC_BASE_URL"])
 	}
@@ -40,9 +42,77 @@ func TestGatewayEnv(t *testing.T) {
 		t.Fatalf("unexpected model: %q", env["ANTHROPIC_MODEL"])
 	}
 	s.Config.DefaultModel = func() string { return "nvidia/nemotron-3.5-lightning:free" }
-	env = s.gatewayEnv()
+	env = s.gatewayEnv(ctx, "alice")
 	if env["ANTHROPIC_MODEL"] != "nvidia/nemotron-3.5-lightning:free" {
 		t.Fatalf("default model: %q", env["ANTHROPIC_MODEL"])
+	}
+}
+
+func TestGatewayEnvOwnModels(t *testing.T) {
+	ctx := context.Background()
+	s := &Service{}
+	s.SetGateway("http://127.0.0.1:9527/", "vk-test")
+	s.Config.DefaultModel = func() string { return "some-model" }
+	s.ModelSource = func(_ context.Context, userID string) string {
+		if userID == "alice" {
+			return storage.ModelSourceOwn
+		}
+		return ""
+	}
+
+	env := s.gatewayEnv(ctx, "alice")
+	if env["ROUNDPEN_URL"] == "" {
+		t.Fatal("control-plane vars must survive own mode")
+	}
+	for _, k := range []string{
+		"OPENAI_BASE_URL", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_MODEL",
+	} {
+		if env[k] != "" {
+			t.Fatalf("%s must be withheld in own mode: %q", k, env[k])
+		}
+	}
+
+	if env := s.gatewayEnv(ctx, "bob"); env["ANTHROPIC_API_KEY"] != "vk-test" {
+		t.Fatalf("gateway users keep the gateway env: %+v", env)
+	}
+}
+
+func TestBrowserLaunchArgsProxy(t *testing.T) {
+	plain := browserLaunchArgs("", "10.0.0.5")
+	if strings.Contains(plain, "--proxy-server") {
+		t.Fatalf("no proxy configured: %s", plain)
+	}
+
+	withProxy := browserLaunchArgs("http://user:pass@proxy.local:7890", "10.0.0.5")
+	if !strings.Contains(withProxy, `"--proxy-server=http://proxy.local:7890"`) {
+		t.Fatalf("credentialed proxy must be stripped for Chrome: %s", withProxy)
+	}
+	if strings.Contains(withProxy, "user:pass") {
+		t.Fatalf("credentials leaked into launch args: %s", withProxy)
+	}
+	if !strings.Contains(withProxy, "--proxy-bypass-list=localhost;127.0.0.1;10.0.0.5") {
+		t.Fatalf("bypass list: %s", withProxy)
+	}
+}
+
+func TestProxyForSlots(t *testing.T) {
+	ctx := context.Background()
+	s := &Service{}
+	s.Proxy = func(_ context.Context, userID, slot string) string {
+		if userID == "alice" && slot == SlotAgent {
+			return "http://proxy.local:7890"
+		}
+		return ""
+	}
+	if got := s.proxyFor(ctx, "alice", SlotAgent); got != "http://proxy.local:7890" {
+		t.Fatalf("agent proxy: %q", got)
+	}
+	if got := s.proxyFor(ctx, "alice", SlotBrowser); got != "" {
+		t.Fatalf("browser proxy: %q", got)
+	}
+	if got := (&Service{}).proxyFor(ctx, "alice", SlotAgent); got != "" {
+		t.Fatalf("nil hook must be direct: %q", got)
 	}
 }
 
@@ -302,7 +372,7 @@ func TestEnsureAgentRecreatesNonDockerImage(t *testing.T) {
 			ID:     "old-qemu",
 			Name:   "agent-alice",
 			Status: sandbox.StatusRunning,
-			Image:  "images/agent-qemu/out/agent.qcow2",
+			Image:  "images/legacy-agent.qcow2",
 		},
 	}}
 	svc := &Service{Store: &memSlots{}, Sandboxes: boxes}

@@ -8,6 +8,7 @@ import {
   Typography,
 } from '@douyinfe/semi-ui-19'
 import { setupApi, type SetupActionRun, type SetupPlan } from '../api'
+import { useAuth } from '../auth'
 import { Loading } from './Loading'
 
 type Props = {
@@ -99,6 +100,8 @@ function ActionRow({
   onUpdated: (p: SetupPlan) => void
 }) {
   const [busy, setBusy] = useState(false)
+  const authState = useAuth()
+  const isAdmin = authState.status === 'ok' && authState.user.role === 'admin'
 
   const run = async (fn: () => Promise<SetupPlan>) => {
     setBusy(true)
@@ -155,7 +158,8 @@ function ActionRow({
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {action.status === 'pending_confirm' &&
-                action.privilege === 'auto' && (
+                action.privilege === 'auto' &&
+                (isAdmin ? (
                   <Button
                     theme="solid"
                     type="primary"
@@ -167,7 +171,11 @@ function ActionRow({
                   >
                     允许并安装
                   </Button>
-                )}
+                ) : (
+                  <Typography.Text type="tertiary" size="small">
+                    需要管理员确认安装
+                  </Typography.Text>
+                ))}
               {action.status === 'pending_manual' && (
                 <>
                   <Button
@@ -191,7 +199,7 @@ function ActionRow({
                   </Button>
                 </>
               )}
-              {action.status === 'failed' && (
+              {action.status === 'failed' && isAdmin && (
                 <Button
                   size="small"
                   loading={busy}

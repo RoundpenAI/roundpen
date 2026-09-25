@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/template"
 )
@@ -59,7 +60,9 @@ type patchReq struct {
 // Mount registers Roundpen /v1 sandbox and template routes.
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /health", h.health)
-	mux.HandleFunc("POST /v1/sandboxes", h.create)
+	// Admin-only: the body carries a template/image ref plus env vars, and
+	// unknown refs fall back to raw image pull+run (template.fallbackLegacy).
+	mux.HandleFunc("POST /v1/sandboxes", auth.RequireAdmin(h.create))
 	mux.HandleFunc("GET /v1/sandboxes", h.list)
 	mux.HandleFunc("GET /v1/sandboxes/resolve", h.resolve)
 	mux.HandleFunc("GET /v1/sandboxes/{sandboxID}", h.get)
@@ -87,7 +90,7 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req newSandboxReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	ttl := time.Duration(req.Timeout) * time.Second
@@ -101,18 +104,18 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		Metadata:   req.Metadata,
 	})
 	if errors.Is(err, sandbox.ErrConflict) {
-		writeErr(w, http.StatusConflict, err.Error())
+		httpx.WriteErr(w, http.StatusConflict, err.Error())
 		return
 	}
 	if errors.Is(err, sandbox.ErrUnauthorized) {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, toResp(sb))
+	httpx.WriteJSON(w, http.StatusCreated, toResp(sb))
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -120,14 +123,14 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		Category: r.URL.Query().Get("category"),
 	})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	out := make([]sandboxResp, 0, len(list))
 	for _, sb := range list {
 		out = append(out, toResp(sb))
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) resolve(w http.ResponseWriter, r *http.Request) {
@@ -136,43 +139,43 @@ func (h *Handler) resolve(w http.ResponseWriter, r *http.Request) {
 		Category: r.URL.Query().Get("category"),
 	})
 	if errors.Is(err, sandbox.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "sandbox not found")
+		httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toResp(sb))
+	httpx.WriteJSON(w, http.StatusOK, toResp(sb))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("sandboxID")
 	sb, err := h.Manager.Get(r.Context(), id)
 	if errors.Is(err, sandbox.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "sandbox not found")
+		httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, toResp(sb))
+	httpx.WriteJSON(w, http.StatusOK, toResp(sb))
 }
 
 func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("sandboxID")
 	var req patchReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	if req.Name == nil && req.Category == nil && req.IsDefault == nil {
-		writeErr(w, http.StatusBadRequest, "name, category, or isDefault required")
+		httpx.WriteErr(w, http.StatusBadRequest, "name, category, or isDefault required")
 		return
 	}
 	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
-		writeErr(w, http.StatusBadRequest, "name is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
 	sb, err := h.Manager.Update(r.Context(), id, sandbox.UpdateRequest{
@@ -181,29 +184,29 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		IsDefault: req.IsDefault,
 	})
 	if errors.Is(err, sandbox.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "sandbox not found")
+		httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 	if errors.Is(err, sandbox.ErrConflict) {
-		writeErr(w, http.StatusConflict, err.Error())
+		httpx.WriteErr(w, http.StatusConflict, err.Error())
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, toResp(sb))
+	httpx.WriteJSON(w, http.StatusOK, toResp(sb))
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("sandboxID")
 	err := h.Manager.Delete(r.Context(), id)
 	if errors.Is(err, sandbox.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "sandbox not found")
+		httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -213,16 +216,16 @@ func (h *Handler) timeout(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("sandboxID")
 	var req timeoutReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	_, err := h.Manager.SetTimeout(r.Context(), id, time.Duration(req.Timeout)*time.Second)
 	if errors.Is(err, sandbox.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "sandbox not found")
+		httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -235,33 +238,33 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 
 	sb, resumed, err := h.Manager.Connect(r.Context(), id)
 	if errors.Is(err, sandbox.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "sandbox not found")
+		httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "is failed") {
-			writeErr(w, http.StatusConflict, err.Error())
+			httpx.WriteErr(w, http.StatusConflict, err.Error())
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	code := http.StatusOK
 	if resumed {
 		code = http.StatusCreated
 	}
-	writeJSON(w, code, toResp(sb))
+	httpx.WriteJSON(w, code, toResp(sb))
 }
 
 func (h *Handler) refreshes(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("sandboxID")
 	_, err := h.Manager.Refresh(r.Context(), id)
 	if errors.Is(err, sandbox.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "sandbox not found")
+		httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -322,14 +325,4 @@ func sandboxState(st sandbox.Status) string {
 	default:
 		return string(st)
 	}
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"message": msg})
 }

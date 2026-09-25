@@ -60,6 +60,21 @@ test-e2e:
 test-ui:
 	cd web && npm run test:e2e
 
+# Mobile console (Flutter, mobile/). Separate toolchain: nothing here is needed
+# to build or run the control plane. Do NOT debug with `flutter run -d chrome`
+# — the WebSocket auth header is native-only, the browser drops it.
+mobile-setup:
+	cd mobile && flutter pub get
+
+mobile-dev:
+	cd mobile && flutter run
+
+mobile-test:
+	cd mobile && flutter test
+
+mobile-analyze:
+	cd mobile && flutter analyze
+
 # Live smoke against a running roundpend (default BASE from .env ROUNDPEN_HTTP_ADDR).
 e2e-live:
 	@./scripts/e2e-coding-agent.sh
@@ -80,15 +95,12 @@ run-daemon: build
 browser-driver:
 	go run ./cmd/browserdriver
 
-# Deprecated: Agent runs on Docker now. Kept only for the experimental QEMU agent recipe.
-agent-image:
-	./images/agent-qemu/build.sh
-
 # Docker Agent image (git/ssh/curl). Used by local dev / private overrides.
 code-agent-image:
 	docker build -t roundpen-code-agent:local images/code-agent
 
 # End-user path: no Node on the host. UI is baked in the image build.
+# Requires POSTGRES_PASSWORD in .env (no default); see .env.compose.example.
 compose-up:
 	docker compose up -d --build
 

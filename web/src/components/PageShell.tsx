@@ -10,9 +10,8 @@ export type AppSection =
   | 'browser'
   | 'templates'
   | 'settings'
-  | 'sandboxes'
 
-/** Top nav for advanced pages outside AppShell (/browser, sandboxes).
+/** Top nav for advanced pages outside AppShell (/browser).
  *  Primary product nav (助手 / 设置 / 镜像) lives in AppShell. */
 export const NAV: {
   id: AppSection

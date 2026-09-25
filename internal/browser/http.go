@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
@@ -70,15 +71,15 @@ func (h *Handler) withSandbox(next handlerFunc) http.HandlerFunc {
 		id := r.PathValue("id")
 		sb, err := h.Sandboxes.Get(r.Context(), id)
 		if errors.Is(err, sandbox.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "sandbox not found")
+			httpx.WriteErr(w, http.StatusNotFound, "sandbox not found")
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "internal error")
+			httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 			return
 		}
 		if sb.Status != sandbox.StatusRunning {
-			writeErr(w, http.StatusConflict, "sandbox is "+string(sb.Status))
+			httpx.WriteErr(w, http.StatusConflict, "sandbox is "+string(sb.Status))
 			return
 		}
 		next(w, r, browserCtx{id: id, sb: sb})
@@ -96,15 +97,15 @@ func (h *Handler) withDefault(next handlerFunc) http.HandlerFunc {
 			Category: cat,
 		})
 		if errors.Is(err, sandbox.ErrNotFound) {
-			writeErr(w, http.StatusNotFound, "no "+cat+" sandbox")
+			httpx.WriteErr(w, http.StatusNotFound, "no "+cat+" sandbox")
 			return
 		}
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, err.Error())
+			httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		if sb.Status != sandbox.StatusRunning {
-			writeErr(w, http.StatusConflict, "sandbox is "+string(sb.Status))
+			httpx.WriteErr(w, http.StatusConflict, "sandbox is "+string(sb.Status))
 			return
 		}
 		next(w, r, browserCtx{id: sb.ID, sb: sb})
@@ -113,7 +114,7 @@ func (h *Handler) withDefault(next handlerFunc) http.HandlerFunc {
 
 func (h *Handler) status(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	attached, url, width, height := h.Hub.Status(bc.id)
-	writeJSON(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"sandboxID": bc.id,
 		"name":      bc.sb.Name,
 		"category":  bc.sb.Category,
@@ -134,43 +135,43 @@ type navigateReq struct {
 func (h *Handler) navigate(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	var req navigateReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.URL) == "" {
-		writeErr(w, http.StatusBadRequest, "url is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "url is required")
 		return
 	}
 	if !allowedNavigateURL(req.URL) {
-		writeErr(w, http.StatusBadRequest, "unsupported url scheme")
+		httpx.WriteErr(w, http.StatusBadRequest, "unsupported url scheme")
 		return
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.Navigate(r.Context(), req.URL); err != nil {
-		writeErr(w, http.StatusBadGateway, "upstream error")
+		httpx.WriteErr(w, http.StatusBadGateway, "upstream error")
 		return
 	}
 	_ = h.Sandboxes.Touch(r.Context(), bc.id)
 	snap, err := sess.Engine.Snapshot(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"url": sess.Engine.URL()})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"url": sess.Engine.URL()})
 		return
 	}
-	writeJSON(w, http.StatusOK, snap)
+	httpx.WriteJSON(w, http.StatusOK, snap)
 }
 
 func (h *Handler) snapshot(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	snap, err := sess.Engine.Snapshot(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "upstream error")
+		httpx.WriteErr(w, http.StatusBadGateway, "upstream error")
 		return
 	}
-	writeJSON(w, http.StatusOK, snap)
+	httpx.WriteJSON(w, http.StatusOK, snap)
 }
 
 type clickReq struct {
@@ -180,25 +181,25 @@ type clickReq struct {
 func (h *Handler) click(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	var req clickReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Ref) == "" {
-		writeErr(w, http.StatusBadRequest, "ref is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "ref is required")
 		return
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.Click(r.Context(), req.Ref); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	_ = h.Sandboxes.Touch(r.Context(), bc.id)
 	snap, err := sess.Engine.Snapshot(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "url": sess.Engine.URL()})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "url": sess.Engine.URL()})
 		return
 	}
-	writeJSON(w, http.StatusOK, snap)
+	httpx.WriteJSON(w, http.StatusOK, snap)
 }
 
 type typeReq struct {
@@ -210,25 +211,25 @@ type typeReq struct {
 func (h *Handler) typ(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	var req typeReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Ref) == "" {
-		writeErr(w, http.StatusBadRequest, "ref is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "ref is required")
 		return
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.Type(r.Context(), req.Ref, req.Text, req.Submit); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	_ = h.Sandboxes.Touch(r.Context(), bc.id)
 	snap, err := sess.Engine.Snapshot(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	writeJSON(w, http.StatusOK, snap)
+	httpx.WriteJSON(w, http.StatusOK, snap)
 }
 
 type pressReq struct {
@@ -238,34 +239,34 @@ type pressReq struct {
 func (h *Handler) press(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	var req pressReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Key) == "" {
-		writeErr(w, http.StatusBadRequest, "key is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "key is required")
 		return
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.Press(r.Context(), req.Key); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "url": sess.Engine.URL()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "url": sess.Engine.URL()})
 }
 
 func (h *Handler) screenshot(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	png, err := sess.Engine.Screenshot(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "upstream error")
+		httpx.WriteErr(w, http.StatusBadGateway, "upstream error")
 		return
 	}
 	if r.URL.Query().Get("format") == "json" {
-		writeJSON(w, http.StatusOK, map[string]any{
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{
 			"mimeType": "image/png",
 			"data":     base64.StdEncoding.EncodeToString(png),
 			"url":      sess.Engine.URL(),
@@ -285,20 +286,20 @@ type viewportReq struct {
 func (h *Handler) viewport(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	var req viewportReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid json")
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	if err := sess.Engine.SetViewport(r.Context(), req.Width, req.Height); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	sess.Width, sess.Height = req.Width, req.Height
-	writeJSON(w, http.StatusOK, map[string]any{"width": req.Width, "height": req.Height})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"width": req.Width, "height": req.Height})
 }
 
 type evalReq struct {
@@ -308,25 +309,25 @@ type evalReq struct {
 func (h *Handler) evaluate(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	var req evalReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Expression) == "" {
-		writeErr(w, http.StatusBadRequest, "expression is required")
+		httpx.WriteErr(w, http.StatusBadRequest, "expression is required")
 		return
 	}
 	sess, err := h.Hub.Ensure(r.Context(), bc.id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "internal error")
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 	raw, err := sess.Engine.Evaluate(r.Context(), req.Expression)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "upstream error")
+		httpx.WriteErr(w, http.StatusBadGateway, "upstream error")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"result": json.RawMessage(raw)})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"result": json.RawMessage(raw)})
 }
 
 func (h *Handler) closeSess(w http.ResponseWriter, r *http.Request, bc browserCtx) {
 	h.Hub.CloseSandbox(bc.id)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func metadataProfile(sb *sandbox.Sandbox) string {
@@ -334,12 +335,6 @@ func metadataProfile(sb *sandbox.Sandbox) string {
 		return ""
 	}
 	return sb.Metadata["profile"]
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
 }
 
 func allowedNavigateURL(raw string) bool {
@@ -353,8 +348,4 @@ func allowedNavigateURL(raw string) bool {
 	default:
 		return false
 	}
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"message": msg})
 }

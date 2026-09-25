@@ -29,6 +29,56 @@ func TestMergeToolMeta(t *testing.T) {
 	}
 }
 
+func TestAfterLastClear(t *testing.T) {
+	clearMeta := json.RawMessage(`{"type":"clear"}`)
+	userMeta := json.RawMessage(`{"type":"user"}`)
+	base := func() []*Message {
+		return []*Message{
+			{Role: RoleUser, Content: "one", Meta: userMeta},
+			{Role: RoleAssistant, Content: "two"},
+			{Role: RoleEvent, Content: "上下文已清空", Meta: clearMeta},
+			{Role: RoleUser, Content: "three", Meta: userMeta},
+		}
+	}
+
+	if got := AfterLastClear(base()); len(got) != 1 || got[0].Content != "three" {
+		t.Fatalf("marker in the middle: %+v", got)
+	}
+
+	rows := base()
+	rows = append(rows, &Message{Role: RoleEvent, Content: "上下文已清空", Meta: clearMeta})
+	if got := AfterLastClear(rows); len(got) != 0 {
+		t.Fatalf("marker at the end: %+v", got)
+	}
+
+	noMarker := []*Message{
+		{Role: RoleUser, Content: "one", Meta: userMeta},
+		{Role: RoleAssistant, Content: "two"},
+	}
+	if got := AfterLastClear(noMarker); len(got) != 2 {
+		t.Fatalf("no marker: %+v", got)
+	}
+
+	// Only event rows carry a context boundary; other roles carrying a "clear"
+	// meta must not truncate anything.
+	otherRole := []*Message{
+		{Role: RoleUser, Content: "one", Meta: clearMeta},
+		{Role: RoleAssistant, Content: "two"},
+	}
+	if got := AfterLastClear(otherRole); len(got) != 2 {
+		t.Fatalf("non-event clear meta: %+v", got)
+	}
+
+	malformed := []*Message{
+		{Role: RoleUser, Content: "one"},
+		{Role: RoleEvent, Content: "boom", Meta: json.RawMessage(`{`)},
+		{Role: RoleAssistant, Content: "two"},
+	}
+	if got := AfterLastClear(malformed); len(got) != 3 {
+		t.Fatalf("malformed meta: %+v", got)
+	}
+}
+
 func TestStore_UpsertToolMessage(t *testing.T) {
 	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
 	if dsn == "" {

@@ -15,7 +15,8 @@ export default defineConfig({
         ws: true,
         configure: (proxy) => {
           proxy.on('error', (err) => {
-            if (['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(err.code)) return
+            const code = (err as Error & { code?: string }).code
+            if (code && ['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(code)) return
             console.warn('ws proxy error:', err.message)
           })
         },
@@ -25,7 +26,8 @@ export default defineConfig({
         ws: true,
         configure: (proxy) => {
           proxy.on('error', (err) => {
-            if (['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(err.code)) return
+            const code = (err as Error & { code?: string }).code
+            if (code && ['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(code)) return
             console.warn('ws proxy error:', err.message)
           })
         },
@@ -35,7 +37,8 @@ export default defineConfig({
         ws: true,
         configure: (proxy) => {
           proxy.on('error', (err) => {
-            if (['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(err.code)) return
+            const code = (err as Error & { code?: string }).code
+            if (code && ['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(code)) return
             console.warn('ws proxy error:', err.message)
           })
         },

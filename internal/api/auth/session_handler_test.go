@@ -3,8 +3,10 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/RoundpenAI/roundpen/internal/storage"
@@ -17,6 +19,155 @@ func newSessionTestMux(t *testing.T, allowReg bool) (http.Handler, storage.UserS
 	mux := http.NewServeMux()
 	Mount(mux, users, sessions, func() bool { return allowReg })
 	return Middleware(users, sessions)(mux), users
+}
+
+// seedLoginUser creates a user with a known password and API key.
+func seedLoginUser(t *testing.T, users storage.UserStore, username, password, apiKey string) {
+	t.Helper()
+	hash, err := HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Upsert(t.Context(), storage.User{
+		Username:     username,
+		Email:        username + "@example.com",
+		APIKey:       apiKey,
+		Role:         storage.RoleUser,
+		PasswordHash: hash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func postLogin(t *testing.T, h http.Handler, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/v1/auth/login", bytes.NewReader(raw))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func loginSessionToken(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var resp struct {
+		SessionToken string `json:"sessionToken"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	return resp.SessionToken
+}
+
+func TestLogin_ReturnsSessionTokenWhenRequested(t *testing.T) {
+	h, users := newSessionTestMux(t, false)
+	seedLoginUser(t, users, "bob", "secret123", "rp-bobkey")
+
+	rec := postLogin(t, h, map[string]any{
+		"user": "bob", "password": "secret123", "returnSessionToken": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	token := loginSessionToken(t, rec)
+	if len(token) != 64 {
+		t.Fatalf("sessionToken = %q, want 64 hex chars", token)
+	}
+	if strings.Contains(rec.Body.String(), "rp-bobkey") {
+		t.Fatal("login response must never contain the plaintext API key")
+	}
+
+	req := httptest.NewRequest("GET", "/v1/auth/user", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusOK {
+		t.Fatalf("bearer session status = %d body=%s", rec2.Code, rec2.Body.String())
+	}
+}
+
+func TestLogin_OmitsSessionTokenByDefault(t *testing.T) {
+	h, users := newSessionTestMux(t, false)
+	seedLoginUser(t, users, "bob", "secret123", "rp-bobkey")
+
+	rec := postLogin(t, h, map[string]any{"user": "bob", "password": "secret123"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["sessionToken"]; ok {
+		t.Fatal("sessionToken must be omitted unless explicitly requested")
+	}
+}
+
+func TestLogin_FailedPasswordNeverReturnsSessionToken(t *testing.T) {
+	h, users := newSessionTestMux(t, false)
+	seedLoginUser(t, users, "bob", "secret123", "rp-bobkey")
+
+	rec := postLogin(t, h, map[string]any{
+		"user": "bob", "password": "wrong-pass", "returnSessionToken": true,
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "sessionToken") {
+		t.Fatalf("failed login leaked a token: %s", rec.Body.String())
+	}
+}
+
+func TestLogin_RateLimitUnaffectedByReturnSessionToken(t *testing.T) {
+	h, users := newSessionTestMux(t, false)
+	seedLoginUser(t, users, "bob", "secret123", "rp-bobkey")
+
+	for i := 0; i < loginFailLimit; i++ {
+		rec := postLogin(t, h, map[string]any{
+			"user": "bob", "password": "wrong-pass", "returnSessionToken": true,
+		})
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status = %d body=%s", i, rec.Code, rec.Body.String())
+		}
+	}
+	rec := postLogin(t, h, map[string]any{
+		"user": "bob", "password": "secret123", "returnSessionToken": true,
+	})
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", rec.Code)
+	}
+}
+
+func TestLogout_RevokesBearerSession(t *testing.T) {
+	h, users := newSessionTestMux(t, false)
+	seedLoginUser(t, users, "bob", "secret123", "rp-bobkey")
+
+	rec := postLogin(t, h, map[string]any{
+		"user": "bob", "password": "secret123", "returnSessionToken": true,
+	})
+	token := loginSessionToken(t, rec)
+	if token == "" {
+		t.Fatalf("no session token in %s", rec.Body.String())
+	}
+
+	req := httptest.NewRequest("POST", "/v1/auth/logout", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec2 := httptest.NewRecorder()
+	h.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusNoContent {
+		t.Fatalf("logout status = %d body=%s", rec2.Code, rec2.Body.String())
+	}
+
+	req = httptest.NewRequest("GET", "/v1/auth/user", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec3 := httptest.NewRecorder()
+	h.ServeHTTP(rec3, req)
+	if rec3.Code != http.StatusUnauthorized {
+		t.Fatalf("revoked token status = %d, want 401", rec3.Code)
+	}
 }
 
 func TestSessionFlow_RegisterLoginUserLogout(t *testing.T) {
@@ -101,6 +252,114 @@ func TestSessionFlow_LoginWithUsername(t *testing.T) {
 	}
 	if len(rec.Result().Cookies()) == 0 {
 		t.Fatal("expected session cookie")
+	}
+}
+
+func TestLoginLimiter_UsernameDimension(t *testing.T) {
+	l := newLoginLimiter()
+	userKey := loginLimitKeyUser("Victim")
+	if l.blocked(userKey) {
+		t.Fatal("fresh limiter should not block")
+	}
+	for i := 0; i < loginFailLimit; i++ {
+		l.fail(userKey)
+	}
+	if !l.blocked(userKey) {
+		t.Fatal("username bucket should block after the limit")
+	}
+	// The key is case-insensitive, so spelling variants share one bucket.
+	if !l.blocked(loginLimitKeyUser("victim")) {
+		t.Fatal("username key should be case-insensitive")
+	}
+	// Unrelated usernames and IPs are untouched.
+	if l.blocked(loginLimitKeyUser("someone-else")) {
+		t.Fatal("unrelated username should not be blocked")
+	}
+	if l.blocked(loginLimitKeyIP("10.0.0.1")) {
+		t.Fatal("unrelated IP should not be blocked")
+	}
+	l.clear(userKey)
+	if l.blocked(userKey) {
+		t.Fatal("clear should lift the block")
+	}
+}
+
+func TestLoginLimiter_MultiKey(t *testing.T) {
+	l := newLoginLimiter()
+	ipKey := loginLimitKeyIP("10.0.0.5")
+	userKey := loginLimitKeyUser("dave")
+	for i := 0; i < loginFailLimit; i++ {
+		l.fail(ipKey, userKey)
+	}
+	if !l.blocked(ipKey) || !l.blocked(userKey) {
+		t.Fatal("both buckets should block after the limit")
+	}
+	// blocked reports true when ANY supplied key has tripped.
+	if !l.blocked(loginLimitKeyIP("1.2.3.4"), userKey) {
+		t.Fatal("blocked should be true when any key trips")
+	}
+}
+
+// TestLogin_UsernameLimitAcrossIPs proves the per-account bucket throttles a
+// distributed brute force: each attempt comes from a fresh IP (so no single IP
+// bucket trips), yet the shared username bucket still locks the account.
+func TestLogin_UsernameLimitAcrossIPs(t *testing.T) {
+	h, users := newSessionTestMux(t, false)
+	hash, err := HashPassword("secret123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Upsert(t.Context(), storage.User{
+		Username: "erin", Email: "erin@example.com", APIKey: "rp-erin",
+		Role: storage.RoleUser, PasswordHash: hash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	attempt := func(ip, password string) int {
+		body, _ := json.Marshal(map[string]string{"user": "erin", "password": password})
+		req := httptest.NewRequest("POST", "/v1/auth/login", bytes.NewReader(body))
+		req.RemoteAddr = ip + ":1234"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	for i := 0; i < loginFailLimit; i++ {
+		if code := attempt(fmt.Sprintf("10.0.0.%d", i+1), "wrong-password"); code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status = %d, want 401", i, code)
+		}
+	}
+	// The next attempt is throttled even from a brand-new IP and even with the
+	// correct password, because the username bucket has tripped.
+	if code := attempt("10.0.1.99", "secret123"); code != http.StatusTooManyRequests {
+		t.Fatalf("throttled status = %d, want 429", code)
+	}
+}
+
+// TestLogin_OAuthOnlyAccountIsGeneric401 covers an account created via
+// federated login (no local password). It must return the same generic 401 as
+// a wrong password, not a message that reveals the account exists.
+func TestLogin_OAuthOnlyAccountIsGeneric401(t *testing.T) {
+	h, users := newSessionTestMux(t, false)
+	if err := users.Upsert(t.Context(), storage.User{
+		Username: "oauthuser", Email: "oauth@example.com", APIKey: "rp-oauth",
+		Role: storage.RoleUser, AuthProvider: "gitea", // PasswordHash intentionally empty
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(map[string]string{"user": "oauthuser", "password": "whatever1"})
+	req := httptest.NewRequest("POST", "/v1/auth/login", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d body=%s, want 401", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "invalid user or password") {
+		t.Fatalf("body = %s, want the generic message", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "password not set") {
+		t.Fatalf("body = %s leaks account state", rec.Body.String())
 	}
 }
 

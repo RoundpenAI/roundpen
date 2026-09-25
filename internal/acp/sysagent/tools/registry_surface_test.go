@@ -20,12 +20,13 @@ func TestWorkspaceToolSurface(t *testing.T) {
 	tools.RegisterSearch(reg, binder)
 
 	want := map[string]bool{
-		"Bash": true, "Edit": true, "GetSettings": true, "Glob": true, "Grep": true,
+		"Bash": true, "BashOutput": true, "Edit": true, "GetSettings": true, "Glob": true,
+		"Grep": true, "KillShell": true,
 		"ListEnvironments": true, "ListSessions": true, "ListTemplates": true,
 		"Read": true, "Write": true,
 	}
 	for _, name := range []string{
-		"Bash", "Edit", "GetSettings", "Glob", "Grep",
+		"Bash", "BashOutput", "Edit", "GetSettings", "Glob", "Grep", "KillShell",
 		"ListEnvironments", "ListSessions", "ListTemplates", "Read", "Write",
 	} {
 		if _, ok := reg.Get(name); !ok {
@@ -68,6 +69,25 @@ func TestWebToolSurface(t *testing.T) {
 		t.Fatal("missing WebSearch when configured")
 	}
 	assertCleanReadOnly(t, reg2)
+}
+
+func TestIssueToolSurface(t *testing.T) {
+	reg := tools.NewRegistry()
+	tools.RegisterIssues(reg, &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}, "sess-1")
+
+	readOnly := map[string]bool{"ListIssues": true, "GetIssue": true, "ReadIssueDoc": true}
+	for _, name := range []string{
+		"CreateIssue", "ListIssues", "GetIssue", "UpdateIssue",
+		"WriteIssueDoc", "ReadIssueDoc", "CreateTask", "UpdateTask",
+	} {
+		tool, ok := reg.Get(name)
+		if !ok {
+			t.Fatalf("missing tool %q", name)
+		}
+		if want := !readOnly[name]; tool.Mutating != want {
+			t.Fatalf("%s Mutating = %v, want %v", name, tool.Mutating, want)
+		}
+	}
 }
 
 func assertCleanReadOnly(t *testing.T, reg *tools.Registry) {

@@ -6,7 +6,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/template"
@@ -29,8 +31,10 @@ type AppSettings struct {
 	LlmgwDefaultModel       string `json:"llmgwDefaultModel"`
 	LlmgwOpenaiBaseURL      string `json:"llmgwOpenaiBaseUrl"`
 	LlmgwOpenaiAPIKey       string `json:"llmgwOpenaiApiKey"`
+	LlmgwOpenaiProxy        string `json:"llmgwOpenaiProxy"`
 	LlmgwAnthropicBaseURL   string `json:"llmgwAnthropicBaseUrl"`
 	LlmgwAnthropicAPIKey    string `json:"llmgwAnthropicApiKey"`
+	LlmgwAnthropicProxy     string `json:"llmgwAnthropicProxy"`
 	LlmgwVirtualKeys        string `json:"llmgwVirtualKeys"`
 	CDPProvider             string `json:"cdpProvider"`
 	CDPEndpoint             string `json:"cdpEndpoint"`
@@ -38,6 +42,100 @@ type AppSettings struct {
 	CDPPort                 int    `json:"cdpPort"`
 	WebSearchEndpoint       string `json:"webSearchEndpoint"`
 	WebSearchApiKey         string `json:"webSearchApiKey"`
+	WebSearchProxy          string `json:"webSearchProxy"`
+	// AutoMode configures the policy classifier behind the chat Auto toggle.
+	AutoMode AutoModeSettings `json:"autoMode"`
+	// Proxies are admin-defined egress profiles users pick per sandbox slot.
+	Proxies []ProxyProfile `json:"proxies"`
+}
+
+// AutoModeSettings holds the admin-configured auto-mode policy. Lists carry
+// prose rules read by the classifier; the "$defaults" token splices in the
+// built-in rules at its position, and a non-empty list without the token
+// replaces them.
+type AutoModeSettings struct {
+	Environment []string `json:"environment,omitempty"`
+	Allow       []string `json:"allow,omitempty"`
+	SoftDeny    []string `json:"softDeny,omitempty"`
+	HardDeny    []string `json:"hardDeny,omitempty"`
+	Model       string   `json:"model,omitempty"`
+}
+
+// Rules converts stored lists into classifier rules; "$defaults" expands at
+// evaluation time.
+func (a AutoModeSettings) Rules() automode.Rules {
+	return automode.Rules{
+		Environment: a.Environment,
+		Allow:       a.Allow,
+		SoftDeny:    a.SoftDeny,
+		HardDeny:    a.HardDeny,
+	}
+}
+
+// ClassifierModel returns the configured classifier model, or "" to use the
+// gateway default.
+func (a AutoModeSettings) ClassifierModel() string { return strings.TrimSpace(a.Model) }
+
+const (
+	autoModeMaxEntries    = 50
+	autoModeMaxEntryRunes = 800
+	autoModeMaxModelRunes = 200
+)
+
+func defaultAutoModeSettings() AutoModeSettings {
+	return AutoModeSettings{
+		Environment: []string{automode.DefaultsToken},
+		Allow:       []string{automode.DefaultsToken},
+		SoftDeny:    []string{automode.DefaultsToken},
+		HardDeny:    []string{automode.DefaultsToken},
+	}
+}
+
+func (s *AppSettings) normalizeAutoMode() {
+	s.AutoMode.Environment = normalizeAutoModeList(s.AutoMode.Environment)
+	s.AutoMode.Allow = normalizeAutoModeList(s.AutoMode.Allow)
+	s.AutoMode.SoftDeny = normalizeAutoModeList(s.AutoMode.SoftDeny)
+	s.AutoMode.HardDeny = normalizeAutoModeList(s.AutoMode.HardDeny)
+	s.AutoMode.Model = strings.TrimSpace(s.AutoMode.Model)
+}
+
+func normalizeAutoModeList(list []string) []string {
+	out := make([]string, 0, len(list))
+	seen := map[string]struct{}{}
+	for _, e := range list {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if _, dup := seen[e]; dup {
+			continue
+		}
+		seen[e] = struct{}{}
+		out = append(out, e)
+	}
+	return out
+}
+
+// ProxyProfile is a named egress proxy users can select for a sandbox slot.
+type ProxyProfile struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	URL         string `json:"url"`
+	Description string `json:"description,omitempty"`
+}
+
+// ProxyByID finds a profile by its stable id.
+func (s AppSettings) ProxyByID(id string) (ProxyProfile, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ProxyProfile{}, false
+	}
+	for _, p := range s.Proxies {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return ProxyProfile{}, false
 }
 
 // SystemInfo is read-only infrastructure metadata for the settings UI.
@@ -71,8 +169,10 @@ func FromConfig(cfg *config.Config) AppSettings {
 		LlmgwDefaultModel:       cfg.LLMGW.DefaultModel,
 		LlmgwOpenaiBaseURL:      llmgwUpstreamBase(cfg.LLMGW.OpenAI),
 		LlmgwOpenaiAPIKey:       llmgwUpstreamKey(cfg.LLMGW.OpenAI),
+		LlmgwOpenaiProxy:        llmgwUpstreamProxy(cfg.LLMGW.OpenAI),
 		LlmgwAnthropicBaseURL:   llmgwUpstreamBase(cfg.LLMGW.Anthropic),
 		LlmgwAnthropicAPIKey:    llmgwUpstreamKey(cfg.LLMGW.Anthropic),
+		LlmgwAnthropicProxy:     llmgwUpstreamProxy(cfg.LLMGW.Anthropic),
 		LlmgwVirtualKeys:        config.FormatVirtualKeys(cfg.LLMGW.VirtualKeys),
 		CDPProvider:             cfg.CDP.Provider,
 		CDPEndpoint:             cfg.CDP.Endpoint,
@@ -80,6 +180,8 @@ func FromConfig(cfg *config.Config) AppSettings {
 		CDPPort:                 cfg.CDP.Port,
 		WebSearchEndpoint:       cfg.WebTools.SearchEndpoint,
 		WebSearchApiKey:         cfg.WebTools.SearchAPIKey,
+		WebSearchProxy:          cfg.WebTools.SearchProxyURL,
+		AutoMode:                defaultAutoModeSettings(),
 	}
 	out.normalizeCDP()
 	return out
@@ -136,8 +238,10 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 		s.LlmgwLogBodyMaxBytes,
 		s.LlmgwOpenaiBaseURL,
 		s.LlmgwOpenaiAPIKey,
+		s.LlmgwOpenaiProxy,
 		s.LlmgwAnthropicBaseURL,
 		s.LlmgwAnthropicAPIKey,
+		s.LlmgwAnthropicProxy,
 		s.LlmgwVirtualKeys,
 	); err != nil {
 		return err
@@ -145,6 +249,7 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.WebTools = config.WebToolsConfig{
 		SearchEndpoint: strings.TrimSpace(s.WebSearchEndpoint),
 		SearchAPIKey:   strings.TrimSpace(s.WebSearchApiKey),
+		SearchProxyURL: strings.TrimSpace(s.WebSearchProxy),
 	}
 	cfg.CDP = config.CDPConfig{
 		Provider: s.CDPProvider,
@@ -194,8 +299,63 @@ func (s AppSettings) Validate() error {
 			return fmt.Errorf("webSearchEndpoint must be an http(s) URL")
 		}
 	}
+	for field, raw := range map[string]string{
+		"llmgwOpenaiProxy":    s.LlmgwOpenaiProxy,
+		"llmgwAnthropicProxy": s.LlmgwAnthropicProxy,
+		"webSearchProxy":      s.WebSearchProxy,
+	} {
+		if err := ValidateProxyURL(raw); err != nil {
+			return fmt.Errorf("%s: %w", field, err)
+		}
+	}
+	seen := map[string]struct{}{}
+	for i := range s.Proxies {
+		p := &s.Proxies[i]
+		p.ID = strings.TrimSpace(p.ID)
+		p.Name = strings.TrimSpace(p.Name)
+		p.URL = strings.TrimSpace(p.URL)
+		p.Description = strings.TrimSpace(p.Description)
+		if p.ID == "" {
+			return fmt.Errorf("proxies[%d]: id is required", i)
+		}
+		if p.Name == "" {
+			return fmt.Errorf("proxies[%d]: name is required", i)
+		}
+		if err := ValidateProxyURL(p.URL); err != nil {
+			return fmt.Errorf("proxies[%d]: %w", i, err)
+		}
+		if p.URL == "" {
+			return fmt.Errorf("proxies[%d]: url is required", i)
+		}
+		if _, dup := seen[p.ID]; dup {
+			return fmt.Errorf("proxies[%d]: duplicate id %q", i, p.ID)
+		}
+		seen[p.ID] = struct{}{}
+	}
 	if _, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys); err != nil {
 		return err
+	}
+	ruleLists := []struct {
+		field string
+		list  []string
+	}{
+		{"autoMode.environment", s.AutoMode.Environment},
+		{"autoMode.allow", s.AutoMode.Allow},
+		{"autoMode.softDeny", s.AutoMode.SoftDeny},
+		{"autoMode.hardDeny", s.AutoMode.HardDeny},
+	}
+	for _, r := range ruleLists {
+		if len(r.list) > autoModeMaxEntries {
+			return fmt.Errorf("%s: at most %d entries", r.field, autoModeMaxEntries)
+		}
+		for _, e := range r.list {
+			if utf8.RuneCountInString(e) > autoModeMaxEntryRunes {
+				return fmt.Errorf("%s: entry exceeds %d characters", r.field, autoModeMaxEntryRunes)
+			}
+		}
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(s.AutoMode.Model)) > autoModeMaxModelRunes {
+		return fmt.Errorf("autoMode.model: exceeds %d characters", autoModeMaxModelRunes)
 	}
 	s.normalizeCDP()
 	probe := config.CDPConfig{
@@ -240,4 +400,29 @@ func llmgwUpstreamKey(u *config.LLMGWUpstream) string {
 		return ""
 	}
 	return u.APIKey
+}
+
+func llmgwUpstreamProxy(u *config.LLMGWUpstream) string {
+	if u == nil {
+		return ""
+	}
+	return u.ProxyURL
+}
+
+// ValidateProxyURL accepts empty (direct) or an http/https/socks5 proxy URL.
+func ValidateProxyURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("proxy URL %q is not a valid URL", raw)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https", "socks5", "socks5h":
+		return nil
+	default:
+		return fmt.Errorf("proxy URL %q must use http, https, socks5 or socks5h", raw)
+	}
 }

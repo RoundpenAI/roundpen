@@ -1,0 +1,166 @@
+name: mobile console APK
+
+# Build the Flutter mobile console and attach the per-ABI release APKs to a
+# Gitea release tagged v<version>:
+#
+#   <server>/<owner>/<repo>/releases/tag/v<version>
+#
+# Install on a phone with:  adb install -r app-arm64-v8a-release.apk
+#
+# Notes for whoever maintains this:
+#   * Release builds are signed with the Android debug keystore (the Flutter
+#     template does that). Fine for sideloading onto your own device; a store
+#     or a wider rollout needs a real keystore via key.properties.
+#   * A plugin brings native code, so AGP insists on the NDK version Flutter
+#     pins — the job installs it explicitly instead of letting AGP download it
+#     mid-build.
+#   * Artifacts ride on a release rather than the generic package registry:
+#     uploading a package needs a token with the `package` scope, and Gitea
+#     does not give that scope to the automatic GITHUB_TOKEN — `packages: write`
+#     in a workflow is not implemented there yet (gitea#24635).
+#   * Egress on this intranet: the internet is only reachable through the
+#     SOCKS5 proxy 10.10.1.4:1212. Direct connects stall on anything larger
+#     than a few hundred KB (a GitHub clone dies with "unexpected EOF"), which
+#     is why the runner daemon fetches actions through `ci-proxy`, an HTTP
+#     CONNECT front for that SOCKS5 proxy running on the runner host
+#     (10.10.1.5:18118, source in /opt/ci-proxy). The job uses the same bridge
+#     for the tools that cannot speak SOCKS5 — the node-based actions, curl,
+#     git and Dart/pub. Java ignores the *_PROXY variables, so
+#     JAVA_TOOL_OPTIONS points Gradle, sdkmanager and the Gradle wrapper at
+#     the SOCKS5 proxy directly.
+#   * NO_PROXY must keep intranet traffic (Gitea, the runner's cache server)
+#     off the proxy: the SOCKS5 proxy cannot route back into 10.0.0.0/8.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version to publish (default: short SHA)"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: "3.47.5"
+  ANDROID_PLATFORM: "android-36"
+  ANDROID_BUILD_TOOLS: "36.0.0"
+  ANDROID_NDK: "28.2.13676358"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      # See the egress note above. Read by the node actions, curl, git and
+      # Dart/pub; the JVM is covered by JAVA_TOOL_OPTIONS instead.
+      HTTP_PROXY: "http://10.10.1.5:18118"
+      HTTPS_PROXY: "http://10.10.1.5:18118"
+      NO_PROXY: "localhost,127.0.0.1,::1,git.eaxi.com,10.10.1.5"
+      JAVA_TOOL_OPTIONS: "-DsocksProxyHost=10.10.1.4 -DsocksProxyPort=1212"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute the package version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            version="${{ inputs.version }}"
+          else
+            version="sha-${GITHUB_SHA::7}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list is still `tools platform-tools`,
+          # and the retired `tools` package now fails the whole run with
+          # "Failed to find package 'tools'".
+          packages: "platform-tools"
+
+      - name: Install the SDK components the build needs
+        run: |
+          # The runner runs steps under bash -e -o pipefail: piping `yes` into
+          # sdkmanager would fail the step with exit 141 as soon as sdkmanager
+          # exits and `yes` is killed by SIGPIPE. Process substitution keeps
+          # sdkmanager's own exit status.
+          sdkmanager --licenses > /dev/null < <(yes)
+          sdkmanager "platform-tools" "platforms;${ANDROID_PLATFORM}" \
+                     "build-tools;${ANDROID_BUILD_TOOLS}" "ndk;${ANDROID_NDK}"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-v1
+
+      - name: Build the release APKs
+        working-directory: mobile
+        run: |
+          flutter pub get
+          # One APK per ABI: arm64 phones, older armv7 phones, and x86_64 for
+          # emulators / android-in-containers (redroid).
+          flutter build apk --release --split-per-abi
+
+      - name: Publish a release with the APKs
+        working-directory: mobile/build/app/outputs/flutter-apk
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          server="${SERVER_URL:-}"
+          if [[ -z "${server}" ]]; then
+            host="$(git config --get remote.origin.url | sed -E 's#^(ssh://)?([^@/]*@)?([^:/]+)[:/].*#\3#')"
+            server="https://${host}"
+          fi
+          api="${server}/api/v1/repos/${REPO}"
+          tag="v${VERSION}"
+          auth="Authorization: token ${TOKEN}"
+
+          # Re-running the same version reuses the release from the first try.
+          release_id="$(curl -fsS -H "${auth}" "${api}/releases/tags/${tag}" 2>/dev/null |
+            jq -r 'first(.id)' || true)"
+          if [[ -z "${release_id}" || "${release_id}" == "null" ]]; then
+            release_id="$(jq -n --arg tag "${tag}" --arg sha "${GITHUB_SHA}" \
+                '{tag_name: $tag, name: $tag, target_commitish: $sha}' |
+              curl -fsS -X POST -H "${auth}" -H "Content-Type: application/json" \
+                --data-binary @- "${api}/releases" | jq -r '.id')"
+          fi
+          echo "release ${tag}: id=${release_id}"
+
+          sha256sum ./*.apk > sha256sums.txt
+          for file in ./*.apk sha256sums.txt; do
+            name="${file#./}"
+            # Drop an asset of the same name left by an earlier run, so that a
+            # re-run replaces it instead of failing on the duplicate.
+            asset_id="$(curl -fsS -H "${auth}" "${api}/releases/${release_id}/assets" |
+              jq -r --arg n "${name}" 'first(.[] | select(.name == $n) | .id)' || true)"
+            if [[ -n "${asset_id}" && "${asset_id}" != "null" ]]; then
+              curl -fsS -X DELETE -H "${auth}" "${api}/releases/${release_id}/assets/${asset_id}"
+            fi
+            echo "→ ${tag}/${name}"
+            curl -fsS -X POST -H "${auth}" -F "attachment=@${file}" \
+              "${api}/releases/${release_id}/assets?name=${name}"
+            echo
+          done
+          echo "Published ${tag}: ${server}/${REPO}/releases/tag/${tag}"

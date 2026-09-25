@@ -55,9 +55,9 @@ Agent 可见工具对齐 Claude Code 命名；沙箱 / ensure 是实现细节（
 
 `ListEnvironments` 里 agent `status=absent` 只表示还没启动——直接调用 `Bash` 或文件工具即可。
 
-Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 PostgreSQL → `EnsureAgent` 经 SSH 写入 guest `/workspace/.roundpen/git`（不写宿主机目录）。**禁止**把宿主机 `~/.ssh` 拷进镜像或沙箱。见 [git-credentials.md](../git-credentials.md)。`Bash` 内的 `git` 会自动使用已注入凭据。
+Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 PostgreSQL → `EnsureAgent` 经 guest exec 写入 `$HOME/.roundpen/git`（guest home，**不放 `/workspace`**，不写宿主机目录）。**禁止**把宿主机 `~/.ssh` 拷进镜像或沙箱。见 [git-credentials.md](../git-credentials.md)。`Bash` 内的 `git` 通过 `~/.gitconfig` include 自动使用已注入凭据。
 
-LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-roundpen-internal`；model 回落 settings Default Model。
+LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权用每实例随机生成的内部 Virtual Key（`Gateway.InternalKey()`，持久化于 `data/llmgw-internal.key`）；model 回落 settings Default Model。
 
 写操作权限（`Mutating`）：只读不询问。写操作弹出选项：
 
@@ -70,7 +70,7 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 
 ## 沙箱注入表（stdio / coding）
 
-写入 `CreateRequest.Env`，并可选落盘 `/workspace/.roundpen/env`：
+写入 `CreateRequest.Env`；另把同一批 `export` 落到 guest **home** `~/.roundpen/env`（640），供 agent 源码式读取。**刻意不放** `/workspace`：项目树里绝不能出现 agent 自己的密钥。Git 凭据同理也不落 workspace 前缀——见上方第 58 行注记：
 
 | 变量 | 用途 |
 |------|------|
@@ -89,7 +89,8 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 | GET | `/v1/agents` | Provider 列表 |
 | GET/POST | `/v1/agent-sessions` | 列出会话 / 创建（sysadmin 跳过 Provisioner） |
 | GET/DELETE | `/v1/agent-sessions/{id}` | 详情 / 结束 |
-| GET | `/v1/agent-sessions/{id}/ws` | prompt / cancel / permission ↔ session updates |
+| GET | `/v1/agent-sessions/{id}/ws` | prompt / command / cancel / permission ↔ session updates（`command` 是 `/技能` 与 `/clear`、`/help`；出站有 `cleared`） |
+| GET | `/v1/agent-sessions/{id}/commands` | Slash 命令目录：内置技能 + 动作命令恒有，已安装技能仅在 agent 环境 running 时列出 |
 | GET | `/v1/agent-sessions/{id}/browser` | System Agent 浏览器状态（Hub key `sysagent-<id>`） |
 | GET | `/v1/agent-sessions/{id}/browser/screenshot` | viewport PNG（聊天右侧轮询） |
 | POST | `/v1/agent-sessions/{id}/browser/takeover` | `{enabled}` 人工接管；开启后 agent 写工具返回 `browser under human takeover` |
@@ -113,6 +114,7 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权 `vk-round
 | `assistant` | 是（跳过空 / `(no response)`） | `assistant` 文本 |
 | `tool` | 是 | 连续工具合成一条 `assistant.tool_calls` + 多条 `tool` |
 | `event`（`type=error`） | 是 | `user`: `Previous turn error: …` |
+| `event`（`type=clear`，`/clear` 标记） | 否（且**截断**：只回放最后一条标记之后的行） | — |
 | `thought` | 否 | 与 Claude Code 一样，旧 thinking 不回放 |
 | `permission` | 否 | 只给 UI / 审计 |
 | 其它 `event`（plan 等） | 否 | — |
@@ -141,4 +143,4 @@ internal/browser  # Playwright 引擎 + Hub + agent session browser API
 - 完整 policy / toolgw 产品化（registry 仅 System Agent 内）
 - computer-use / 宿主机键鼠（预留扩展点；takeover 仅 CDP Input）
 - 聊天内嵌浏览器实时视图 / WebRTC 视频流
-- 替换 Sandboxes / Templates 运维页
+- 替换 Templates（镜像）运维页

@@ -13,10 +13,14 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
-// Well-known internal credentials used by Roundpen control-plane services
-// (memory embedder, future toolgw, etc.). Agents should not use this key.
+// Internal virtual key naming. The key value itself is random per instance
+// (see internalkey.go); the legacy hardcoded constant is retired on seed.
 const (
-	InternalVirtualKey  = "vk-roundpen-internal"
+	// LegacyInternalVirtualKey was the historical hardcoded internal key. It is
+	// deleted from the vault on EnsureInternal so old deployments stop
+	// accepting the publicly known value.
+	LegacyInternalVirtualKey = "vk-roundpen-internal"
+
 	InternalVirtualName = "roundpen-internal"
 
 	// EmbeddingModelAlias is the client-facing model name for embeddings.
@@ -30,6 +34,11 @@ const (
 	EmbeddingDimensions = 1024
 )
 
+// InternalKey returns the per-instance internal virtual key used by
+// control-plane services (memory embedder, automode, sysagent). Agents get
+// per-user keys from UserKeyManager instead.
+func (g *Gateway) InternalKey() string { return g.internalKey }
+
 // EnsureInternal seeds the Roundpen-internal virtual key and the
 // roundpen-embed → embeddingModel alias on the OpenAI upstream (when present).
 func (g *Gateway) EnsureInternal(ctx context.Context, embeddingModel string) error {
@@ -38,13 +47,19 @@ func (g *Gateway) EnsureInternal(ctx context.Context, embeddingModel string) err
 	}
 	now := time.Now().UTC()
 
+	if g.internalKey == "" {
+		return fmt.Errorf("seed internal virtual key: no instance key available")
+	}
 	if err := g.store.UpsertVirtualKey(VirtualKey{
-		Key:       InternalVirtualKey,
+		Key:       g.internalKey,
 		Name:      InternalVirtualName,
 		Enabled:   true,
 		CreatedAt: now,
 	}); err != nil {
 		return fmt.Errorf("seed internal virtual key: %w", err)
+	}
+	if err := g.store.DeleteVirtualKey(ctx, LegacyInternalVirtualKey); err != nil {
+		return fmt.Errorf("retire legacy internal virtual key: %w", err)
 	}
 
 	u, err := g.store.GetUpstream(ctx, ProviderOpenAI)
@@ -111,14 +126,20 @@ func (g *Gateway) Embed(ctx context.Context, texts []string) ([][]float32, error
 	}
 
 	url := u.BaseURL + "/v1/embeddings"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	// The shared/streaming clients carry no timeout, so bound the embed call here.
+	reqCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+u.APIKey)
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client, err := g.clientFor(u.ProxyURL)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("llmgw: embed http: %w", err)

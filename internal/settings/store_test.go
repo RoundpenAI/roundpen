@@ -1,12 +1,15 @@
 package settings_test
 
 import (
+	"bytes"
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/secretbox"
 	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -38,7 +41,7 @@ func testDB(t *testing.T) *storage.DB {
 func TestBootstrapSeedsFromConfig(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)
-	store := settings.NewStore(db.SQL)
+	store := settings.NewStore(db.SQL, nil)
 	cfg := &config.Config{
 		AllowPublicRegistration: true,
 		DefaultImage:            "base",
@@ -68,7 +71,7 @@ func TestBootstrapSeedsFromConfig(t *testing.T) {
 func TestBootstrapLoadsDBOverrides(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)
-	store := settings.NewStore(db.SQL)
+	store := settings.NewStore(db.SQL, nil)
 	envCfg := &config.Config{
 		DefaultImage:    "host",
 		DefaultTTL:      30 * time.Minute,
@@ -117,5 +120,65 @@ func TestAppSettingsValidate(t *testing.T) {
 	}
 	if err := (settings.AppSettings{}).Validate(); err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestUpsertEncryptsSecretsAtRest(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	box, err := secretbox.New(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := settings.NewStore(db.SQL, box)
+
+	in := settings.AppSettings{
+		DefaultImage:           "host",
+		DefaultTtlSeconds:      1800,
+		PreviewTokenTtlSeconds: 900,
+		LlmgwOpenaiAPIKey:      "sk-openai-secret",
+		LlmgwAnthropicAPIKey:   "sk-ant-secret",
+		CDPToken:               "cdp-secret",
+		WebSearchApiKey:        "ws-secret",
+	}
+	if err := store.Upsert(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+
+	var raw []byte
+	if err := db.SQL.QueryRowContext(ctx,
+		`SELECT payload FROM app_settings WHERE id='global'`).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	body := string(raw)
+	for _, secret := range []string{"sk-openai-secret", "sk-ant-secret", "cdp-secret", "ws-secret"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("plaintext secret %q in payload", secret)
+		}
+	}
+	if !strings.Contains(body, "enc:v1:") {
+		t.Fatalf("expected sealed values in payload: %s", body)
+	}
+
+	got, err := store.Load(ctx, settings.AppSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LlmgwOpenaiAPIKey != "sk-openai-secret" || got.LlmgwAnthropicAPIKey != "sk-ant-secret" ||
+		got.CDPToken != "cdp-secret" || got.WebSearchApiKey != "ws-secret" {
+		t.Fatalf("decrypted mismatch: %+v", got)
+	}
+
+	// A legacy row written without encryption still loads (plaintext passthrough).
+	legacyStore := settings.NewStore(db.SQL, nil)
+	if err := legacyStore.Upsert(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := store.Load(ctx, settings.AppSettings{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacy.LlmgwOpenaiAPIKey != "sk-openai-secret" || legacy.CDPToken != "cdp-secret" {
+		t.Fatalf("legacy plaintext load mismatch: %+v", legacy)
 	}
 }

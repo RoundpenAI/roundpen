@@ -19,19 +19,15 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin:     func(r *http.Request) bool { return true },
-}
 
 // Handler serves /v1/agents and /v1/agent-sessions.
 type Handler struct {
@@ -47,6 +43,20 @@ type Handler struct {
 	Tickets     *assistticket.Store
 	DestroySbx  bool // delete sandbox on session delete
 
+	// PublicURL is the externally reachable console URL, accepted as an
+	// alternative WebSocket origin for reverse-proxy deployments.
+	PublicURL string
+
+	// AutoMode classifies permission requests while the chat Auto toggle is on.
+	AutoMode automode.Evaluator
+
+	// ProxyURL resolves a user's agent-slot egress proxy ("" = direct).
+	ProxyURL func(user *storage.User) string
+
+	// UserVirtualKey resolves the per-user llmgw virtual key injected into
+	// newly provisioned agent sandboxes.
+	UserVirtualKey func(ctx context.Context, username string) string
+
 	runnersMu sync.RWMutex
 	runners   map[string]*runner
 }
@@ -60,30 +70,31 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /v1/agent-sessions/{id}", h.renameSession)
 	mux.HandleFunc("DELETE /v1/agent-sessions/{id}", h.deleteSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", h.listMessages)
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/commands", h.listCommands)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/ws", h.sessionWS)
 	h.mountBrowser(mux)
 	h.mountTasks(mux)
 }
 
 func (h *Handler) listAgents(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"agents": h.ACP.Providers()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"agents": h.ACP.Providers()})
 }
 
 func (h *Handler) listSessions(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	list, err := h.Store.ListByUser(r.Context(), user.Username, 50)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if list == nil {
 		list = []*agentsession.Session{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": list})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"sessions": list})
 }
 
 type createReq struct {
@@ -95,7 +106,7 @@ type createReq struct {
 func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	var req createReq
@@ -112,7 +123,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		writeSessionStartErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, sess)
+	httpx.WriteJSON(w, http.StatusCreated, sess)
 }
 
 type sessionStartError struct {
@@ -125,10 +136,10 @@ func (e *sessionStartError) Error() string { return e.Msg }
 func writeSessionStartErr(w http.ResponseWriter, err error) {
 	var se *sessionStartError
 	if errors.As(err, &se) {
-		writeErr(w, se.Code, se.Msg)
+		httpx.WriteErr(w, se.Code, se.Msg)
 		return
 	}
-	writeErr(w, http.StatusInternalServerError, err.Error())
+	httpx.WriteErrOrInternal(w, nil, err, nil)
 }
 
 // DefaultAssistantProvider is the ACP provider used for new assistant chats.
@@ -156,10 +167,17 @@ func (h *Handler) startSession(ctx context.Context, user *storage.User, title, p
 
 	sandboxID := ""
 	if providers.NeedsSandbox(provMeta) {
-		vkey := h.pickVirtualKey(ctx)
+		vkey := ""
+		if h.UserVirtualKey != nil {
+			vkey = h.UserVirtualKey(ctx, user.Username)
+		}
 		prov := *h.Provisioner
 		prov.Config.APIKey = user.APIKey
 		prov.Config.VirtualKey = vkey
+		prov.Config.ModelSource = user.ModelSource
+		if h.ProxyURL != nil {
+			prov.Config.ProxyURL = h.ProxyURL(user)
+		}
 		if provMeta.TemplateID != "" {
 			prov.Config.TemplateID = provMeta.TemplateID
 		}
@@ -189,63 +207,46 @@ func (h *Handler) startSession(ctx context.Context, user *storage.User, title, p
 	return sess, nil
 }
 
-func (h *Handler) pickVirtualKey(ctx context.Context) string {
-	if h.LLMGW == nil {
-		return ""
-	}
-	keys, err := h.LLMGW.Store().ListVirtualKeys(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, k := range keys {
-		if k.Key == llmgw.InternalVirtualKey || !k.Enabled {
-			continue
-		}
-		return k.Key
-	}
-	return ""
-}
-
 func (h *Handler) getSession(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	sess, err := h.Store.Get(r.Context(), r.PathValue("id"))
 	if errors.Is(err, agentsession.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if sess.UserID != user.Username && user.Role != "admin" {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	writeJSON(w, http.StatusOK, sess)
+	httpx.WriteJSON(w, http.StatusOK, sess)
 }
 
 func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := r.PathValue("id")
 	sess, err := h.Store.Get(r.Context(), id)
 	if errors.Is(err, agentsession.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if sess.UserID != user.Username && user.Role != "admin" {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	h.deleteRunner(id)
@@ -253,7 +254,7 @@ func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
 		h.ACP.Stop(id)
 	}
 	if err := h.Store.Delete(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if h.DestroySbx && sess.SandboxID != "" && h.Sandboxes != nil {
@@ -265,21 +266,21 @@ func (h *Handler) deleteSession(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) renameSession(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := r.PathValue("id")
 	sess, err := h.Store.Get(r.Context(), id)
 	if errors.Is(err, agentsession.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if sess.UserID != user.Username && user.Role != "admin" {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	var req struct {
@@ -288,46 +289,48 @@ func (h *Handler) renameSession(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	req.Title = strings.TrimSpace(req.Title)
 	if req.Title == "" {
-		writeErr(w, http.StatusBadRequest, "title required")
+		httpx.WriteErr(w, http.StatusBadRequest, "title required")
 		return
 	}
 	if err := h.Store.Rename(r.Context(), id, req.Title); err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	sess.Title = req.Title
-	writeJSON(w, http.StatusOK, sess)
+	httpx.WriteJSON(w, http.StatusOK, sess)
 }
 
 func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	sess, err := h.Store.Get(r.Context(), r.PathValue("id"))
 	if errors.Is(err, agentsession.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil || (sess.UserID != user.Username && user.Role != "admin") {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 	msgs, err := h.Store.ListMessages(r.Context(), sess.ID, 2000)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
 	if msgs == nil {
 		msgs = []*agentsession.Message{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"messages": msgs})
 }
 
 type wsIn struct {
 	Type      string `json:"type"`
 	Text      string `json:"text,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Args      string `json:"args,omitempty"`
 	OptionID  string `json:"optionId,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
 	Enabled   bool   `json:"enabled"`
@@ -381,17 +384,17 @@ func (c *wsClient) ping() {
 func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	id := r.PathValue("id")
 	sess, err := h.Store.Get(r.Context(), id)
 	if errors.Is(err, agentsession.ErrNotFound) {
-		writeErr(w, http.StatusNotFound, "not found")
+		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil || (sess.UserID != user.Username && user.Role != "admin") {
-		writeErr(w, http.StatusForbidden, "forbidden")
+		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
@@ -400,17 +403,22 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.ACP.Get(id); !ok {
 		provMeta, found := providers.ByID(h.ACP.Providers(), sess.ProviderID)
 		if !found {
-			writeErr(w, http.StatusConflict, "unknown provider")
+			httpx.WriteErr(w, http.StatusConflict, "unknown provider")
 			return
 		}
 		if providers.NeedsSandbox(provMeta) && sess.SandboxID == "" {
-			writeErr(w, http.StatusConflict, "agent runtime not running")
+			httpx.WriteErr(w, http.StatusConflict, "agent runtime not running")
 			return
 		}
 	}
 
 	// Upgrade before Start so the browser leaves CONNECTING quickly.  A
 	// slow/hanging ACP Start used to block the handshake entirely.
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin:     func(r *http.Request) bool { return httpx.CheckSameOrigin(r, h.PublicURL) },
+	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
@@ -473,6 +481,8 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 		switch strings.ToLower(in.Type) {
 		case "prompt":
 			run.prompt(in.Text)
+		case "command":
+			run.command(in.Name, in.Args)
 		case "cancel":
 			run.cancelTurn()
 		case "auto":
@@ -481,14 +491,4 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 			run.answerPermission(in.RequestID, in.OptionID)
 		}
 	}
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"message": msg})
 }

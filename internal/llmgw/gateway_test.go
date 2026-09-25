@@ -56,7 +56,7 @@ func TestEnsureInternalWithoutOpenAI(t *testing.T) {
 	if err := gw.EnsureInternal(context.Background(), ""); err != nil {
 		t.Fatal(err)
 	}
-	vk, err := gw.Store().GetVirtualKey(context.Background(), llmgw.InternalVirtualKey)
+	vk, err := gw.Store().GetVirtualKey(context.Background(), gw.InternalKey())
 	if err != nil || vk.Name != llmgw.InternalVirtualName {
 		t.Fatalf("internal key: err=%v vk=%#v", err, vk)
 	}

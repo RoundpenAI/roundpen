@@ -11,39 +11,24 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
-	"github.com/RoundpenAI/roundpen/internal/acp/manager"
-	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
-	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
-	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
-	"github.com/RoundpenAI/roundpen/internal/api/agentapi"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
-	"github.com/RoundpenAI/roundpen/internal/api/envapi"
-	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
-	"github.com/RoundpenAI/roundpen/internal/api/platform"
-	"github.com/RoundpenAI/roundpen/internal/api/workspaceapi"
 	"github.com/RoundpenAI/roundpen/internal/assistant"
-	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/authz"
-	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/browser"
-	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/config"
-	"github.com/RoundpenAI/roundpen/internal/gitcred"
-	"github.com/RoundpenAI/roundpen/internal/hostsetup"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/imconnect"
-	"github.com/RoundpenAI/roundpen/internal/llmgw"
+	"github.com/RoundpenAI/roundpen/internal/issue"
 	"github.com/RoundpenAI/roundpen/internal/memory"
+	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/policy"
-	"github.com/RoundpenAI/roundpen/internal/preview"
-	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/secretbox"
 	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
@@ -61,34 +46,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	dataRoot := cfg.EffectiveDataRoot()
-	if abs, err := filepath.Abs(dataRoot); err == nil {
-		dataRoot = abs
-	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
-	logger.Info("roundpend starting",
-		slog.String("http_addr", cfg.HTTPAddr),
-		slog.String("data_root", dataRoot),
-		slog.String("backend", cfg.Backend),
-		slog.String("docker_host", cfg.DockerHost),
-		slog.String("default_image", cfg.DefaultImage),
-		slog.Bool("workspace_ssh", cfg.WorkspaceUsesSSH()),
-	)
+	logger, dataRoot := newLogger(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	db, err := storage.OpenPostgres(ctx, cfg.DatabaseURL)
-	if err != nil {
-		logger.Error("postgres", slog.Any("err", err))
-		os.Exit(1)
-	}
+	db := openStorage(ctx, cfg, logger)
 	defer db.Close()
-
-	if err := db.MigrateEmbedded(ctx); err != nil {
-		logger.Error("migrate", slog.Any("err", err))
-		os.Exit(1)
-	}
 
 	trust, err := httpx.ParseTrust(cfg.TrustedProxies)
 	if err != nil {
@@ -97,37 +61,26 @@ func main() {
 	}
 	httpx.SetDefaultTrust(trust)
 
-	settingsStore := settings.NewStore(db.SQL)
+	// Master key sealing DB secrets (upstream API keys, settings payload).
+	// Lives under the local DataRoot — EffectiveDataRoot may point at a
+	// remote Docker host in SSH mode, but this file is read by roundpend.
+	secretBox, err := secretbox.LoadOrGenerate(filepath.Join(cfg.DataRoot, "secret.key"), cfg.SecretKey, logger)
+	if err != nil {
+		logger.Error("secret master key", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	settingsStore := settings.NewStore(db.SQL, secretBox)
 	appSettings, err := settings.Bootstrap(ctx, settingsStore, cfg)
 	if err != nil {
 		logger.Error("settings bootstrap", slog.Any("err", err))
 		os.Exit(1)
 	}
-
-	var allowRegMu sync.RWMutex
-	allowPublicRegistration := cfg.AllowPublicRegistration
-	allowRegistration := func() bool {
-		allowRegMu.RLock()
-		defer allowRegMu.RUnlock()
-		return allowPublicRegistration
-	}
-	setAllowRegistration := func(v bool) {
-		allowRegMu.Lock()
-		allowPublicRegistration = v
-		cfg.AllowPublicRegistration = v
-		allowRegMu.Unlock()
-	}
+	allowRegistration, setAllowRegistration := newRegistrationGate(cfg)
 
 	userStore := storage.NewUserStore(db)
 	sessionStore := storage.NewSessionStore(db)
-	if cfg.BootstrapAdmin {
-		if err := auth.BootstrapAdmin(ctx, userStore, cfg.APIKey, logger); err != nil {
-			logger.Error("bootstrap admin", slog.Any("err", err))
-			os.Exit(1)
-		}
-	} else {
-		logger.Info("ROUNDPEN_BOOTSTRAP_ADMIN is false — admin bootstrap skipped")
-	}
+	bootstrapAdmin(ctx, cfg, userStore, logger)
 
 	wsFS, err := newWorkspaceFS(cfg, dataRoot, logger)
 	if err != nil {
@@ -169,169 +122,33 @@ func main() {
 	browserHub.SetConfig(cfg)
 	defer browserHub.Close()
 
-	eng := multi.New(multi.Options{
-		DataRoot:      dataRoot,
-		DockerHost:    cfg.DockerHost,
-		DockerRuntime: cfg.DockerRuntime,
-		DisableQEMU:   !cfg.QEMUEnabled,
-	})
-	eng.Warm()
-	defer func() { _ = eng.Close() }()
-	if err := eng.QEMUErr(); err != nil {
-		logger.Warn("qemu not ready", slog.Any("err", err))
-	} else {
-		logger.Info("qemu backend enabled")
-	}
-	probe := &runtime.Probe{Cfg: cfg}
-	if eng.HasDocker() {
-		probe.DockerReady = true
-		logger.Info("docker backend enabled")
-	} else if err := eng.DockerErr(); err != nil {
-		probe.DockerErr = err.Error()
-		logger.Warn("docker not ready", slog.Any("err", err))
-	}
-	probe.HasImage = func(ctx context.Context, ref string) bool {
-		ok, err := eng.HasImage(ctx, ref)
-		return err == nil && ok
-	}
-	probe.DockerCheck = eng.HasDocker
-	sbSvc = sandbox.NewService(store, eng, wsFS, cfg.DefaultImage, cfg.DefaultTTL, logger, sandbox.WithTemplates(tplSvc), sandbox.WithBrowser(browserHub))
-	mgr = sbSvc
-	logger.Info("using multi backend", slog.String("default_agent_engine", cfg.Backend))
-	// The hub dials the user's browser container from the control plane:
-	// sandbox.Service.Dial authorizes via authz, so pass an internal actor.
-	browserHub.SetDialer(internalDialer{sandbox: sbSvc})
-	browserHub.SetTokenLookup(func(sandboxID string) string {
-		// The hub runs inside the control plane: sandbox.Service.Get authorizes
-		// via authz, so pass an internal admin actor for this metadata read.
-		ctx := authz.WithActor(context.Background(), authz.Actor{Username: "roundpend", Admin: true})
-		sb, err := sbSvc.Get(ctx, sandboxID)
-		if err != nil || sb == nil || sb.Metadata == nil {
-			return ""
-		}
-		return sb.Metadata["browserToken"]
-	})
+	bs := newBackendSet(cfg, dataRoot, wsFS, browserHub, tplSvc, store, logger)
+	defer func() { _ = bs.engine.Close() }()
+	mgr = bs.sandboxes
+	sbSvc = bs.sandboxes
+	probe := bs.probe
 
-	mux := http.NewServeMux()
-	auth.Mount(mux, userStore, sessionStore, allowRegistration)
-	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
-	native := &httpapi.Handler{Manager: mgr, PublicURL: firstNonEmpty(cfg.PreviewPublicURL, cfg.LLMGW.PublicURL)}
-	native.Mount(mux)
-	native.MountTerminal(mux)
-	(&browser.Handler{Sandboxes: mgr, Hub: browserHub}).Mount(mux)
-	previewHandler := &preview.Handler{
-		Manager:   mgr,
-		Tokens:    preview.NewStore(cfg.PreviewTokenTTL),
-		PublicURL: cfg.PreviewPublicURL,
-	}
-	previewHandler.Mount(mux)
+	mux, previewHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
 
-	envStore := &userenv.Store{DB: db.SQL}
-	gitStore := &gitcred.Store{DB: db.SQL}
-	envSvc := &userenv.Service{
-		Store:     envStore,
-		Sandboxes: mgr,
-		Git:       gitStore,
-		Probe:     probe,
-		Cfg:       cfg,
-		Config: userenv.Config{
-			BrowserTemplate: cfg.DefaultBrowserTemplate,
-			AgentTemplate:   cfg.DefaultAgentTemplate,
-		},
-	}
-	(&envapi.Handler{
-		Envs: envSvc,
-		Cfg:  cfg,
-		Dial: sbSvc,
-	}).Mount(mux)
-	(&workspaceapi.Handler{
-		Envs:  envSvc,
-		Files: sbSvc,
-	}).Mount(mux)
-	(&gitcred.Handler{Store: gitStore}).Mount(mux)
-	(&runtime.Handler{Probe: probe}).Mount(mux)
-
-	setupSvc := &hostsetup.Service{
-		Probe:  probe,
-		Runner: hostsetup.NewRunner(hostsetup.RunnerConfig{RepoRoot: hostsetup.FindRepoRoot()}),
-		Cfg:    cfg,
-	}
-	(&hostsetup.Handler{Svc: setupSvc, Cfg: cfg}).Mount(mux)
+	envSvc, envHandler, oauthSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
 
 	memStore := memory.NewPgStore(db)
 	memSvc := &memory.Service{Store: memStore, Logger: logger}
 	go memory.RunPurge(ctx, memStore, logger, time.Hour)
 
-	gw := llmgw.New(db, llmgw.Options{
-		LogBodyMaxBytes: cfg.LLMGW.LogBodyMaxBytes,
-		PublicURL:       cfg.LLMGW.PublicURL,
-		Logger:          logger,
-	})
-	gw.Mount(mux)
-	go memory.RunReembed(ctx, memStore, gw, logger, 2*time.Minute)
+	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, logger)
 
-	reconfigureLLMGW := func(ctx context.Context) error {
-		if err := gw.ApplyConfig(ctx, cfg.LLMGW); err != nil {
-			return err
-		}
-		if cfg.LLMGW.Enabled && cfg.LLMGW.OpenAI != nil {
-			memSvc.Embed = gw
-		} else {
-			memSvc.Embed = nil
-		}
-		logger.Info("llmgw reconfigured",
-			slog.Bool("enabled", cfg.LLMGW.Enabled),
-			slog.Bool("openai", cfg.LLMGW.OpenAI != nil),
-			slog.Bool("anthropic", cfg.LLMGW.Anthropic != nil),
-			slog.Int("virtual_keys", len(cfg.LLMGW.VirtualKeys)),
-			slog.String("embedding_model", cfg.LLMGW.EmbeddingModel),
-		)
-		return nil
-	}
-	if err := reconfigureLLMGW(ctx); err != nil {
-		logger.Error("llmgw configure", slog.Any("err", err))
-		os.Exit(1)
-	}
-
-	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
-		AllowPublicReg:   setAllowRegistration,
-		PreviewTokens:    previewHandler.Tokens,
-		PreviewHandler:   previewHandler,
-		Sandbox:          sbSvc,
-		Templates:        tplSvc,
-		Probe:            probe,
-		ReattachBuilder:  reattachBuilder,
-		ReconfigureLLMGW: reconfigureLLMGW,
-		LlmgwMounted:     true,
-	}, appSettings)
+	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, previewHandler, sbSvc, tplSvc, probe, reattachBuilder, reconfigureLLMGW)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
 
-	publicURL := cfg.LLMGW.PublicURL
-	if publicURL == "" {
-		publicURL = cfg.PreviewPublicURL
-	}
-	if publicURL == "" {
-		// HTTPAddr is a listen address (":19001" or "0.0.0.0:19001"), not a URL.
-		// Concatenating it onto http://127.0.0.1 produced http://127.0.0.10.0.0.0:19001.
-		publicURL = sysagent.LoopbackBase(cfg.HTTPAddr)
-	}
+	publicURL := publicBaseURL(cfg)
 
-	setupSvc.PlanLLM = func(ctx context.Context, w hostsetup.WizardContext, f hostsetup.HostFacts) (hostsetup.Plan, error) {
-		if !cfg.LLMGW.Enabled || cfg.LLMGW.OpenAI == nil {
-			return hostsetup.Plan{}, fmt.Errorf("openai upstream not configured")
-		}
-		p := &hostsetup.LLMPlanner{
-			BaseURL: publicURL,
-			APIKey:  llmgw.InternalVirtualKey,
-			Model:   cfg.LLMGW.DefaultModel,
-		}
-		return p.Plan(ctx, w, f)
-	}
+	setupSvc.PlanLLM = newLLMPlanner(cfg, publicURL, gw)
 
-	envSvc.SetGateway(publicURL, llmgw.InternalVirtualKey)
-	envSvc.Config.DefaultModel = gw.DefaultModel
+	resolveProxy := wireEnvService(envSvc, envHandler, settingsSvc, userStore, publicURL, gw, userVKey)
+
 	agentStore := &agentsession.Store{DB: db.SQL}
 	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
 	if s := settingsSvc.Current(); s.WebSearchEndpoint != "" || s.WebSearchApiKey != "" {
@@ -343,50 +160,15 @@ func main() {
 			"endpoint", endpoint,
 			"api_key_set", s.WebSearchApiKey != "")
 	}
-	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
-		LoopbackBase: loopback,
-		LLMKey:       llmgw.InternalVirtualKey,
-		DefaultModel: gw.DefaultModel,
-		BrowserHub:   browserHub,
-		BrowserSlots: envSvc,
-		AgentSlots:   envSvc,
-		History:      agentStore,
-		Roundpen: &tools.RoundpenBinder{
-			Envs:      envSvc,
-			Templates: tplSvc,
-			Sessions:  agentStore,
-			Settings:  settingsSvc,
-		},
+	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw)
 
-		WebSearch: func() (string, string) {
-			s := settingsSvc.Current()
-			return s.WebSearchEndpoint, s.WebSearchApiKey
-		},
-	})
-	provisioner := &agentenv.Provisioner{
-		Sandboxes: mgr,
-		Config: agentenv.Config{
-			PublicURL:  publicURL,
-			TemplateID: cfg.DefaultAgentTemplate,
-			Category:   "Agent",
-		},
-	}
-	agentHandler := &agentapi.Handler{
-		Log:         logger,
-		Store:       agentStore,
-		ACP:         acpMgr,
-		Provisioner: provisioner,
-		Sandboxes:   mgr,
-		LLMGW:       gw,
-		Hub:         browserHub,
-		Envs:        envSvc,
-		Tasks:       &browsetask.Store{DB: db.SQL},
-		Tickets:     nil, // set below after ticketStore
-		DestroySbx:  true,
-	}
-	ticketStore := &assistticket.Store{DB: db.SQL}
-	agentHandler.Tickets = ticketStore
+	acpMgr := newACPManager(loopback, mgr, envSvc, tplSvc, browserHub, agentStore, settingsSvc, gw, autoEvaluator, logger)
+
+	agentHandler, ticketStore, provisioner := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, resolveProxy, userVKey)
+
 	agentHandler.Mount(mux)
+	issueStore := &issue.Store{DB: db.SQL}
+	(&issue.Handler{Store: issueStore}).Mount(mux)
 	assistantStore := &assistant.Store{DB: db.SQL}
 	denialStore := &policy.DenialStore{DB: db.SQL}
 
@@ -426,6 +208,10 @@ func main() {
 
 	// Console SPA last — catch-all for non-API GET paths (embedded via internal/ui).
 	mux.Handle("/", ui.Handler())
+
+	// Gitea access tokens expire (1h by default): keep them fresh and push the
+	// new token into any running agent sandbox, or long sessions lose push.
+	go oauthRefresher(ctx, oauthSvc, envSvc, logger)
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -482,6 +268,35 @@ type internalDialer struct {
 func (d internalDialer) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {
 	ctx = authz.WithActor(ctx, authz.Actor{Username: "roundpend", Admin: true})
 	return d.sandbox.Dial(ctx, sandboxID, destPort)
+}
+
+// oauthRefresher refreshes expiring federated tokens and re-injects the git
+// credentials of the affected users' running agent sandboxes.
+func oauthRefresher(ctx context.Context, svc *oauth.Service, envs *userenv.Service, logger *slog.Logger) {
+	const interval = 10 * time.Minute
+	// Refresh anything expiring within 30 minutes; injected tokens must stay
+	// usable for a sandbox that runs long between EnsureAgent calls.
+	const horizon = 30 * time.Minute
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			users, err := svc.RefreshExpiring(ctx, time.Now().Add(horizon))
+			if err != nil {
+				logger.Warn("oauth refresh", slog.Any("err", err))
+				continue
+			}
+			for _, user := range users {
+				envs.ReinjectGit(ctx, user)
+			}
+			if len(users) > 0 {
+				logger.Info("oauth tokens refreshed", slog.Int("users", len(users)))
+			}
+		}
+	}
 }
 
 func firstNonEmpty(vals ...string) string {

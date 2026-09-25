@@ -2,6 +2,7 @@ package agentapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -12,8 +13,10 @@ import (
 	acpclient "github.com/RoundpenAI/roundpen/internal/acp/client"
 	"github.com/RoundpenAI/roundpen/internal/acp/manager"
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
+	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -26,6 +29,11 @@ type permWait struct {
 	title    string
 	options  any
 	ticketID string
+
+	// cancel is closed by /clear to abandon the dialog (the turn it belongs to
+	// is being cancelled anyway); cancelOnce keeps the close idempotent.
+	cancel     chan struct{}
+	cancelOnce sync.Once
 }
 
 // runner owns the ACP turn lifecycle for one agent session: prompt execution,
@@ -37,15 +45,19 @@ type runner struct {
 	session *agentsession.Session
 	acp     *manager.Manager
 	rt      *manager.Runtime
+	// actor is the identity the runtime was started with; /clear reuses it to
+	// restart the runtime.
+	actor manager.Actor
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mu      sync.Mutex
-	clients map[*wsClient]struct{}
-	busy    bool
-	auto    bool
-	pending []string // queued prompts while a turn is in progress
+	mu           sync.Mutex
+	clients      map[*wsClient]struct{}
+	busy         bool
+	auto         bool
+	clearPending bool     // /clear arrived mid-turn; reset once the turn ends
+	pending      []string // queued prompts while a turn is in progress
 
 	reply   strings.Builder
 	thought strings.Builder
@@ -215,11 +227,19 @@ func (r *runner) onEvent(ev acpclient.Event) {
 
 // prompt queues a new user message and starts a turn if the runner is idle.
 func (r *runner) prompt(text string) {
+	r.startUserTurn(text, map[string]string{"type": "user"})
+}
+
+// startUserTurn persists a user turn and runs it, or queues it while busy.
+// meta carries the row's display information: plain prompts use
+// {"type":"user"}, slash commands add the command name and the text the user
+// typed (the persisted content is the expanded instruction text).
+func (r *runner) startUserTurn(text string, meta any) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
 	}
-	r.persist(agentsession.RoleUser, text, map[string]string{"type": "user"})
+	r.persist(agentsession.RoleUser, text, meta)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.busy {
@@ -265,13 +285,21 @@ func (r *runner) runTurn(text string) {
 	r.finishTurn()
 }
 
-// finishTurn clears busy state and optionally starts a queued turn.
+// finishTurn clears busy state and optionally starts a queued turn. A pending
+// /clear takes the turn slot instead: the runner stays busy across the reset
+// and reset() calls back here once the fresh runtime is up.
 func (r *runner) finishTurn() {
 	r.mu.Lock()
-	r.busy = false
 	r.reply.Reset()
 	r.thought.Reset()
 	r.thinkAt = time.Time{}
+	if r.clearPending {
+		r.clearPending = false
+		r.mu.Unlock()
+		go r.reset()
+		return
+	}
+	r.busy = false
 	if len(r.pending) > 0 {
 		next := r.pending[0]
 		r.pending = r.pending[1:]
@@ -283,6 +311,119 @@ func (r *runner) finishTurn() {
 	r.broadcast(r.snapshot())
 }
 
+// autoResolve answers a permission request under auto mode. Interactive
+// questions are never auto-answered: their options are the answer choices, so
+// picking one would put words in the user's mouth. Tool actions go through the
+// policy classifier and are blocked when it denies. handled false means no
+// automatic answer applies and the interactive dialog runs.
+func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID, title string) (acp.RequestPermissionResponse, bool) {
+	if r.handler.AutoMode != nil && !isQuestionRequest(req) {
+		verdict, err := r.classifyPermission(req, title)
+		if err != nil && r.handler.Log != nil {
+			r.handler.Log.Warn("auto mode classifier failed",
+				"session", r.session.ID, "tool", title, "err", err)
+		}
+		if !verdict.Allowed() {
+			rule := strings.TrimSpace(verdict.Rule)
+			reason := strings.TrimSpace(verdict.Reason)
+			line := rule
+			if reason != "" {
+				line += " — " + reason
+			}
+			opt := acpclient.PickReject(req.Options)
+			r.persist(agentsession.RolePermission, line, agentsession.PermissionMeta{
+				Type:      "permission",
+				RequestID: reqID,
+				Title:     title,
+				OptionID:  opt,
+				Outcome:   "auto_deny",
+				Options:   req.Options,
+				ToolID:    reqID,
+				Rule:      rule,
+				Reason:    reason,
+			})
+			r.mu.Lock()
+			resp := r.permResult(reqID, opt, opt == "")
+			r.mu.Unlock()
+			return resp, true
+		}
+	}
+	if isQuestionRequest(req) {
+		return acp.RequestPermissionResponse{}, false
+	}
+	if opt := acpclient.PickOrdinaryAllow(req.Options); opt != "" {
+		r.persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
+			Type:      "permission",
+			RequestID: reqID,
+			Title:     title,
+			OptionID:  opt,
+			Outcome:   "auto",
+			Options:   req.Options,
+			ToolID:    reqID,
+		})
+		r.mu.Lock()
+		resp := r.permResult(reqID, opt, false)
+		r.mu.Unlock()
+		return resp, true
+	}
+	return acp.RequestPermissionResponse{}, false
+}
+
+// isQuestionRequest reports whether the request is an interactive question or
+// plan approval rather than a tool action. The in-process agent marks these
+// with a meta field because their titles carry the question text.
+func isQuestionRequest(req acp.RequestPermissionRequest) bool {
+	v, _ := req.Meta[sysagent.PermissionMetaKindKey].(string)
+	return v == sysagent.PermissionKindQuestion
+}
+
+// classifyPermission builds the classifier request from the pending call plus
+// recent conversation context.
+func (r *runner) classifyPermission(req acp.RequestPermissionRequest, title string) (automode.Verdict, error) {
+	args := ""
+	if req.ToolCall.RawInput != nil {
+		if b, err := json.Marshal(req.ToolCall.RawInput); err == nil {
+			args = string(b)
+		}
+	}
+	kind := ""
+	if req.ToolCall.Kind != nil {
+		kind = string(*req.ToolCall.Kind)
+	}
+	options := make([]string, 0, len(req.Options))
+	for _, o := range req.Options {
+		options = append(options, o.Name)
+	}
+	return r.handler.AutoMode.Evaluate(r.ctx, automode.Request{
+		Name:       title,
+		Title:      title,
+		Kind:       kind,
+		Args:       args,
+		Options:    options,
+		UserDigest: r.recentDigest(),
+	})
+}
+
+// recentDigest renders user/assistant turns for the classifier; tool results
+// are excluded by RecentDigest so read content cannot steer the verdict.
+func (r *runner) recentDigest() string {
+	var digest []automode.DigestMessage
+	if r.handler.Store != nil {
+		if rows, err := r.handler.Store.ListRecentMessages(r.ctx, r.session.ID, 200); err == nil {
+			for _, m := range agentsession.AfterLastClear(rows) {
+				digest = append(digest, automode.DigestMessage{Role: m.Role, Content: m.Content})
+			}
+		}
+	}
+	r.mu.Lock()
+	reply := strings.TrimSpace(r.reply.String())
+	r.mu.Unlock()
+	if reply != "" {
+		digest = append(digest, automode.DigestMessage{Role: "assistant", Content: reply})
+	}
+	return automode.RecentDigest(digest, 4000)
+}
+
 // onPermission is wired to the ACP runtime exactly once per runtime and
 // outlives any individual WebSocket connection.  If no client is connected the
 // permission is auto-cancelled so the turn is not stuck.
@@ -290,7 +431,7 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	reqID := string(req.ToolCall.ToolCallId)
 	ch := make(chan string, 1)
 	r.mu.Lock()
-	r.perms[reqID] = &permWait{ch: ch}
+	r.perms[reqID] = &permWait{ch: ch, cancel: make(chan struct{})}
 	auto := r.auto
 	r.mu.Unlock()
 
@@ -300,29 +441,9 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	}
 	r.flushThought()
 
-	// AskUserQuestion encodes answer choices as permission options with the
-	// "ask-" ToolCallId prefix; auto-approve must never pick an answer on
-	// behalf of the user.
-	isUserQuestion := strings.HasPrefix(reqID, "ask-")
-	if auto && !isUserQuestion {
-		if opt := acpclient.PickOrdinaryAllow(req.Options); opt != "" {
-			r.persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
-				Type:      "permission",
-				RequestID: reqID,
-				Title:     title,
-				OptionID:  opt,
-				Outcome:   "auto",
-				Options:   req.Options,
-				ToolID:    reqID,
-			})
-			r.mu.Lock()
-			delete(r.perms, reqID)
-			r.mu.Unlock()
-			return acp.RequestPermissionResponse{
-				Outcome: acp.RequestPermissionOutcome{
-					Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(opt)},
-				},
-			}, nil
+	if auto {
+		if resp, handled := r.autoResolve(req, reqID, title); handled {
+			return resp, nil
 		}
 	}
 
@@ -408,6 +529,12 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 			return resp, nil
 		case <-time.After(300 * time.Millisecond):
 			// Re-check whether a client is still connected.
+		case <-r.permCancel(reqID):
+			r.cancelPermission(reqID, title, req.Options)
+			r.mu.Lock()
+			resp := r.permResult(reqID, "", true)
+			r.mu.Unlock()
+			return resp, nil
 		case <-r.ctx.Done():
 			r.cancelPermission(reqID, title, req.Options)
 			r.mu.Lock()
@@ -433,6 +560,18 @@ func (r *runner) cancelPermission(reqID, title string, options any) {
 	r.mu.Lock()
 	delete(r.perms, reqID)
 	r.mu.Unlock()
+}
+
+// permCancel returns the /clear abandonment channel for a pending permission
+// request. A missing entry yields nil (a channel that never fires), which is
+// exactly the "no dialog to cancel" semantics the select needs.
+func (r *runner) permCancel(reqID string) <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if pw := r.perms[reqID]; pw != nil {
+		return pw.cancel
+	}
+	return nil
 }
 
 // permResult builds the response from the map and removes the entry.
@@ -476,12 +615,12 @@ func (r *runner) cancelTurn() {
 	_ = r.acp.Cancel(r.ctx, r.session.ID)
 }
 
-// setAuto toggles permission auto-approval for the runtime.
+// setAuto toggles classifier-based auto approval for the runtime.
 func (r *runner) setAuto(v bool) {
 	r.mu.Lock()
 	r.auto = v
 	r.mu.Unlock()
-	r.rt.SetAutoApprove(v)
+	r.rt.SetAutoMode(v)
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -551,8 +690,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	}
 
 	rt, startErr := h.ACP.Start(context.Background(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{
-		Actor:       actor,
-		AutoApprove: true,
+		Actor: actor,
 	})
 	if startErr != nil {
 		if existing, ok := h.ACP.Get(sess.ID); ok {
@@ -571,6 +709,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 		session: sess,
 		acp:     h.ACP,
 		rt:      rt,
+		actor:   actor,
 		ctx:     ctx,
 		cancel:  cancel,
 		clients: make(map[*wsClient]struct{}),
@@ -579,7 +718,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	}
 	rt.SetEventHandler(r.onEvent)
 	rt.SetPermissionHandler(r.onPermission)
-	rt.SetAutoApprove(true)
+	rt.SetAutoMode(true)
 	h.runners[sess.ID] = r
 	return r, nil
 }

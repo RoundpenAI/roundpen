@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"crypto/subtle"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +23,10 @@ func NewMemoryUserStore() *MemoryUserStore {
 func (m *MemoryUserStore) GetByAPIKey(_ context.Context, apiKey string) (*User, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	hashed := HashAPIKey(apiKey)
 	for _, u := range m.users {
-		if u.APIKey == apiKey || u.APIKey == HashAPIKey(apiKey) {
+		if subtle.ConstantTimeCompare([]byte(u.APIKey), []byte(apiKey)) == 1 ||
+			subtle.ConstantTimeCompare([]byte(u.APIKey), []byte(hashed)) == 1 {
 			cp := u
 			return &cp, nil
 		}
@@ -102,6 +106,39 @@ func (m *MemoryUserStore) Delete(_ context.Context, username string) error {
 		return ErrNotFound
 	}
 	delete(m.users, username)
+	return nil
+}
+
+func (m *MemoryUserStore) SetModelSource(_ context.Context, username, source string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[username]
+	if !ok {
+		return ErrNotFound
+	}
+	u.ModelSource = source
+	u.UpdatedAt = time.Now().UTC()
+	m.users[username] = u
+	return nil
+}
+
+func (m *MemoryUserStore) SetSlotProxy(_ context.Context, username, slot, profileID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[username]
+	if !ok {
+		return ErrNotFound
+	}
+	switch slot {
+	case "agent":
+		u.AgentProxy = profileID
+	case "browser":
+		u.BrowserProxy = profileID
+	default:
+		return fmt.Errorf("unknown proxy slot %q", slot)
+	}
+	u.UpdatedAt = time.Now().UTC()
+	m.users[username] = u
 	return nil
 }
 

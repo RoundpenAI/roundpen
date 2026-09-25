@@ -6,14 +6,17 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
@@ -116,8 +119,11 @@ type Config struct {
 	BrowserTemplate string // default "browser"
 	AgentTemplate   string // default "code-agent"
 	PublicURL       string // control-plane / llmgw base, e.g. http://127.0.0.1:9527
-	VirtualKey      string // llmgw virtual key (not an upstream key)
-	DefaultModel    func() string
+	VirtualKey      string // llmgw fallback key (not an upstream key)
+	// UserVirtualKey resolves a per-user llmgw virtual key for sandbox
+	// injection, so LLM usage is attributable and revocable per user.
+	UserVirtualKey func(ctx context.Context, userID string) string
+	DefaultModel   func() string
 }
 
 // SetGateway records the public base URL and virtual key injected into new slots.
@@ -131,27 +137,83 @@ func (s *Service) SetGateway(publicURL, virtualKey string) {
 	}
 }
 
-func (s *Service) gatewayEnv() map[string]string {
+// gatewayEnv builds the control-plane env injected into new slots. Users on
+// model source "own" keep only the ROUNDPEN_* variables so the agents inside
+// the sandbox fall back to their own vendor login (subscription / free tier).
+func (s *Service) gatewayEnv(ctx context.Context, userID string) map[string]string {
 	base := strings.TrimRight(s.Config.PublicURL, "/")
 	if base == "" {
 		return nil
 	}
-	key := strings.TrimSpace(s.Config.VirtualKey)
-	if key == "" {
-		key = "vk-roundpen-internal"
-	}
 	env := map[string]string{
-		"ROUNDPEN_URL":         base,
-		"OPENAI_BASE_URL":      base + "/llmgw/openai",
-		"ANTHROPIC_BASE_URL":   base + "/llmgw/anthropic",
-		"OPENAI_API_KEY":       key,
-		"ANTHROPIC_API_KEY":    key,
-		"ANTHROPIC_AUTH_TOKEN": key,
+		"ROUNDPEN_URL": base,
 	}
+	if s.usesOwnModels(ctx, userID) {
+		return env
+	}
+	key := ""
+	if s.Config.UserVirtualKey != nil {
+		key = strings.TrimSpace(s.Config.UserVirtualKey(ctx, userID))
+	}
+	if key == "" {
+		key = strings.TrimSpace(s.Config.VirtualKey)
+	}
+	if key == "" {
+		// No gateway credential available: expose only ROUNDPEN_URL rather
+		// than advertising LLM endpoints that cannot authenticate.
+		return env
+	}
+	env["OPENAI_BASE_URL"] = base + "/llmgw/openai"
+	env["ANTHROPIC_BASE_URL"] = base + "/llmgw/anthropic"
+	env["OPENAI_API_KEY"] = key
+	env["ANTHROPIC_API_KEY"] = key
+	env["ANTHROPIC_AUTH_TOKEN"] = key
 	if s.Config.DefaultModel != nil {
 		agentenv.ApplyDefaultModel(env, s.Config.DefaultModel())
 	}
 	return env
+}
+
+// usesOwnModels reports the user's model-source preference; lookup failures
+// and unset hooks fall back to the gateway default.
+func (s *Service) usesOwnModels(ctx context.Context, userID string) bool {
+	if s == nil || s.ModelSource == nil {
+		return false
+	}
+	return agentenv.UsesOwnModels(s.ModelSource(ctx, userID))
+}
+
+// proxyFor resolves the egress proxy URL for a user's slot ("" = direct).
+func (s *Service) proxyFor(ctx context.Context, userID, slot string) string {
+	if s == nil || s.Proxy == nil {
+		return ""
+	}
+	return strings.TrimSpace(s.Proxy(ctx, userID, slot))
+}
+
+// browserLaunchArgs keeps the default browserless Chrome flags and appends the
+// slot's egress proxy. Chrome ignores credentials in --proxy-server, so
+// userinfo is stripped; an authenticated proxy needs an auth-less local hop.
+func browserLaunchArgs(proxyURL, controlPlaneHost string) string {
+	args := []string{"--window-size=1280,800", "--hide-scrollbars", "--mute-audio", "--disable-dev-shm-usage"}
+	if proxyURL = strings.TrimSpace(proxyURL); proxyURL != "" {
+		bare := proxyURL
+		if u, err := url.Parse(proxyURL); err == nil && u.Host != "" {
+			u.User = nil
+			bare = u.String()
+		}
+		args = append(args, "--proxy-server="+bare)
+		bypass := []string{"localhost", "127.0.0.1"}
+		if controlPlaneHost != "" {
+			bypass = append(bypass, controlPlaneHost)
+		}
+		args = append(args, "--proxy-bypass-list="+strings.Join(bypass, ";"))
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 // Service ensures fixed environments for a user.
@@ -159,9 +221,20 @@ type Service struct {
 	Store     slotStore
 	Sandboxes sandbox.Manager
 	Git       *gitcred.Store
-	Probe     *runtime.Probe
-	Config    Config
-	Cfg       *config.Config
+
+	// IdentityTokens supplies credentials from federated logins (OAuth).
+	// Manual PATs win for the same host; see the merge in injectGit.
+	IdentityTokens identityTokens
+	Probe          *runtime.Probe
+	Config         Config
+	Cfg            *config.Config
+
+	// ModelSource resolves a user's model-source preference (storage
+	// constants); nil or "" means the gateway default.
+	ModelSource func(ctx context.Context, userID string) string
+
+	// Proxy resolves a user's egress proxy URL for a slot ("" = direct).
+	Proxy func(ctx context.Context, userID, slot string) string
 
 	upgradeMu sync.Mutex // serializes agent upgrades per service
 }
@@ -303,15 +376,62 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 	return out, nil
 }
 
-func (s *Service) injectGit(ctx context.Context, userID, sandboxID string) {
-	if s == nil || s.Sandboxes == nil || s.Git == nil {
-		return
+// identityTokens is the subset of oauth.Service the sandbox injection needs.
+type identityTokens interface {
+	CredsForUser(ctx context.Context, userID string) ([]gitcred.Cred, error)
+}
+
+// gitCredentials merges hand-entered PATs (which win per host) with tokens
+// obtained by federated login.
+func (s *Service) gitCredentials(ctx context.Context, userID string) ([]gitcred.Cred, error) {
+	var pats []gitcred.Cred
+	if s.Git != nil {
+		got, err := s.Git.List(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		pats = got
 	}
-	script, err := s.Git.GuestInstallScript(ctx, userID)
+	if s.IdentityTokens == nil {
+		return pats, nil
+	}
+	idents, err := s.IdentityTokens.CredsForUser(ctx, userID)
 	if err != nil {
-		slog.Warn("git credentials script", "user", userID, "err", err)
+		slog.Warn("oauth git credentials", "user", userID, "err", err)
+		return pats, nil
+	}
+	return gitcred.MergeCreds(pats, idents), nil
+}
+
+// ReinjectGit rewrites the git credential files of a running agent sandbox.
+// It never starts one: without a running sandbox the next EnsureAgent injects.
+func (s *Service) ReinjectGit(ctx context.Context, userID string) {
+	if s == nil || s.Sandboxes == nil {
 		return
 	}
+	m, err := s.Store.Get(ctx, userID, SlotAgent)
+	if err != nil || m == nil || m.SandboxID == "" {
+		return
+	}
+	// The refresher runs without an HTTP actor; sandbox.Get authorizes callers.
+	ctx = authz.WithActor(ctx, authz.Actor{Username: "roundpend", Admin: true})
+	sb, err := s.Sandboxes.Get(ctx, m.SandboxID)
+	if err != nil || sb == nil || sb.Status != sandbox.StatusRunning {
+		return
+	}
+	s.injectGit(ctx, userID, sb.ID)
+}
+
+func (s *Service) injectGit(ctx context.Context, userID, sandboxID string) {
+	if s == nil || s.Sandboxes == nil || (s.Git == nil && s.IdentityTokens == nil) {
+		return
+	}
+	creds, err := s.gitCredentials(ctx, userID)
+	if err != nil {
+		slog.Warn("git credentials", "user", userID, "err", err)
+		return
+	}
+	script := gitcred.InstallScript(creds)
 	execCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	res, err := s.Sandboxes.Exec(execCtx, sandboxID, sandbox.ExecRequest{
@@ -421,7 +541,13 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 		"ROUNDPEN_SLOT":    slot,
 		"ROUNDPEN_USER_ID": userID,
 	}
-	for k, v := range s.gatewayEnv() {
+	for k, v := range s.gatewayEnv(ctx, userID) {
+		env[k] = v
+	}
+	proxyURL := s.proxyFor(ctx, userID, slot)
+	// The control-plane host must bypass the proxy: agents reach it over the
+	// docker host / LAN, not the internet.
+	for k, v := range agentenv.ProxyEnv(proxyURL, agentenv.HostOf(s.Config.PublicURL), "host.docker.internal") {
 		env[k] = v
 	}
 	meta := map[string]string{
@@ -440,7 +566,7 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 		env["MAX_CONCURRENT_SESSIONS"] = "3"
 		env["CONNECTION_TIMEOUT"] = "600000"
 		env["ENABLE_DEBUGGER"] = "true"
-		env["DEFAULT_LAUNCH_ARGS"] = `["--window-size=1280,800","--hide-scrollbars","--mute-audio","--disable-dev-shm-usage"]`
+		env["DEFAULT_LAUNCH_ARGS"] = browserLaunchArgs(proxyURL, agentenv.HostOf(s.Config.PublicURL))
 		meta["browserToken"] = token
 	}
 	create := sandbox.CreateRequest{
@@ -476,10 +602,7 @@ func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (
 	s.upgradeMu.Lock()
 	defer s.upgradeMu.Unlock()
 
-	templateID := "code-agent"
-	if t := strings.TrimSpace(s.Config.AgentTemplate); t != "" {
-		templateID = t
-	}
+	templateID := s.agentTemplateID()
 	image, changed, digest, err := s.Sandboxes.RefreshTemplateImage(ctx, templateID)
 	if err != nil {
 		return nil, err
@@ -499,33 +622,11 @@ func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (
 		return &UpgradeResult{Status: "up_to_date", Image: image, Digest: digest, Environment: view}, nil
 	}
 
-	existingID := ""
-	if m, err := s.Store.Get(ctx, userID, SlotAgent); err != nil {
+	existingID, err := s.findAgentSlotID(ctx, userID)
+	if err != nil {
 		return nil, err
-	} else if m != nil && m.SandboxID != "" {
-		existingID = m.SandboxID
 	}
-	if existingID == "" {
-		// The mapping can be missing while the sandbox it names is still live
-		// (lost Upsert, manual cleanup); fall back to the stable slot name,
-		// mirroring List's discovery path.
-		if sb, err := s.Sandboxes.Resolve(ctx, sandbox.ResolveRequest{Name: slotSandboxName(SlotAgent, userID)}); err == nil && sb != nil {
-			existingID = sb.ID
-		}
-	}
-	existed := false
-	if existingID != "" {
-		switch err := s.Sandboxes.Delete(ctx, existingID); {
-		case err == nil:
-			existed = true
-		case errors.Is(err, sandbox.ErrNotFound):
-			// Already gone: the rebuild below still creates a fresh sandbox.
-		default:
-			return nil, err
-		}
-	}
-
-	sb, err := s.EnsureAgent(ctx, userID)
+	sb, existed, err := s.respawnAgentLocked(ctx, userID, existingID, templateID)
 	if err != nil {
 		return nil, err
 	}
@@ -545,6 +646,126 @@ func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (
 			Status: string(sb.Status), Name: sb.Name, Image: sb.Image,
 		},
 	}, nil
+}
+
+// RecreateAgent rebuilds the user's Agent sandbox so provisioning changes
+// (e.g. the model source) apply. It does not create one when none exists.
+func (s *Service) RecreateAgent(ctx context.Context, userID string) (*UpgradeResult, error) {
+	if s.Sandboxes == nil {
+		return nil, fmt.Errorf("sandboxes not configured")
+	}
+	s.upgradeMu.Lock()
+	defer s.upgradeMu.Unlock()
+
+	existingID, err := s.findAgentSlotID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if existingID == "" {
+		return &UpgradeResult{Status: "absent"}, nil
+	}
+	templateID := s.agentTemplateID()
+	sb, _, err := s.respawnAgentLocked(ctx, userID, existingID, templateID)
+	if err != nil {
+		return nil, err
+	}
+	return &UpgradeResult{
+		Status: "recreated",
+		Image:  sb.Image,
+		Environment: EnvView{
+			Slot: SlotAgent, SandboxID: sb.ID, TemplateID: templateID,
+			Status: string(sb.Status), Name: sb.Name, Image: sb.Image,
+		},
+	}, nil
+}
+
+// RecreateBrowser rebuilds the user's managed Browser sandbox so provisioning
+// changes (e.g. the egress proxy) apply. No-op for external providers and when
+// no local browser sandbox exists.
+func (s *Service) RecreateBrowser(ctx context.Context, userID string) (*UpgradeResult, error) {
+	if s.Sandboxes == nil {
+		return nil, fmt.Errorf("sandboxes not configured")
+	}
+	s.upgradeMu.Lock()
+	defer s.upgradeMu.Unlock()
+
+	existingID, err := s.findSlotID(ctx, userID, SlotBrowser)
+	if err != nil {
+		return nil, err
+	}
+	if existingID == "" {
+		return &UpgradeResult{Status: "absent"}, nil
+	}
+	switch err := s.Sandboxes.Delete(ctx, existingID); {
+	case err == nil:
+	case errors.Is(err, sandbox.ErrNotFound):
+		// Already gone: the ensure below still creates a fresh sandbox.
+	default:
+		return nil, err
+	}
+	target, err := s.EnsureBrowser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	res := &UpgradeResult{Status: "recreated"}
+	if target != nil && target.Sandbox != nil {
+		sb := target.Sandbox
+		res.Image = sb.Image
+		res.Environment = EnvView{
+			Slot: SlotBrowser, SandboxID: sb.ID,
+			Status: string(sb.Status), Name: sb.Name, Image: sb.Image,
+		}
+	}
+	return res, nil
+}
+
+// findAgentSlotID returns the sandbox id backing the user's Agent slot, if any.
+func (s *Service) findAgentSlotID(ctx context.Context, userID string) (string, error) {
+	return s.findSlotID(ctx, userID, SlotAgent)
+}
+
+// findSlotID returns the sandbox id backing one of the user's slots, if any.
+func (s *Service) findSlotID(ctx context.Context, userID, slot string) (string, error) {
+	if m, err := s.Store.Get(ctx, userID, slot); err != nil {
+		return "", err
+	} else if m != nil && m.SandboxID != "" {
+		return m.SandboxID, nil
+	}
+	// The mapping can be missing while the sandbox it names is still live
+	// (lost Upsert, manual cleanup); fall back to the stable slot name,
+	// mirroring List's discovery path.
+	if sb, err := s.Sandboxes.Resolve(ctx, sandbox.ResolveRequest{Name: slotSandboxName(slot, userID)}); err == nil && sb != nil {
+		return sb.ID, nil
+	}
+	return "", nil
+}
+
+// respawnAgentLocked deletes the given agent sandbox (if any) and provisions a
+// fresh one; the caller must hold upgradeMu.
+func (s *Service) respawnAgentLocked(ctx context.Context, userID, existingID, templateID string) (*sandbox.Sandbox, bool, error) {
+	existed := false
+	if existingID != "" {
+		switch err := s.Sandboxes.Delete(ctx, existingID); {
+		case err == nil:
+			existed = true
+		case errors.Is(err, sandbox.ErrNotFound):
+			// Already gone: the rebuild below still creates a fresh sandbox.
+		default:
+			return nil, false, err
+		}
+	}
+	sb, err := s.EnsureAgent(ctx, userID)
+	if err != nil {
+		return nil, existed, err
+	}
+	return sb, existed, nil
+}
+
+func (s *Service) agentTemplateID() string {
+	if t := strings.TrimSpace(s.Config.AgentTemplate); t != "" {
+		return t
+	}
+	return "code-agent"
 }
 
 // randomToken returns a 32-char hex token for the browserless container.

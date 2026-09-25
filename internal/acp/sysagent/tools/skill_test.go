@@ -23,14 +23,12 @@ allowedTools:
 Run gsync from the repository root and fix any drift it reports.
 `
 
-func skillBinder() (*tools.AgentBinder, *memFiles, *stubExec) {
-	fs := &memFiles{data: map[string][]byte{}}
+func skillBinder() (*tools.AgentBinder, *stubExec) {
 	ex := &stubExec{ws: "host-ws", res: &sandbox.ExecResult{ExitCode: 0, Stdout: nil}}
 	return &tools.AgentBinder{
 		Slots: &stubAgentSlots{id: "sb"},
 		Exec:  ex,
-		Files: fs,
-	}, fs, ex
+	}, ex
 }
 
 func confirmCtx(t *testing.T, answer string) context.Context {
@@ -40,9 +38,21 @@ func confirmCtx(t *testing.T, answer string) context.Context {
 	})
 }
 
+func notFound() *sandbox.ExecResult {
+	return &sandbox.ExecResult{ExitCode: 0}
+}
+
+func execStdout(s string) *sandbox.ExecResult {
+	return &sandbox.ExecResult{ExitCode: 0, Stdout: []byte(s)}
+}
+
 func TestSkillInvoke(t *testing.T) {
-	binder, fs, _ := skillBinder()
-	fs.data[".roundpen/skills/gsync.md"] = []byte(gsyncSkillFile)
+	binder, ex := skillBinder()
+	ex.queue = []*sandbox.ExecResult{
+		execStdout(gsyncSkillFile), // gsync is installed
+		notFound(),                 // review → built-in fallback
+		notFound(),                 // nope → unknown
+	}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	if _, ok := reg.Get("Skill"); !ok {
@@ -50,12 +60,12 @@ func TestSkillInvoke(t *testing.T) {
 	}
 	actor := tools.Actor{Username: "alice"}
 
-	// Workspace skill, with args.
+	// Installed skill, with args.
 	out, err := reg.Call(context.Background(), actor, "Skill", json.RawMessage(`{"skill":"gsync","args":"force"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Run gsync from the repository root") || !strings.Contains(out, "force") || !strings.Contains(out, "workspace") {
+	if !strings.Contains(out, "Run gsync from the repository root") || !strings.Contains(out, "force") || !strings.Contains(out, "installed") {
 		t.Fatalf("out=%q", out)
 	}
 
@@ -87,29 +97,31 @@ func TestSkillInvoke(t *testing.T) {
 	}
 }
 
-func TestSkillWorkspaceOverridesBuiltin(t *testing.T) {
-	binder, fs, _ := skillBinder()
-	fs.data[".roundpen/skills/review.md"] = []byte(`---
+func TestSkillInstalledOverridesBuiltin(t *testing.T) {
+	binder, ex := skillBinder()
+	ex.queue = []*sandbox.ExecResult{execStdout(`---
 name: review
 description: Custom review workflow for this repo.
 ---
 Follow the team's custom review checklist in CONTRIBUTING.md.
-`)
+`)}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	out, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{"skill":"review"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "custom review checklist") || !strings.Contains(out, "workspace") {
-		t.Fatalf("workspace override did not win: %q", out)
+	if !strings.Contains(out, "custom review checklist") || !strings.Contains(out, "installed") {
+		t.Fatalf("installed override did not win: %q", out)
 	}
 }
 
 func TestSkillListMergesSources(t *testing.T) {
-	binder, fs, ex := skillBinder()
-	fs.data[".roundpen/skills/gsync.md"] = []byte(gsyncSkillFile)
-	ex.res = &sandbox.ExecResult{ExitCode: 0, Stdout: []byte("gsync\n")}
+	binder, ex := skillBinder()
+	ex.queue = []*sandbox.ExecResult{
+		execStdout("gsync\n"), // list output
+		execStdout(gsyncSkillFile),
+	}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 
@@ -120,8 +132,8 @@ func TestSkillListMergesSources(t *testing.T) {
 	if !strings.Contains(out, "commit") || !strings.Contains(out, "[builtin]") {
 		t.Fatalf("missing builtin: %q", out)
 	}
-	if !strings.Contains(out, "gsync") || !strings.Contains(out, "[workspace]") {
-		t.Fatalf("missing workspace skill: %q", out)
+	if !strings.Contains(out, "gsync") || !strings.Contains(out, "[installed]") {
+		t.Fatalf("missing installed skill: %q", out)
 	}
 	if !strings.Contains(out, "review") { // review is a builtin too
 		t.Fatalf("expected review: %q", out)
@@ -129,12 +141,16 @@ func TestSkillListMergesSources(t *testing.T) {
 }
 
 func TestSkillInstallInline(t *testing.T) {
-	binder, fs, _ := skillBinder()
+	binder, ex := skillBinder()
+	ex.queue = []*sandbox.ExecResult{
+		notFound(),                   // pre-check read: absent
+		execStdout("/home/roundpen"), // HOME resolution
+		execStdout("ok"),             // write
+	}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
 	actor := tools.Actor{Username: "alice"}
 
-	// Fresh install needs no interactor.
 	out, err := reg.Call(context.Background(), actor, "Skill", json.RawMessage(`{
 		"action":"install",
 		"content":`+jsonContent(gsyncSkillFile)+`
@@ -142,18 +158,15 @@ func TestSkillInstallInline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "Installed skill \"gsync\"") {
+	if !strings.Contains(out, `Installed skill "gsync"`) ||
+		!strings.Contains(out, "/home/roundpen/.roundpen/skills/gsync.md") {
 		t.Fatalf("out=%q", out)
 	}
-	if _, ok := fs.data[".roundpen/skills/gsync.md"]; !ok {
-		t.Fatal("skill file not written")
+	// The skill was written via $HOME with base64 so content stays safe.
+	cmd := strings.Join(ex.cmd, " ")
+	if !strings.Contains(cmd, "roundpen/skills") || !strings.Contains(cmd, "base64 -d") || !strings.Contains(cmd, "gsync") {
+		t.Fatalf("write cmd=%q", ex.cmd)
 	}
-	// The stored file round-trips.
-	rc, err := fs.ReadFile(context.Background(), "sb", ".roundpen/skills/gsync.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rc.Close()
 }
 
 func TestSkillInstallOverwriteConfirm(t *testing.T) {
@@ -165,10 +178,14 @@ Use gsync with --deep always.
 `
 	for _, tc := range []struct{ answer, want string }{
 		{"Cancel", "not installed"},
-		{"Overwrite", "Installed skill \"gsync\""},
+		{"Overwrite", `Installed skill "gsync"`},
 	} {
-		binder, fs, _ := skillBinder()
-		fs.data[".roundpen/skills/gsync.md"] = []byte(gsyncSkillFile)
+		binder, ex := skillBinder()
+		ex.queue = []*sandbox.ExecResult{
+			execStdout(gsyncSkillFile),   // pre-check read: exists
+			execStdout("/home/roundpen"), // HOME resolution (overwrite path)
+			execStdout("ok"),             // write (overwrite path)
+		}
 		reg := tools.NewRegistry()
 		tools.RegisterSkill(reg, binder, nil)
 		out, err := reg.Call(confirmCtx(t, tc.answer), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{
@@ -185,10 +202,11 @@ Use gsync with --deep always.
 }
 
 func TestSkillInstallShadowsBuiltinNeedsConfirm(t *testing.T) {
-	binder, _, _ := skillBinder()
+	binder, ex := skillBinder()
+	ex.queue = []*sandbox.ExecResult{notFound()}
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, binder, nil)
-	// No workspace skill, but "commit" is a builtin → confirm required.
+	// No installed skill, but "commit" is a builtin → confirm required.
 	out, err := reg.Call(confirmCtx(t, "Cancel"), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{
 		"action":"install",
 		"content":`+jsonContent(`---
@@ -217,35 +235,40 @@ func TestSkillInstallFromURL(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	binder, _, _ := skillBinder()
-	adminReg := tools.NewRegistry()
-	tools.RegisterSkill(adminReg, binder, tools.NewWebHTTPClient(tools.WebClientOptions{AllowLoopback: true}))
 	actor := tools.Actor{Username: "alice"}
 
-	out, err := adminReg.Call(context.Background(), actor, "Skill", json.RawMessage(`{
-		"action":"install",
-		"url":"`+ts.URL+`/gsync.md"
-	}`))
-	if err != nil {
-		t.Fatal(err)
+	install := func(url string) string {
+		binder, ex := skillBinder()
+		ex.queue = []*sandbox.ExecResult{
+			notFound(),                   // pre-check read: absent
+			execStdout("/home/roundpen"), // HOME resolution
+			execStdout("ok"),             // write
+		}
+		reg := tools.NewRegistry()
+		tools.RegisterSkill(reg, binder, tools.NewWebHTTPClient(tools.WebClientOptions{AllowLoopback: true}))
+		out, err := reg.Call(context.Background(), actor, "Skill", json.RawMessage(`{
+			"action":"install",
+			"url":"`+url+`"
+		}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
 	}
-	if !strings.Contains(out, "Installed skill \"gsync\"") {
+
+	out := install(ts.URL + "/gsync.md")
+	if !strings.Contains(out, `Installed skill "gsync"`) {
 		t.Fatalf("out=%q", out)
 	}
 
 	// Name derived from URL basename when frontmatter has none.
-	out, err = adminReg.Call(context.Background(), actor, "Skill", json.RawMessage(`{
-		"action":"install",
-		"url":"`+ts.URL+`/no-name.md"
-	}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "Installed skill \"no-name\"") {
+	out = install(ts.URL + "/no-name.md")
+	if !strings.Contains(out, `Installed skill "no-name"`) {
 		t.Fatalf("out=%q", out)
 	}
 
 	// URL install without a web client is refused.
+	binder, _ := skillBinder()
 	noWeb := tools.NewRegistry()
 	tools.RegisterSkill(noWeb, binder, nil)
 	if _, err := noWeb.Call(context.Background(), actor, "Skill", json.RawMessage(`{
@@ -260,7 +283,6 @@ func TestSkillInstallValidation(t *testing.T) {
 	reg := tools.NewRegistry()
 	tools.RegisterSkill(reg, &tools.AgentBinder{
 		Slots: &stubAgentSlots{id: "sb"},
-		Files: &memFiles{data: map[string][]byte{}},
 		Exec:  &stubExec{},
 	}, nil)
 	actor := tools.Actor{Username: "alice"}
@@ -284,40 +306,52 @@ func TestSkillInstallValidation(t *testing.T) {
 }
 
 func TestSkillRemove(t *testing.T) {
-	binder, fs, ex := skillBinder()
-	fs.data[".roundpen/skills/gsync.md"] = []byte(gsyncSkillFile)
+	remove := func(answer string) (string, []string) {
+		binder, ex := skillBinder()
+		ex.queue = []*sandbox.ExecResult{
+			execStdout(gsyncSkillFile), // read: exists
+			execStdout("ok"),           // rm
+		}
+		reg := tools.NewRegistry()
+		tools.RegisterSkill(reg, binder, nil)
+		out, err := reg.Call(confirmCtx(t, answer), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{"action":"remove","skill":"gsync"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out, ex.cmd
+	}
 
 	// Cancel keeps the skill.
-	reg := tools.NewRegistry()
-	tools.RegisterSkill(reg, binder, nil)
-	out, err := reg.Call(confirmCtx(t, "Cancel"), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{"action":"remove","skill":"gsync"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	out, _ := remove("Cancel")
 	if !strings.Contains(out, "not removed") {
 		t.Fatalf("out=%q", out)
 	}
 
 	// Confirm removes (exec runs rm).
-	out, err = reg.Call(confirmCtx(t, "Remove"), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{"action":"remove","skill":"gsync"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "Removed skill \"gsync\"") {
+	out, cmd := remove("Remove")
+	if !strings.Contains(out, `Removed skill "gsync"`) {
 		t.Fatalf("out=%q", out)
 	}
-	if !strings.Contains(strings.Join(ex.cmd, " "), "rm -f") {
-		t.Fatalf("expected rm script, cmd=%q", ex.cmd)
+	if !strings.Contains(strings.Join(cmd, " "), "rm -f") {
+		t.Fatalf("expected rm script, cmd=%q", cmd)
 	}
 
 	// Built-in cannot be removed.
-	_, err = reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{"action":"remove","skill":"commit"}`))
+	binder, ex := skillBinder()
+	ex.queue = []*sandbox.ExecResult{notFound()}
+	reg := tools.NewRegistry()
+	tools.RegisterSkill(reg, binder, nil)
+	_, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{"action":"remove","skill":"commit"}`))
 	if err == nil || !strings.Contains(err.Error(), "built-in") {
 		t.Fatalf("expected built-in error, got %v", err)
 	}
 
-	// Unknown workspace skill.
-	_, err = reg.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{"action":"remove","skill":"nope"}`))
+	// No installed skill.
+	binder2, ex2 := skillBinder()
+	ex2.queue = []*sandbox.ExecResult{notFound()}
+	reg2 := tools.NewRegistry()
+	tools.RegisterSkill(reg2, binder2, nil)
+	_, err = reg2.Call(context.Background(), tools.Actor{Username: "alice"}, "Skill", json.RawMessage(`{"action":"remove","skill":"nope"}`))
 	if err == nil {
 		t.Fatal("expected not-installed error")
 	}

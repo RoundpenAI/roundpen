@@ -144,14 +144,14 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 			StatusCode: http.StatusInternalServerError, RequestBytes: int64(len(reqRaw)),
 			Error: err.Error(), CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
 		}, bodiesIfLogged(logLimit, &reqLog))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "internal relay error", http.StatusInternalServerError)
 		return
 	}
 
 	copyHeaders(upReq.Header, r.Header)
 	setUpstreamAuth(upReq.Header, provider, upstream.APIKey)
 
-	upResp, err := g.httpClient.Do(upReq)
+	client, err := g.clientFor(upstream.ProxyURL)
 	if err != nil {
 		g.logTransaction(ctx, Transaction{
 			RequestID: requestID, VirtualKey: vk.Key, VirtualName: vk.Name,
@@ -159,7 +159,19 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 			StatusCode: http.StatusBadGateway, RequestBytes: int64(len(reqRaw)),
 			Error: err.Error(), CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
 		}, bodiesIfLogged(logLimit, &reqLog))
-		http.Error(w, "upstream error: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, "upstream proxy unavailable", http.StatusBadGateway)
+		return
+	}
+
+	upResp, err := client.Do(upReq)
+	if err != nil {
+		g.logTransaction(ctx, Transaction{
+			RequestID: requestID, VirtualKey: vk.Key, VirtualName: vk.Name,
+			Provider: provider, Method: r.Method, Path: r.URL.Path, UpstreamURL: targetURL,
+			StatusCode: http.StatusBadGateway, RequestBytes: int64(len(reqRaw)),
+			Error: err.Error(), CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
+		}, bodiesIfLogged(logLimit, &reqLog))
+		http.Error(w, "upstream request failed", http.StatusBadGateway)
 		return
 	}
 	defer upResp.Body.Close()

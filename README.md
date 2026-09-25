@@ -25,6 +25,9 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 | Browser | Docker | browserless/chrome 容器；CDP + 自带 debugger 实时视图（来源可配：托管/局域网/云/本机） |
 | Mobile | 预留 | 后续独立 VM（QEMU） |
 
+> `Mobile` 槽位是给 Agent 用的手机环境（QEMU，预留），和客户端没关系。
+> 手机上用的客户端叫 **移动端控制台**（`mobile/`，Flutter），见「本地开发（贡献者）」。
+
 ## 架构（摘要）
 
 ```
@@ -34,7 +37,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 
 | 层级 | 说明 |
 |------|------|
-| 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、`/v1/me/environments`。`policy` / `toolgw` 仍是空包 |
+| 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、策略边界（`policy`：网络 / 能力 / 目录 + 软拒绝）、`/v1/me/environments` |
 | 环境抽象 | Sandbox Manager + 用户槽位映射（`user_environments`） |
 | 后端 | **Agent / Browser → Docker**；**Desktop / Mobile 预留 QEMU**；`multi` 按 slot 路由 |
 | 镜像 | `internal/template`（slot）+ `images/code-agent/`（官方 OCI）+ `ghcr.io/browserless/chrome`（Browser，pull） |
@@ -49,6 +52,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 4. **Web 控制台**：助手优先（`/a`）/ 设置；浏览器与镜像入口为高级/管理员
 5. **ACP Agent 网关**：助手绑定会话 UI；Browser CDP 绑用户 Browser 环境
 6. **最小审计**：创建 / 删除 / exec / settings 写 slog
+7. **议题与任务跟踪**：对话中产生的议题落库（`ISS-n`），澄清边界/方向/决策后写版本化 Spec / Plan（`DOC-n`），拆成任务清单（`TSK-n`）逐个实现；控制台 `/issues` 可读可改
 
 助手产品模型见 [docs/superpowers/specs/2026-09-12-assistant-first-ui-design.md](docs/superpowers/specs/2026-09-12-assistant-first-ui-design.md)。对话默认安静执行；进度在助手详情「此刻」；卡壳时通过协助单升级人类。策略软拒绝（网络/目录/能力）可查询且可申请，不会自动刷单。
 
@@ -75,7 +79,8 @@ make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver�
 控制台已嵌入二进制，宿主机**不必安装 Node / Go**：
 
 ```bash
-cp .env.compose.example .env   # 可选
+cp .env.compose.example .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env   # 必填：数据库口令（无默认弱口令）
 docker compose up -d --build
 # 浏览器打开 http://127.0.0.1:9527
 # 首次启动：docker compose logs roundpend | head   # admin 密码与 API Key 各打印一次
@@ -105,6 +110,16 @@ make dev            # pg0 → roundpend :19001 + UI :19000
 # 浏览器打开 http://127.0.0.1:19000/
 ```
 
+**移动端控制台**（可选，Flutter，需要本机装 Flutter SDK；控制面本身不需要 Dart）：
+
+```bash
+make mobile-setup   # 首次：cd mobile && flutter pub get
+make mobile-dev     # 模拟器/真机运行；先起 make dev，App 里填 http://<本机局域网IP>:19001
+```
+
+注意：**不要用 `flutter run -d chrome` 调试**——WebSocket 鉴权走原生握手 header，浏览器会丢弃它。
+鼠标键盘调试用模拟器，真机验收用 dev build；iOS 首次访问局域网地址会弹「本地网络」权限，需要允许。
+
 环境变量示例见 [.env.example](.env.example)。
 
 ## 技术选型
@@ -121,6 +136,7 @@ make dev            # pg0 → roundpend :19001 + UI :19000
 ## 路线图
 
 - **近期**：固定环境模型 + Browser 迁 Docker / Playwright（多来源：托管/局域网/云/本机）；删除多开沙箱 / E2B 兼容；删除 Kern 与 Agent-QEMU 默认路径
+- **移动端**：移动端控制台（`mobile/`，Flutter）——对话核心优先，后续接 slash 命令、议题等（与 `Mobile` 槽位是两件事）
 - **中期**：镜像可视化定制加深；Agent 容器工作区增强
 - **远期**：Mobile 槽位、集群扩展与企业能力
 

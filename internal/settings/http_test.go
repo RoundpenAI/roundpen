@@ -69,7 +69,7 @@ func TestAdminSettingsHTTP(t *testing.T) {
 		DataRoot:        "./data",
 		HTTPAddr:        ":9527",
 	}
-	store := settings.NewStore(db.SQL)
+	store := settings.NewStore(db.SQL, nil)
 	current, err := settings.Bootstrap(ctx, store, cfg)
 	if err != nil {
 		t.Fatal(err)

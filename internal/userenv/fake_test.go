@@ -86,6 +86,8 @@ type fakeSandboxes struct {
 	refreshes      int
 	refreshRef     string
 	deletes        int
+
+	execs []sandbox.ExecRequest
 }
 
 func (f *fakeSandboxes) put(sb *sandbox.Sandbox) {
@@ -148,7 +150,7 @@ func (f *fakeSandboxes) Create(_ context.Context, req sandbox.CreateRequest) (*s
 				sb.Image = f.refreshImage
 			}
 		case "qemu":
-			sb.Image = "images/agent-qemu/out/agent.qcow2"
+			sb.Image = "images/legacy-agent.qcow2"
 		}
 	}
 	f.put(sb)
@@ -225,8 +227,14 @@ func (f *fakeSandboxes) Rename(context.Context, string, string) (*sandbox.Sandbo
 func (f *fakeSandboxes) Update(context.Context, string, sandbox.UpdateRequest) (*sandbox.Sandbox, error) {
 	return nil, fmt.Errorf("unused")
 }
-func (f *fakeSandboxes) Exec(context.Context, string, sandbox.ExecRequest) (*sandbox.ExecResult, error) {
-	return nil, fmt.Errorf("unused")
+func (f *fakeSandboxes) Exec(_ context.Context, id string, req sandbox.ExecRequest) (*sandbox.ExecResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.byID[id]; !ok {
+		return nil, sandbox.ErrNotFound
+	}
+	f.execs = append(f.execs, req)
+	return &sandbox.ExecResult{ExitCode: 0}, nil
 }
 func (f *fakeSandboxes) RefreshTemplateImage(_ context.Context, templateRef string) (string, bool, string, error) {
 	f.mu.Lock()

@@ -7,6 +7,7 @@ type Upstream struct {
 	Provider      string            `json:"provider"`
 	BaseURL       string            `json:"base_url"`
 	APIKey        string            `json:"-"`
+	ProxyURL      string            `json:"proxy_url,omitempty"` // optional egress proxy
 	ModelMap      map[string]string `json:"model_map"`
 	ModelPatterns []ModelPattern    `json:"model_patterns"`
 	Enabled       bool              `json:"enabled"`

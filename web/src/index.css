@@ -314,8 +314,76 @@ button {
   max-width: 100%;
 }
 
+/* /clear boundary: a divider, not a bubble */
+.chat-pane-scroll .semi-ai-chat-dialogue-content-bubble:has(.chat-clear-divider) {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  max-width: 100%;
+}
+
+.chat-clear-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.35rem 0;
+  color: var(--semi-color-text-2, #6b7280);
+  font-size: 0.75rem;
+}
+
+.chat-clear-divider::before,
+.chat-clear-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--semi-color-border, rgba(0, 0, 0, 0.12));
+}
+
+/* "/" command menu rows */
+.chat-skill-name {
+  font-weight: 600;
+}
+
+.chat-skill-desc {
+  margin-left: 0.5rem;
+  color: var(--semi-color-text-2, #6b7280);
+}
+
+.chat-skill-tag {
+  margin-left: 0.5rem;
+  padding: 0 0.35rem;
+  border-radius: 0.5rem;
+  background: var(--semi-color-fill-0, rgba(0, 0, 0, 0.05));
+  color: var(--semi-color-text-2, #6b7280);
+  font-size: 0.72rem;
+}
+
 .chat-pane-scroll .semi-ai-chat-dialogue-content-bubble {
   max-width: 100%;
+}
+
+/* Let bubbles shrink below their min-content on narrow screens. Semi's flex
+   chain defaults to min-width:auto, so a long unbreakable token prevents the
+   whole row from shrinking and overflow-x:hidden clips the right edge. */
+.chat-pane-scroll .semi-ai-chat-dialogue-wrapper,
+.chat-pane-scroll .semi-ai-chat-dialogue-container,
+.chat-pane-scroll .semi-ai-chat-dialogue-inner,
+.chat-pane-scroll .semi-ai-chat-dialogue-content,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-inner,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-custom-renderer,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-item {
+  min-width: 0;
+}
+
+.chat-pane-scroll .semi-ai-chat-dialogue-content-bubble,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-userBubble,
+.chat-pane-scroll .semi-ai-chat-dialogue .semi-markdownRender,
+.chat-pane-scroll .chat-activity-wrap,
+.chat-pane-scroll .chat-activity {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .chat-activity-wrap,
@@ -410,6 +478,27 @@ button {
 .chat-tool-summary:hover,
 .chat-thought-summary:hover {
   color: var(--semi-color-text-1);
+}
+
+.chat-thought-summary {
+  gap: 0.45rem;
+}
+
+.chat-thought-label {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  align-items: baseline;
+  gap: 0.35rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.chat-thought-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.85;
 }
 
 .chat-tool-group-list {

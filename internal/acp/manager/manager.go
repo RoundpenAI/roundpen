@@ -17,8 +17,8 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
-	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 )
 
@@ -39,9 +39,15 @@ type SysDeps struct {
 	// Roundpen is in-process management tools (envs/templates/sessions/settings).
 	Roundpen *tools.RoundpenBinder
 
-	WebSearch func() (endpoint, key string) // nil，或 endpoint 与 key 均为空 → 不注册 WebSearch
+	// WebSearch 返回 (endpoint, key, proxy)。nil，或 endpoint 与 key 均为空
+	// → 不注册 WebSearch；proxy 同时用于 WebFetch/Skill install 的出口。
+	WebSearch func() (endpoint, key, proxy string)
 
 	History sysagent.MessageSource
+
+	// AutoMode classifies tool calls for the in-process System Agent when the
+	// chat Auto toggle is on (nil disables classifier-based auto approval).
+	AutoMode automode.Evaluator
 }
 
 // Runtime is a live ACP connection for one agent session.
@@ -57,6 +63,10 @@ type Runtime struct {
 	// seedHistory: stdio/Claude just did NewSession; first Prompt gets a
 	// Postgres transcript preamble (same projection as System Agent).
 	seedHistory bool
+
+	// setSysAuto flips classifier-based auto approval on the in-process
+	// System Agent; nil for external (stdio) runtimes.
+	setSysAuto func(bool)
 
 	gen    uint64
 	cancel context.CancelFunc
@@ -84,9 +94,6 @@ func New(log *slog.Logger, sandboxes sandbox.Manager, list []providers.Provider,
 	if list == nil {
 		list = providers.Default()
 	}
-	if sys.LLMKey == "" {
-		sys.LLMKey = llmgw.InternalVirtualKey
-	}
 	return &Manager{
 		log:       log,
 		sandboxes: sandboxes,
@@ -108,8 +115,7 @@ func (m *Manager) Providers() []providers.Provider {
 
 // StartOpts configures Start.
 type StartOpts struct {
-	AutoApprove bool
-	Actor       Actor
+	Actor Actor
 }
 
 // Start connects an ACP agent for the given Roundpen agent session.
@@ -126,11 +132,12 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	}
 	m.mu.Unlock()
 
-	bridge := acpclient.New(m.log, m.sandboxes, sandboxID, opts.AutoApprove, opts.Actor.Authz())
+	bridge := acpclient.New(m.log, m.sandboxes, sandboxID, opts.Actor.Authz())
 	runCtx, cancel := context.WithCancel(context.Background())
 
 	var conn *acp.ClientSideConnection
 	var runtimeGen uint64
+	var sysAgent *sysagent.Agent
 	switch p.Mode {
 	case "sysadmin", "mock", "":
 		c2aR, c2aW := io.Pipe()
@@ -142,6 +149,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		}
 		reg := tools.NewRegistry()
 		tools.RegisterRoundpen(reg, m.sys.Roundpen)
+		tools.RegisterIssues(reg, &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase}, sessionID)
 		tools.RegisterBrowser(reg, &tools.BrowserBinder{
 			Hub:       m.sys.BrowserHub,
 			Slots:     m.sys.BrowserSlots,
@@ -152,17 +160,17 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Exec:  m.sandboxes,
 			Files: m.sandboxes,
 		}
-		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{})
+		webSearchEndpoint, webSearchAPIKey, webProxy := "", "", ""
+		if m.sys.WebSearch != nil {
+			webSearchEndpoint, webSearchAPIKey, webProxy = m.sys.WebSearch()
+		}
+		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{ProxyURL: webProxy})
 		tools.RegisterShell(reg, binder)
 		tools.RegisterFiles(reg, binder)
 		tools.RegisterSearch(reg, binder)
 		tools.RegisterInteractive(reg)
 		tools.RegisterSkill(reg, binder, webClient)
 		tools.RegisterWebFetch(reg, &tools.WebBinder{HTTP: webClient, Model: llmCfg})
-		webSearchEndpoint, webSearchAPIKey := "", ""
-		if m.sys.WebSearch != nil {
-			webSearchEndpoint, webSearchAPIKey = m.sys.WebSearch()
-		}
 		tools.RegisterWebSearch(reg, &tools.WebSearchBinder{
 			Endpoint: webSearchEndpoint,
 			APIKey:   webSearchAPIKey,
@@ -174,7 +182,9 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Actor:     opts.Actor,
 			History:   m.sys.History,
 			SessionID: sessionID,
+			Evaluator: m.sys.AutoMode,
 		})
+		sysAgent = agent
 		asc := acp.NewAgentSideConnection(agent, a2cW, c2aR)
 		agent.SetAgentConnection(asc)
 		asc.SetLogger(m.log)
@@ -259,6 +269,10 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		gen:         runtimeGen,
 		cancel:      cancel,
 	}
+	if sysAgent != nil {
+		sid := string(sess.SessionId)
+		rt.setSysAuto = func(on bool) { sysAgent.SetAutoMode(sid, on) }
+	}
 	m.mu.Lock()
 	m.runtimes[sessionID] = rt
 	m.mu.Unlock()
@@ -294,10 +308,12 @@ func (rt *Runtime) SetPermissionHandler(fn func(acp.RequestPermissionRequest) (a
 	rt.bridge.SetPermissionHandler(fn)
 }
 
-// SetAutoApprove toggles ordinary permission auto-approval on the live bridge.
-func (rt *Runtime) SetAutoApprove(v bool) {
-	if rt.bridge != nil {
-		rt.bridge.SetAutoApprove(v)
+// SetAutoMode toggles classifier-based auto approval. The in-process System
+// Agent consults the policy evaluator itself; external agents are classified
+// by the runner's permission handler instead.
+func (rt *Runtime) SetAutoMode(v bool) {
+	if rt.setSysAuto != nil {
+		rt.setSysAuto(v)
 	}
 }
 

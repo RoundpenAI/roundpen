@@ -2,8 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   ACTIVITY_MODEL,
+  CLEAR_DIVIDER_MODEL,
   agentMessageToSemi,
   agentMessagesToSemi,
+  isActivityMessage,
+  isClearDivider,
 } from './semiChatAdapter.ts'
 import type { AgentMessage } from '../api.ts'
 
@@ -88,6 +91,35 @@ describe('agentMessageToSemi', () => {
     assert.equal(out.role, 'system')
     assert.equal(out.content, 'notice')
   })
+
+  it('shows the typed text for slash command turns', () => {
+    const m: AgentMessage = {
+      id: 'cmd',
+      sessionId: 's',
+      role: 'user',
+      content: 'Running skill "review" (builtin).\n\nReview the most recent changes…',
+      meta: { type: 'user', command: 'review', commandArgs: '关注并发', display: '/review 关注并发' },
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    const out = agentMessageToSemi(m)
+    assert.equal(out.role, 'user')
+    assert.equal(out.content, '/review 关注并发')
+  })
+
+  it('marks /clear markers as a divider', () => {
+    const m: AgentMessage = {
+      id: 'clear',
+      sessionId: 's',
+      role: 'event',
+      content: '上下文已清空',
+      meta: { type: 'clear' },
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    const out = agentMessageToSemi(m)
+    assert.equal(out.model, CLEAR_DIVIDER_MODEL)
+    assert.equal(isClearDivider(out), true)
+    assert.equal(isActivityMessage(out), false)
+  })
 })
 
 describe('agentMessagesToSemi', () => {
@@ -149,5 +181,35 @@ describe('agentMessagesToSemi', () => {
     assert.ok(Array.isArray(out[1]?.content))
     assert.equal((out[1]?.content as unknown[]).length, 3)
     assert.equal(out[2]?.content, 'done')
+  })
+
+  it('marks an activity turn in_progress while a thought streams', () => {
+    const rows: AgentMessage[] = [
+      {
+        id: 'th1',
+        sessionId: 's',
+        role: 'assistant',
+        content: 'checking git status',
+        meta: { type: 'thought', status: 'in_progress' },
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 't1',
+        sessionId: 's',
+        role: 'tool',
+        content: '',
+        meta: {
+          type: 'tool_call',
+          toolId: 'c1',
+          title: 'Bash',
+          status: 'completed',
+        },
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+    ]
+    const out = agentMessagesToSemi(rows)
+    assert.equal(out.length, 1)
+    assert.equal(out[0]?.model, ACTIVITY_MODEL)
+    assert.equal(out[0]?.status, 'in_progress')
   })
 })

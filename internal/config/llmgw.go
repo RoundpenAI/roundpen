@@ -21,8 +21,9 @@ type LLMGWConfig struct {
 
 // LLMGWUpstream is env/bootstrap input for a provider vault row.
 type LLMGWUpstream struct {
-	BaseURL string
-	APIKey  string
+	BaseURL  string
+	APIKey   string
+	ProxyURL string // optional egress proxy (http/https/socks5)
 }
 
 // LLMGWVirtualKey is a client-facing credential seed.
@@ -56,7 +57,11 @@ func loadLLMGW() (LLMGWConfig, error) {
 		if openaiBase == "" || openaiKey == "" {
 			return cfg, fmt.Errorf("ROUNDPEN_LLMGW_OPENAI_BASE_URL and ROUNDPEN_LLMGW_OPENAI_API_KEY must both be set")
 		}
-		cfg.OpenAI = &LLMGWUpstream{BaseURL: openaiBase, APIKey: openaiKey}
+		cfg.OpenAI = &LLMGWUpstream{
+			BaseURL:  openaiBase,
+			APIKey:   openaiKey,
+			ProxyURL: strings.TrimSpace(os.Getenv("ROUNDPEN_LLMGW_OPENAI_PROXY_URL")),
+		}
 	}
 
 	antBase := strings.TrimSpace(os.Getenv("ROUNDPEN_LLMGW_ANTHROPIC_BASE_URL"))
@@ -65,7 +70,11 @@ func loadLLMGW() (LLMGWConfig, error) {
 		if antBase == "" || antKey == "" {
 			return cfg, fmt.Errorf("ROUNDPEN_LLMGW_ANTHROPIC_BASE_URL and ROUNDPEN_LLMGW_ANTHROPIC_API_KEY must both be set")
 		}
-		cfg.Anthropic = &LLMGWUpstream{BaseURL: antBase, APIKey: antKey}
+		cfg.Anthropic = &LLMGWUpstream{
+			BaseURL:  antBase,
+			APIKey:   antKey,
+			ProxyURL: strings.TrimSpace(os.Getenv("ROUNDPEN_LLMGW_ANTHROPIC_PROXY_URL")),
+		}
 	}
 
 	keys, err := ParseVirtualKeys(os.Getenv("ROUNDPEN_LLMGW_VIRTUAL_KEYS"))

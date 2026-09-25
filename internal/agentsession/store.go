@@ -45,6 +45,39 @@ const (
 	RoleEvent      = "event"
 )
 
+// MetaTypeClear marks a context boundary written by /clear (a role=event row).
+// Projections that build model context must drop every row at or before the
+// last marker, while the transcript itself keeps them.
+const MetaTypeClear = "clear"
+
+// AfterLastClear returns the rows after the last /clear marker, or all rows
+// when the session has none. The result aliases rows.
+func AfterLastClear(rows []*Message) []*Message {
+	for i := len(rows) - 1; i >= 0; i-- {
+		m := rows[i]
+		if m == nil || m.Role != RoleEvent {
+			continue
+		}
+		if metaTypeOf(m.Meta) == MetaTypeClear {
+			return rows[i+1:]
+		}
+	}
+	return rows
+}
+
+func metaTypeOf(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var wrap struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &wrap); err != nil {
+		return ""
+	}
+	return wrap.Type
+}
+
 // ToolMeta is stored in agent_messages.meta for role=tool rows.
 type ToolMeta struct {
 	Type   string `json:"type"`
@@ -87,9 +120,11 @@ type PermissionMeta struct {
 	RequestID string `json:"requestId,omitempty"`
 	Title     string `json:"title,omitempty"`
 	OptionID  string `json:"optionId,omitempty"`
-	Outcome   string `json:"outcome,omitempty"` // requested | selected | cancelled | auto
+	Outcome   string `json:"outcome,omitempty"` // requested | selected | cancelled | auto | auto_deny
 	Options   any    `json:"options,omitempty"`
 	ToolID    string `json:"toolId,omitempty"`
+	Rule      string `json:"rule,omitempty"`   // auto_deny: matched classifier rule
+	Reason    string `json:"reason,omitempty"` // auto_deny: classifier explanation
 }
 
 // Store persists sessions and messages.
@@ -339,6 +374,40 @@ func (s *Store) UpsertToolMessage(ctx context.Context, sessionID string, patch T
 		Meta:      raw,
 		CreatedAt: created,
 	}, nil
+}
+
+// ListRecentMessages returns the newest messages for a session, in
+// chronological order (oldest of the returned window first).
+func (s *Store) ListRecentMessages(ctx context.Context, sessionID string, limit int) ([]*Message, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT id, session_id, role, content, meta, created_at
+		FROM agent_messages WHERE session_id=$1 ORDER BY created_at DESC LIMIT $2`, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Message
+	for rows.Next() {
+		var msg Message
+		var meta sql.NullString
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &meta, &msg.CreatedAt); err != nil {
+			return nil, err
+		}
+		if meta.Valid {
+			msg.Meta = json.RawMessage(meta.String)
+		}
+		out = append(out, &msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for l, r := 0, len(out)-1; l < r; l, r = l+1, r-1 {
+		out[l], out[r] = out[r], out[l]
+	}
+	return out, nil
 }
 
 // ListMessages returns messages for a session.
