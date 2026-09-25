@@ -22,6 +22,10 @@ type AppSettings struct {
 	AllowPublicRegistration bool   `json:"allowPublicRegistration"`
 	DefaultImage            string `json:"defaultImage"`
 	DefaultTtlSeconds       int    `json:"defaultTtlSeconds"`
+	// AgentImage pins the Agent sandbox image, overriding the agent template's
+	// own image while the template still supplies its resources. Empty keeps
+	// the template in charge.
+	AgentImage string `json:"agentImage"`
 	LlmgwEnabled            bool   `json:"llmgwEnabled"`
 	LlmgwPublicURL          string `json:"llmgwPublicUrl"`
 	LlmgwLogBodyMaxBytes    int    `json:"llmgwLogBodyMaxBytes"`
@@ -64,6 +68,12 @@ func defaultAutoModeSettings() AutoModeSettings {
 		SoftDeny:    []string{automode.DefaultsToken},
 		HardDeny:    []string{automode.DefaultsToken},
 	}
+}
+
+// normalize trims free-text values before validation.
+func (s *AppSettings) normalize() {
+	s.AgentImage = strings.TrimSpace(s.AgentImage)
+	s.normalizeAutoMode()
 }
 
 func (s *AppSettings) normalizeAutoMode() {
@@ -162,6 +172,9 @@ func (s AppSettings) Validate() error {
 	if strings.TrimSpace(s.DefaultImage) == "" {
 		return fmt.Errorf("defaultImage is required")
 	}
+	if err := validateAgentImage(s.AgentImage); err != nil {
+		return err
+	}
 	if s.DefaultTtlSeconds <= 0 {
 		return fmt.Errorf("defaultTtlSeconds must be positive")
 	}
@@ -189,6 +202,33 @@ func (s AppSettings) Validate() error {
 				return fmt.Errorf("%s: entry exceeds %d characters", r.field, autoModeMaxEntryRunes)
 			}
 		}
+	}
+	return nil
+}
+
+const agentImageMaxLen = 300
+
+// validateAgentImage accepts an OCI image reference typed by an admin. The
+// Agent slot is Docker-only, so qcow2 disks and pasted URLs are rejected here
+// with a readable message instead of failing later at sandbox creation.
+func validateAgentImage(ref string) error {
+	if ref == "" {
+		return nil
+	}
+	if len(ref) > agentImageMaxLen {
+		return fmt.Errorf("agentImage is too long (max %d characters)", agentImageMaxLen)
+	}
+	if strings.Contains(ref, "://") {
+		return fmt.Errorf("agentImage must be an image reference, not a URL (e.g. ghcr.io/roundpenai/code-agent:0.1.0)")
+	}
+	if strings.ContainsAny(ref, " \t\r\n") {
+		return fmt.Errorf("agentImage must not contain whitespace")
+	}
+	if strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("agentImage must not start with a dash")
+	}
+	if strings.HasSuffix(strings.ToLower(ref), ".qcow2") {
+		return fmt.Errorf("agentImage must be an OCI image; the Agent slot runs Docker only")
 	}
 	return nil
 }

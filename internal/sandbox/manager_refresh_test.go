@@ -33,6 +33,34 @@ func TestService_RefreshTemplateImagePassthrough(t *testing.T) {
 	}
 }
 
+func TestService_RefreshImagePassthrough(t *testing.T) {
+	be := newStubBackend("docker")
+	be.refreshChanged = true
+	be.refreshDigest = "sha256:def"
+	svc, _, _ := newTestService(t, be)
+
+	image, changed, digest, err := svc.RefreshImage(adminCtx(), "  ghcr.io/team/agent:manual  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image != "ghcr.io/team/agent:manual" || !changed || digest != "sha256:def" {
+		t.Fatalf("image=%q changed=%v digest=%q", image, changed, digest)
+	}
+	be.mu.Lock()
+	ref := be.refreshRef
+	be.mu.Unlock()
+	if ref != "ghcr.io/team/agent:manual" {
+		t.Fatalf("backend ref=%q", ref)
+	}
+}
+
+func TestService_RefreshImageRejectsEmptyRef(t *testing.T) {
+	svc, _, _ := newTestService(t, newStubBackend("docker"))
+	if _, _, _, err := svc.RefreshImage(adminCtx(), "   "); err == nil {
+		t.Fatal("expected an error for an empty ref")
+	}
+}
+
 func TestService_RefreshTemplateImageBackendError(t *testing.T) {
 	be := newStubBackend("docker")
 	be.refreshErr = errors.New("daemon unreachable")

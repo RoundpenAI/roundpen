@@ -236,7 +236,30 @@ type Service struct {
 	// with no browser items should do.
 	BrowserProfile func(userID string) browser.Profile
 
-	upgradeMu sync.Mutex // serializes agent upgrades per service
+	upgradeMu    sync.Mutex // serializes agent upgrades per service
+	agentImageMu sync.RWMutex
+	agentImage   string // admin override; "" = the agent template decides
+}
+
+// SetAgentImage updates the admin-level Agent image override. The template
+// still supplies the sandbox's CPU, memory and disk; the override only swaps
+// the image. Empty restores the template's own image.
+func (s *Service) SetAgentImage(image string) {
+	if s == nil {
+		return
+	}
+	s.agentImageMu.Lock()
+	s.agentImage = strings.TrimSpace(image)
+	s.agentImageMu.Unlock()
+}
+
+func (s *Service) agentImageOverride() string {
+	if s == nil {
+		return ""
+	}
+	s.agentImageMu.RLock()
+	defer s.agentImageMu.RUnlock()
+	return s.agentImage
 }
 
 // browserProfile resolves the browser source for a user ("" = global default).
@@ -589,6 +612,9 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 	if slot == SlotAgent {
 		create.ID = workspace.AgentSandboxID(userID)
 		create.WorkspaceID = workspace.UserWorkspaceID(userID)
+		// The admin image override swaps the image while the template keeps
+		// providing the resource limits.
+		create.Image = s.agentImageOverride()
 	}
 	return s.Sandboxes.Create(ctx, create)
 }
@@ -611,7 +637,7 @@ func (s *Service) UpgradeAgent(ctx context.Context, userID string, force bool) (
 	defer s.upgradeMu.Unlock()
 
 	templateID := s.agentTemplateID()
-	image, changed, digest, err := s.Sandboxes.RefreshTemplateImage(ctx, templateID)
+	image, changed, digest, err := s.refreshAgentImage(ctx, templateID)
 	if err != nil {
 		return nil, err
 	}
@@ -774,6 +800,15 @@ func (s *Service) agentTemplateID() string {
 		return t
 	}
 	return "code-agent"
+}
+
+// refreshAgentImage pulls the image the Agent slot will run: the admin
+// override when one is set, otherwise the template's own image.
+func (s *Service) refreshAgentImage(ctx context.Context, templateID string) (string, bool, string, error) {
+	if override := s.agentImageOverride(); override != "" {
+		return s.Sandboxes.RefreshImage(ctx, override)
+	}
+	return s.Sandboxes.RefreshTemplateImage(ctx, templateID)
 }
 
 // randomToken returns a 32-char hex token for the browserless container.

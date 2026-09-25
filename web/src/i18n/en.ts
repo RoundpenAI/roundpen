@@ -68,6 +68,9 @@ export const en = {
 
   'settings.general.allowRegistration': 'Allow public registration',
   'settings.general.defaultImage': 'Default template / image',
+  'settings.general.agentImage': 'Agent image',
+  'settings.general.agentImageHint':
+    'Empty follows the agent template. Set an image reference (with tag or digest) to run the Agent sandbox from it; the template still supplies CPU, memory and disk. Applies to new and rebuilt Agent containers.',
   'settings.general.defaultTtl': 'Default sandbox TTL',
 
   'settings.ttl.10m': '10 minutes',

@@ -69,6 +69,9 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'settings.general.allowRegistration': '允许公开注册',
   'settings.general.defaultImage': '默认模板 / 镜像',
+  'settings.general.agentImage': 'Agent 镜像',
+  'settings.general.agentImageHint':
+    '留空则跟随 Agent 模板。填写镜像引用（含 tag 或 digest）后，Agent 沙箱用该镜像启动，CPU / 内存 / 磁盘仍由模板决定。对新建和重建的 Agent 容器生效。',
   'settings.general.defaultTtl': '默认沙箱 TTL',
 
   'settings.ttl.10m': '10 分钟',

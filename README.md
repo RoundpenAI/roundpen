@@ -100,6 +100,9 @@ Agent 固定使用 Docker，镜像通过以下方式获取（无需本机持有 
 
 单二进制部署只需 Docker + 可达的注册表；`ROUNDPEN_AGENT_IMAGE` 可指向私有镜像。
 
+运行时也能改：**系统管理 → 通用 → Agent 镜像**手填镜像引用（留空跟随模板，模板仍决定 CPU / 内存 / 磁盘），
+保存后对新建与重建的 Agent 容器生效（不用重启进程）。
+
 详见 [deploy/compose/README.md](deploy/compose/README.md)。
 
 ### 本地开发（贡献者）

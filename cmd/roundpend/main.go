@@ -150,7 +150,7 @@ func main() {
 
 	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, itemsCat, logger)
 
-	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
+	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)

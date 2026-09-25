@@ -149,6 +149,10 @@ type Manager interface {
 	// reporting whether the local image digest changed.
 	RefreshTemplateImage(ctx context.Context, templateRef string) (image string, changed bool, digest string, err error)
 
+	// RefreshImage pulls a raw image reference (no template resolution) and
+	// reports whether the local image digest changed.
+	RefreshImage(ctx context.Context, ref string) (image string, changed bool, digest string, err error)
+
 	ListFiles(ctx context.Context, id, relPath string) ([]workspace.DirEntry, error)
 	StatFile(ctx context.Context, id, relPath string) (*workspace.FileStat, error)
 	ReadFile(ctx context.Context, id, relPath string) (io.ReadCloser, error)

@@ -512,6 +512,23 @@ func (s *Service) RefreshTemplateImage(ctx context.Context, templateRef string) 
 	return image, changed, digest, nil
 }
 
+// RefreshImage pulls an image reference that names no template (an admin-typed
+// Agent image, say) and reports whether the local image digest changed.
+func (s *Service) RefreshImage(ctx context.Context, ref string) (string, bool, string, error) {
+	if s.backend == nil {
+		return "", false, "", fmt.Errorf("backend not configured")
+	}
+	image := strings.TrimSpace(ref)
+	if image == "" {
+		return "", false, "", fmt.Errorf("image ref is empty")
+	}
+	changed, digest, err := s.backend.RefreshImage(ctx, image)
+	if err != nil {
+		return image, false, "", err
+	}
+	return image, changed, digest, nil
+}
+
 func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecResult, error) {
 	sb, err := s.load(ctx, id)
 	if err != nil {
