@@ -73,6 +73,9 @@ func (h *Handler) ensureHubKey(r *http.Request, sess *agentsession.Session) stri
 			userID = user.Username
 		}
 		if target, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && target != nil {
+			if h.Hub != nil {
+				h.Hub.SetProfile(target.Key, h.Envs.BrowserProfileFor(userID))
+			}
 			return target.Key
 		}
 		// EnsureBrowser failed: only the docker provider has a managed container

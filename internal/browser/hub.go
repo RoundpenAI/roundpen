@@ -29,6 +29,10 @@ type Hub struct {
 	// tokenLookup resolves a sandbox id to its stored browser token
 	// (sandbox.Metadata["browserToken"]); wired in cmd/roundpend.
 	tokenLookup func(sandboxID string) string
+	// profileResolver resolves a hub key to the user's configured browser
+	// profile from the settings catalog. Falls back to DefaultProfile(cfg)
+	// when nil or when the resolver returns ok=false.
+	profileResolver func(key string) (Profile, bool)
 
 	newEngine func(userDataDir string, width, height int) (Engine, error)
 }
@@ -76,6 +80,19 @@ func (h *Hub) SetTokenLookup(f func(sandboxID string) string) {
 	}
 	h.mu.Lock()
 	h.tokenLookup = f
+	h.mu.Unlock()
+}
+
+// SetProfileResolver supplies a callback that resolves a hub key to the user's
+// configured browser profile from the settings catalog. When set, attach uses
+// it before falling back to the process config, so a user-configured remote or
+// cloud endpoint is never silently overridden by the docker default.
+func (h *Hub) SetProfileResolver(f func(key string) (Profile, bool)) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.profileResolver = f
 	h.mu.Unlock()
 }
 
@@ -346,7 +363,15 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 
 	width, height := 1280, 800
 	if !recorded {
-		profile = DefaultProfile(cfg)
+		h.mu.Lock()
+		resolver := h.profileResolver
+		h.mu.Unlock()
+		if resolver != nil {
+			profile, recorded = resolver(id)
+		}
+		if !recorded {
+			profile = DefaultProfile(cfg)
+		}
 	}
 	provider := profile.EffectiveProvider()
 	// att starts token-less: host/remote/cloud may only pass the endpoint token

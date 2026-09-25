@@ -24,6 +24,10 @@ func (s *stubSlots) EnsureBrowser(_ context.Context, userID string) (*userenv.Br
 	return &userenv.BrowserTarget{Key: s.id, Provider: "docker", Managed: true}, nil
 }
 
+func (s *stubSlots) BrowserProfileFor(_ string) browser.Profile {
+	return browser.Profile{Provider: "docker"}
+}
+
 func TestBrowserBinderUsesSlotSandbox(t *testing.T) {
 	hub := browser.NewHub(t.TempDir(), nil)
 	// newEngine is unexported; Ensure with Slots still needs a working hub.

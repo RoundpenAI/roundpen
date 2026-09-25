@@ -167,6 +167,16 @@ func main() {
 			browserHub.SetProfile(key, envSvc.BrowserProfileFor(userID))
 		}
 	}
+	// Safety net: when a hub key has no recorded profile (e.g. the agent tool
+	// path calls Hub.Ensure before SetProfile), resolve from the settings
+	// catalog so a user-configured remote/cloud endpoint is never silently
+	// overridden by the docker default.
+	browserHub.SetProfileResolver(func(key string) (browser.Profile, bool) {
+		if uid, ok := strings.CutPrefix(key, "browser-"); ok && uid != "" {
+			return envSvc.BrowserProfileFor(uid), true
+		}
+		return browser.Profile{}, false
+	})
 
 	agentStore := &agentsession.Store{DB: db.SQL}
 	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
