@@ -147,6 +147,22 @@ func TestPgStoreProviderAndIdentityLifecycle(t *testing.T) {
 	if _, err := s.GetIdentityBySubject(ctx, second.ID, "7"); err == nil {
 		t.Error("identities should be removed with their provider")
 	}
+
+	// The re-link path drops a binding by provider, not by identity id.
+	if _, err := s.UpsertIdentity(ctx, IdentityUpsert{
+		UserID: user.Username, ProviderID: p.ID, Subject: "42", Login: "octo", AccessToken: "at-6",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteIdentityForProvider(ctx, user.Username, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetIdentityBySubject(ctx, p.ID, "42"); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("after provider-scoped unlink: err = %v, want not found", err)
+	}
+	if err := s.DeleteIdentityForProvider(ctx, user.Username, p.ID); !errors.Is(err, storage.ErrNotFound) {
+		t.Errorf("unlinking again: err = %v, want not found", err)
+	}
 }
 
 func TestPgStoreStateIsSingleUse(t *testing.T) {

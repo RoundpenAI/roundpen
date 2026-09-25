@@ -11,7 +11,7 @@ Roundpen（驯马圈）为 AI Agent 提供隔离的执行环境、持久工作�
 - **轻量自托管**：单二进制控制面，面向 NAS、笔记本与单机服务器
 - **固定环境槽位**：登录即可用 **Cloud Agent**、**Browser**（及后续 Mobile），一槽位一环境；不是多开沙箱 SDK
 - **后端钉死**：Agent 与 Browser 固定 **Docker**（官方 OCI 镜像 pull / 离线 load）；Desktop / Mobile 预留 **QEMU**
-- **可定制镜像**：Templates = 槽位镜像配方（`slot=agent|browser`）；均为 OCI 镜像
+- **可定制镜像**：镜像由 CI 构建推送；控制面启动时按 `ROUNDPEN_AGENT_IMAGE` / `ROUNDPEN_BROWSER_IMAGE` 播种镜像目录（`slot=agent|browser`），均为 OCI 镜像
 - **来源可配**：Browser 默认用 Roundpen 托管的 browserless 容器，也可指向局域网 / 商业云 / 本机 Chrome（Playwright 引擎）
 - **统一存储**：短期与长期记忆均使用 PostgreSQL（含 `pgvector`）
 - **用户体系**：用户名/邮箱+密码（Cookie session）与每用户 API Key（入库为哈希）；沙箱/记忆按属主隔离
@@ -40,7 +40,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 | 控制面 | 网关、属主授权、最小审计、记忆、LLM 网关、策略边界（`policy`：网络 / 能力 / 目录 + 软拒绝）、`/v1/me/environments` |
 | 环境抽象 | Sandbox Manager + 用户槽位映射（`user_environments`） |
 | 后端 | **Agent / Browser → Docker**；**Desktop / Mobile 预留 QEMU**；`multi` 按 slot 路由 |
-| 镜像 | `internal/template`（slot）+ `images/code-agent/`（官方 OCI）+ `ghcr.io/browserless/chrome`（Browser，pull） |
+| 镜像 | CI 构建（`images/code-agent/` → ghcr）+ `internal/template` 镜像目录（启动时按 env 播种）+ `ghcr.io/browserless/chrome`（Browser，pull） |
 
 仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。Browser 环境见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。Agent 安全见 [docs/security.md](docs/security.md)。
 
@@ -49,7 +49,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 1. **固定环境**：`EnsureBrowser` / `EnsureAgent`；API `/v1/me/environments`；按属主隔离，admin 可看全部
 2. **记忆与文件**：PostgreSQL + `/workspace` 挂载；长期记忆绑定登录身份
 3. **LLM 网关**：Anthropic / OpenAI 透传；内部 Virtual Key；请求流水进 PG（默认不记 body）
-4. **Web 控制台**：助手优先（`/a`）/ 设置；浏览器与镜像入口为高级/管理员
+4. **Web 控制台**：助手优先（`/a`）/ 设置（个人 + 系统管理）；浏览器入口为高级页
 5. **ACP Agent 网关**：助手绑定会话 UI；Browser CDP 绑用户 Browser 环境
 6. **最小审计**：创建 / 删除 / exec / settings 写 slog
 7. **议题与任务跟踪**：对话中产生的议题落库（`ISS-n`），澄清边界/方向/决策后写版本化 Spec / Plan（`DOC-n`），拆成任务清单（`TSK-n`）逐个实现；控制台 `/issues` 可读可改
@@ -137,7 +137,7 @@ make mobile-dev     # 模拟器/真机运行；先起 make dev，App 里填 http
 
 - **近期**：固定环境模型 + Browser 迁 Docker / Playwright（多来源：托管/局域网/云/本机）；删除多开沙箱 / E2B 兼容；删除 Kern 与 Agent-QEMU 默认路径
 - **移动端**：移动端控制台（`mobile/`，Flutter）——对话核心优先，后续接 slash 命令、议题等（与 `Mobile` 槽位是两件事）
-- **中期**：镜像可视化定制加深；Agent 容器工作区增强
+- **中期**：Agent 容器工作区增强
 - **远期**：Mobile 槽位、集群扩展与企业能力
 
 ## 二进制与模块

@@ -15,15 +15,15 @@ import (
 
 // Config controls injection values.
 type Config struct {
-	PublicURL    string // e.g. http://127.0.0.1:19001
-	APIKey       string
-	VirtualKey   string // llmgw vkey (not upstream)
-	DefaultModel string // llmgw fallback model injected as ANTHROPIC_MODEL etc.
-	TemplateID   string
-	Category     string
-	NamePrefix   string
-	ModelSource  string // storage.ModelSource*; "own" withholds the llmgw env
-	ProxyURL     string // optional egress proxy for in-sandbox tools
+	PublicURL   string // e.g. http://127.0.0.1:19001
+	APIKey      string
+	VirtualKey  string // llmgw vkey (not upstream)
+	LLMEnv      LLMEnv // llmgw endpoints and model pins
+	TemplateID  string
+	Category    string
+	NamePrefix  string
+	ModelSource string // storage.ModelSource*; "own" withholds the llmgw env
+	ProxyURL    string // optional egress proxy for in-sandbox tools
 }
 
 // ProxyEnv returns proxy env vars (upper and lower case) for tools running in
@@ -106,12 +106,7 @@ func (p *Provisioner) Provision(ctx context.Context, sessionID, agentID, userNam
 	// ANTHROPIC_API_KEY in particular must stay unset in "own" mode: its
 	// presence makes Claude Code bill the API instead of the user's plan.
 	if !UsesOwnModels(p.Config.ModelSource) {
-		env["OPENAI_BASE_URL"] = base + "/llmgw/openai"
-		env["ANTHROPIC_BASE_URL"] = base + "/llmgw/anthropic"
-		env["OPENAI_API_KEY"] = p.Config.VirtualKey
-		env["ANTHROPIC_API_KEY"] = p.Config.VirtualKey
-		env["ANTHROPIC_AUTH_TOKEN"] = p.Config.VirtualKey
-		ApplyDefaultModel(env, p.Config.DefaultModel)
+		ApplyLLMEnv(env, base, p.Config.VirtualKey, p.Config.LLMEnv)
 	}
 	for k, v := range ProxyEnv(p.Config.ProxyURL, HostOf(base)) {
 		env[k] = v
@@ -154,27 +149,6 @@ func (p *Provisioner) Provision(ctx context.Context, sessionID, agentID, userNam
 	}
 
 	return &Result{Sandbox: sb, Env: env}, nil
-}
-
-// ApplyDefaultModel pins Claude Code / Anthropic clients to the llmgw default
-// so they do not pick a built-in model the upstream does not serve.
-func ApplyDefaultModel(env map[string]string, model string) {
-	model = strings.TrimSpace(model)
-	if model == "" || env == nil {
-		return
-	}
-	for _, k := range []string{
-		"ANTHROPIC_MODEL",
-		"ANTHROPIC_DEFAULT_OPUS_MODEL",
-		"ANTHROPIC_DEFAULT_SONNET_MODEL",
-		"ANTHROPIC_DEFAULT_HAIKU_MODEL",
-		"ANTHROPIC_SMALL_FAST_MODEL",
-		"CLAUDE_CODE_SUBAGENT_MODEL",
-	} {
-		if strings.TrimSpace(env[k]) == "" {
-			env[k] = model
-		}
-	}
 }
 
 func shortID(id string) string {

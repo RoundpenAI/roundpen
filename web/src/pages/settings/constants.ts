@@ -6,36 +6,16 @@ export const emptySettings: AppSettings = {
   allowPublicRegistration: false,
   defaultImage: 'host',
   defaultTtlSeconds: 1800,
-  previewPublicUrl: '',
-  previewTokenTtlSeconds: 900,
-  templateBuilder: '',
   llmgwEnabled: false,
   llmgwPublicUrl: '',
   llmgwLogBodyMaxBytes: 0,
-  llmgwEmbeddingModel: 'text-embedding-3-small',
-  llmgwDefaultModel: '',
-  llmgwOpenaiBaseUrl: '',
-  llmgwOpenaiApiKey: '',
-  llmgwOpenaiProxy: '',
-  llmgwAnthropicBaseUrl: '',
-  llmgwAnthropicApiKey: '',
-  llmgwAnthropicProxy: '',
   llmgwVirtualKeys: '',
-  webSearchEndpoint: '',
-  webSearchApiKey: '',
-  webSearchProxy: '',
-  proxies: [],
   autoMode: {
     environment: ['$defaults'],
     allow: ['$defaults'],
     softDeny: ['$defaults'],
     hardDeny: ['$defaults'],
-    model: '',
   },
-  cdpProvider: 'auto',
-  cdpEndpoint: '',
-  cdpToken: '',
-  cdpPort: 3000,
 }
 
 export type AutoModeListKey = 'environment' | 'allow' | 'softDeny' | 'hardDeny'
@@ -69,21 +49,6 @@ export const AUTOMODE_LISTS: {
   },
 ]
 
-export const BUILDER_OPTIONS: { value: string; labelKey: MessageKey }[] = [
-  { value: '', labelKey: 'settings.builder.disabled' },
-  { value: 'docker', labelKey: 'settings.builder.docker' },
-  { value: 'ci', labelKey: 'settings.builder.ci' },
-  { value: 'auto', labelKey: 'settings.builder.auto' },
-]
-
-export const CDP_OPTIONS: { value: string; labelKey: MessageKey }[] = [
-  { value: 'auto', labelKey: 'settings.cdp.auto' },
-  { value: 'docker', labelKey: 'settings.cdp.docker' },
-  { value: 'host', labelKey: 'settings.cdp.host' },
-  { value: 'remote', labelKey: 'settings.cdp.remote' },
-  { value: 'cloud', labelKey: 'settings.cdp.cloud' },
-]
-
 export const SANDBOX_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
   { value: 600, labelKey: 'settings.ttl.10m' },
   { value: 900, labelKey: 'settings.ttl.15m' },
@@ -92,14 +57,6 @@ export const SANDBOX_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
   { value: 3600, labelKey: 'settings.ttl.1h' },
   { value: 7200, labelKey: 'settings.ttl.2h' },
   { value: 14400, labelKey: 'settings.ttl.4h' },
-]
-
-export const PREVIEW_TTL_OPTIONS: { value: number; labelKey: MessageKey }[] = [
-  { value: 300, labelKey: 'settings.ttl.5m' },
-  { value: 600, labelKey: 'settings.ttl.10m' },
-  { value: 900, labelKey: 'settings.ttl.15m' },
-  { value: 1800, labelKey: 'settings.ttl.30m' },
-  { value: 3600, labelKey: 'settings.ttl.1h' },
 ]
 
 export const LOG_BODY_OPTIONS: { value: number; labelKey: MessageKey }[] = [

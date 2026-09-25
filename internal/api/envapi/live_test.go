@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -645,12 +646,14 @@ func TestLiveLinkRemoteTokenAdminsOnly(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := &Handler{
-				Envs: &fakeEnvs{target: &userenv.BrowserTarget{Key: "browser-alice", Provider: config.CDPProviderRemote}},
-				Cfg: &config.Config{CDP: config.CDPConfig{
-					Provider: config.CDPProviderRemote,
-					Endpoint: "wss://cdp.example.com",
-					Token:    "instance-secret",
-				}},
+				Envs: &fakeEnvs{
+					target: &userenv.BrowserTarget{Key: "browser-alice", Provider: config.CDPProviderRemote},
+					profile: browser.Profile{
+						Provider: config.CDPProviderRemote,
+						Endpoint: "wss://cdp.example.com",
+						Token:    "instance-secret",
+					},
+				},
 			}
 			req := httptest.NewRequest(http.MethodGet, "/v1/me/environments/browser/live-link", nil)
 			req = req.WithContext(auth.WithUser(req.Context(), &storage.User{Username: "alice", Role: tc.role}))

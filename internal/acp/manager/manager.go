@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/search"
 )
 
 const maxConcurrentPrompts = 3
@@ -31,7 +31,8 @@ type Actor = tools.Actor
 type SysDeps struct {
 	LoopbackBase string
 	LLMKey       string
-	DefaultModel func() string
+	// LLM resolves the System Agent's provider, model and key for a user.
+	LLM          func(userID string) sysagent.LLMConfig
 	BrowserHub   *browser.Hub
 	BrowserSlots tools.BrowserSlot
 	AgentSlots   tools.AgentSlot
@@ -39,9 +40,10 @@ type SysDeps struct {
 	// Roundpen is in-process management tools (envs/templates/sessions/settings).
 	Roundpen *tools.RoundpenBinder
 
-	// WebSearch 返回 (endpoint, key, proxy)。nil，或 endpoint 与 key 均为空
-	// → 不注册 WebSearch；proxy 同时用于 WebFetch/Skill install 的出口。
-	WebSearch func() (endpoint, key, proxy string)
+	// WebSearch 解析某用户的搜索后端（endpoint/key/proxy）。nil，或 endpoint
+	// 与 key 均为空 → 不注册 WebSearch；proxy 同时用于 WebFetch/Skill install
+	// 的出口。
+	WebSearch func(userID string) search.Config
 
 	History sysagent.MessageSource
 
@@ -142,10 +144,12 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	case "sysadmin", "mock", "":
 		c2aR, c2aW := io.Pipe()
 		a2cR, a2cW := io.Pipe()
-		llmCfg := sysagent.LLMConfig{
-			BaseURL:      strings.TrimRight(m.sys.LoopbackBase, "/") + "/llmgw/openai",
-			APIKey:       m.sys.LLMKey,
-			DefaultModel: m.sys.DefaultModel,
+		llmCfg := sysagent.LLMConfig{APIKey: m.sys.LLMKey}
+		if m.sys.LLM != nil {
+			llmCfg = m.sys.LLM(opts.Actor.Username)
+			if llmCfg.APIKey == "" {
+				llmCfg.APIKey = m.sys.LLMKey
+			}
 		}
 		reg := tools.NewRegistry()
 		tools.RegisterRoundpen(reg, m.sys.Roundpen)
@@ -160,11 +164,11 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Exec:  m.sandboxes,
 			Files: m.sandboxes,
 		}
-		webSearchEndpoint, webSearchAPIKey, webProxy := "", "", ""
+		searchCfg := search.Config{}
 		if m.sys.WebSearch != nil {
-			webSearchEndpoint, webSearchAPIKey, webProxy = m.sys.WebSearch()
+			searchCfg = m.sys.WebSearch(opts.Actor.Username)
 		}
-		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{ProxyURL: webProxy})
+		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{ProxyURL: searchCfg.ProxyURL})
 		tools.RegisterShell(reg, binder)
 		tools.RegisterFiles(reg, binder)
 		tools.RegisterSearch(reg, binder)
@@ -172,8 +176,8 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		tools.RegisterSkill(reg, binder, webClient)
 		tools.RegisterWebFetch(reg, &tools.WebBinder{HTTP: webClient, Model: llmCfg})
 		tools.RegisterWebSearch(reg, &tools.WebSearchBinder{
-			Endpoint: webSearchEndpoint,
-			APIKey:   webSearchAPIKey,
+			Endpoint: searchCfg.Endpoint,
+			APIKey:   searchCfg.APIKey,
 			HTTP:     webClient,
 		})
 		agent := sysagent.New(sysagent.Deps{

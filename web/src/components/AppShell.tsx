@@ -6,8 +6,8 @@ import {
   IconExit,
   IconFolder,
   IconMenu,
+  IconServer,
   IconSetting,
-  IconTemplate,
   IconUser,
 } from '@douyinfe/semi-icons'
 import { doLogout, useAuth } from '../auth'
@@ -27,7 +27,7 @@ function menuIcon(id: PrimaryMenuId) {
   if (id === 'issues') return <IconCheckList />
   if (id === 'workspace') return <IconFolder />
   if (id === 'settings') return <IconSetting />
-  if (id === 'registry') return <IconTemplate />
+  if (id === 'admin') return <IconServer />
   return <IconUser />
 }
 

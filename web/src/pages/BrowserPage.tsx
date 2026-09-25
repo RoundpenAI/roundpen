@@ -13,10 +13,10 @@ import {
   ApiError,
   browserTasks,
   environments,
-  slotProxies,
+  slotChoices,
   type BrowserTask,
   type EnvironmentView,
-  type SlotProxyView,
+  type SlotChoice,
 } from '../api'
 import { PageShell } from '../components/PageShell'
 
@@ -49,7 +49,7 @@ export function BrowserPage() {
     typeof window !== 'undefined' ? window.location.origin : '',
   )
   const [brief, setBrief] = useState('')
-  const [proxyOptions, setProxyOptions] = useState<SlotProxyView[]>([])
+  const [proxyOptions, setProxyOptions] = useState<SlotChoice[]>([])
   const [browserProxy, setBrowserProxy] = useState('')
 
   const load = useCallback(async () => {
@@ -63,9 +63,8 @@ export function BrowserPage() {
       setLoading(false)
     }
     try {
-      const proxies = await slotProxies.get()
-      setProxyOptions(proxies.proxies || [])
-      setBrowserProxy(proxies.browser || '')
+      setProxyOptions(await slotChoices.options('proxy'))
+      setBrowserProxy(await slotChoices.current('proxy.browser'))
     } catch {
       setProxyOptions([])
     }
@@ -100,8 +99,8 @@ export function BrowserPage() {
     }
   }
 
-  function changeProxy(profileId: string) {
-    if (profileId === browserProxy) return
+  function changeProxy(itemId: string) {
+    if (itemId === browserProxy) return
     Modal.confirm({
       title: 'Egress proxy',
       content:
@@ -110,8 +109,8 @@ export function BrowserPage() {
         setBusy(true)
         setError(null)
         try {
-          const res = await slotProxies.set('browser', profileId)
-          setBrowserProxy(res.profileId)
+          const res = await slotChoices.select('proxy.browser', itemId)
+          setBrowserProxy(res.itemId)
           if (res.rebuildError) {
             setError(`Proxy saved, but the rebuild failed: ${res.rebuildError}`)
           }

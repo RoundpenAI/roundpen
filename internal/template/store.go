@@ -11,10 +11,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// ErrNotFound is returned when a template or build cannot be resolved.
+// ErrNotFound is returned when a template cannot be resolved.
 var ErrNotFound = errors.New("template not found")
 
-// Store persists templates and builds.
+// Store persists the image catalog.
 type Store struct {
 	db *sql.DB
 }
@@ -53,141 +53,36 @@ func (s *Store) upsertSeed(ctx context.Context, e seedEntry) error {
 	if e.Slot == "" {
 		e.Slot = SlotFromProfile(e.Profile)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var tplID string
-	err = tx.QueryRowContext(ctx, `
-		INSERT INTO templates (id, namespace, name, description, profile, slot, public, build_count, created_by)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,1,'system')
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO templates (
+			id, namespace, name, description, profile, slot, public, build_count, created_by,
+			artifact_ref, base_image, cpu_count, memory_mb, disk_size_mb, envd_version
+		)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,1,'system',$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (namespace, name) DO UPDATE SET
 			description=EXCLUDED.description,
 			profile=EXCLUDED.profile,
 			slot=EXCLUDED.slot,
 			public=EXCLUDED.public,
-			updated_at=now()
-		RETURNING id`,
-		uuid.NewString(), e.Namespace, e.Name, e.Description, e.Profile, e.Slot, e.Public).Scan(&tplID)
-	if err != nil {
-		return err
-	}
-
-	buildID, err := s.ensureSeedBuild(ctx, tx, tplID, e)
-	if err != nil {
-		return err
-	}
-	if err := upsertDefaultTag(ctx, tx, tplID, buildID); err != nil {
-		return err
-	}
-	// Drop orphan builds left from partial failures or old seed versions.
-	_, err = tx.ExecContext(ctx, `
-		DELETE FROM template_builds b
-		WHERE b.template_id=$1
-		  AND NOT EXISTS (SELECT 1 FROM template_tags tg WHERE tg.build_id=b.id)`,
-		tplID)
-	if err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-func (s *Store) ensureSeedBuild(ctx context.Context, tx *sql.Tx, tplID string, e seedEntry) (string, error) {
-	var buildID string
-	err := tx.QueryRowContext(ctx, `
-		SELECT tg.build_id FROM template_tags tg
-		WHERE tg.template_id=$1 AND tg.tag='default'`, tplID).Scan(&buildID)
-	if errors.Is(err, sql.ErrNoRows) {
-		buildID = uuid.NewString()
-		return buildID, insertSeedBuild(ctx, tx, buildID, tplID, e)
-	}
-	if err != nil {
-		return "", err
-	}
-
-	var ok int
-	err = tx.QueryRowContext(ctx, `
-		SELECT 1 FROM template_builds WHERE id=$1 AND template_id=$2`, buildID, tplID).Scan(&ok)
-	if errors.Is(err, sql.ErrNoRows) {
-		newID := uuid.NewString()
-		if err := insertSeedBuild(ctx, tx, newID, tplID, e); err != nil {
-			return "", err
-		}
-		return newID, nil
-	}
-	if err != nil {
-		return "", err
-	}
-
-	_, err = tx.ExecContext(ctx, `
-		UPDATE template_builds SET
-			status='ready', base_image=$2, artifact_ref=$3,
-			cpu_count=$4, memory_mb=$5, disk_size_mb=$6,
-			envd_version=$7, error_message='', updated_at=now()
-		WHERE id=$1 AND template_id=$8`,
-		buildID, e.BaseImage, e.ArtifactRef, e.CPUCount, e.MemoryMB, e.DiskSizeMB, EnvdVersion, tplID)
-	return buildID, err
-}
-
-func insertSeedBuild(ctx context.Context, tx *sql.Tx, buildID, tplID string, e seedEntry) error {
-	_, err := tx.ExecContext(ctx, `
-		INSERT INTO template_builds (id, template_id, status, base_image, artifact_ref, cpu_count, memory_mb, disk_size_mb, envd_version)
-		VALUES ($1,$2,'ready',$3,$4,$5,$6,$7,$8)`,
-		buildID, tplID, e.BaseImage, e.ArtifactRef, e.CPUCount, e.MemoryMB, e.DiskSizeMB, EnvdVersion)
+			artifact_ref=EXCLUDED.artifact_ref,
+			base_image=EXCLUDED.base_image,
+			cpu_count=EXCLUDED.cpu_count,
+			memory_mb=EXCLUDED.memory_mb,
+			disk_size_mb=EXCLUDED.disk_size_mb,
+			envd_version=EXCLUDED.envd_version,
+			updated_at=now()`,
+		uuid.NewString(), e.Namespace, e.Name, e.Description, e.Profile, e.Slot, e.Public,
+		e.ArtifactRef, e.BaseImage, e.CPUCount, e.MemoryMB, e.DiskSizeMB, EnvdVersion)
 	return err
 }
 
-func upsertDefaultTag(ctx context.Context, tx *sql.Tx, tplID, buildID string) error {
-	_, err := tx.ExecContext(ctx, `
-		INSERT INTO template_tags (template_id, tag, build_id) VALUES ($1,'default',$2)
-		ON CONFLICT (template_id, tag) DO UPDATE SET build_id=EXCLUDED.build_id`,
-		tplID, buildID)
-	return err
-}
+const templateCols = `id, namespace, name, description, profile, slot, public,
+	spawn_count, build_count, last_spawned_at, created_by, created_at, updated_at,
+	cpu_count, memory_mb, disk_size_mb, envd_version`
 
-const templateBuildJoin = `
-	LEFT JOIN template_builds b ON b.id = COALESCE(
-		(SELECT tg.build_id FROM template_tags tg WHERE tg.template_id=t.id AND tg.tag='default' LIMIT 1),
-		(SELECT tb.id FROM template_builds tb WHERE tb.template_id=t.id ORDER BY tb.created_at DESC LIMIT 1)
-	)`
-
-// RepairDefaultTag ensures the default tag points at the latest build when missing.
-func (s *Store) RepairDefaultTag(ctx context.Context, templateID string) error {
-	var existing sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-		SELECT build_id FROM template_tags WHERE template_id=$1 AND tag='default'`, templateID).Scan(&existing)
-	if err == nil && existing.Valid {
-		return nil
-	}
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	var buildID string
-	err = s.db.QueryRowContext(ctx, `
-		SELECT id FROM template_builds WHERE template_id=$1 ORDER BY created_at DESC LIMIT 1`, templateID).Scan(&buildID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO template_tags (template_id, tag, build_id) VALUES ($1,'default',$2)
-		ON CONFLICT (template_id, tag) DO UPDATE SET build_id=EXCLUDED.build_id`,
-		templateID, buildID)
-	return err
-}
-
-// List returns all templates with their default-tag build.
+// List returns all registered templates.
 func (s *Store) List(ctx context.Context) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT t.id, t.namespace, t.name, t.description, t.profile, t.slot, t.public,
-			t.spawn_count, t.build_count, t.last_spawned_at, t.created_by, t.created_at, t.updated_at,
-			b.id, b.status, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb, b.envd_version
-		FROM templates t`+templateBuildJoin+`
-		ORDER BY t.namespace, t.name`)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+templateCols+` FROM templates ORDER BY namespace, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -203,30 +98,15 @@ func (s *Store) List(ctx context.Context) ([]Record, error) {
 	return out, rows.Err()
 }
 
-// ResolveByTag finds a build by namespace, name, and tag.
-func (s *Store) ResolveByTag(ctx context.Context, ref ParsedRef) (Resolved, error) {
+// ResolveByName finds a template in the default or a named namespace.
+func (s *Store) ResolveByName(ctx context.Context, ref ParsedRef) (Resolved, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.namespace, t.name, t.profile, t.slot,
-			b.id, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb,
-			b.start_cmd, b.snapshot
-		FROM templates t
-		JOIN template_tags tg ON tg.template_id=t.id AND tg.tag=$3
-		JOIN template_builds b ON b.id=tg.build_id AND b.status='ready'
-		WHERE t.namespace=$1 AND t.name=$2`,
-		ref.Namespace, ref.Name, ref.Tag)
-	return scanResolved(row, ref)
-}
-
-// ResolveByBuildID finds a build by UUID.
-func (s *Store) ResolveByBuildID(ctx context.Context, buildID string) (Resolved, error) {
-	row := s.db.QueryRowContext(ctx, `
-		SELECT t.id, t.namespace, t.name, t.profile, t.slot,
-			b.id, b.artifact_ref, b.cpu_count, b.memory_mb, b.disk_size_mb,
-			b.start_cmd, b.snapshot
-		FROM template_builds b
-		JOIN templates t ON t.id=b.template_id
-		WHERE b.id=$1 AND b.status='ready'`, buildID)
-	return scanResolved(row, ParsedRef{BuildID: buildID})
+		SELECT id, namespace, name, profile, slot,
+			artifact_ref, cpu_count, memory_mb, disk_size_mb, start_cmd, snapshot
+		FROM templates
+		WHERE namespace=$1 AND name=$2`,
+		ref.Namespace, ref.Name)
+	return scanResolved(row)
 }
 
 // RecordSpawn increments spawn stats for a template.
@@ -241,39 +121,27 @@ type rowScanner interface {
 	Scan(dest ...any) error
 }
 
-func scanResolved(row rowScanner, ref ParsedRef) (Resolved, error) {
+func scanResolved(row rowScanner) (Resolved, error) {
 	var (
 		tplID, ns, name, profile, slot string
-		buildID, artifact              string
+		artifact                       string
 		cpu, mem, disk                 int
 		startCmd                       sql.NullString
 		snapshot                       bool
 	)
-	err := row.Scan(&tplID, &ns, &name, &profile, &slot, &buildID, &artifact, &cpu, &mem, &disk, &startCmd, &snapshot)
+	err := row.Scan(&tplID, &ns, &name, &profile, &slot, &artifact, &cpu, &mem, &disk, &startCmd, &snapshot)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Resolved{}, ErrNotFound
 	}
 	if err != nil {
 		return Resolved{}, err
 	}
-	alias := DisplayName(ns, name)
-	if ref.Tag != "" && ref.Tag != DefaultTag {
-		alias = alias + ":" + ref.Tag
-	}
-	if ref.BuildID != "" {
-		alias = ref.BuildID
-	}
 	if slot == "" {
-		if strings.EqualFold(profile, "browser") {
-			slot = "browser"
-		} else {
-			slot = "agent"
-		}
+		slot = SlotFromProfile(profile)
 	}
 	res := Resolved{
 		TemplateID:  tplID,
-		BuildID:     buildID,
-		Alias:       alias,
+		Alias:       DisplayName(ns, name),
 		Image:       artifact,
 		Profile:     profile,
 		Slot:        slot,
@@ -291,16 +159,13 @@ func scanResolved(row rowScanner, ref ParsedRef) (Resolved, error) {
 
 func scanRecord(row rowScanner) (Record, error) {
 	var (
-		rec                     Record
-		status                  sql.NullString
-		buildID, artifact, envd sql.NullString
-		cpu, mem, disk          sql.NullInt64
-		lastSpawn               sql.NullTime
+		rec       Record
+		lastSpawn sql.NullTime
 	)
 	err := row.Scan(
 		&rec.TemplateID, &rec.Namespace, &rec.Name, &rec.Description, &rec.Profile, &rec.Slot, &rec.Public,
 		&rec.SpawnCount, &rec.BuildCount, &lastSpawn, &rec.CreatedBy, &rec.CreatedAt, &rec.UpdatedAt,
-		&buildID, &status, &artifact, &cpu, &mem, &disk, &envd,
+		&rec.CPUCount, &rec.MemoryMB, &rec.DiskSizeMB, &rec.EnvdVersion,
 	)
 	if err != nil {
 		return Record{}, err
@@ -308,36 +173,9 @@ func scanRecord(row rowScanner) (Record, error) {
 	if rec.Slot == "" {
 		rec.Slot = SlotFromProfile(rec.Profile)
 	}
-	if buildID.Valid {
-		rec.BuildID = buildID.String
-	}
-	if status.Valid && status.String != "" {
-		rec.BuildStatus = BuildStatus(status.String)
-	} else if buildID.Valid {
-		rec.BuildStatus = BuildWaiting
-	} else {
-		rec.BuildStatus = BuildWaiting
-	}
-	if cpu.Valid {
-		rec.CPUCount = int(cpu.Int64)
-	} else {
-		rec.CPUCount = 1
-	}
-	if mem.Valid {
-		rec.MemoryMB = int(mem.Int64)
-	} else {
-		rec.MemoryMB = 512
-	}
-	if disk.Valid {
-		rec.DiskSizeMB = int(disk.Int64)
-	} else {
-		rec.DiskSizeMB = 5120
-	}
-	if envd.Valid {
-		rec.EnvdVersion = envd.String
-	} else {
-		rec.EnvdVersion = EnvdVersion
-	}
+	// Kept for existing API consumers: every catalog entry is ready, and
+	// build identity no longer exists.
+	rec.BuildStatus = BuildReady
 	if lastSpawn.Valid {
 		t := lastSpawn.Time.UTC()
 		rec.LastSpawnedAt = &t

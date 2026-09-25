@@ -34,22 +34,38 @@ func seedGateway(t *testing.T) *llmgw.Gateway {
 	t.Helper()
 	gw := llmgw.New(testDB(t), llmgw.Options{LogBodyMaxBytes: 128, PublicURL: "https://roundpen.test"})
 	ctx := context.Background()
-	if err := gw.SeedFromConfig(llmgw.SeedConfig{
-		OpenAI: &llmgw.UpstreamSeed{
-			BaseURL:  "https://upstream.test",
-			APIKey:   "sk-openai",
-			ModelMap: map[string]string{"gpt-alias": "gpt-real"},
-		},
-		Anthropic: &llmgw.UpstreamSeed{
-			BaseURL: "https://anthropic.test/",
-			APIKey:  "sk-ant",
-		},
-		Keys: []llmgw.VirtualKey{{Key: "vk-test", Name: "test"}},
-	}); err != nil {
+	seedUpstream(t, gw, llmgw.Upstream{
+		Provider: "openai",
+		Protocol: llmgw.ProtocolOpenAI,
+		BaseURL:  "https://upstream.test",
+		APIKey:   "sk-openai",
+		ModelMap: map[string]string{"gpt-alias": "gpt-real"},
+	}, llmgw.Upstream{
+		Provider: "anthropic",
+		Protocol: llmgw.ProtocolAnthropic,
+		BaseURL:  "https://anthropic.test",
+		APIKey:   "sk-ant",
+	})
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-test", Name: "test", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := gw.EnsureInternal(ctx, "text-embedding-3-small"); err != nil {
+	if err := gw.EnsureInternal(ctx); err != nil {
 		t.Fatal(err)
 	}
 	return gw
+}
+
+// seedUpstream points the relay at test providers and enables them.
+func seedUpstream(t *testing.T, gw *llmgw.Gateway, ups ...llmgw.Upstream) {
+	t.Helper()
+	for i := range ups {
+		ups[i].Enabled = true
+		if ups[i].ModelMap == nil {
+			ups[i].ModelMap = map[string]string{}
+		}
+	}
+	gw.SetUpstreams(ups)
+	if len(ups) > 0 {
+		gw.SetEmbedding(ups[0].Provider, "")
+	}
 }

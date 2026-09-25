@@ -3,28 +3,14 @@ package template
 import (
 	"context"
 	"errors"
-	"fmt"
-	"log/slog"
 	"strings"
-	"sync"
-
-	"github.com/RoundpenAI/roundpen/internal/template/builder"
 )
 
 // Service resolves template references and lists registered templates.
 type Service struct {
 	store          *Store
-	builder        builder.Runner
-	backend        string
 	defaultImage   string
 	fallbackLegacy bool
-	logger         *slog.Logger
-
-	buildMu sync.Mutex
-	builds  map[string]struct{}
-
-	assignDefaultMu sync.Mutex
-	assignDefault   map[string]bool // buildID -> move default tag on ready
 }
 
 // NewService constructs a template service.
@@ -33,9 +19,6 @@ func NewService(store *Store, defaultImage string) *Service {
 		store:          store,
 		defaultImage:   defaultImage,
 		fallbackLegacy: true,
-		logger:         slog.Default(),
-		builds:         map[string]struct{}{},
-		assignDefault:  map[string]bool{},
 	}
 }
 
@@ -56,15 +39,7 @@ func (s *Service) List(ctx context.Context) ([]Record, error) {
 // inputs (config defaults, admin-gated HTTP routes).
 func (s *Service) Resolve(ctx context.Context, templateID string) (Resolved, error) {
 	ref := ParseRef(templateID)
-	var (
-		res Resolved
-		err error
-	)
-	if ref.BuildID != "" {
-		res, err = s.store.ResolveByBuildID(ctx, ref.BuildID)
-	} else {
-		res, err = s.store.ResolveByTag(ctx, ref)
-	}
+	res, err := s.store.ResolveByName(ctx, ref)
 	if err == nil {
 		res.RequestRef = templateID
 		if res.Alias == "" {
@@ -106,22 +81,6 @@ func (s *Service) RecordSpawn(ctx context.Context, templateID string) {
 		return
 	}
 	_ = s.store.RecordSpawn(ctx, templateID)
-}
-
-// Exists reports whether a name is registered in the default namespace.
-func (s *Service) Exists(ctx context.Context, name string) (bool, error) {
-	name = ParseRef(name).Name
-	if !ValidateName(name) {
-		return false, fmt.Errorf("invalid template name")
-	}
-	_, err := s.store.ResolveByTag(ctx, ParsedRef{Namespace: DefaultNamespace, Name: name, Tag: DefaultTag})
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, ErrNotFound) {
-		return false, nil
-	}
-	return false, err
 }
 
 // SetDefaultImage updates the fallback image for template resolution.

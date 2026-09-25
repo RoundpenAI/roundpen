@@ -15,8 +15,7 @@ import (
 //
 // Relay (virtual-key auth; exempt from control-plane API key):
 //
-//	/llmgw/anthropic/...
-//	/llmgw/openai/...
+//	/llmgw/<provider id>/...   (openai and anthropic are the seeded ids)
 //
 // Admin (control-plane API key):
 //
@@ -26,8 +25,7 @@ import (
 //	GET /v1/llmgw/stats
 //	GET /v1/llmgw/setup
 func (g *Gateway) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("/llmgw/anthropic/", g.serveAnthropic)
-	mux.HandleFunc("/llmgw/openai/", g.serveOpenAI)
+	mux.HandleFunc("/llmgw/", g.serveRelay)
 
 	mux.HandleFunc("GET /v1/llmgw/virtual-keys", auth.RequireAdmin(g.handleVirtualKeys))
 	mux.HandleFunc("GET /v1/llmgw/logs", auth.RequireAdmin(g.handleLogs))
@@ -117,6 +115,7 @@ func (g *Gateway) handleStats(w http.ResponseWriter, r *http.Request) {
 
 type setupProvider struct {
 	Enabled    bool   `json:"enabled"`
+	Protocol   string `json:"protocol,omitempty"`
 	PathPrefix string `json:"path_prefix"`
 	BaseURL    string `json:"base_url,omitempty"`
 }
@@ -136,11 +135,7 @@ type setupResponse struct {
 }
 
 func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
-	upstreams, err := g.store.ListUpstreams(r.Context())
-	if err != nil {
-		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
-		return
-	}
+	upstreams := g.Upstreams()
 	keys, err := g.store.ListVirtualKeys(r.Context())
 	if err != nil {
 		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
@@ -153,13 +148,10 @@ func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
 		masked = append(masked, vk)
 	}
 	out := setupResponse{
-		BaseURL:   publicBaseURL(r, g.publicBase()),
-		Providers: map[string]setupProvider{},
-		DownstreamModels: map[string][]setupModel{
-			ProviderAnthropic: {},
-			ProviderOpenAI:    {},
-		},
-		VirtualKeys: masked,
+		BaseURL:          publicBaseURL(r, g.publicBase()),
+		Providers:        map[string]setupProvider{},
+		DownstreamModels: map[string][]setupModel{},
+		VirtualKeys:      masked,
 	}
 
 	for _, u := range upstreams {
@@ -168,6 +160,7 @@ func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Providers[u.Provider] = setupProvider{
 			Enabled:    true,
+			Protocol:   u.Protocol,
 			PathPrefix: "/llmgw/" + u.Provider,
 			BaseURL:    u.BaseURL,
 		}

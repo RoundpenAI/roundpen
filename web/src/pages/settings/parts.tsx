@@ -17,7 +17,7 @@ export function Field({
         <Typography.Text
           type="tertiary"
           size="small"
-          style={{ display: 'block', marginTop: 4 }}
+          style={{ display: 'block', marginTop: 4, whiteSpace: 'pre-line' }}
         >
           {hint}
         </Typography.Text>

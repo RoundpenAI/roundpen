@@ -36,7 +36,6 @@ type Config struct {
 	PreviewPublicURL        string        // absolute base URL for preview links
 	PreviewTokenTTL         time.Duration // default 15m
 	TrustedProxies          string        // comma-separated CIDRs that may send X-Forwarded-*
-	TemplateBuilder         string        // docker | ci | auto
 	CDP                     CDPConfig
 	QEMUEnabled             bool // attempt to attach qemu for browser slot
 }
@@ -66,7 +65,6 @@ func Load() (*Config, error) {
 		PreviewPublicURL:        os.Getenv("ROUNDPEN_PREVIEW_PUBLIC_URL"),
 		PreviewTokenTTL:         15 * time.Minute,
 		TrustedProxies:          strings.TrimSpace(os.Getenv("ROUNDPEN_TRUSTED_PROXIES")),
-		TemplateBuilder:         strings.ToLower(strings.TrimSpace(os.Getenv("ROUNDPEN_TEMPLATE_BUILDER"))),
 		QEMUEnabled:             getenvBool("ROUNDPEN_QEMU_ENABLED", true),
 	}
 	if v := os.Getenv("ROUNDPEN_PREVIEW_TOKEN_TTL"); v != "" {

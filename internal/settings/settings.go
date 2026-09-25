@@ -11,42 +11,23 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
-	"github.com/RoundpenAI/roundpen/internal/template"
 )
 
 const globalID = "global"
 
-// AppSettings are admin-editable values stored in PostgreSQL.
+// AppSettings are admin-editable values stored in PostgreSQL. Integrations
+// (LLM providers, proxies, search backends, browser sources) live as setting
+// items instead; see internal/settingitems.
 type AppSettings struct {
 	AllowPublicRegistration bool   `json:"allowPublicRegistration"`
 	DefaultImage            string `json:"defaultImage"`
 	DefaultTtlSeconds       int    `json:"defaultTtlSeconds"`
-	PreviewPublicURL        string `json:"previewPublicUrl"`
-	PreviewTokenTtlSeconds  int    `json:"previewTokenTtlSeconds"`
-	TemplateBuilder         string `json:"templateBuilder"`
 	LlmgwEnabled            bool   `json:"llmgwEnabled"`
 	LlmgwPublicURL          string `json:"llmgwPublicUrl"`
 	LlmgwLogBodyMaxBytes    int    `json:"llmgwLogBodyMaxBytes"`
-	LlmgwEmbeddingModel     string `json:"llmgwEmbeddingModel"`
-	LlmgwDefaultModel       string `json:"llmgwDefaultModel"`
-	LlmgwOpenaiBaseURL      string `json:"llmgwOpenaiBaseUrl"`
-	LlmgwOpenaiAPIKey       string `json:"llmgwOpenaiApiKey"`
-	LlmgwOpenaiProxy        string `json:"llmgwOpenaiProxy"`
-	LlmgwAnthropicBaseURL   string `json:"llmgwAnthropicBaseUrl"`
-	LlmgwAnthropicAPIKey    string `json:"llmgwAnthropicApiKey"`
-	LlmgwAnthropicProxy     string `json:"llmgwAnthropicProxy"`
 	LlmgwVirtualKeys        string `json:"llmgwVirtualKeys"`
-	CDPProvider             string `json:"cdpProvider"`
-	CDPEndpoint             string `json:"cdpEndpoint"`
-	CDPToken                string `json:"cdpToken"`
-	CDPPort                 int    `json:"cdpPort"`
-	WebSearchEndpoint       string `json:"webSearchEndpoint"`
-	WebSearchApiKey         string `json:"webSearchApiKey"`
-	WebSearchProxy          string `json:"webSearchProxy"`
 	// AutoMode configures the policy classifier behind the chat Auto toggle.
 	AutoMode AutoModeSettings `json:"autoMode"`
-	// Proxies are admin-defined egress profiles users pick per sandbox slot.
-	Proxies []ProxyProfile `json:"proxies"`
 }
 
 // AutoModeSettings holds the admin-configured auto-mode policy. Lists carry
@@ -58,7 +39,6 @@ type AutoModeSettings struct {
 	Allow       []string `json:"allow,omitempty"`
 	SoftDeny    []string `json:"softDeny,omitempty"`
 	HardDeny    []string `json:"hardDeny,omitempty"`
-	Model       string   `json:"model,omitempty"`
 }
 
 // Rules converts stored lists into classifier rules; "$defaults" expands at
@@ -72,14 +52,9 @@ func (a AutoModeSettings) Rules() automode.Rules {
 	}
 }
 
-// ClassifierModel returns the configured classifier model, or "" to use the
-// gateway default.
-func (a AutoModeSettings) ClassifierModel() string { return strings.TrimSpace(a.Model) }
-
 const (
 	autoModeMaxEntries    = 50
 	autoModeMaxEntryRunes = 800
-	autoModeMaxModelRunes = 200
 )
 
 func defaultAutoModeSettings() AutoModeSettings {
@@ -96,7 +71,6 @@ func (s *AppSettings) normalizeAutoMode() {
 	s.AutoMode.Allow = normalizeAutoModeList(s.AutoMode.Allow)
 	s.AutoMode.SoftDeny = normalizeAutoModeList(s.AutoMode.SoftDeny)
 	s.AutoMode.HardDeny = normalizeAutoModeList(s.AutoMode.HardDeny)
-	s.AutoMode.Model = strings.TrimSpace(s.AutoMode.Model)
 }
 
 func normalizeAutoModeList(list []string) []string {
@@ -116,7 +90,9 @@ func normalizeAutoModeList(list []string) []string {
 	return out
 }
 
-// ProxyProfile is a named egress proxy users can select for a sandbox slot.
+// ProxyProfile is a named egress proxy from the pre-item settings document.
+// New installs configure proxies as setting items; this type remains only for
+// the one-time import of an older document (see LegacyDocument).
 type ProxyProfile struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -124,140 +100,61 @@ type ProxyProfile struct {
 	Description string `json:"description,omitempty"`
 }
 
-// ProxyByID finds a profile by its stable id.
-func (s AppSettings) ProxyByID(id string) (ProxyProfile, bool) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return ProxyProfile{}, false
-	}
-	for _, p := range s.Proxies {
-		if p.ID == id {
-			return p, true
-		}
-	}
-	return ProxyProfile{}, false
-}
-
 // SystemInfo is read-only infrastructure metadata for the settings UI.
 type SystemInfo struct {
-	Backend               string `json:"backend"`
-	DockerHost            string `json:"dockerHost"`
-	DataRoot              string `json:"dataRoot"`
-	HTTPAddr              string `json:"httpAddr"`
-	TemplateBuilderActive string `json:"templateBuilderActive"`
-	TemplateBuilderHint   string `json:"templateBuilderHint,omitempty"`
-	LlmgwActive           bool   `json:"llmgwActive"`
-	LlmgwMounted          bool   `json:"llmgwMounted"`
-	CDPProviderActive     string `json:"cdpProviderActive"`
-	CDPHostChromeFound    bool   `json:"cdpHostChromeFound"`
-	CDPHint               string `json:"cdpHint,omitempty"`
+	Backend            string `json:"backend"`
+	DockerHost         string `json:"dockerHost"`
+	DataRoot           string `json:"dataRoot"`
+	HTTPAddr           string `json:"httpAddr"`
+	LlmgwActive        bool   `json:"llmgwActive"`
+	LlmgwMounted       bool   `json:"llmgwMounted"`
+	CDPProviderActive  string `json:"cdpProviderActive"`
+	CDPHostChromeFound bool   `json:"cdpHostChromeFound"`
+	CDPHint            string `json:"cdpHint,omitempty"`
 }
 
 // FromConfig extracts DB-backed settings from process config.
 func FromConfig(cfg *config.Config) AppSettings {
-	out := AppSettings{
+	return AppSettings{
 		AllowPublicRegistration: cfg.AllowPublicRegistration,
 		DefaultImage:            cfg.DefaultImage,
 		DefaultTtlSeconds:       int(cfg.DefaultTTL / time.Second),
-		PreviewPublicURL:        cfg.PreviewPublicURL,
-		PreviewTokenTtlSeconds:  int(cfg.PreviewTokenTTL / time.Second),
-		TemplateBuilder:         cfg.TemplateBuilder,
 		LlmgwEnabled:            cfg.LLMGW.Enabled,
 		LlmgwPublicURL:          cfg.LLMGW.PublicURL,
 		LlmgwLogBodyMaxBytes:    cfg.LLMGW.LogBodyMaxBytes,
-		LlmgwEmbeddingModel:     cfg.LLMGW.EmbeddingModel,
-		LlmgwDefaultModel:       cfg.LLMGW.DefaultModel,
-		LlmgwOpenaiBaseURL:      llmgwUpstreamBase(cfg.LLMGW.OpenAI),
-		LlmgwOpenaiAPIKey:       llmgwUpstreamKey(cfg.LLMGW.OpenAI),
-		LlmgwOpenaiProxy:        llmgwUpstreamProxy(cfg.LLMGW.OpenAI),
-		LlmgwAnthropicBaseURL:   llmgwUpstreamBase(cfg.LLMGW.Anthropic),
-		LlmgwAnthropicAPIKey:    llmgwUpstreamKey(cfg.LLMGW.Anthropic),
-		LlmgwAnthropicProxy:     llmgwUpstreamProxy(cfg.LLMGW.Anthropic),
 		LlmgwVirtualKeys:        config.FormatVirtualKeys(cfg.LLMGW.VirtualKeys),
-		CDPProvider:             cfg.CDP.Provider,
-		CDPEndpoint:             cfg.CDP.Endpoint,
-		CDPToken:                cfg.CDP.Token,
-		CDPPort:                 cfg.CDP.Port,
-		WebSearchEndpoint:       cfg.WebTools.SearchEndpoint,
-		WebSearchApiKey:         cfg.WebTools.SearchAPIKey,
-		WebSearchProxy:          cfg.WebTools.SearchProxyURL,
 		AutoMode:                defaultAutoModeSettings(),
-	}
-	out.normalizeCDP()
-	return out
-}
-
-func (s *AppSettings) normalizeCDP() {
-	if strings.TrimSpace(s.CDPProvider) == "" {
-		s.CDPProvider = config.CDPProviderAuto
-	}
-	if s.CDPPort <= 0 {
-		s.CDPPort = config.DefaultCDPPort
 	}
 }
 
 // SanitizeForResponse masks secrets before returning settings to clients.
 func (s AppSettings) SanitizeForResponse() AppSettings {
 	out := s
-	out.LlmgwOpenaiAPIKey = MaskSecret(s.LlmgwOpenaiAPIKey)
-	out.LlmgwAnthropicAPIKey = MaskSecret(s.LlmgwAnthropicAPIKey)
 	out.LlmgwVirtualKeys = MaskVirtualKeysSetting(s.LlmgwVirtualKeys)
-	out.CDPToken = MaskSecret(s.CDPToken)
-	out.WebSearchApiKey = MaskSecret(s.WebSearchApiKey)
 	return out
 }
 
 // MergeSecrets preserves stored API keys when the client leaves them masked.
 func (s *AppSettings) MergeSecrets(previous AppSettings) {
-	s.LlmgwOpenaiAPIKey = ResolveSecret(s.LlmgwOpenaiAPIKey, previous.LlmgwOpenaiAPIKey)
-	s.LlmgwAnthropicAPIKey = ResolveSecret(s.LlmgwAnthropicAPIKey, previous.LlmgwAnthropicAPIKey)
 	s.LlmgwVirtualKeys = ResolveVirtualKeysSetting(s.LlmgwVirtualKeys, previous.LlmgwVirtualKeys)
-	s.CDPToken = ResolveSecret(s.CDPToken, previous.CDPToken)
-	// Web 搜索密钥例外于其它密钥字段：提交掩码 = 保持原值，提交空串 = 显式清除
-	// （设置页清空输入框即可关闭 WebSearch）。JSON 中缺省的字段在
-	// DecodeAppSettings 阶段已回填当前值，不会走到这里被清空。
-	if s.WebSearchApiKey == SecretMask {
-		s.WebSearchApiKey = previous.WebSearchApiKey
-	}
 }
 
-// ApplyToConfig writes settings into the in-memory process config.
+// ApplyToConfig writes settings into the in-memory process config. Provider
+// endpoints and the browser source are not part of the document any more:
+// they live as items and reach their subsystems through the catalog.
 func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.AllowPublicRegistration = s.AllowPublicRegistration
 	cfg.DefaultImage = strings.TrimSpace(s.DefaultImage)
 	cfg.DefaultTTL = time.Duration(s.DefaultTtlSeconds) * time.Second
-	cfg.PreviewPublicURL = strings.TrimSpace(s.PreviewPublicURL)
-	cfg.PreviewTokenTTL = time.Duration(s.PreviewTokenTtlSeconds) * time.Second
-	cfg.TemplateBuilder = strings.ToLower(strings.TrimSpace(s.TemplateBuilder))
-	if err := config.ApplyLLMGWSettings(
-		&cfg.LLMGW,
-		s.LlmgwEnabled,
-		s.LlmgwPublicURL,
-		s.LlmgwEmbeddingModel,
-		s.LlmgwDefaultModel,
-		s.LlmgwLogBodyMaxBytes,
-		s.LlmgwOpenaiBaseURL,
-		s.LlmgwOpenaiAPIKey,
-		s.LlmgwOpenaiProxy,
-		s.LlmgwAnthropicBaseURL,
-		s.LlmgwAnthropicAPIKey,
-		s.LlmgwAnthropicProxy,
-		s.LlmgwVirtualKeys,
-	); err != nil {
+	cfg.LLMGW.Enabled = s.LlmgwEnabled
+	cfg.LLMGW.PublicURL = strings.TrimSpace(s.LlmgwPublicURL)
+	cfg.LLMGW.LogBodyMaxBytes = s.LlmgwLogBodyMaxBytes
+	keys, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys)
+	if err != nil {
 		return err
 	}
-	cfg.WebTools = config.WebToolsConfig{
-		SearchEndpoint: strings.TrimSpace(s.WebSearchEndpoint),
-		SearchAPIKey:   strings.TrimSpace(s.WebSearchApiKey),
-		SearchProxyURL: strings.TrimSpace(s.WebSearchProxy),
-	}
-	cfg.CDP = config.CDPConfig{
-		Provider: s.CDPProvider,
-		Endpoint: s.CDPEndpoint,
-		Token:    s.CDPToken,
-		Port:     s.CDPPort,
-	}
-	return config.NormalizeCDP(&cfg.CDP)
+	cfg.LLMGW.VirtualKeys = keys
+	return nil
 }
 
 // Validate checks user-editable settings.
@@ -268,69 +165,8 @@ func (s AppSettings) Validate() error {
 	if s.DefaultTtlSeconds <= 0 {
 		return fmt.Errorf("defaultTtlSeconds must be positive")
 	}
-	if s.PreviewTokenTtlSeconds <= 0 {
-		return fmt.Errorf("previewTokenTtlSeconds must be positive")
-	}
-	switch strings.ToLower(strings.TrimSpace(s.TemplateBuilder)) {
-	case "", "auto", "docker", "ci", "disabled":
-	default:
-		return fmt.Errorf("templateBuilder must be auto, docker, ci, disabled, or empty")
-	}
 	if s.LlmgwLogBodyMaxBytes < -1 {
 		return fmt.Errorf("llmgwLogBodyMaxBytes must be >= -1")
-	}
-	openaiBase := strings.TrimSpace(s.LlmgwOpenaiBaseURL)
-	openaiKey := strings.TrimSpace(s.LlmgwOpenaiAPIKey)
-	if openaiBase != "" || openaiKey != "" {
-		if openaiBase == "" || openaiKey == "" {
-			return fmt.Errorf("llmgwOpenaiBaseUrl and llmgwOpenaiApiKey must both be set")
-		}
-	}
-	anthropicBase := strings.TrimSpace(s.LlmgwAnthropicBaseURL)
-	anthropicKey := strings.TrimSpace(s.LlmgwAnthropicAPIKey)
-	if anthropicBase != "" || anthropicKey != "" {
-		if anthropicBase == "" || anthropicKey == "" {
-			return fmt.Errorf("llmgwAnthropicBaseUrl and llmgwAnthropicApiKey must both be set")
-		}
-	}
-	if ep := strings.TrimSpace(s.WebSearchEndpoint); ep != "" {
-		u, err := url.Parse(ep)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return fmt.Errorf("webSearchEndpoint must be an http(s) URL")
-		}
-	}
-	for field, raw := range map[string]string{
-		"llmgwOpenaiProxy":    s.LlmgwOpenaiProxy,
-		"llmgwAnthropicProxy": s.LlmgwAnthropicProxy,
-		"webSearchProxy":      s.WebSearchProxy,
-	} {
-		if err := ValidateProxyURL(raw); err != nil {
-			return fmt.Errorf("%s: %w", field, err)
-		}
-	}
-	seen := map[string]struct{}{}
-	for i := range s.Proxies {
-		p := &s.Proxies[i]
-		p.ID = strings.TrimSpace(p.ID)
-		p.Name = strings.TrimSpace(p.Name)
-		p.URL = strings.TrimSpace(p.URL)
-		p.Description = strings.TrimSpace(p.Description)
-		if p.ID == "" {
-			return fmt.Errorf("proxies[%d]: id is required", i)
-		}
-		if p.Name == "" {
-			return fmt.Errorf("proxies[%d]: name is required", i)
-		}
-		if err := ValidateProxyURL(p.URL); err != nil {
-			return fmt.Errorf("proxies[%d]: %w", i, err)
-		}
-		if p.URL == "" {
-			return fmt.Errorf("proxies[%d]: url is required", i)
-		}
-		if _, dup := seen[p.ID]; dup {
-			return fmt.Errorf("proxies[%d]: duplicate id %q", i, p.ID)
-		}
-		seen[p.ID] = struct{}{}
 	}
 	if _, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys); err != nil {
 		return err
@@ -354,38 +190,22 @@ func (s AppSettings) Validate() error {
 			}
 		}
 	}
-	if utf8.RuneCountInString(strings.TrimSpace(s.AutoMode.Model)) > autoModeMaxModelRunes {
-		return fmt.Errorf("autoMode.model: exceeds %d characters", autoModeMaxModelRunes)
-	}
-	s.normalizeCDP()
-	probe := config.CDPConfig{
-		Provider: s.CDPProvider,
-		Endpoint: s.CDPEndpoint,
-		Token:    s.CDPToken,
-		Port:     s.CDPPort,
-	}
-	return config.NormalizeCDP(&probe)
+	return nil
 }
 
 // SystemFromConfig returns read-only system metadata.
 func SystemFromConfig(cfg *config.Config, llmgwMounted bool) SystemInfo {
-	active := cfg.ResolveTemplateBuilder()
-	info := SystemInfo{
-		Backend:               cfg.Backend,
-		DockerHost:            cfg.DockerHost,
-		DataRoot:              cfg.EffectiveDataRoot(),
-		HTTPAddr:              cfg.HTTPAddr,
-		TemplateBuilderActive: active,
-		LlmgwActive:           cfg.LLMGW.Enabled,
-		LlmgwMounted:          llmgwMounted,
-		CDPProviderActive:     config.ResolveCDPProvider(cfg, browser.ChromeOnPATH()),
-		CDPHostChromeFound:    browser.ChromeOnPATH(),
-		CDPHint:               config.CDPHint(cfg, browser.ChromeOnPATH()),
+	return SystemInfo{
+		Backend:            cfg.Backend,
+		DockerHost:         cfg.DockerHost,
+		DataRoot:           cfg.EffectiveDataRoot(),
+		HTTPAddr:           cfg.HTTPAddr,
+		LlmgwActive:        cfg.LLMGW.Enabled,
+		LlmgwMounted:       llmgwMounted,
+		CDPProviderActive:  config.ResolveCDPProvider(cfg, browser.ChromeOnPATH()),
+		CDPHostChromeFound: browser.ChromeOnPATH(),
+		CDPHint:            config.CDPHint(cfg, browser.ChromeOnPATH()),
 	}
-	if active == "" {
-		info.TemplateBuilderHint = template.BuilderUnavailableHint(cfg)
-	}
-	return info
 }
 
 func llmgwUpstreamBase(u *config.LLMGWUpstream) string {

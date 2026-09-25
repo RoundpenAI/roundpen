@@ -48,7 +48,6 @@ func TestBootstrapSeedsFromConfig(t *testing.T) {
 		DefaultTTL:              45 * time.Minute,
 		PreviewPublicURL:        "http://preview.test",
 		PreviewTokenTTL:         10 * time.Minute,
-		TemplateBuilder:         "docker",
 	}
 
 	got, err := settings.Bootstrap(ctx, store, cfg)
@@ -87,10 +86,8 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 		PreviewTokenTTL: 15 * time.Minute,
 	}
 	want := settings.AppSettings{
-		DefaultImage:           "python",
-		DefaultTtlSeconds:      1200,
-		PreviewTokenTtlSeconds: 600,
-		TemplateBuilder:        "docker",
+		DefaultImage:      "python",
+		DefaultTtlSeconds: 1200,
 	}
 	if err := store.Upsert(ctx, want); err != nil {
 		t.Fatal(err)
@@ -108,21 +105,6 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 	}
 }
 
-func TestAppSettingsValidate(t *testing.T) {
-	valid := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		TemplateBuilder:        "auto",
-	}
-	if err := valid.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	if err := (settings.AppSettings{}).Validate(); err == nil {
-		t.Fatal("expected validation error")
-	}
-}
-
 func TestUpsertEncryptsSecretsAtRest(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)
@@ -133,13 +115,9 @@ func TestUpsertEncryptsSecretsAtRest(t *testing.T) {
 	store := settings.NewStore(db.SQL, box)
 
 	in := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		LlmgwOpenaiAPIKey:      "sk-openai-secret",
-		LlmgwAnthropicAPIKey:   "sk-ant-secret",
-		CDPToken:               "cdp-secret",
-		WebSearchApiKey:        "ws-secret",
+		DefaultImage:      "host",
+		DefaultTtlSeconds: 1800,
+		LlmgwVirtualKeys:  "vk-devsecret:dev",
 	}
 	if err := store.Upsert(ctx, in); err != nil {
 		t.Fatal(err)
@@ -151,10 +129,8 @@ func TestUpsertEncryptsSecretsAtRest(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(raw)
-	for _, secret := range []string{"sk-openai-secret", "sk-ant-secret", "cdp-secret", "ws-secret"} {
-		if strings.Contains(body, secret) {
-			t.Fatalf("plaintext secret %q in payload", secret)
-		}
+	if strings.Contains(body, "vk-devsecret") {
+		t.Fatalf("plaintext virtual key in payload: %s", body)
 	}
 	if !strings.Contains(body, "enc:v1:") {
 		t.Fatalf("expected sealed values in payload: %s", body)
@@ -164,8 +140,7 @@ func TestUpsertEncryptsSecretsAtRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.LlmgwOpenaiAPIKey != "sk-openai-secret" || got.LlmgwAnthropicAPIKey != "sk-ant-secret" ||
-		got.CDPToken != "cdp-secret" || got.WebSearchApiKey != "ws-secret" {
+	if got.LlmgwVirtualKeys != "vk-devsecret:dev" {
 		t.Fatalf("decrypted mismatch: %+v", got)
 	}
 
@@ -178,7 +153,7 @@ func TestUpsertEncryptsSecretsAtRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if legacy.LlmgwOpenaiAPIKey != "sk-openai-secret" || legacy.CDPToken != "cdp-secret" {
+	if legacy.LlmgwVirtualKeys != "vk-devsecret:dev" {
 		t.Fatalf("legacy plaintext load mismatch: %+v", legacy)
 	}
 }

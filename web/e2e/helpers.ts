@@ -38,6 +38,15 @@ export async function resetSmoke(page: Page) {
   }
 }
 
+export async function setSmokeProviders(page: Page, providers: unknown[]) {
+  const res = await page.request.put('/v1/test/oauth-providers', {
+    data: { providers },
+  })
+  if (!res.ok()) {
+    throw new Error(`set oauth providers: ${res.status()}`)
+  }
+}
+
 export async function hasSmokeHooks(page: Page): Promise<boolean> {
   const res = await page.request.put('/v1/test/ensure-error', { data: { error: '' } })
   if (!res.ok()) return false

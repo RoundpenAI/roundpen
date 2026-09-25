@@ -123,7 +123,7 @@ Roundpen 提供原生 REST API 与 Web 控制台；用户登录后获得固定 A
 | 记忆服务 | 短期 JSONB + 长期向量；mem0 风格 Agent API |
 | 私有化部署 | 单二进制或 Docker Compose；适合 NAS、单机、小团队 |
 | Web 控制台 | 沙箱、文件、终端、预览管理 |
-| 模板与镜像构建 | 构建过程在隔离环境（bubblewrap）中执行 |
+| 镜像 | 应用内不再构建镜像；镜像由 CI 构建推送，平台按 `ROUNDPEN_AGENT_IMAGE` / `ROUNDPEN_BROWSER_IMAGE` 拉取 |
 
 ## 规划能力
 

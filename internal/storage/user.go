@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -76,8 +75,6 @@ type User struct {
 	PasswordHash string    `json:"-"`
 	AuthProvider string    `json:"authProvider,omitempty"`
 	ModelSource  string    `json:"modelSource,omitempty"`
-	AgentProxy   string    `json:"agentProxy,omitempty"`   // settings proxy profile id
-	BrowserProxy string    `json:"browserProxy,omitempty"` // settings proxy profile id
 	CreatedAt    time.Time `json:"createdAt,omitempty"`
 	UpdatedAt    time.Time `json:"updatedAt,omitempty"`
 }
@@ -103,7 +100,6 @@ type UserStore interface {
 	ListAll(ctx context.Context) ([]User, error)
 	Delete(ctx context.Context, username string) error
 	SetModelSource(ctx context.Context, username, source string) error
-	SetSlotProxy(ctx context.Context, username, slot, profileID string) error
 }
 
 // SessionStore persists cookie-backed login sessions.
@@ -125,14 +121,14 @@ func NewUserStore(db *DB) *PgUserStore {
 	return &PgUserStore{db: db}
 }
 
-const userCols = `username, email, fullname, org_name, api_key, COALESCE(role, 'user'), COALESCE(password_hash, ''), COALESCE(auth_provider, 'local'), COALESCE(model_source, 'gateway'), COALESCE(agent_proxy, ''), COALESCE(browser_proxy, ''), created_at, updated_at`
+const userCols = `username, email, fullname, org_name, api_key, COALESCE(role, 'user'), COALESCE(password_hash, ''), COALESCE(auth_provider, 'local'), COALESCE(model_source, 'gateway'), created_at, updated_at`
 
 func scanUser(row scannable) (*User, error) {
 	var u User
 	err := row.Scan(
 		&u.Username, &u.Email, &u.FullName, &u.OrgName, &u.APIKey,
 		&u.Role, &u.PasswordHash, &u.AuthProvider, &u.ModelSource,
-		&u.AgentProxy, &u.BrowserProxy, &u.CreatedAt, &u.UpdatedAt,
+		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -221,30 +217,6 @@ func (s *PgUserStore) Delete(ctx context.Context, username string) error {
 func (s *PgUserStore) SetModelSource(ctx context.Context, username, source string) error {
 	res, err := s.db.SQL.ExecContext(ctx,
 		"UPDATE users SET model_source = $2, updated_at = now() WHERE username = $1", username, source)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// SetSlotProxy persists the user's egress proxy profile for a slot
-// ("agent" | "browser"); an empty profileID means direct.
-func (s *PgUserStore) SetSlotProxy(ctx context.Context, username, slot, profileID string) error {
-	column := ""
-	switch slot {
-	case "agent":
-		column = "agent_proxy"
-	case "browser":
-		column = "browser_proxy"
-	default:
-		return fmt.Errorf("unknown proxy slot %q", slot)
-	}
-	res, err := s.db.SQL.ExecContext(ctx,
-		"UPDATE users SET "+column+" = $2, updated_at = now() WHERE username = $1", username, profileID)
 	if err != nil {
 		return err
 	}

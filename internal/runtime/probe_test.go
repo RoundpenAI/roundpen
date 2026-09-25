@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
@@ -51,17 +52,22 @@ func TestSnapshotDockerReadyImageLocal(t *testing.T) {
 }
 
 func TestRequireBrowserProviderAware(t *testing.T) {
-	p := &Probe{Cfg: &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderRemote, Endpoint: "ws://lan:3000/chrome"}}}
-	if err := p.RequireBrowser(); err != nil {
+	p := &Probe{}
+	remote := browser.Profile{Provider: config.CDPProviderRemote, Endpoint: "ws://lan:3000/chrome"}
+	if err := p.RequireBrowser(remote); err != nil {
 		t.Fatalf("remote with endpoint should be ready: %v", err)
 	}
-	p2 := &Probe{Cfg: &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderRemote}}}
-	if err := p2.RequireBrowser(); err == nil {
+	if err := p.RequireBrowser(browser.Profile{Provider: config.CDPProviderRemote}); err == nil {
 		t.Fatal("remote without endpoint must be not-ready")
 	}
-	p3 := &Probe{Cfg: &config.Config{CDP: config.CDPConfig{Provider: config.CDPProviderDocker}}, DockerReady: false}
-	if err := p3.RequireBrowser(); err == nil {
+	p3 := &Probe{DockerReady: false}
+	if err := p3.RequireBrowser(browser.Profile{Provider: config.CDPProviderDocker}); err == nil {
 		t.Fatal("docker provider without docker must be not-ready")
+	}
+	// "auto" resolves to the managed container, like the instance config does.
+	ready := &Probe{DockerReady: true, HasImage: func(_ context.Context, _ string) bool { return true }}
+	if err := ready.RequireBrowser(browser.Profile{Provider: config.CDPProviderAuto}); err != nil {
+		t.Fatalf("auto must resolve to docker: %v", err)
 	}
 }
 

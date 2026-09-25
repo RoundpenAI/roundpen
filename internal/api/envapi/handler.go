@@ -13,11 +13,11 @@ import (
 	"sync"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
-	"github.com/RoundpenAI/roundpen/internal/settings"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
@@ -35,22 +35,23 @@ type Environments interface {
 	UpgradeAgent(ctx context.Context, userID string, force bool) (*userenv.UpgradeResult, error)
 	RecreateAgent(ctx context.Context, userID string) (*userenv.UpgradeResult, error)
 	RecreateBrowser(ctx context.Context, userID string) (*userenv.UpgradeResult, error)
+	BrowserProfileFor(userID string) browser.Profile
 }
 
 // UserPrefs persists per-user environment preferences.
 type UserPrefs interface {
 	SetModelSource(ctx context.Context, username, source string) error
-	SetSlotProxy(ctx context.Context, username, slot, profileID string) error
 }
 
-// Handler serves /v1/me/environments*, /v1/me/model-source and /v1/me/proxies.
+// Handler serves /v1/me/environments* and /v1/me/model-source.
 type Handler struct {
 	Envs  Environments
 	Users UserPrefs
 	Cfg   *config.Config
 	Dial  SandboxDialer
-	// Proxies lists admin-defined proxy profiles (nil = none configured).
-	Proxies func() []settings.ProxyProfile
+	// BrowserProfiles records the resolved browser source for a hub key so the
+	// browser hub attaches to the same source. nil = the hub uses config.
+	BrowserProfiles func(userID, key string)
 
 	liveMu    sync.Mutex
 	liveCache map[string]liveTarget // username -> resolved browser container
@@ -65,106 +66,8 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/me/environments/browser/live-link", h.liveLink)
 	mux.HandleFunc("GET /v1/me/model-source", h.getModelSource)
 	mux.HandleFunc("PUT /v1/me/model-source", h.putModelSource)
-	mux.HandleFunc("GET /v1/me/proxies", h.getProxies)
-	mux.HandleFunc("PUT /v1/me/proxy", h.putProxy)
 	// The subtree pattern also redirects /live to /live/ (query preserved).
 	mux.HandleFunc(liveRoutePrefix+"/", h.live)
-}
-
-// proxyView is a selection-facing profile (no URLs: they may carry creds).
-type proxyView struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-}
-
-func (h *Handler) getProxies(w http.ResponseWriter, r *http.Request) {
-	user := auth.GetUser(r.Context())
-	if user == nil {
-		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	views := []proxyView{}
-	if h.Proxies != nil {
-		for _, p := range h.Proxies() {
-			views = append(views, proxyView{ID: p.ID, Name: p.Name, Description: p.Description})
-		}
-	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{
-		"proxies": views,
-		"agent":   user.AgentProxy,
-		"browser": user.BrowserProxy,
-	})
-}
-
-func (h *Handler) putProxy(w http.ResponseWriter, r *http.Request) {
-	user := auth.GetUser(r.Context())
-	if user == nil {
-		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	var body struct {
-		Slot      string `json:"slot"`
-		ProfileID string `json:"profileId"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
-		return
-	}
-	slot := strings.TrimSpace(body.Slot)
-	if slot != userenv.SlotAgent && slot != userenv.SlotBrowser {
-		httpx.WriteErr(w, http.StatusBadRequest, "slot must be agent or browser")
-		return
-	}
-	profileID := strings.TrimSpace(body.ProfileID)
-	if profileID != "" {
-		found := false
-		if h.Proxies != nil {
-			for _, p := range h.Proxies() {
-				if p.ID == profileID {
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			httpx.WriteErr(w, http.StatusBadRequest, "unknown proxy profile")
-			return
-		}
-	}
-	if h.Users == nil {
-		httpx.WriteErr(w, http.StatusServiceUnavailable, "user store not configured")
-		return
-	}
-	if err := h.Users.SetSlotProxy(r.Context(), user.Username, slot, profileID); err != nil {
-		httpx.WriteErrOrInternal(w, r, err, nil)
-		return
-	}
-	resp := map[string]any{"slot": slot, "profileId": profileID}
-	// Rebuild so the new env applies: sandbox env is fixed at creation.
-	current := user.AgentProxy
-	if slot == userenv.SlotBrowser {
-		current = user.BrowserProxy
-	}
-	if current != profileID && h.Envs != nil {
-		var res *userenv.UpgradeResult
-		var err error
-		if slot == userenv.SlotAgent {
-			res, err = h.Envs.RecreateAgent(r.Context(), user.Username)
-		} else {
-			res, err = h.Envs.RecreateBrowser(r.Context(), user.Username)
-		}
-		if err != nil {
-			// The preference is saved; surface the rebuild failure without
-			// failing the request (the upgrade button can retry).
-			log.Printf("proxy rebuild for %s/%s: %v", user.Username, slot, err)
-			resp["rebuildError"] = err.Error()
-		} else {
-			resp["status"] = res.Status
-			resp["environment"] = res.Environment
-		}
-	}
-	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) getModelSource(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +161,9 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 		}
 		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
+	}
+	if h.BrowserProfiles != nil {
+		h.BrowserProfiles(user.Username, target.Key)
 	}
 	resp := map[string]any{
 		"slot":     userenv.SlotBrowser,

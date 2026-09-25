@@ -24,37 +24,34 @@ func TestSecretMasking(t *testing.T) {
 
 func TestAppSettingsSanitizeForResponse(t *testing.T) {
 	s := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		LlmgwOpenaiAPIKey:      "sk-openai",
-		LlmgwAnthropicAPIKey:   "sk-ant",
-		LlmgwVirtualKeys:       "vk-devsecret:dev",
+		DefaultImage:      "host",
+		DefaultTtlSeconds: 1800,
+		LlmgwVirtualKeys:  "vk-devsecret:dev",
 	}
 	out := s.SanitizeForResponse()
-	if out.LlmgwOpenaiAPIKey != settings.SecretMask || out.LlmgwAnthropicAPIKey != settings.SecretMask {
-		t.Fatalf("sanitized: %+v", out)
-	}
-	if out.LlmgwVirtualKeys == "vk-devsecret:dev" || !strings.Contains(out.LlmgwVirtualKeys, "****") && !strings.Contains(out.LlmgwVirtualKeys, "...") {
+	if out.LlmgwVirtualKeys == "vk-devsecret:dev" ||
+		(!strings.Contains(out.LlmgwVirtualKeys, "****") && !strings.Contains(out.LlmgwVirtualKeys, "...")) {
 		t.Fatalf("virtual keys not masked: %q", out.LlmgwVirtualKeys)
 	}
 }
 
-func TestAppSettingsLLMGWValidate(t *testing.T) {
+func TestAppSettingsValidate(t *testing.T) {
 	valid := settings.AppSettings{
-		DefaultImage:           "host",
-		DefaultTtlSeconds:      1800,
-		PreviewTokenTtlSeconds: 900,
-		LlmgwOpenaiBaseURL:     "https://api.openai.com",
-		LlmgwOpenaiAPIKey:      "sk-test",
-		LlmgwVirtualKeys:       "vk-dev:dev",
+		DefaultImage:      "host",
+		DefaultTtlSeconds: 1800,
+		LlmgwVirtualKeys:  "vk-dev:dev",
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}
 	bad := valid
-	bad.LlmgwOpenaiAPIKey = ""
+	bad.DefaultTtlSeconds = 0
 	if err := bad.Validate(); err == nil {
-		t.Fatal("expected openai key validation error")
+		t.Fatal("expected ttl validation error")
+	}
+	noImage := valid
+	noImage.DefaultImage = ""
+	if err := noImage.Validate(); err == nil {
+		t.Fatal("expected defaultImage validation error")
 	}
 }

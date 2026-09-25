@@ -21,6 +21,8 @@ type Hub struct {
 	sessions map[string]*Session
 	dataDir  string
 	logger   *slog.Logger
+
+	profiles map[string]Profile // hub key → browser source
 	cfg      *config.Config
 	dial     PortDialer
 	driver   *pwDriver
@@ -92,6 +94,25 @@ func (h *Hub) browserToken(sandboxID string) string {
 	return lookup(sandboxID)
 }
 
+// SetProfile records the browser source a hub key attaches to. The control
+// plane calls it whenever it resolves a user's browser environment; a key with
+// no record falls back to the process config.
+func (h *Hub) SetProfile(key string, profile Profile) {
+	h.mu.Lock()
+	if h.profiles == nil {
+		h.profiles = map[string]Profile{}
+	}
+	h.profiles[key] = profile
+	h.mu.Unlock()
+}
+
+// ForgetProfile drops a key's recorded source (sandbox teardown).
+func (h *Hub) ForgetProfile(key string) {
+	h.mu.Lock()
+	delete(h.profiles, key)
+	h.mu.Unlock()
+}
+
 // SetDialer supplies sandbox port dialing for the docker provider.
 func (h *Hub) SetDialer(d PortDialer) {
 	if h == nil {
@@ -107,6 +128,7 @@ func (h *Hub) CloseSandbox(id string) {
 	if h == nil || id == "" {
 		return
 	}
+	h.ForgetProfile(id)
 	h.mu.Lock()
 	sess := h.sessions[id]
 	delete(h.sessions, id)
@@ -315,6 +337,7 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 	cfg := h.cfg
 	dial := h.dial
 	driver := h.driver
+	profile, recorded := h.profiles[id]
 	h.mu.Unlock()
 
 	if driver == nil {
@@ -322,17 +345,20 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 	}
 
 	width, height := 1280, 800
-	provider := config.ResolveCDPProvider(cfg, ChromeOnPATH())
+	if !recorded {
+		profile = DefaultProfile(cfg)
+	}
+	provider := profile.EffectiveProvider()
 	// att starts token-less: host/remote/cloud may only pass the endpoint token
 	// from config; only the docker provider reads the sandbox's own token.
 	att := pwAttach{Width: width, Height: height}
 
 	switch provider {
 	case config.CDPProviderHost:
-		if cfg != nil && strings.TrimSpace(cfg.CDP.Endpoint) != "" {
-			att.Endpoint = cfg.CDP.Endpoint
-			if cfg.CDP.Token != "" {
-				att.Token = cfg.CDP.Token
+		if strings.TrimSpace(profile.Endpoint) != "" {
+			att.Endpoint = profile.Endpoint
+			if profile.Token != "" {
+				att.Token = profile.Token
 			}
 			eng, err := newPlaywrightEngine(driver, att)
 			if err != nil {
@@ -352,12 +378,8 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
 
 	case config.CDPProviderRemote, config.CDPProviderCloud:
-		endpoint := ""
-		if cfg != nil {
-			endpoint = cfg.CDP.Endpoint
-			att.Token = cfg.CDP.Token
-		}
-		att.Endpoint = endpoint
+		att.Endpoint = profile.Endpoint
+		att.Token = profile.Token
 		eng, err := newPlaywrightEngine(driver, att)
 		if err != nil {
 			return nil, fmt.Errorf("%s cdp: %w", provider, err)
@@ -365,9 +387,9 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
 
 	case config.CDPProviderDocker:
-		port := config.DefaultCDPPort
-		if cfg != nil && cfg.CDP.Port > 0 {
-			port = cfg.CDP.Port
+		port := profile.Port
+		if port <= 0 {
+			port = config.DefaultCDPPort
 		}
 		if dial == nil {
 			return nil, fmt.Errorf("docker cdp requires a sandbox dialer")

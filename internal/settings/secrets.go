@@ -4,30 +4,21 @@ import (
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/secretbox"
 )
 
 // SecretMask is returned for sensitive settings fields in GET responses.
-const SecretMask = "●●●●●●●●"
+const SecretMask = secretbox.SecretMask
 
 // IsSecretMask reports whether a submitted secret should be treated as unchanged.
-func IsSecretMask(v string) bool {
-	return v == SecretMask
-}
+func IsSecretMask(v string) bool { return secretbox.IsMasked(v) }
 
 // MaskSecret returns SecretMask when v is non-empty.
-func MaskSecret(v string) string {
-	if v == "" {
-		return ""
-	}
-	return SecretMask
-}
+func MaskSecret(v string) string { return secretbox.Mask(v) }
 
 // ResolveSecret keeps the previous secret when the client submits empty or masked.
 func ResolveSecret(submitted, previous string) string {
-	if submitted == "" || IsSecretMask(submitted) {
-		return previous
-	}
-	return submitted
+	return secretbox.ResolveValue(submitted, previous)
 }
 
 // MaskVirtualKeysSetting masks key material in "vk-dev:dev,vk-prod" form.

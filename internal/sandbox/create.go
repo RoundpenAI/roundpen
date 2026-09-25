@@ -23,7 +23,6 @@ type createSpec struct {
 	cpuCount           int
 	memoryMB           int
 	diskSizeMB         int
-	templateBuildID    string
 	internalTemplateID string
 	useImageCmd        bool
 }
@@ -93,7 +92,6 @@ func (s *Service) resolveCreateSpec(ctx context.Context, req CreateRequest) (cre
 			spec.cpuCount = resolved.CPUCount
 			spec.memoryMB = resolved.MemoryMB
 			spec.diskSizeMB = resolved.DiskSizeMB
-			spec.templateBuildID = resolved.BuildID
 			spec.internalTemplateID = resolved.TemplateID
 			spec.useImageCmd = resolved.UseImageCmd
 			if req.Metadata == nil {
@@ -194,7 +192,6 @@ func (s *Service) insertSandboxRecord(ctx context.Context, req CreateRequest, sp
 		CPUCount:      spec.cpuCount,
 		MemoryMB:      spec.memoryMB,
 		DiskSizeMB:    spec.diskSizeMB,
-		TemplateBuild: spec.templateBuildID,
 	}
 	if sb.Metadata == nil {
 		sb.Metadata = map[string]string{}
