@@ -78,7 +78,18 @@ export function WorkspacePage() {
     path === '.' ? '/workspace' : `/workspace/${path.split('/').join('/')}`
 
   return (
-      <div style={{ padding: '16px 20px', maxWidth: 960, margin: '0 auto' }}>
+      <div
+        style={{
+          padding: '16px 20px',
+          // Without an explicit width (and with the auto margins that center
+          // it in the flex column shell) the box sizes to its content, so the
+          // page visibly jumps between narrow (loading) and wide (table).
+          width: '100%',
+          maxWidth: 960,
+          margin: '0 auto',
+          boxSizing: 'border-box',
+        }}
+      >
         <Typography.Title heading={3} style={{ margin: '0 0 4px' }}>
           {t('workspace.title')}
         </Typography.Title>

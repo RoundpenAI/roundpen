@@ -237,7 +237,17 @@ export function IssuesPage() {
   )
 
   return (
-    <div style={{ padding: '16px 20px', maxWidth: 960, margin: '0 auto' }}>
+    <div
+      style={{
+        padding: '16px 20px',
+        // Same shell as the settings sections: an explicit width keeps the
+        // page from sizing to its content (and visibly resizing on load).
+        width: '100%',
+        maxWidth: 960,
+        margin: '0 auto',
+        boxSizing: 'border-box',
+      }}
+    >
       <Typography.Title heading={3} style={{ margin: '0 0 4px' }}>
         {t('issues.title')}
       </Typography.Title>
