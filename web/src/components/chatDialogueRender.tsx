@@ -35,25 +35,21 @@ function parseArgs(raw: string | undefined): unknown {
 }
 
 function activityFromMessage(message: DialogueMessage): {
-  thoughts: { text: string; streaming?: boolean }[]
+  thoughts: { text: string; streaming?: boolean; startedAtMs?: number }[]
   tools: ToolCallData[]
-  startedAtMs?: number
 } {
   const items = Array.isArray(message.content)
     ? (message.content as SemiContentItem[])
     : []
-  const thoughts: { text: string; streaming?: boolean }[] = []
+  const thoughts: { text: string; streaming?: boolean; startedAtMs?: number }[] = []
   const tools: ToolCallData[] = []
-  const startedAtMs =
-    message.createdAt && Number.isFinite(message.createdAt)
-      ? message.createdAt
-      : undefined
+  const messageInProgress = message.status === 'in_progress'
   for (const item of items) {
     if (item.type === 'reasoning') {
       const text = item.summary?.map((s) => s.text).join('\n') || ''
       thoughts.push({
         text,
-        streaming: message.status === 'in_progress',
+        startedAtMs: item.createdAt,
       })
     } else if (item.type === 'function_call') {
       tools.push({
@@ -65,22 +61,26 @@ function activityFromMessage(message: DialogueMessage): {
       })
     }
   }
-  return { thoughts, tools, startedAtMs }
+  if (messageInProgress && thoughts.length > 0) {
+    thoughts[thoughts.length - 1].streaming = true
+  }
+  return { thoughts, tools }
 }
 
 export function renderActivityContent(message: DialogueMessage): ReactNode {
-  const { thoughts, tools, startedAtMs } = activityFromMessage(message)
-  const thoughtText = thoughts.map((t) => t.text).filter(Boolean).join('\n\n')
-  const streaming = thoughts.some((t) => t.streaming)
+  const { thoughts, tools } = activityFromMessage(message)
   return (
     <div className="chat-activity">
-      {thoughtText ? (
-        <ThoughtBlock
-          text={thoughtText}
-          streaming={streaming}
-          startedAtMs={startedAtMs}
-        />
-      ) : null}
+      {thoughts.map((t, i) =>
+        t.text ? (
+          <ThoughtBlock
+            key={i}
+            text={t.text}
+            streaming={t.streaming}
+            startedAtMs={t.startedAtMs}
+          />
+        ) : null,
+      )}
       {tools.length > 0 ? <ToolCallGroup calls={tools} alwaysStats /> : null}
     </div>
   )

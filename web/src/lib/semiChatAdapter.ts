@@ -25,6 +25,7 @@ export type SemiContentItem =
   | {
       type: 'reasoning'
       summary: Array<{ type: 'summary_text'; text: string }>
+      createdAt?: number
     }
   | {
       type: 'function_call'
@@ -74,6 +75,7 @@ function thoughtItem(m: AgentMessage): SemiContentItem {
   return {
     type: 'reasoning',
     summary: [{ type: 'summary_text', text: m.content || '' }],
+    createdAt: createdAtMs(m.createdAt),
   }
 }
 
