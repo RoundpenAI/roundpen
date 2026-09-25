@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -39,6 +40,10 @@ type Service struct {
 	defaultImage string
 	defaultTTL   time.Duration
 	logger       *slog.Logger
+
+	// creating holds the ids of sandboxes whose engine this process is still
+	// allocating; reconcile must not declare those dead mid-create.
+	creating sync.Map
 }
 
 // NewService constructs a sandbox manager.
@@ -104,23 +109,54 @@ func (s *Service) load(ctx context.Context, id string) (*Sandbox, error) {
 	return sb, nil
 }
 
-// reconcile records engine truth for a sandbox the store still calls running
-// after its container/VM died out of band (host reboot, daemon restart).
+// reconcile records engine truth for a sandbox the store still calls running or
+// creating after its container/VM died out of band (host reboot, daemon
+// restart, a control-plane crash mid-create).
 func (s *Service) reconcile(ctx context.Context, sb *Sandbox) {
-	if s.backend == nil || sb.Status != StatusRunning {
+	if s.backend == nil || (sb.Status != StatusRunning && sb.Status != StatusCreating) {
+		return
+	}
+	if sb.Status == StatusCreating && s.createInFlight(sb.ID) {
 		return
 	}
 	running, err := s.backend.Running(ctx, sb.ID)
-	if err != nil || running {
+	if err != nil {
 		return
 	}
-	sb.Status = StatusStopped
+	switch {
+	case sb.Status == StatusRunning && running:
+		return
+	case sb.Status == StatusRunning:
+		sb.Status = StatusStopped
+	case running:
+		// A create interrupted after the engine came up; only the final
+		// bookkeeping was lost.
+		sb.Status = StatusRunning
+	default:
+		// A create that never produced an engine must not be adopted forever:
+		// mark it failed so callers (userenv, the hub) rebuild the slot.
+		sb.Status = StatusFailed
+	}
 	sb.UpdatedAt = time.Now().UTC()
 	if err := s.store.Update(ctx, sb); err != nil {
 		s.logger.Warn("reconcile sandbox status", slog.String("id", sb.ID), slog.Any("err", err))
 		return
 	}
-	s.logger.Info("sandbox status reconciled to stopped", slog.String("id", sb.ID), slog.String("engine", s.backend.Name()))
+	s.logger.Info("sandbox status reconciled", slog.String("id", sb.ID), slog.String("status", string(sb.Status)), slog.String("engine", s.backend.Name()))
+}
+
+// createInFlight reports whether this process is still allocating the engine
+// for a sandbox row it inserted as creating.
+func (s *Service) createInFlight(id string) bool {
+	_, ok := s.creating.Load(id)
+	return ok
+}
+
+// trackCreate marks a sandbox as being created and returns the release
+// function for when the engine allocation has settled.
+func (s *Service) trackCreate(id string) func() {
+	s.creating.Store(id, struct{}{})
+	return func() { s.creating.Delete(id) }
 }
 
 func authorize(ctx context.Context, sb *Sandbox) error {

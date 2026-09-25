@@ -201,6 +201,11 @@ type stubBackend struct {
 	execRes   *backend.ExecResult
 	execErr   error
 
+	// createStart is closed when Create is entered; Create then waits for
+	// createBlock (when non-nil). Tests use them to hold a create in flight.
+	createStart chan struct{}
+	createBlock chan struct{}
+
 	refreshRef     string
 	refreshChanged bool
 	refreshDigest  string
@@ -221,6 +226,15 @@ func (b *stubBackend) Name() string { return b.name }
 func (b *stubBackend) Create(_ context.Context, opts backend.CreateOpts) (string, error) {
 	if b.createErr != nil {
 		return "", b.createErr
+	}
+	b.mu.Lock()
+	started, block := b.createStart, b.createBlock
+	b.mu.Unlock()
+	if started != nil {
+		close(started)
+	}
+	if block != nil {
+		<-block
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
