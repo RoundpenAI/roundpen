@@ -239,7 +239,11 @@ type agentSession struct {
 	// reply is the accumulator for the current turn's assistant text, set
 	// between runTurn start and finish; nil while idle.
 	reply *strings.Builder
-	dead  bool
+	// textBuf coalesces agent_message token chunks into paragraph-sized
+	// EventText emissions so IM platforms (esp. Weixin, which cannot edit
+	// messages) do not send one bubble per token.
+	textBuf strings.Builder
+	dead    bool
 }
 
 // Send runs one agent turn. Manager.Prompt blocks until the turn completes, so
@@ -265,9 +269,12 @@ func (s *agentSession) runTurn(prompt string) {
 	var reply strings.Builder
 	s.mu.Lock()
 	s.reply = &reply
+	s.textBuf.Reset()
 	s.mu.Unlock()
 
 	stop, err := s.agent.ACP.Prompt(ctx, s.sess.ID, prompt)
+
+	s.flushText(true)
 
 	s.mu.Lock()
 	s.reply = nil
@@ -291,17 +298,20 @@ func (s *agentSession) onEvent(ev acpclient.Event) {
 	out := core.Event{SessionID: s.sess.ID}
 	switch ev.Type {
 	case "agent_message":
-		out.Type = core.EventText
-		out.Content = ev.Text
 		s.mu.Lock()
 		if s.reply != nil {
 			s.reply.WriteString(ev.Text)
 		}
 		s.mu.Unlock()
+		s.appendText(ev.Text)
+		return
 	case "agent_thought":
-		out.Type = core.EventThinking
-		out.Content = ev.Text
+		// Thinking streams token-by-token; forwarding each chunk makes Weixin
+		// (no message edit) send one bubble per token. Drop here — IM display
+		// defaults hide thinking anyway.
+		return
 	case "tool_call", "tool_call_update":
+		s.flushText(true)
 		if ev.Type == "tool_call" {
 			out.Type = core.EventToolUse
 		} else {
@@ -319,6 +329,7 @@ func (s *agentSession) onEvent(ev acpclient.Event) {
 	case "permission":
 		return // handled through the permission channel, not the event stream
 	case "plan":
+		s.flushText(true)
 		out.Type = core.EventText
 		out.Content = ev.Text
 	default:
@@ -327,9 +338,57 @@ func (s *agentSession) onEvent(ev acpclient.Event) {
 	s.emit(out)
 }
 
+// appendText buffers assistant text and emits EventText on paragraph boundaries.
+func (s *agentSession) appendText(chunk string) {
+	if chunk == "" {
+		return
+	}
+	s.mu.Lock()
+	s.textBuf.WriteString(chunk)
+	for {
+		ready, rest, ok := takeParagraphBatch(s.textBuf.String(), maxTextBatchRunes)
+		if !ok {
+			s.mu.Unlock()
+			return
+		}
+		s.textBuf.Reset()
+		s.textBuf.WriteString(rest)
+		s.mu.Unlock()
+		s.emit(core.Event{Type: core.EventText, SessionID: s.sess.ID, Content: ready})
+		s.mu.Lock()
+	}
+}
+
+// flushText emits any buffered assistant text. When force is true, the trailing
+// incomplete paragraph is sent too (turn end / tool / plan boundaries).
+func (s *agentSession) flushText(force bool) {
+	s.mu.Lock()
+	for {
+		ready, rest, ok := takeParagraphBatch(s.textBuf.String(), maxTextBatchRunes)
+		if !ok {
+			break
+		}
+		s.textBuf.Reset()
+		s.textBuf.WriteString(rest)
+		s.mu.Unlock()
+		s.emit(core.Event{Type: core.EventText, SessionID: s.sess.ID, Content: ready})
+		s.mu.Lock()
+	}
+	tail := ""
+	if force {
+		tail = s.textBuf.String()
+		s.textBuf.Reset()
+	}
+	s.mu.Unlock()
+	if strings.TrimSpace(tail) != "" {
+		s.emit(core.Event{Type: core.EventText, SessionID: s.sess.ID, Content: tail})
+	}
+}
+
 // onPermission surfaces an ACP permission request as a chat button prompt and
 // blocks until the user answers (or the timeout cancels the turn).
 func (s *agentSession) onPermission(req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	s.flushText(true)
 	reqID := string(req.ToolCall.ToolCallId)
 	title := ""
 	if req.ToolCall.Title != nil {

@@ -152,6 +152,17 @@ func (s *Supervisor) buildEngine(a *assistant.Assistant) (*Engine, error) {
 	lang := core.Language(s.deps.Lang)
 	name := "roundpen-" + a.ID
 	engine := core.NewEngine(name, agent, platforms, sessionStore, lang)
+	// Weixin (and similar) cannot edit messages, so streaming thinking/tool
+	// tokens become one bubble each. Quiet mode keeps the final reply as one
+	// (or paragraph-batched) delivery instead.
+	engine.SetDisplayConfig(core.DisplayCfg{
+		Mode:             "quiet",
+		CardMode:         "legacy",
+		ThinkingMessages: false,
+		ThinkingMaxLen:   300,
+		ToolMaxLen:       500,
+		ToolMessages:     false,
+	})
 	return &Engine{assistantID: a.ID, engine: engine, agent: agent}, nil
 }
 
