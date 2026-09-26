@@ -1,0 +1,15 @@
+appname               = roundpen
+version               = 0.1.0
+display_name          = Roundpen
+desc                  = 助手驱动的开发工作台：Web 控制台、多助手会话，以及运行在 Docker 里的 Agent / Browser 沙箱。
+platform              = x86
+source                = thirdparty
+maintainer            = Roundpen
+maintainer_url        = https://github.com/RoundpenAI/roundpen
+desktop_uidir         = ui
+desktop_applaunchname = roundpen.main
+service_port          = 9527
+checkport             = true
+ctl_stop              = true
+disable_authorization_path = true
+changelog             = 首个打包版本：Docker Compose 部署 roundpend + PostgreSQL/pgvector，数据保存在应用目录内。

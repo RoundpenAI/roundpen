@@ -1,0 +1,21 @@
+#!/bin/bash
+# Runs after the package files are installed: create the persistent data
+# directory and load the bundled images (if any).
+
+set -u
+
+fail() {
+    echo "$1" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+}
+
+mkdir -p "${TRIM_PKGVAR}/data" || fail "无法创建数据目录 ${TRIM_PKGVAR}/data"
+
+# Offline packages ship image tars whose tags match docker-compose.yaml; a
+# pull-based package simply has none.
+for tar in "${TRIM_APPDEST}"/images/*.tar; do
+    [ -f "${tar}" ] || continue
+    docker load -i "${tar}" || fail "加载镜像失败（需要 docker 权限）：${tar}"
+done
+
+exit 0

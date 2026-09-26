@@ -1,0 +1,4 @@
+#!/bin/bash
+# Runs before the package files are installed; nothing to prepare.
+
+exit 0

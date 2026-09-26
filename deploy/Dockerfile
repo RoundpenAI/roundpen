@@ -1,11 +1,17 @@
 # Multi-stage build: Node (UI) → Go (embed) → slim runtime.
 # End users never install Node; they pull/run this image or use compose.
+#
+# The build containers do not see the host's npm / Go configuration, so builds
+# behind a slow link (or a registry mirror) can pass NPM_REGISTRY / GOPROXY /
+# PLAYWRIGHT_NPM_REGISTRY as build args; the defaults are the upstream ones.
+# `scripts/build-fnos-fpk.sh` forwards the host settings automatically.
 
 # --- UI ---
 FROM node:22-bookworm AS ui
+ARG NPM_REGISTRY=https://registry.npmjs.org
 WORKDIR /src
 COPY web/package.json web/package-lock.json ./web/
-RUN cd web && npm ci
+RUN cd web && npm ci --registry="${NPM_REGISTRY}"
 COPY web/ ./web/
 RUN mkdir -p internal/ui/dist \
 	&& cd web && npm run build \
@@ -13,6 +19,9 @@ RUN mkdir -p internal/ui/dist \
 
 # --- Go ---
 FROM golang:1.26-bookworm AS gobuild
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG PLAYWRIGHT_NPM_REGISTRY=https://registry.npmjs.org
+ENV GOPROXY=${GOPROXY}
 WORKDIR /src
 COPY go.mod go.sum ./
 COPY third_party/ ./third_party/
@@ -34,6 +43,7 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends nodejs \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& PLAYWRIGHT_DRIVER_PATH=/opt/playwright PLAYWRIGHT_NODEJS_PATH=/usr/bin/node \
+		PLAYWRIGHT_GO_NPM_REGISTRY="${PLAYWRIGHT_NPM_REGISTRY}" \
 		go run ./cmd/browserdriver \
 	&& test -f /opt/playwright/package/cli.js \
 	&& test ! -e /opt/playwright/node

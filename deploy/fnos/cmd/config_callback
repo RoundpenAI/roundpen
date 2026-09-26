@@ -1,0 +1,4 @@
+#!/bin/bash
+# Runs after app settings changed; the package exposes no config vars.
+
+exit 0

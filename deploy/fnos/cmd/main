@@ -1,0 +1,26 @@
+#!/bin/bash
+# Start / stop are driven by appcenter through the docker-project declared in
+# config/resource, so they only need to succeed. status reports whether the
+# roundpend container is running (0 = running, 3 = not running).
+
+set -u
+
+CONTAINER="roundpen"
+
+case "${1:-}" in
+start)
+    exit 0
+    ;;
+stop)
+    exit 0
+    ;;
+status)
+    if docker inspect -f '{{.State.Running}}' "${CONTAINER}" 2>/dev/null | grep -q true; then
+        exit 0
+    fi
+    exit 3
+    ;;
+*)
+    exit 1
+    ;;
+esac

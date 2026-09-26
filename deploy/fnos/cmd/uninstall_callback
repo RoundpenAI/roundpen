@@ -1,0 +1,7 @@
+#!/bin/bash
+# Data is kept on purpose: $TRIM_PKGVAR (workspace data, master key) and the
+# roundpen-pgdata Docker volume still hold the deployment. Remove them by hand
+# to start over:
+#   docker volume rm roundpen_roundpen-pgdata
+
+exit 0

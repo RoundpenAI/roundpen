@@ -1,0 +1,5 @@
+#!/bin/bash
+# Runs before the upgrade installs the new files; data and credentials are
+# preserved by the platform (etc/ and var/ are not replaced).
+
+exit 0

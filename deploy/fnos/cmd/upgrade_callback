@@ -1,0 +1,19 @@
+#!/bin/bash
+# Runs after an upgrade installed the new files: data lives under var/ and the
+# pgdata Docker volume, so only the bundled images need re-loading.
+
+set -u
+
+fail() {
+    echo "$1" > "${TRIM_TEMP_LOGFILE}"
+    exit 1
+}
+
+mkdir -p "${TRIM_PKGVAR}/data" || fail "无法创建数据目录 ${TRIM_PKGVAR}/data"
+
+for tar in "${TRIM_APPDEST}"/images/*.tar; do
+    [ -f "${tar}" ] || continue
+    docker load -i "${tar}" || fail "加载镜像失败（需要 docker 权限）：${tar}"
+done
+
+exit 0
