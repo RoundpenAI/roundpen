@@ -74,6 +74,8 @@ make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver�
 | `./roundpend` 单二进制 | 本地开发、已有 PG |
 | Kubernetes（规划中） | 企业集群 |
 
+两个二进制（`roundpend` / `roundpen`）启动时会自动加载**当前工作目录**下的 `.env`；已存在的环境变量优先，文件缺失则静默跳过。systemd 可用 `EnvironmentFile=` 注入同样的变量。
+
 ### 一键私有化（最终用户）
 
 控制台已嵌入二进制，宿主机**不必安装 Node / Go**：
