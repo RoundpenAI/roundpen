@@ -34,6 +34,8 @@ type Config struct {
 	LLMGW                   LLMGWConfig
 	WebTools                WebToolsConfig
 	PreviewPublicURL        string        // absolute base URL for preview links
+	PreviewDomain           string        // host suffix for per-port preview subdomains ({id}-{port}.{domain}); "" = path previews only
+	PreviewDomainScheme     string        // scheme for those links; "" = follow the console request
 	PreviewTokenTTL         time.Duration // default 15m
 	TrustedProxies          string        // comma-separated CIDRs that may send X-Forwarded-*
 	CDP                     CDPConfig
@@ -67,6 +69,11 @@ func Load() (*Config, error) {
 		TrustedProxies:          strings.TrimSpace(os.Getenv("ROUNDPEN_TRUSTED_PROXIES")),
 		QEMUEnabled:             getenvBool("ROUNDPEN_QEMU_ENABLED", true),
 	}
+	domain, scheme, err := parsePreviewDomain(os.Getenv("ROUNDPEN_PREVIEW_DOMAIN"))
+	if err != nil {
+		return nil, err
+	}
+	cfg.PreviewDomain, cfg.PreviewDomainScheme = domain, scheme
 	if v := os.Getenv("ROUNDPEN_PREVIEW_TOKEN_TTL"); v != "" {
 		secs, err := strconv.Atoi(v)
 		if err != nil || secs <= 0 {
@@ -126,6 +133,54 @@ func Load() (*Config, error) {
 	}
 	cfg.CDP = cdpCfg
 	return cfg, nil
+}
+
+// parsePreviewDomain reads ROUNDPEN_PREVIEW_DOMAIN, which names the zone that
+// per-port preview subdomains live under: "rp.mk", or "https://rp.mk" to pin
+// the scheme the reverse proxy terminates (console on plain HTTP, previews on
+// HTTPS). A bad value stops the daemon instead of minting unreachable links.
+func parsePreviewDomain(raw string) (host, scheme string, err error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", "", nil
+	}
+	if i := strings.Index(v, "://"); i >= 0 {
+		scheme = strings.ToLower(v[:i])
+		if scheme != "http" && scheme != "https" {
+			return "", "", fmt.Errorf("ROUNDPEN_PREVIEW_DOMAIN: scheme must be http or https")
+		}
+		v = v[i+3:]
+	}
+	host = strings.ToLower(strings.TrimSuffix(v, "."))
+	if i := strings.IndexAny(host, "/:?#"); i >= 0 {
+		return "", "", fmt.Errorf("ROUNDPEN_PREVIEW_DOMAIN: %q must be a bare domain, without a port or path", raw)
+	}
+	if err := validateDomain(host); err != nil {
+		return "", "", fmt.Errorf("ROUNDPEN_PREVIEW_DOMAIN: %w", err)
+	}
+	return host, scheme, nil
+}
+
+// validateDomain accepts a DNS name we can append preview labels to, so the
+// links we mint are always resolvable hosts.
+func validateDomain(host string) error {
+	if len(host) > 253 {
+		return fmt.Errorf("%q is longer than a domain name", host)
+	}
+	for _, label := range strings.Split(host, ".") {
+		if label == "" || len(label) > 63 {
+			return fmt.Errorf("%q has an empty or over-long label", host)
+		}
+		if strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return fmt.Errorf("%q has a label starting or ending with a hyphen", host)
+		}
+		for _, r := range label {
+			if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+				return fmt.Errorf("%q is not a lower-case letters, digits and hyphens domain", host)
+			}
+		}
+	}
+	return nil
 }
 
 func getenv(key, fallback string) string {

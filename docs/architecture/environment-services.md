@@ -126,7 +126,7 @@ Dial(ctx context.Context, engineID string, destPort int) (net.Conn, error)
 | 部署 | 方案 | 说明 |
 |------|------|------|
 | 单机 / NAS（默认） | Path：`/p/{sandboxID}/{port}/...` | 少依赖 DNS/TLS |
-| 有通配域名 | Host：`{id}-{port}.{ROUNDPEN_PREVIEW_DOMAIN}` | 可选；对齐 ai-sandbox vhost 思路 |
+| 有通配域名 | Host：`{id}-{port}.{ROUNDPEN_PREVIEW_DOMAIN}` | 可选；已实现，`ROUNDPEN_PREVIEW_DOMAIN` 非空即启用。子域内应用在根路径，绝对 URL / HMR 不用改路径前缀；DNS 与证书都要覆盖一层通配（`*.rp.mk`） |
 
 反代行为：
 
@@ -141,7 +141,7 @@ Dial(ctx context.Context, engineID string, destPort int) (net.Conn, error)
 |--------|------|------|------|
 | GET | `/v1/sandboxes/{id}/preview-link?port=&path=` | 是 | 返回可打开的 preview URL；可附带短时 `token` |
 | ANY | `/p/{id}/{port}/...` | **短时 token 或会话** | 实际预览流量 |
-| — | vhost（可选） | 同上 | `ROUNDPEN_PREVIEW_DOMAIN` 非空时启用 |
+| — | vhost（可选） | 同上 | `ROUNDPEN_PREVIEW_DOMAIN` 非空时启用：`{id}-{port}.{域名}` 直连该端口，token cookie 限定在预览子域根路径，未知标签 404（不回落到控制台） |
 
 `preview-link` 响应示例：
 
@@ -308,7 +308,7 @@ RemovePath(ctx context.Context, id, relPath string) error
 
 | 变量 | 用途 |
 |------|------|
-| `ROUNDPEN_PREVIEW_DOMAIN` | 空 = 仅 path 预览；非空 = 启用 vhost |
+| `ROUNDPEN_PREVIEW_DOMAIN` | 空 = 仅 path 预览；非空（`rp.mk` 或 `https://rp.mk`）= 启用 vhost；带 scheme 时固定链接协议，否则跟随控制台请求 |
 | `ROUNDPEN_PREVIEW_TOKEN_TTL` | preview token 有效期（默认数分钟） |
 | `ROUNDPEN_PREVIEW_LISTEN` | 可选独立预览监听地址 |
 
@@ -316,6 +316,7 @@ RemovePath(ctx context.Context, id, relPath string) error
 
 - [x] 认证后可对沙箱 workspace 做 list/read/write/delete（沙箱 stopped 时 host-side 仍可读）— `GET/POST/DELETE /v1/sandboxes/{id}/files*`
 - [x] `Backend.Dial` + path 预览 `/p/{id}/{port}/` + `GET /v1/sandboxes/{id}/preview-link`（短时 token）
+- [x] vhost 预览：`ROUNDPEN_PREVIEW_DOMAIN` 非空时 `{id}-{port}.{域名}` 由 Host 路由到同一套 Dial/反代（token 校验不变，Host 原样转发给应用）
 - [x] 认证 Terminal WS：`GET /v1/sandboxes/{id}/terminal`（JSON resize + 二进制 PTY）
 - [x] Docker（`exec -it` / bridge Dial）与 QEMU（SSH Dial）均实现接口
 - [x] 默认路径不依赖 hikari-daemon / 无鉴权 vhost

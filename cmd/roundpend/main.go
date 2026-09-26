@@ -139,7 +139,7 @@ func main() {
 	sbSvc = bs.sandboxes
 	probe := bs.probe
 
-	mux := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
+	mux, previewHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
 
 	envSvc, envHandler, oauthSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
 	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
@@ -256,9 +256,12 @@ func main() {
 	// new token into any running agent sandbox, or long sessions lose push.
 	go oauthRefresher(ctx, oauthSvc, envSvc, logger)
 
+	// Preview subdomains sit outside the console stack: their requests carry a
+	// preview token, not a console session, and every path on them belongs to
+	// the previewed app rather than to the SPA.
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           auth.Middleware(userStore, sessionStore)(mux),
+		Handler:           previewHandler.VhostRouter(auth.Middleware(userStore, sessionStore)(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // LLM relay and terminal WS stream past a write deadline

@@ -45,8 +45,9 @@ import (
 )
 
 // newCoreMux creates the API mux and mounts the auth, platform, native HTTP,
-// browser and preview handlers.
-func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) *http.ServeMux {
+// browser and preview handlers. It also returns the preview handler, whose
+// host router has to wrap the finished handler stack (see main).
+func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler) {
 	mux := http.NewServeMux()
 	auth.Mount(mux, userStore, sessionStore, allowRegistration)
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
@@ -58,9 +59,11 @@ func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Servic
 		Manager:   mgr,
 		Tokens:    preview.NewStore(cfg.PreviewTokenTTL),
 		PublicURL: cfg.PreviewPublicURL,
+		Domain:    cfg.PreviewDomain,
+		Scheme:    cfg.PreviewDomainScheme,
 	}
 	previewHandler.Mount(mux)
-	return mux
+	return mux, previewHandler
 }
 
 // mountEnvStack builds the user environment, git credential, OAuth, runtime and
