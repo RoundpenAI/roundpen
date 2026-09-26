@@ -808,4 +808,12 @@ button {
   cursor: not-allowed;
 }
 
+/* Dialogs carry a fixed width (448 by default, 520/720 for the settings
+   forms), so on a phone they ran off the right edge of the screen. Cap them
+   to the viewport instead; max-width beats the inline width semi sets. */
+@media (max-width: 767.98px) {
+  .semi-modal {
+    max-width: calc(100% - 32px);
+  }
+}
 
