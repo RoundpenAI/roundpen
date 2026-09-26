@@ -97,6 +97,17 @@ func (s *Store) gcLocked() {
 	}
 }
 
+// ClaimRegistry is the booked-name table this handler works with: the vhost
+// router resolves labels through it, the claim API creates, lists and releases
+// them. *ClaimStore is the database-backed implementation.
+type ClaimRegistry interface {
+	Resolve(ctx context.Context, name string) (sandboxID string, port int, ok bool)
+	Get(ctx context.Context, name string) (*Claim, error)
+	List(ctx context.Context, owner string) ([]Claim, error)
+	Claim(ctx context.Context, c Claim) error
+	Release(ctx context.Context, name, owner string) (bool, error)
+}
+
 // Handler serves preview-link minting and reverse-proxies sandbox ports, by
 // path (/p/{id}/{port}/) and — when Domain is set — by host.
 type Handler struct {
@@ -105,11 +116,15 @@ type Handler struct {
 	PublicURL string // e.g. http://127.0.0.1:9527 — used to build absolute preview URLs
 	Domain    string // preview zone, e.g. rp.mk: {id}-{port}.rp.mk serves that port; "" = path previews only
 	Scheme    string // scheme for zone links; "" = follow the console request
+	Claims    ClaimRegistry
 }
 
 // Mount registers preview routes.
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/sandboxes/{id}/preview-link", h.previewLink)
+	mux.HandleFunc("POST /v1/preview-domains", h.claimDomain)
+	mux.HandleFunc("GET /v1/preview-domains", h.listDomains)
+	mux.HandleFunc("DELETE /v1/preview-domains/{name}", h.releaseDomain)
 	mux.HandleFunc("/p/{id}/{port}/", h.proxy)
 	mux.HandleFunc("/p/{id}/{port}", h.proxy)
 }
@@ -124,16 +139,16 @@ func (h *Handler) VhostRouter(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id, port, ok := h.splitHost(r.Host)
-		if !ok {
-			// A name inside the zone that is not a {sandbox}-{port} label is
-			// nobody's preview, and never the console: the zone serves
-			// previews only.
-			if h.inZone(r.Host) {
-				http.NotFound(w, r)
-				return
-			}
+		label, inZone := h.zoneLabel(r.Host)
+		if !inZone {
 			next.ServeHTTP(w, r)
+			return
+		}
+		// A name inside the zone that resolves to nothing is nobody's preview,
+		// and never the console: the zone serves previews only.
+		id, port, ok := h.resolveTarget(r.Context(), label)
+		if !ok {
+			http.NotFound(w, r)
 			return
 		}
 		path := r.URL.Path
@@ -151,18 +166,37 @@ func (h *Handler) VhostRouter(next http.Handler) http.Handler {
 	})
 }
 
-// splitHost decodes the {id}-{port} label of a preview host. The port is
-// whatever follows the last hyphen, so ids of their own (UUIDs, slugs ending
-// in digits) survive intact.
-func (h *Handler) splitHost(hostport string) (string, int, bool) {
+// zoneLabel returns the single label a host carries under the preview zone,
+// and whether the host is below that zone at all. The zone host itself is
+// deliberately excluded: an apex that resolves to this daemon still belongs to
+// the console. A deeper label comes back with the dot in it, which no target
+// matches — the wildcard certificate covers one level only.
+func (h *Handler) zoneLabel(hostport string) (label string, inZone bool) {
 	host := bareHost(hostport)
 	if !strings.HasSuffix(host, "."+h.Domain) {
+		return "", false
+	}
+	return strings.TrimSuffix(host, "."+h.Domain), true
+}
+
+// resolveTarget maps a zone label to the sandbox port it serves: a booked name
+// first (users ask for those explicitly), then the automatic {id}-{port} form.
+func (h *Handler) resolveTarget(ctx context.Context, label string) (string, int, bool) {
+	if label == "" || strings.ContainsRune(label, '.') {
 		return "", 0, false
 	}
-	label := strings.TrimSuffix(host, "."+h.Domain)
-	if strings.ContainsRune(label, '.') {
-		return "", 0, false
+	if h.Claims != nil {
+		if id, port, ok := h.Claims.Resolve(ctx, label); ok {
+			return id, port, true
+		}
 	}
+	return autoTarget(label)
+}
+
+// autoTarget decodes the automatic {id}-{port} label. The port is whatever
+// follows the last hyphen, so ids that contain hyphens (UUIDs, slugs ending in
+// digits) survive intact.
+func autoTarget(label string) (string, int, bool) {
 	i := strings.LastIndex(label, "-")
 	if i <= 0 || i == len(label)-1 {
 		return "", 0, false
@@ -174,13 +208,6 @@ func (h *Handler) splitHost(hostport string) (string, int, bool) {
 	return label[:i], port, true
 }
 
-// inZone reports whether host is below the configured preview zone. The zone
-// host itself is deliberately excluded: an apex that resolves to this daemon
-// still belongs to the console.
-func (h *Handler) inZone(hostport string) bool {
-	return strings.HasSuffix(bareHost(hostport), "."+h.Domain)
-}
-
 // zoneURL is the subdomain origin for sandboxID:port, or "" when no zone is
 // configured or the id cannot be a DNS label (a custom id with uppercase
 // letters, say) — that preview stays on the path form.
@@ -189,11 +216,7 @@ func (h *Handler) zoneURL(sandboxID string, port int, r *http.Request) string {
 	if h.Domain == "" || !ok {
 		return ""
 	}
-	scheme := h.Scheme
-	if scheme == "" {
-		scheme = httpx.DefaultTrust.Scheme(r)
-	}
-	return scheme + "://" + label + "." + h.Domain
+	return h.claimOrigin(label, r)
 }
 
 // vhostLabel renders the leftmost DNS label for a sandbox port. DNS caps a
@@ -203,16 +226,8 @@ func vhostLabel(sandboxID string, port int) (string, bool) {
 	if sandboxID == "" || len(sandboxID) > 63-1-len(strconv.Itoa(port)) {
 		return "", false
 	}
-	if strings.ToLower(sandboxID) != sandboxID {
+	if !validLabel(sandboxID) {
 		return "", false
-	}
-	if strings.HasPrefix(sandboxID, "-") || strings.HasSuffix(sandboxID, "-") {
-		return "", false
-	}
-	for _, c := range sandboxID {
-		if (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '-' {
-			return "", false
-		}
 	}
 	return fmt.Sprintf("%s-%d", sandboxID, port), true
 }

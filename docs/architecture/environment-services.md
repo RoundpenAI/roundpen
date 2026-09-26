@@ -142,6 +142,11 @@ Dial(ctx context.Context, engineID string, destPort int) (net.Conn, error)
 | GET | `/v1/sandboxes/{id}/preview-link?port=&path=` | 是 | 返回可打开的 preview URL；可附带短时 `token` |
 | ANY | `/p/{id}/{port}/...` | **短时 token 或会话** | 实际预览流量 |
 | — | vhost（可选） | 同上 | `ROUNDPEN_PREVIEW_DOMAIN` 非空时启用：`{id}-{port}.{域名}` 直连该端口，token cookie 限定在预览子域根路径，未知标签 404（不回落到控制台） |
+| POST | `/v1/preview-domains` | 是 | 申请 `{name}.{域名}`（body：`name`/`sandboxID`/`port`），返回地址与带 token 的链接；同名全局先到先得 |
+| GET | `/v1/preview-domains` | 是 | 列出自己的申请（管理员看全部） |
+| DELETE | `/v1/preview-domains/{name}` | 是 | 释放名字；管理员可释放任何人的 |
+
+申请得到的名字优先于自动标签：vhost 先查 `preview_domains`（`name` 主键），查不到再按 `{id}-{port}` 解析。名字只绑目标（沙箱+端口），访问仍要该目标的短时 token——猜到名字也打不开；已被占用的名字重复申请返回 409，本人重复申请则改绑到新端口（重建沙箱后地址不变）。申请占用的是活跃沙箱的自动地址（`{id}-{port}` 且沙箱存在）会被拒绝，避免顶掉别人的链接。
 
 `preview-link` 响应示例：
 
@@ -308,7 +313,7 @@ RemovePath(ctx context.Context, id, relPath string) error
 
 | 变量 | 用途 |
 |------|------|
-| `ROUNDPEN_PREVIEW_DOMAIN` | 空 = 仅 path 预览；非空（`rp.mk` 或 `https://rp.mk`）= 启用 vhost；带 scheme 时固定链接协议，否则跟随控制台请求 |
+| `ROUNDPEN_PREVIEW_DOMAIN` | 空 = 仅 path 预览；非空（`rp.mk` 或 `https://rp.mk`）= 启用 vhost 与名字登记（`preview_domains` 表）；带 scheme 时固定链接协议，否则跟随控制台请求 |
 | `ROUNDPEN_PREVIEW_TOKEN_TTL` | preview token 有效期（默认数分钟） |
 | `ROUNDPEN_PREVIEW_LISTEN` | 可选独立预览监听地址 |
 
@@ -317,6 +322,7 @@ RemovePath(ctx context.Context, id, relPath string) error
 - [x] 认证后可对沙箱 workspace 做 list/read/write/delete（沙箱 stopped 时 host-side 仍可读）— `GET/POST/DELETE /v1/sandboxes/{id}/files*`
 - [x] `Backend.Dial` + path 预览 `/p/{id}/{port}/` + `GET /v1/sandboxes/{id}/preview-link`（短时 token）
 - [x] vhost 预览：`ROUNDPEN_PREVIEW_DOMAIN` 非空时 `{id}-{port}.{域名}` 由 Host 路由到同一套 Dial/反代（token 校验不变，Host 原样转发给应用）
+- [x] 名字登记：`POST/GET /v1/preview-domains`（+ Agent 工具 `ClaimPreviewDomain`）先到先得地把 `{name}.{域名}` 绑到自己的沙箱端口，占用/越权/保留名分别 409/403/400，释放或改绑即生效
 - [x] 认证 Terminal WS：`GET /v1/sandboxes/{id}/terminal`（JSON resize + 二进制 PTY）
 - [x] Docker（`exec -it` / bridge Dial）与 QEMU（SSH Dial）均实现接口
 - [x] 默认路径不依赖 hikari-daemon / 无鉴权 vhost

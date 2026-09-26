@@ -28,6 +28,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/policy"
+	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
 	"github.com/RoundpenAI/roundpen/internal/secretbox"
@@ -140,6 +141,11 @@ func main() {
 	probe := bs.probe
 
 	mux, previewHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
+	if cfg.PreviewDomain != "" {
+		// Booked preview names only exist under a wildcard zone; without one
+		// the router never sees those hosts, so the store stays unset.
+		previewHandler.Claims = &preview.ClaimStore{DB: db.SQL}
+	}
 
 	envSvc, envHandler, oauthSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
 	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
@@ -189,7 +195,7 @@ func main() {
 	}
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
-	acpMgr := newACPManager(loopback, mgr, envSvc, tplSvc, browserHub, agentStore, settingsSvc, gw, autoEvaluator, itemsCat, logger)
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, settingsSvc, gw, autoEvaluator, itemsCat, logger)
 
 	agentHandler, ticketStore, provisioner := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat)
 
@@ -353,3 +359,4 @@ func firstNonEmpty(vals ...string) string {
 	}
 	return ""
 }
+

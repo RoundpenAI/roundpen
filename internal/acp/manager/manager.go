@@ -45,6 +45,10 @@ type SysDeps struct {
 	// Roundpen is in-process management tools (envs/templates/sessions/settings).
 	Roundpen *tools.RoundpenBinder
 
+	// PreviewZone is the wildcard domain previews are served under
+	// (ROUNDPEN_PREVIEW_DOMAIN); empty leaves the preview-domain tool out.
+	PreviewZone string
+
 	// WebSearch 解析某用户的搜索后端（endpoint/key/proxy）。nil，或 endpoint
 	// 与 key 均为空 → 不注册 WebSearch；proxy 同时用于 WebFetch/Skill install
 	// 的出口。
@@ -162,7 +166,8 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		}
 		reg := tools.NewRegistry()
 		tools.RegisterRoundpen(reg, m.sys.Roundpen)
-		tools.RegisterIssues(reg, &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase}, sessionID)
+		controlPlane := &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase}
+		tools.RegisterIssues(reg, controlPlane, sessionID)
 		tools.RegisterBrowser(reg, &tools.BrowserBinder{
 			Hub:       m.sys.BrowserHub,
 			Slots:     m.sys.BrowserSlots,
@@ -178,6 +183,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			searchCfg = m.sys.WebSearch(opts.Actor.Username)
 		}
 		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{ProxyURL: searchCfg.ProxyURL})
+		tools.RegisterPreviewDomain(reg, binder, controlPlane, m.sys.PreviewZone)
 		tools.RegisterShell(reg, binder)
 		tools.RegisterFiles(reg, binder)
 		tools.RegisterSearch(reg, binder)

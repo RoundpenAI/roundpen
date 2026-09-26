@@ -460,7 +460,7 @@ func llmConfigFor(items *settingitems.Catalog, loopback, key string) func(userID
 }
 
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, logger *slog.Logger) *manager.Manager {
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
 		LoopbackBase: loopback,
 		LLMKey:       gw.InternalKey(),
@@ -469,6 +469,7 @@ func newACPManager(loopback string, mgr sandbox.Manager, envSvc *userenv.Service
 		BrowserHub:   browserHub,
 		BrowserSlots: envSvc,
 		AgentSlots:   envSvc,
+		PreviewZone:  previewZone,
 		History:      agentStore,
 
 		Roundpen: &tools.RoundpenBinder{
