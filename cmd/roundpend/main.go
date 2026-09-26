@@ -193,6 +193,15 @@ func main() {
 
 	agentHandler, ticketStore, provisioner := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat)
 
+	// A pending assist ticket is only actionable while the process that raised
+	// its permission request still holds the wait; nothing survives a restart,
+	// so rows from a previous run (crash included) are closed on boot.
+	if n, err := ticketStore.CancelStalePending(ctx, time.Now(), "上次运行遗留的协助单已作废"); err != nil {
+		logger.Warn("cancel leftover assist tickets", slog.Any("err", err))
+	} else if n > 0 {
+		logger.Info("cancelled leftover assist tickets", "count", n)
+	}
+
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}
 	(&issue.Handler{Store: issueStore}).Mount(mux)

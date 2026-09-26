@@ -28,6 +28,7 @@ import { useAssistantLayout } from '../components/AssistantLayout'
 import { ImChannelsSection } from '../components/assistant/ImChannelsSection'
 import { Loading } from '../components/Loading'
 import { isSystemAssistant } from '../lib/assistants'
+import { ticketSessionPath } from '../lib/assistTickets'
 
 const fieldLabel: CSSProperties = {
   display: 'block',
@@ -147,6 +148,20 @@ export function AssistantDetailPage() {
     void patch({
       directoryGrants: (a.directoryGrants ?? []).filter((g) => g.path !== path),
     })
+  }
+
+  const resolveTicket = async (
+    t: AssistTicket,
+    resolution: 'allow_once' | 'permanent' | 'reject',
+  ) => {
+    setError(null)
+    try {
+      await assistantsApi.resolveTicket(t.id, { resolution })
+      await refresh()
+      await load()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e))
+    }
   }
 
   const changeIdentity = (mode: 'proxy_user' | 'independent') => {
@@ -340,11 +355,7 @@ export function AssistantDetailPage() {
                           <>
                             <Button
                               size="small"
-                              onClick={() =>
-                                void assistantsApi
-                                  .resolveTicket(t.id, { resolution: 'allow_once' })
-                                  .then(() => load())
-                              }
+                              onClick={() => void resolveTicket(t, 'allow_once')}
                             >
                               允许一次
                             </Button>
@@ -352,31 +363,20 @@ export function AssistantDetailPage() {
                               size="small"
                               theme="solid"
                               type="primary"
-                              onClick={() =>
-                                void assistantsApi
-                                  .resolveTicket(t.id, { resolution: 'permanent' })
-                                  .then(() => {
-                                    void refresh()
-                                    return load()
-                                  })
-                              }
+                              onClick={() => void resolveTicket(t, 'permanent')}
                             >
                               写入档案并继续
                             </Button>
                             <Button
                               size="small"
                               type="tertiary"
-                              onClick={() =>
-                                void assistantsApi
-                                  .resolveTicket(t.id, { resolution: 'reject' })
-                                  .then(() => load())
-                              }
+                              onClick={() => void resolveTicket(t, 'reject')}
                             >
                               拒绝
                             </Button>
                           </>
                         ) : null}
-                        <Link to={`/a/${a.id}/chat`}>
+                        <Link to={ticketSessionPath(t) ?? `/a/${a.id}/chat`}>
                           <Button size="small" type="tertiary">
                             在对话中处理
                           </Button>

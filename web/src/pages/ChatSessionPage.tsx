@@ -27,6 +27,7 @@ import {
   ApiError,
 } from '../api'
 import { AgentBrowserPanel } from '../components/AgentBrowserPanel'
+import { useAssistantLayout } from '../components/AssistantLayout'
 import { SessionTabs } from '../components/SessionTabs'
 import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
 import {
@@ -77,6 +78,8 @@ export function ChatSessionPage() {
   }>()
   const location = useLocation()
   const navigate = useNavigate()
+  // Answering drops the ticket from the assistant sidebar's todo list.
+  const { refresh: refreshAssistantLayout } = useAssistantLayout()
   const [session, setSession] = useState<AgentSession | null>(null)
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [busy, setBusy] = useState(false)
@@ -415,6 +418,7 @@ export function ChatSessionPage() {
           : 'allow_once'
       void assistantsApi
         .resolveTicket(perm.ticketId, { resolution, note: optionId })
+        .then(() => refreshAssistantLayout())
         .catch(() => undefined)
     }
     setMessages((prev) => [

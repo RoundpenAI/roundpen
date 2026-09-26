@@ -10,8 +10,10 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"github.com/google/uuid"
 
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
+	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -29,9 +31,8 @@ func (s *stubEvaluator) Evaluate(_ context.Context, req automode.Request) (autom
 	return s.verdict, s.err
 }
 
-// permTestRunner builds a runner backed by the shared test database; tests
-// skip when no DATABASE_URL is configured.
-func permTestRunner(t *testing.T, eval automode.Evaluator) (*runner, *agentsession.Store) {
+// permTestDB opens the shared test database; tests skip when no DSN is set.
+func permTestDB(t *testing.T) *storage.DB {
 	t.Helper()
 	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -49,11 +50,32 @@ func permTestRunner(t *testing.T, eval automode.Evaluator) (*runner, *agentsessi
 	if err := db.MigrateEmbedded(ctx); err != nil {
 		t.Fatal(err)
 	}
+	return db
+}
+
+// permTestUser inserts a throwaway user; everything that cascades from it is
+// removed when the test ends.
+func permTestUser(t *testing.T, db *storage.DB) string {
+	t.Helper()
+	ctx := context.Background()
 	user := fmt.Sprintf("auto-perm-%d", time.Now().UnixNano())
 	// api_key carries a unique constraint; reuse the unique username for it.
 	if _, err := db.SQL.ExecContext(ctx, `INSERT INTO users (username, api_key, role) VALUES ($1,$1,'user')`, user); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM users WHERE username=$1`, user)
+	})
+	return user
+}
+
+// permTestRunner builds a runner backed by the shared test database; tests
+// skip when no DATABASE_URL is configured.
+func permTestRunner(t *testing.T, eval automode.Evaluator) (*runner, *agentsession.Store) {
+	t.Helper()
+	db := permTestDB(t)
+	user := permTestUser(t, db)
+	ctx := context.Background()
 	store := &agentsession.Store{DB: db.SQL}
 	sess, err := store.Create(ctx, user, "auto perm test", "sysadmin", "", "")
 	if err != nil {
@@ -67,6 +89,36 @@ func permTestRunner(t *testing.T, eval automode.Evaluator) (*runner, *agentsessi
 		perms:   make(map[string]*permWait),
 	}
 	return r, store
+}
+
+// permTicketRunner builds a runner whose session belongs to a real assistant
+// row, so interactive permission requests create a linked assist ticket.
+func permTicketRunner(t *testing.T, eval automode.Evaluator) (*runner, *agentsession.Store, *assistticket.Store, string) {
+	t.Helper()
+	db := permTestDB(t)
+	user := permTestUser(t, db)
+	ctx := context.Background()
+	assistantID := uuid.NewString()
+	if _, err := db.SQL.ExecContext(ctx, `
+		INSERT INTO assistants (id, user_id, name, created_at, updated_at)
+		VALUES ($1, $2, 'Ada', now(), now())`,
+		assistantID, user,
+	); err != nil {
+		t.Fatalf("insert assistant: %v", err)
+	}
+	store := &agentsession.Store{DB: db.SQL}
+	sess, err := store.Create(ctx, user, "ticket perm test", "sysadmin", "", assistantID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tickets := &assistticket.Store{DB: db.SQL}
+	r := &runner{
+		handler: &Handler{Store: store, AutoMode: eval, Tickets: tickets},
+		session: sess,
+		ctx:     ctx,
+		perms:   make(map[string]*permWait),
+	}
+	return r, store, tickets, assistantID
 }
 
 func sysagentOptions() []acp.PermissionOption {
@@ -279,5 +331,96 @@ func TestRunnerAutoOffKeepsInteractivePath(t *testing.T) {
 	}
 	if len(outcomes) < 2 || outcomes[len(outcomes)-2] != "requested" || outcomes[len(outcomes)-1] != "cancelled" {
 		t.Fatalf("interactive path outcomes = %v, want ... requested, cancelled", outcomes)
+	}
+}
+
+func TestRunnerNoClientCancelClosesTicket(t *testing.T) {
+	eval := &stubEvaluator{verdict: automode.Verdict{Decision: automode.Allow}}
+	r, _, tickets, assistantID := permTicketRunner(t, eval)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if _, err := r.onPermission(permRequest("Bash", sysagentOptions(), nil)); err != nil {
+			t.Errorf("onPermission: %v", err)
+		}
+	}()
+	// No client is connected, so the interactive path abandons the request; the
+	// assist ticket must not stay pending (nobody could ever act on it).
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("interactive path did not cancel without clients")
+	}
+
+	list, err := tickets.ListByAssistant(r.ctx, r.session.UserID, assistantID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("tickets = %d, want 1", len(list))
+	}
+	if list[0].Status != assistticket.StatusCancelled || list[0].ResolutionNote == "" {
+		t.Fatalf("ticket after cancel = %+v, want status cancelled with note", list[0])
+	}
+	pending, err := tickets.ListPendingByUser(r.ctx, r.session.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending tickets = %d, want 0", len(pending))
+	}
+}
+
+func TestRunnerAnswerResolvesTicket(t *testing.T) {
+	eval := &stubEvaluator{verdict: automode.Verdict{Decision: automode.Allow}}
+	r, _, tickets, assistantID := permTicketRunner(t, eval)
+
+	create := func(title string) *assistticket.Ticket {
+		t.Helper()
+		tk, err := tickets.Create(r.ctx, r.session.UserID, assistticket.CreateInput{
+			AssistantID: assistantID,
+			SessionID:   r.session.ID,
+			Kind:        assistticket.KindPermission,
+			Title:       title,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tk
+	}
+	// The runner is the authority on the decision: answering must close the
+	// ticket even when the browser's own resolve request never arrives.
+	allowed := create("需要确认：Bash")
+	rejected := create("需要确认：Edit")
+	r.mu.Lock()
+	r.perms["call-allow"] = &permWait{ch: make(chan string, 1), options: sysagentOptions(), ticketID: allowed.ID}
+	r.perms["call-reject"] = &permWait{ch: make(chan string, 1), options: sysagentOptions(), ticketID: rejected.ID}
+	r.mu.Unlock()
+
+	r.answerPermission("call-allow", "allow")
+	r.answerPermission("call-reject", "reject")
+
+	gotAllowed, err := tickets.Get(r.ctx, allowed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotAllowed.Status != assistticket.StatusResolved || gotAllowed.Resolution != assistticket.ResAllowOnce ||
+		gotAllowed.ResolutionNote != "allow" {
+		t.Fatalf("allowed ticket = %+v", gotAllowed)
+	}
+	gotRejected, err := tickets.Get(r.ctx, rejected.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotRejected.Status != assistticket.StatusRejected || gotRejected.Resolution != assistticket.ResReject {
+		t.Fatalf("rejected ticket = %+v", gotRejected)
+	}
+	pending, err := tickets.ListPendingByUser(r.ctx, r.session.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending tickets = %d, want 0", len(pending))
 	}
 }

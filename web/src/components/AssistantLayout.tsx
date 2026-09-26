@@ -31,6 +31,7 @@ import {
 } from '../api'
 import { Loading } from './Loading'
 import { pickHomeAssistant } from '../lib/assistants'
+import { ticketSessionPath } from '../lib/assistTickets'
 
 const { Sider, Header, Content } = Layout
 
@@ -88,6 +89,14 @@ export function AssistantLayout() {
     setMobileOpen(false)
   }, [location.pathname])
 
+  // Tickets change while the page stays open (answered in a chat, another
+  // client resolves one), so re-read them whenever the panel is opened.
+  const togglePending = () => {
+    const next = !pendingOpen
+    setPendingOpen(next)
+    if (next) void refresh()
+  }
+
   const openAssistant = async (id: string) => {
     try {
       const { sessionId } = await assistantsApi.ensureSession(id)
@@ -95,6 +104,12 @@ export function AssistantLayout() {
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
     }
+  }
+
+  // Policy tickets are applied from the assistant detail page; permission
+  // tickets are answered in the session that raised the live prompt.
+  const openTicket = (t: AssistTicket) => {
+    navigate(ticketSessionPath(t) ?? `/a/${t.assistantId}`)
   }
 
   const value = useMemo(
@@ -151,7 +166,7 @@ export function AssistantLayout() {
             theme="borderless"
             type="tertiary"
             aria-label="待处理"
-            onClick={() => setPendingOpen((v) => !v)}
+            onClick={togglePending}
           >
             待办
           </Button>
@@ -186,7 +201,7 @@ export function AssistantLayout() {
                   onClick={() => {
                     setPendingOpen(false)
                     opts.onNavigate?.()
-                    void openAssistant(t.assistantId)
+                    openTicket(t)
                   }}
                 >
                   {t.title}

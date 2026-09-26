@@ -672,8 +672,29 @@ func (r *runner) cancelPermission(reqID, title string, options any) {
 	})
 	r.broadcast(wsOut{Type: "permission_resolved", RequestID: reqID})
 	r.mu.Lock()
+	pw := r.perms[reqID]
+	ticketID := ""
+	if pw != nil {
+		ticketID = pw.ticketID
+	}
 	delete(r.perms, reqID)
 	r.mu.Unlock()
+	r.cancelTicket(ticketID)
+}
+
+// cancelTicket closes the assist ticket behind an abandoned permission request
+// so the console todo list never keeps an item nobody can act on.
+func (r *runner) cancelTicket(ticketID string) {
+	if ticketID == "" || r.handler.Tickets == nil {
+		return
+	}
+	// The runner ctx may already be done (shutdown, session delete), but the
+	// ticket should still be closed.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), 5*time.Second)
+	defer cancel()
+	if _, err := r.handler.Tickets.Cancel(ctx, ticketID, "权限请求已取消"); err != nil && r.handler.Log != nil {
+		r.handler.Log.Warn("cancel assist ticket", "ticket", ticketID, "err", err)
+	}
 }
 
 // permCancel returns the /clear abandonment channel for a pending permission
@@ -722,6 +743,43 @@ func (r *runner) answerPermission(requestID, optionID string) {
 		default:
 		}
 	}
+	r.resolveTicketForAnswer(pw, optionID)
+}
+
+// resolveTicketForAnswer closes the assist ticket behind an answered permission
+// request. The browser also resolves it over HTTP, but the runner is the
+// authority on the decision: a dropped request (tab closed right after the
+// click) must not leave the ticket pending with nobody left to answer it.
+func (r *runner) resolveTicketForAnswer(pw *permWait, optionID string) {
+	if pw == nil || pw.ticketID == "" || r.handler.Tickets == nil {
+		return
+	}
+	resolution := assistticket.ResAllowOnce
+	if optionRejects(pw.options, optionID) {
+		resolution = assistticket.ResReject
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), 5*time.Second)
+	defer cancel()
+	if _, err := r.handler.Tickets.Resolve(ctx, pw.ticketID, resolution, optionID); err != nil && r.handler.Log != nil {
+		r.handler.Log.Warn("resolve assist ticket", "ticket", pw.ticketID, "err", err)
+	}
+}
+
+// optionRejects reports whether optionID is one of the request's reject
+// options, falling back to the option id when they are not ACP options.
+func optionRejects(options any, optionID string) bool {
+	opts, ok := options.([]acp.PermissionOption)
+	if !ok {
+		return strings.Contains(optionID, "reject")
+	}
+	for _, o := range opts {
+		if string(o.OptionId) != optionID {
+			continue
+		}
+		return o.Kind == acp.PermissionOptionKindRejectOnce ||
+			o.Kind == acp.PermissionOptionKindRejectAlways
+	}
+	return strings.Contains(optionID, "reject")
 }
 
 // cancelTurn cancels the in-progress ACP prompt.
