@@ -368,9 +368,14 @@ export function ChatSessionPage() {
     dispatchOutgoing(out, mode)
   }
 
+  /** Semi's own send key/Enter: the payload is already read from the editor. */
   const handleMessageSend = (payload: MessageContent) => {
     const out = buildSendPayload(payload.inputContents, commands)
     if (!out) return
+    // clearContentOnGenerating is off (a mid-turn send must not wipe text typed
+    // after it), so the hand-off clears the composer right here — otherwise the
+    // sent text stays in the box while the session works on it.
+    clearComposer()
     setComposerHasText(false)
     setComposerFocused(false)
     dispatchOutgoing(out, 'queue')
