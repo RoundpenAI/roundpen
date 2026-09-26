@@ -591,6 +591,7 @@ button {
 
 .chat-tool-pre {
   display: block;
+  box-sizing: border-box;
   width: 100%;
   margin: 0;
   max-width: 100%;
@@ -741,4 +742,139 @@ button {
   background: var(--semi-color-fill-0);
   color: var(--semi-color-text-0);
 }
+
+/* Queued user message: badge line above the bubble + pull-back link */
+.chat-queue-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.chat-queue-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--semi-color-text-2, #6b7280);
+}
+
+.chat-queue-tag {
+  padding: 0 0.35rem;
+  border-radius: 0.5rem;
+  background: var(--semi-color-warning-light-default, rgba(255, 193, 7, 0.16));
+  color: var(--semi-color-warning, #b45309);
+}
+
+.chat-queue-undo {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--semi-color-link, #0064fa);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.chat-queue-undo:hover {
+  text-decoration: underline;
+}
+
+.chat-queue-wrap.is-cancelled {
+  opacity: 0.55;
+}
+
+.chat-queue-wrap.is-cancelled .chat-queue-tag {
+  background: var(--semi-color-fill-0, rgba(0, 0, 0, 0.05));
+  color: var(--semi-color-text-2, #6b7280);
+}
+
+/* Mid-turn send key next to the stop key while generating */
+.chat-midturn-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--semi-color-primary, #0064fa);
+  color: var(--semi-color-white, #fff);
+  cursor: pointer;
+}
+
+.chat-midturn-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Dialogs carry a fixed width (448 by default, 520/720 for the settings
+   forms), so on a phone they ran off the right edge of the screen. Cap them
+   to the viewport instead; max-width beats the inline width semi sets. */
+@media (max-width: 767.98px) {
+  .semi-modal {
+    max-width: calc(100% - 32px);
+  }
+}
+
+/* Workspace file manager: context menu, rows, name cells */
+.rp-ws-table .semi-table-row {
+  cursor: pointer;
+}
+
+.rp-ws-table .semi-table-row:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.rp-ws-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.rp-ws-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rp-ws-menu {
+  position: fixed;
+  z-index: 2000;
+  min-width: 148px;
+  padding: 4px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 6px;
+  background: var(--semi-color-bg-2);
+  box-shadow: var(--semi-shadow-elevated);
+}
+
+.rp-ws-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--semi-color-text-0);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rp-ws-menu-item:hover:not(:disabled) {
+  background: var(--semi-color-fill-0);
+}
+
+.rp-ws-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.rp-ws-menu-item.is-danger {
+  color: var(--semi-color-danger);
+}
+
 

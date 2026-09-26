@@ -50,6 +50,15 @@ const (
 // last marker, while the transcript itself keeps them.
 const MetaTypeClear = "clear"
 
+// Meta state values for user rows. "queued" records that the row entered a
+// busy session's queue (kept after the turn starts, informational only);
+// "cancelled" means the user pulled it back before it ran — projections must
+// drop it so the model never sees content the user withdrew.
+const (
+	MetaStateQueued    = "queued"
+	MetaStateCancelled = "cancelled"
+)
+
 // AfterLastClear returns the rows after the last /clear marker, or all rows
 // when the session has none. The result aliases rows.
 func AfterLastClear(rows []*Message) []*Message {
@@ -76,6 +85,28 @@ func metaTypeOf(raw json.RawMessage) string {
 		return ""
 	}
 	return wrap.Type
+}
+
+func metaStateOf(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var wrap struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(raw, &wrap); err != nil {
+		return ""
+	}
+	return wrap.State
+}
+
+// IsCancelled reports whether a user row was pulled back from the queue before
+// it ran and must be hidden from model context.
+func IsCancelled(m *Message) bool {
+	if m == nil || m.Role != RoleUser {
+		return false
+	}
+	return metaStateOf(m.Meta) == MetaStateCancelled
 }
 
 // ToolMeta is stored in agent_messages.meta for role=tool rows.
@@ -374,6 +405,22 @@ func (s *Store) UpsertToolMessage(ctx context.Context, sessionID string, patch T
 		Meta:      raw,
 		CreatedAt: created,
 	}, nil
+}
+
+// CancelMessage marks a queued user row as cancelled. The row stays in the
+// transcript for audit; model-context projections skip it via IsCancelled.
+func (s *Store) CancelMessage(ctx context.Context, sessionID, messageID string) error {
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE agent_messages
+		SET meta = COALESCE(meta, '{}'::jsonb) || jsonb_build_object('state', $3::text)
+		WHERE id=$1 AND session_id=$2`, messageID, sessionID, MetaStateCancelled)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // ListRecentMessages returns the newest messages for a session, in

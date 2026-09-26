@@ -681,6 +681,51 @@ func TestRefreshExpiringReportsAffectedUsers(t *testing.T) {
 	}
 }
 
+func TestCallbackReportsIdentityChange(t *testing.T) {
+	f := newFlowFixture(t, &fakeRemote{t: t, user: `{"id":9,"login":"octo"}`})
+	f.addUser(t, storage.User{Username: "alice"})
+	var changed []string
+	f.svc.OnIdentityChange = func(_ context.Context, userID string) { changed = append(changed, userID) }
+
+	state := stateFromURL(t, f.start(t, StartInput{LinkUser: "alice"}))
+	res, err := callback(t, f, state, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Linked {
+		t.Error("link flow should report Linked")
+	}
+	if len(changed) != 1 || changed[0] != "alice" {
+		t.Errorf("changed = %v, want [alice] after the link stored the token", changed)
+	}
+}
+
+func TestUnlinkReportsIdentityChange(t *testing.T) {
+	f := newFlowFixture(t, &fakeRemote{t: t})
+	f.addUser(t, storage.User{Username: "alice"})
+	if _, err := f.store.UpsertIdentity(context.Background(), IdentityUpsert{
+		UserID: "alice", ProviderID: f.prov.ID, Subject: "1", AccessToken: "at",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var changed []string
+	f.svc.OnIdentityChange = func(_ context.Context, userID string) { changed = append(changed, userID) }
+
+	if err := f.svc.Unlink(context.Background(), "alice", "ident-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 1 || changed[0] != "alice" {
+		t.Errorf("changed = %v, want [alice] after the unlink", changed)
+	}
+	// A failed unlink changed nothing and must not trigger a re-injection.
+	if err := f.svc.Unlink(context.Background(), "alice", "ident-1"); err == nil {
+		t.Fatal("second unlink should fail")
+	}
+	if len(changed) != 1 {
+		t.Errorf("changed = %v, want a failed unlink to stay silent", changed)
+	}
+}
+
 func TestSafeRedirect(t *testing.T) {
 	cases := map[string]string{
 		"/settings/accounts":        "/settings/accounts",

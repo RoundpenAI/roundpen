@@ -16,6 +16,7 @@ import {
   Spin,
   Typography,
 } from '@douyinfe/semi-ui-19'
+import { IconArrowUp } from '@douyinfe/semi-icons'
 import type { MessageContent } from '@douyinfe/semi-ui-19/lib/es/aiChatInput/interface'
 import {
   agents,
@@ -26,7 +27,9 @@ import {
   ApiError,
 } from '../api'
 import { AgentBrowserPanel } from '../components/AgentBrowserPanel'
+import { useAssistantLayout } from '../components/AssistantLayout'
 import { SessionTabs } from '../components/SessionTabs'
+import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
 import {
   agentMessagesToSemi,
   type SemiChatMessage,
@@ -41,11 +44,12 @@ import { enqueueOutbox, outboxWaitingHint } from '../lib/sessionOutbox'
 import {
   buildSendPayload,
   contentsHaveSendableText,
+  type SendContent,
+  type SendPayload,
 } from '../lib/slashCommand'
 import {
   clearPendingPrompt,
   clearStreaming,
-  DIALOGUE_RENDER,
   isStreamingMessage,
   nowIso,
   readAutoMode,
@@ -57,6 +61,14 @@ import {
   toSkillItem,
   type PermReq,
 } from './chat/sessionChatHelpers'
+import {
+  newClientMsgId,
+  queueBadge,
+  queueHint,
+  queueItemFor,
+  type QueueItem,
+} from './chat/sessionQueue'
+import { clearComposer, composerEditorBridge } from './chat/editorBridge'
 import { connectChatSocket } from './chat/sessionSocket'
 
 export function ChatSessionPage() {
@@ -66,6 +78,8 @@ export function ChatSessionPage() {
   }>()
   const location = useLocation()
   const navigate = useNavigate()
+  // Answering drops the ticket from the assistant sidebar's todo list.
+  const { refresh: refreshAssistantLayout } = useAssistantLayout()
   const [session, setSession] = useState<AgentSession | null>(null)
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [busy, setBusy] = useState(false)
@@ -87,6 +101,13 @@ export function ChatSessionPage() {
   const [composerFocused, setComposerFocused] = useState(false)
   const [composerHasText, setComposerHasText] = useState(false)
   const [commands, setCommands] = useState<AgentCommand[]>([])
+  const [queueItems, setQueueItems] = useState<QueueItem[]>([])
+  const [cancelledIds, setCancelledIds] = useState<Set<string>>(new Set())
+  // null until the server reports a capability bit: unknown steers optimistically
+  // and lets the server fall back to queueing.
+  const [steerCap, setSteerCap] = useState<boolean | null>(null)
+  const composerContentsRef = useRef<SendContent[] | undefined>(undefined)
+  const composerExtensions = useMemo(() => [composerEditorBridge()], [])
   const busyRef = useRef(false)
   useEffect(() => {
     busyRef.current = busy
@@ -151,7 +172,40 @@ export function ChatSessionPage() {
 
   useEffect(() => {
     outboxRef.current = []
+    setQueueItems([])
+    setCancelledIds(new Set())
+    setSteerCap(null)
   }, [id])
+
+  const handleUnqueue = useCallback(
+    (messageId: string) => {
+      const ws = wsRef.current
+      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      // Optimistic bubbles carry the client id; the server knows the row id.
+      const target = queueItemFor(queueItems, messageId)?.id ?? messageId
+      ws.send(JSON.stringify({ type: 'unqueue', id: target }))
+      // Optimistic: a queue frame (or a refusal error) reconciles it. A refused
+      // pull-back keeps the message queued, and queued badges win over cancelled.
+      setCancelledIds((prev) => new Set(prev).add(messageId))
+    },
+    [queueItems],
+  )
+
+  const applyQueue = useCallback((items: QueueItem[]) => {
+    setQueueItems(items)
+    // Items that reappear in the queue (refused pull-back, re-queued) drop
+    // their cancelled mark.
+    setCancelledIds((prev) => {
+      if (prev.size === 0) return prev
+      let changed = false
+      const next = new Set(prev)
+      for (const it of items) {
+        if (next.delete(it.id)) changed = true
+        if (it.clientMsgId && next.delete(it.clientMsgId)) changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [])
 
   useEffect(
     () =>
@@ -168,9 +222,11 @@ export function ChatSessionPage() {
         setWsStatus,
         setWsDetail,
         setBrowserSeen,
+        onQueue: applyQueue,
+        setSteerCap,
         refreshCommands,
       }),
-    [id, refreshCommands],
+    [id, refreshCommands, applyQueue],
   )
 
   useEffect(() => {
@@ -233,11 +289,11 @@ export function ChatSessionPage() {
     }
   }
 
-  const appendLocalUser = (text: string) => {
+  const appendLocalUser = (text: string, clientMsgId?: string) => {
     setMessages((prev) => [
       ...clearStreaming(prev),
       {
-        id: `${Date.now()}-u`,
+        id: clientMsgId ?? `${Date.now()}-u`,
         sessionId: id,
         role: 'user',
         content: text,
@@ -246,12 +302,12 @@ export function ChatSessionPage() {
     ])
   }
 
-  const sendPrompt = (ws: WebSocket, text: string) => {
+  const sendPrompt = (ws: WebSocket, text: string, clientMsgId: string) => {
     setBusy(true)
     setStatusHint('Working…')
     setError(null)
-    appendLocalUser(text)
-    ws.send(JSON.stringify({ type: 'prompt', text }))
+    appendLocalUser(text, clientMsgId)
+    ws.send(JSON.stringify({ type: 'prompt', text, clientMsgId }))
   }
 
   const sendCommand = (ws: WebSocket, name: string, args: string) => {
@@ -262,16 +318,15 @@ export function ChatSessionPage() {
     ws.send(JSON.stringify({ type: 'command', name, args }))
   }
 
-  const handleMessageSend = (payload: MessageContent) => {
-    const out = buildSendPayload(payload.inputContents, commands)
-    if (!out) return
-    setComposerHasText(false)
-    setComposerFocused(false)
+  // Route one composer payload: commands keep their own frames; text goes out
+  // as steer, as queue, or as a plain turn when idle. Offline text lands in
+  // the outbox and is delivered on reconnect.
+  const dispatchOutgoing = (out: SendPayload, mode: 'steer' | 'queue') => {
     const ws = wsRef.current
     const open = ws && ws.readyState === WebSocket.OPEN
     if (out.kind === 'command') {
-      // Commands are never queued offline: the runner cancels the current turn
-      // and resets the runtime, which only makes sense against a live session.
+      // Commands are never queued offline: /clear acts on the live runner,
+      // which only makes sense against an open socket.
       if (open) {
         sendCommand(ws, out.name, out.args)
       } else {
@@ -279,16 +334,61 @@ export function ChatSessionPage() {
       }
       return
     }
-    if (open) {
-      sendPrompt(ws, out.text)
+    const clientMsgId = newClientMsgId()
+    if (!open) {
+      // WeChat-style: show the bubble immediately; deliver when WS is ready.
+      appendLocalUser(out.text, clientMsgId)
+      outboxRef.current = enqueueOutbox(outboxRef.current, out.text)
+      setStatusHint(outboxWaitingHint(outboxRef.current.length))
+      setError(null)
       return
     }
-    // WeChat-style: show the bubble immediately; deliver when WS is ready.
-    appendLocalUser(out.text)
-    outboxRef.current = enqueueOutbox(outboxRef.current, out.text)
-    setStatusHint(outboxWaitingHint(outboxRef.current.length))
-    setError(null)
+    if (busy) {
+      appendLocalUser(out.text, clientMsgId)
+      if (mode === 'steer' && steerCap !== false) {
+        // The server falls back to the queue when the provider cannot steer;
+        // the queue frame then carries the badge.
+        ws.send(JSON.stringify({ type: 'steer', text: out.text, clientMsgId }))
+        return
+      }
+      ws.send(JSON.stringify({ type: 'prompt', text: out.text, clientMsgId }))
+      setStatusHint(mode === 'steer' ? '该 agent 不支持插话，已排队' : '已排队')
+      return
+    }
+    sendPrompt(ws, out.text, clientMsgId)
   }
+
+  /** Send whatever is in the composer; the busy-state key routes here. */
+  const composerSend = (mode: 'steer' | 'queue') => {
+    const out = buildSendPayload(composerContentsRef.current, commands)
+    if (!out) return
+    clearComposer()
+    setComposerHasText(false)
+    setComposerFocused(false)
+    dispatchOutgoing(out, mode)
+  }
+
+  /** Semi's own send key/Enter: the payload is already read from the editor. */
+  const handleMessageSend = (payload: MessageContent) => {
+    const out = buildSendPayload(payload.inputContents, commands)
+    if (!out) return
+    // clearContentOnGenerating is off (a mid-turn send must not wipe text typed
+    // after it), so the hand-off clears the composer right here — otherwise the
+    // sent text stays in the box while the session works on it.
+    clearComposer()
+    setComposerHasText(false)
+    setComposerFocused(false)
+    dispatchOutgoing(out, 'queue')
+  }
+
+  const dialogueRender = useMemo(
+    () =>
+      chatDialogueRenderConfig({
+        badgeFor: (messageId) => queueBadge(queueItems, cancelledIds, messageId),
+        onUnqueue: handleUnqueue,
+      }),
+    [queueItems, cancelledIds, handleUnqueue],
+  )
 
   useEffect(() => {
     const pending = readPendingPrompt(id).trim()
@@ -299,10 +399,10 @@ export function ChatSessionPage() {
     sentPending.add(id)
     clearPendingPrompt(id)
     if (ws && ws.readyState === WebSocket.OPEN) {
-      sendPrompt(ws, pending)
+      sendPrompt(ws, pending, newClientMsgId())
       return
     }
-    appendLocalUser(pending)
+    appendLocalUser(pending, newClientMsgId())
     outboxRef.current = enqueueOutbox(outboxRef.current, pending)
     setStatusHint(outboxWaitingHint(outboxRef.current.length))
   }, [histReady, wsOpen, id, busy])
@@ -323,6 +423,7 @@ export function ChatSessionPage() {
           : 'allow_once'
       void assistantsApi
         .resolveTicket(perm.ticketId, { resolution, note: optionId })
+        .then(() => refreshAssistantLayout())
         .catch(() => undefined)
     }
     setMessages((prev) => [
@@ -457,7 +558,7 @@ export function ChatSessionPage() {
                   mode="bubble"
                   chats={chats}
                   roleConfig={ROLE_CONFIG}
-                  dialogueRenderConfig={DIALOGUE_RENDER}
+                  dialogueRenderConfig={dialogueRender}
                 />
               )}
               {showWorking && (
@@ -473,7 +574,7 @@ export function ChatSessionPage() {
                 >
                   <Spin size="small" />
                   <Typography.Text ellipsis style={{ minWidth: 0 }}>
-                    {statusHint ?? '工作中'}
+                    {queueHint(queueItems.length) ?? statusHint ?? '工作中'}
                   </Typography.Text>
                 </div>
               )}
@@ -498,12 +599,30 @@ export function ChatSessionPage() {
                 showUploadFile={false}
                 showReference={false}
                 round
+                extensions={composerExtensions}
+                clearContentOnGenerating={false}
                 placeholder={wsInputPlaceholder(wsStatus)}
                 renderConfigureArea={() => null}
                 renderActionArea={({ menuItem, className }) => {
                   if (!showComposerSend) return null
+                  // The last item is Semi's send key; while generating it
+                  // renders as stop. The custom key next to it sends mid-turn.
                   const sendBtn = menuItem[menuItem.length - 1]
-                  return <div className={className}>{sendBtn}</div>
+                  if (!busy) return <div className={className}>{sendBtn}</div>
+                  return (
+                    <div className={className}>
+                      {sendBtn}
+                      <button
+                        type="button"
+                        className="chat-midturn-send"
+                        disabled={!composerHasText}
+                        title="点击：插话到当前任务（该 agent 不支持时自动排队）；Shift+点击：仅排队"
+                        onClick={(e) => composerSend(e.shiftKey ? 'queue' : 'steer')}
+                      >
+                        <IconArrowUp size="small" />
+                      </button>
+                    </div>
+                  )
                 }}
                 skills={skillItems}
                 skillHotKey="/"
@@ -525,6 +644,7 @@ export function ChatSessionPage() {
                 onFocus={() => setComposerFocused(true)}
                 onBlur={() => setComposerFocused(false)}
                 onContentChange={(contents) => {
+                  composerContentsRef.current = contents as unknown as SendContent[]
                   setComposerHasText(contentsHaveSendableText(contents))
                 }}
                 onMessageSend={handleMessageSend}

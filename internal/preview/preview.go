@@ -97,18 +97,147 @@ func (s *Store) gcLocked() {
 	}
 }
 
-// Handler serves preview-link minting and /p/{id}/{port}/ reverse proxy.
+// ClaimRegistry is the booked-name table this handler works with: the vhost
+// router resolves labels through it, the claim API creates, lists and releases
+// them. *ClaimStore is the database-backed implementation.
+type ClaimRegistry interface {
+	Resolve(ctx context.Context, name string) (sandboxID string, port int, ok bool)
+	Get(ctx context.Context, name string) (*Claim, error)
+	List(ctx context.Context, owner string) ([]Claim, error)
+	Claim(ctx context.Context, c Claim) error
+	Release(ctx context.Context, name, owner string) (bool, error)
+}
+
+// Handler serves preview-link minting and reverse-proxies sandbox ports, by
+// path (/p/{id}/{port}/) and — when Domain is set — by host.
 type Handler struct {
 	Manager   sandbox.Manager
 	Tokens    *Store
 	PublicURL string // e.g. http://127.0.0.1:9527 — used to build absolute preview URLs
+	Domain    string // preview zone, e.g. rp.mk: {id}-{port}.rp.mk serves that port; "" = path previews only
+	Scheme    string // scheme for zone links; "" = follow the console request
+	Claims    ClaimRegistry
 }
 
 // Mount registers preview routes.
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/sandboxes/{id}/preview-link", h.previewLink)
+	mux.HandleFunc("POST /v1/preview-domains", h.claimDomain)
+	mux.HandleFunc("GET /v1/preview-domains", h.listDomains)
+	mux.HandleFunc("DELETE /v1/preview-domains/{name}", h.releaseDomain)
 	mux.HandleFunc("/p/{id}/{port}/", h.proxy)
 	mux.HandleFunc("/p/{id}/{port}", h.proxy)
+}
+
+// VhostRouter serves {id}-{port}.{Domain} requests, and must sit outside the
+// auth middleware and the console mux: the console session cookie is
+// host-only, so nothing on those hosts is a console request, and their paths
+// belong to the previewed app (no /p/ prefix to strip — its absolute URLs
+// work as written). Returns next unchanged when no preview zone is set.
+func (h *Handler) VhostRouter(next http.Handler) http.Handler {
+	if h.Domain == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		label, inZone := h.zoneLabel(r.Host)
+		if !inZone {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// A name inside the zone that resolves to nothing is nobody's preview,
+		// and never the console: the zone serves previews only.
+		id, port, ok := h.resolveTarget(r.Context(), label)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		path := r.URL.Path
+		if path == "" {
+			path = "/"
+		}
+		h.serve(w, r, proxyTarget{
+			id:         id,
+			port:       port,
+			path:       path,
+			query:      r.URL.RawQuery,
+			host:       r.Host,
+			cookiePath: "/",
+		})
+	})
+}
+
+// zoneLabel returns the single label a host carries under the preview zone,
+// and whether the host is below that zone at all. The zone host itself is
+// deliberately excluded: an apex that resolves to this daemon still belongs to
+// the console. A deeper label comes back with the dot in it, which no target
+// matches — the wildcard certificate covers one level only.
+func (h *Handler) zoneLabel(hostport string) (label string, inZone bool) {
+	host := bareHost(hostport)
+	if !strings.HasSuffix(host, "."+h.Domain) {
+		return "", false
+	}
+	return strings.TrimSuffix(host, "."+h.Domain), true
+}
+
+// resolveTarget maps a zone label to the sandbox port it serves: a booked name
+// first (users ask for those explicitly), then the automatic {id}-{port} form.
+func (h *Handler) resolveTarget(ctx context.Context, label string) (string, int, bool) {
+	if label == "" || strings.ContainsRune(label, '.') {
+		return "", 0, false
+	}
+	if h.Claims != nil {
+		if id, port, ok := h.Claims.Resolve(ctx, label); ok {
+			return id, port, true
+		}
+	}
+	return autoTarget(label)
+}
+
+// autoTarget decodes the automatic {id}-{port} label. The port is whatever
+// follows the last hyphen, so ids that contain hyphens (UUIDs, slugs ending in
+// digits) survive intact.
+func autoTarget(label string) (string, int, bool) {
+	i := strings.LastIndex(label, "-")
+	if i <= 0 || i == len(label)-1 {
+		return "", 0, false
+	}
+	port, err := strconv.Atoi(label[i+1:])
+	if err != nil || port <= 0 || port > 65535 {
+		return "", 0, false
+	}
+	return label[:i], port, true
+}
+
+// zoneURL is the subdomain origin for sandboxID:port, or "" when no zone is
+// configured or the id cannot be a DNS label (a custom id with uppercase
+// letters, say) — that preview stays on the path form.
+func (h *Handler) zoneURL(sandboxID string, port int, r *http.Request) string {
+	label, ok := vhostLabel(sandboxID, port)
+	if h.Domain == "" || !ok {
+		return ""
+	}
+	return h.claimOrigin(label, r)
+}
+
+// vhostLabel renders the leftmost DNS label for a sandbox port. DNS caps a
+// label at 63 bytes, and a wildcard certificate covers one label only, so a
+// dotted id would be unreachable and is refused here.
+func vhostLabel(sandboxID string, port int) (string, bool) {
+	if sandboxID == "" || len(sandboxID) > 63-1-len(strconv.Itoa(port)) {
+		return "", false
+	}
+	if !validLabel(sandboxID) {
+		return "", false
+	}
+	return fmt.Sprintf("%s-%d", sandboxID, port), true
+}
+
+func bareHost(hostport string) string {
+	host := strings.ToLower(hostport)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }
 
 type previewLinkResp struct {
@@ -149,11 +278,19 @@ func (h *Handler) previewLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	base := strings.TrimRight(h.PublicURL, "/")
+	// A preview subdomain serves the app at its root — that root is also the
+	// scope of its token cookie — while a path preview keeps the app (and the
+	// cookie) under /p/{id}/{port} on the console origin.
+	base := h.zoneURL(id, port, r)
+	cookiePath := "/"
+	u := base + pathSuffix
 	if base == "" {
-		base = httpx.DefaultTrust.Scheme(r) + "://" + httpx.DefaultTrust.Host(r)
+		if base = strings.TrimRight(h.PublicURL, "/"); base == "" {
+			base = httpx.DefaultTrust.Scheme(r) + "://" + httpx.DefaultTrust.Host(r)
+		}
+		cookiePath = fmt.Sprintf("/p/%s/%d", id, port)
+		u = base + cookiePath + pathSuffix
 	}
-	u := fmt.Sprintf("%s/p/%s/%d%s", base, id, port, pathSuffix)
 
 	if sameOriginPreview(base, r) {
 		// Default same-origin preview: deliver the token as a path-scoped
@@ -164,7 +301,7 @@ func (h *Handler) previewLink(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "roundpen_preview",
 			Value:    token,
-			Path:     fmt.Sprintf("/p/%s/%d", id, port),
+			Path:     cookiePath,
 			HttpOnly: true,
 			Secure:   httpx.DefaultTrust.Scheme(r) == "https",
 			SameSite: http.SameSiteLaxMode,
@@ -197,25 +334,51 @@ func sameOriginPreview(base string, r *http.Request) bool {
 	return strings.EqualFold(u.Host, r.Host)
 }
 
+// proxyTarget is where one preview request goes: the sandbox port, the
+// app-relative path and query to forward, the Host the app should see, and the
+// cookie scope. A path preview keeps 127.0.0.1 as its upstream Host (it is one
+// app among many on the console origin, so Host tells the app nothing useful),
+// while a subdomain preview keeps the public host so the app builds absolute
+// URLs and HMR sockets that point back at itself.
+type proxyTarget struct {
+	id         string
+	port       int
+	path       string
+	query      string
+	host       string
+	cookiePath string
+}
+
+// proxy serves the path form: /p/{id}/{port}/ plus the app's own path.
 func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	portStr := r.PathValue("port")
-	port, err := strconv.Atoi(portStr)
+	port, err := strconv.Atoi(r.PathValue("port"))
 	if err != nil || port <= 0 || port > 65535 {
 		http.Error(w, "invalid port", http.StatusBadRequest)
 		return
 	}
-
-	ctx := r.Context()
-	token := r.URL.Query().Get("token")
-	if token == "" {
-		if c, err := r.Cookie("roundpen_preview"); err == nil {
-			token = c.Value
-		}
+	prefix := fmt.Sprintf("/p/%s/%d", id, port)
+	targetPath := strings.TrimPrefix(r.URL.Path, prefix)
+	if targetPath == "" {
+		targetPath = "/"
 	}
-	sid, tokPort, owner, tokOK := h.Tokens.Lookup(token)
+	h.serve(w, r, proxyTarget{
+		id:         id,
+		port:       port,
+		path:       targetPath,
+		query:      r.URL.RawQuery,
+		host:       "127.0.0.1",
+		cookiePath: prefix,
+	})
+}
+
+// serve authorizes one preview request and forwards it to the sandbox port.
+func (h *Handler) serve(w http.ResponseWriter, r *http.Request, target proxyTarget) {
+	ctx := r.Context()
+	id, port := target.id, target.port
+	token, owner, ok := h.authenticate(r, id, port)
 	switch {
-	case tokOK && sid == id && tokPort == port:
+	case ok:
 		if owner != "" {
 			ctx = authz.WithActor(ctx, authz.Actor{Username: owner})
 		}
@@ -229,7 +392,7 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
 		http.SetCookie(w, &http.Cookie{
 			Name:     "roundpen_preview",
 			Value:    token,
-			Path:     fmt.Sprintf("/p/%s/%d", id, port),
+			Path:     target.cookiePath,
 			HttpOnly: true,
 			Secure:   sameSite == http.SameSiteNoneMode || httpx.DefaultTrust.Scheme(r) == "https",
 			SameSite: sameSite,
@@ -245,10 +408,10 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prefix := fmt.Sprintf("/p/%s/%d", id, port)
-	targetPath := strings.TrimPrefix(r.URL.Path, prefix)
-	if targetPath == "" {
-		targetPath = "/"
+	// Only the token this request authenticated with is dropped from the query
+	// — a `token` parameter the previewed app uses itself must reach it.
+	if q := r.URL.Query().Get("token"); q != "" && q == token {
+		target.query = stripToken(target.query, token)
 	}
 
 	conn, err := h.Manager.Dial(ctx, id, port)
@@ -261,28 +424,48 @@ func (h *Handler) proxy(w http.ResponseWriter, r *http.Request) {
 	_ = h.Manager.Touch(ctx, id)
 
 	if isWebSocket(r) {
-		h.proxyWebSocket(w, r, conn, targetPath)
+		h.proxyWebSocket(w, r, conn, target)
 		return
 	}
 
-	h.proxyHTTP(w, r, conn, targetPath)
+	h.proxyHTTP(w, r, conn, target)
+}
+
+// authenticate resolves the preview token: the ?token= of a preview link
+// first, then the cookie the proxy planted for later requests. A parameter
+// that validates as neither is skipped rather than treated as a failed
+// attempt, so a previewed app's own ?token= never locks its users out.
+func (h *Handler) authenticate(r *http.Request, id string, port int) (token, owner string, ok bool) {
+	candidates := []string{r.URL.Query().Get("token")}
+	if c, err := r.Cookie("roundpen_preview"); err == nil {
+		candidates = append(candidates, c.Value)
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if sid, tokPort, tokOwner, tokOK := h.Tokens.Lookup(candidate); tokOK && sid == id && tokPort == port {
+			return candidate, tokOwner, true
+		}
+	}
+	return "", "", false
 }
 
 func isWebSocket(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
-func (h *Handler) proxyHTTP(w http.ResponseWriter, r *http.Request, conn net.Conn, targetPath string) {
+func (h *Handler) proxyHTTP(w http.ResponseWriter, r *http.Request, conn net.Conn, target proxyTarget) {
 	defer conn.Close()
 
 	director := func(req *http.Request) {
 		req.URL = &url.URL{
 			Scheme:   "http",
-			Host:     "127.0.0.1",
-			Path:     targetPath,
-			RawQuery: stripToken(r.URL.RawQuery),
+			Host:     target.host,
+			Path:     target.path,
+			RawQuery: target.query,
 		}
-		req.Host = fmt.Sprintf("127.0.0.1")
+		req.Host = target.host
 		req.RequestURI = ""
 	}
 	proxy := &httputil.ReverseProxy{
@@ -301,7 +484,7 @@ func (h *Handler) proxyHTTP(w http.ResponseWriter, r *http.Request, conn net.Con
 	proxy.ServeHTTP(w, r)
 }
 
-func (h *Handler) proxyWebSocket(w http.ResponseWriter, r *http.Request, conn net.Conn, targetPath string) {
+func (h *Handler) proxyWebSocket(w http.ResponseWriter, r *http.Request, conn net.Conn, target proxyTarget) {
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		conn.Close()
@@ -316,11 +499,11 @@ func (h *Handler) proxyWebSocket(w http.ResponseWriter, r *http.Request, conn ne
 
 	req := r.Clone(r.Context())
 	req.URL.Scheme = "http"
-	req.URL.Host = "127.0.0.1"
-	req.URL.Path = targetPath
-	req.URL.RawQuery = stripToken(r.URL.RawQuery)
+	req.URL.Host = target.host
+	req.URL.Path = target.path
+	req.URL.RawQuery = target.query
 	req.RequestURI = ""
-	req.Header.Set("Host", "127.0.0.1")
+	req.Header.Set("Host", target.host)
 	if err := req.Write(conn); err != nil {
 		_ = conn.Close()
 		_ = client.Close()
@@ -342,12 +525,17 @@ func (h *Handler) proxyWebSocket(w http.ResponseWriter, r *http.Request, conn ne
 	_ = client.Close()
 }
 
-func stripToken(raw string) string {
-	if raw == "" {
-		return ""
+// stripToken removes the token this proxy consumed, leaving any same-named
+// parameter the previewed app owns untouched.
+func stripToken(raw, token string) string {
+	if raw == "" || token == "" {
+		return raw
 	}
 	vals, err := url.ParseQuery(raw)
 	if err != nil {
+		return raw
+	}
+	if vals.Get("token") != token {
 		return raw
 	}
 	vals.Del("token")

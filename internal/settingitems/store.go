@@ -297,6 +297,33 @@ func (s *PgStore) openSecrets(kind Kind, id string, sealed map[string]string) ma
 	return out
 }
 
+// VerifySecrets reports the first sealed secret the master key cannot open.
+// Startup checks it so a wrong key (typically a different ROUNDPEN_DATA_ROOT)
+// fails loudly instead of blanking fields one read at a time.
+func (s *PgStore) VerifySecrets(ctx context.Context) error {
+	if s.box == nil {
+		return nil
+	}
+	rows, err := s.sql.QueryContext(ctx, `
+		SELECT kind, id, key, value
+		FROM setting_items, jsonb_each_text(secrets)
+		WHERE value LIKE $1`, secretbox.Prefix+"%")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind, id, field, value string
+		if err := rows.Scan(&kind, &id, &field, &value); err != nil {
+			return err
+		}
+		if _, err := s.box.Open(value); err != nil {
+			return fmt.Errorf("setting_items %s/%s field %s: %w", kind, id, field, err)
+		}
+	}
+	return rows.Err()
+}
+
 func toAnyMap(in map[string]string) map[string]any {
 	out := make(map[string]any, len(in))
 	for k, v := range in {

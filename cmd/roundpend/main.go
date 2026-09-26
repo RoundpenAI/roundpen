@@ -22,11 +22,13 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
+	"github.com/RoundpenAI/roundpen/internal/imconnect"
 	"github.com/RoundpenAI/roundpen/internal/issue"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/policy"
+	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
 	"github.com/RoundpenAI/roundpen/internal/secretbox"
@@ -42,6 +44,9 @@ import (
 )
 
 func main() {
+	if err := config.LoadDotEnv(".env"); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
@@ -73,6 +78,15 @@ func main() {
 	}
 
 	settingsStore := settings.NewStore(db.SQL, secretBox)
+	itemsStore := settingitems.NewPGStore(db.SQL, secretBox)
+	// Refuse to run against secrets sealed by a different key: every read would
+	// blank those fields, and the next save would overwrite the stored secret.
+	if err := settingsStore.VerifySecrets(ctx); err != nil {
+		abortOnKeyMismatch(cfg, logger, err)
+	}
+	if err := itemsStore.VerifySecrets(ctx); err != nil {
+		abortOnKeyMismatch(cfg, logger, err)
+	}
 	appSettings, err := settings.Bootstrap(ctx, settingsStore, cfg)
 	if err != nil {
 		logger.Error("settings bootstrap", slog.Any("err", err))
@@ -92,7 +106,7 @@ func main() {
 		logger.Error("setting items registry", slog.Any("err", err))
 		os.Exit(1)
 	}
-	itemsCat := settingitems.NewCatalog(settingitems.NewPGStore(db.SQL, secretBox), itemsReg)
+	itemsCat := settingitems.NewCatalog(itemsStore, itemsReg)
 	if err := itemsCat.Reload(ctx); err != nil {
 		logger.Error("setting items load", slog.Any("err", err))
 		os.Exit(1)
@@ -138,7 +152,12 @@ func main() {
 	sbSvc = bs.sandboxes
 	probe := bs.probe
 
-	mux := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
+	mux, previewHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
+	if cfg.PreviewDomain != "" {
+		// Booked preview names only exist under a wildcard zone; without one
+		// the router never sees those hosts, so the store stays unset.
+		previewHandler.Claims = &preview.ClaimStore{DB: db.SQL}
+	}
 
 	envSvc, envHandler, oauthSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
 	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
@@ -149,7 +168,7 @@ func main() {
 
 	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, itemsCat, logger)
 
-	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
+	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
@@ -166,6 +185,16 @@ func main() {
 			browserHub.SetProfile(key, envSvc.BrowserProfileFor(userID))
 		}
 	}
+	// Safety net: when a hub key has no recorded profile (e.g. the agent tool
+	// path calls Hub.Ensure before SetProfile), resolve from the settings
+	// catalog so a user-configured remote/cloud endpoint is never silently
+	// overridden by the docker default.
+	browserHub.SetProfileResolver(func(key string) (browser.Profile, bool) {
+		if uid, ok := strings.CutPrefix(key, "browser-"); ok && uid != "" {
+			return envSvc.BrowserProfileFor(uid), true
+		}
+		return browser.Profile{}, false
+	})
 
 	agentStore := &agentsession.Store{DB: db.SQL}
 	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
@@ -178,22 +207,65 @@ func main() {
 	}
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
-	acpMgr := newACPManager(loopback, mgr, envSvc, browserHub, agentStore, gw, autoEvaluator, itemsCat, logger)
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, settingsSvc, gw, autoEvaluator, itemsCat, logger)
 
-	agentHandler, ticketStore := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat)
+	agentHandler, ticketStore, provisioner := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat)
+
+	// A pending assist ticket is only actionable while the process that raised
+	// its permission request still holds the wait; nothing survives a restart,
+	// so rows from a previous run (crash included) are closed on boot.
+	if n, err := ticketStore.CancelStalePending(ctx, time.Now(), "上次运行遗留的协助单已作废"); err != nil {
+		logger.Warn("cancel leftover assist tickets", slog.Any("err", err))
+	} else if n > 0 {
+		logger.Info("cancelled leftover assist tickets", "count", n)
+	}
 
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}
 	(&issue.Handler{Store: issueStore}).Mount(mux)
 	assistantStore := &assistant.Store{DB: db.SQL}
 	denialStore := &policy.DenialStore{DB: db.SQL}
-	(&assistant.Handler{
+
+	lang, imDataDir, imProvider := imconnect.EnvDefaults()
+	var imSup *imconnect.Supervisor
+	if cfg.IMEnabled {
+		imSup, err = imconnect.NewSupervisor(imconnect.Deps{
+			Assistants:  assistantStore,
+			Store:       agentStore,
+			ACP:         acpMgr,
+			Users:       userStore,
+			Provisioner: provisioner,
+			LLMGW:       gw,
+			LLMEnv:      llmEnvFor(itemsCat, publicURL),
+			Provider:    imProvider,
+			Lang:        lang,
+			DataDir:     imDataDir,
+		})
+		if err != nil {
+			logger.Error("imconnect supervisor", slog.Any("err", err))
+			imSup = nil
+		}
+	} else {
+		// Secondary instances sharing a DB must not race the primary one for the
+		// same chat platform connections.
+		logger.Info("ROUNDPEN_IM_ENABLED is off — IM engines skipped (set it to true to start them)")
+	}
+
+	asstHandler := &assistant.Handler{
 		Store:    assistantStore,
 		Sessions: agentStore,
 		Starter:  agentHandler,
 		Tickets:  ticketStore,
 		Denials:  denialStore,
-	}).Mount(mux)
+		IM:       imSup,
+	}
+	asstHandler.Mount(mux)
+
+	if imSup != nil {
+		if err := imSup.StartAll(ctx); err != nil {
+			logger.Error("imconnect start", slog.Any("err", err))
+		}
+	}
 
 	// Console SPA last — catch-all for non-API GET paths (embedded via internal/ui).
 	mux.Handle("/", ui.Handler())
@@ -202,9 +274,12 @@ func main() {
 	// new token into any running agent sandbox, or long sessions lose push.
 	go oauthRefresher(ctx, oauthSvc, envSvc, logger)
 
+	// Preview subdomains sit outside the console stack: their requests carry a
+	// preview token, not a console session, and every path on them belongs to
+	// the previewed app rather than to the SPA.
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           auth.Middleware(userStore, sessionStore)(mux),
+		Handler:           previewHandler.VhostRouter(auth.Middleware(userStore, sessionStore)(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // LLM relay and terminal WS stream past a write deadline
@@ -220,6 +295,9 @@ func main() {
 	}()
 
 	<-ctx.Done()
+	if imSup != nil {
+		imSup.StopAll()
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
@@ -292,4 +370,23 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// abortOnKeyMismatch stops startup when the master key cannot open secrets
+// sealed by an earlier run (usually a different ROUNDPEN_DATA_ROOT). Reads
+// would blank those fields and the next save would destroy the stored secret,
+// so the daemon refuses to boot unless ROUNDPEN_ALLOW_KEY_MISMATCH=1 asks for
+// the recovery flow where the key is gone and the secrets are re-entered by hand.
+func abortOnKeyMismatch(cfg *config.Config, logger *slog.Logger, err error) {
+	keySource := filepath.Join(cfg.DataRoot, "secret.key")
+	if strings.TrimSpace(cfg.SecretKey) != "" {
+		keySource = "ROUNDPEN_SECRET_KEY"
+	}
+	logger.Error("secrets master key cannot open stored secrets",
+		slog.Any("err", err), "data_root", cfg.DataRoot, "key_source", keySource)
+	if cfg.AllowKeyMismatch {
+		logger.Warn("ROUNDPEN_ALLOW_KEY_MISMATCH=1: starting with blanked secrets")
+		return
+	}
+	os.Exit(1)
 }

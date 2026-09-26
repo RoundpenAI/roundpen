@@ -37,6 +37,16 @@ export function GeneralSection({ isAdmin, loading, t, form, patch, defaultImageO
             />
           )}
         </Field>
+        <Field
+          label={t('settings.general.agentImage')}
+          hint={t('settings.general.agentImageHint')}
+        >
+          <Input
+            value={form.agentImage}
+            onChange={(v) => patch({ agentImage: v })}
+            placeholder="ghcr.io/roundpenai/code-agent:0.1.0"
+          />
+        </Field>
         <Field label={t('settings.general.defaultTtl')}>
           <Select
             value={form.defaultTtlSeconds}

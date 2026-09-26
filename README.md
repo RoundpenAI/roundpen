@@ -71,8 +71,11 @@ make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver�
 | 模式 | 适用场景 |
 |------|----------|
 | **Docker Compose（推荐）** | NAS / 小团队一键私有化 |
+| 飞牛 fnOS 应用包（`.fpk`） | 飞牛 NAS：应用中心一键安装，见 [deploy/fnos/README.md](deploy/fnos/README.md) |
 | `./roundpend` 单二进制 | 本地开发、已有 PG |
 | Kubernetes（规划中） | 企业集群 |
+
+两个二进制（`roundpend` / `roundpen`）启动时会自动加载**当前工作目录**下的 `.env`；已存在的环境变量优先，文件缺失则静默跳过。systemd 可用 `EnvironmentFile=` 注入同样的变量。
 
 ### 一键私有化（最终用户）
 
@@ -99,6 +102,9 @@ Agent 固定使用 Docker，镜像通过以下方式获取（无需本机持有 
 | 开发者本地构建 | `make code-agent-image`（`roundpen-code-agent:local`，用 `ROUNDPEN_AGENT_IMAGE` 覆盖） |
 
 单二进制部署只需 Docker + 可达的注册表；`ROUNDPEN_AGENT_IMAGE` 可指向私有镜像。
+
+运行时也能改：**系统管理 → 通用 → Agent 镜像**手填镜像引用（留空跟随模板，模板仍决定 CPU / 内存 / 磁盘），
+保存后对新建与重建的 Agent 容器生效（不用重启进程）。
 
 详见 [deploy/compose/README.md](deploy/compose/README.md)。
 

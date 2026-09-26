@@ -294,6 +294,7 @@ CREATE TABLE IF NOT EXISTS assistants (
 );
 CREATE INDEX IF NOT EXISTS assistants_user_idx ON assistants (user_id, updated_at DESC);
 ALTER TABLE assistants ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'user';
+ALTER TABLE assistants ADD COLUMN IF NOT EXISTS im_channels JSONB NOT NULL DEFAULT '{}';
 CREATE UNIQUE INDEX IF NOT EXISTS assistants_user_system_active_idx
     ON assistants (user_id)
     WHERE kind = 'system' AND status = 'active';
@@ -567,3 +568,16 @@ BEGIN
         ALTER TABLE users DROP COLUMN agent_proxy, DROP COLUMN browser_proxy;
     END IF;
 END $$;
+
+-- preview_domains: first-come subdomain claims under ROUNDPEN_PREVIEW_DOMAIN.
+-- name.{domain} serves one sandbox port until the claim is released or moved
+-- to another port; no FK to sandboxes on purpose, so a workspace that comes
+-- back under a new id can inherit its old address.
+CREATE TABLE IF NOT EXISTS preview_domains (
+    name       TEXT PRIMARY KEY,
+    sandbox_id TEXT NOT NULL,
+    port       INTEGER NOT NULL,
+    owner      TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS preview_domains_owner_idx ON preview_domains (owner);

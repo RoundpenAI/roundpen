@@ -161,6 +161,9 @@ ensure_env_key ROUNDPEN_AGENT_IMAGE "roundpen-code-agent:local"
 ensure_env_key ROUNDPEN_DEFAULT_AGENT_TEMPLATE "code-agent"
 ensure_env_key ROUNDPEN_DATA_ROOT "./data"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
+# The primary dev instance owns the chat platform connections (IM defaults off).
+ensure_env_key ROUNDPEN_IM_ENABLED "true"
+ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD "RoundpenAdmin1"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
 ensure_env_key ROUNDPEN_TEMPLATE_BUILDER ""
 

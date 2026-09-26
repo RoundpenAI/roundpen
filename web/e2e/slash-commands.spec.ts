@@ -49,6 +49,10 @@ test('slash menu sends a command frame and renders the clear divider', async ({ 
   // The bubble shows what was typed, not the expanded instructions.
   await expect(page.getByText('/review 关注并发')).toBeVisible()
 
+  // The composer hands its text over to the session: nothing stays behind
+  // while the answer is already being generated.
+  await expect(editor).toHaveText('')
+
   // /clear only re-syncs: the transcript survives and gains a divider.
   expect(socket).not.toBeNull()
   const refetch = page.waitForRequest((req) => req.url().includes('/messages'))

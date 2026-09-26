@@ -9,7 +9,42 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 19000,
     proxy: {
-      '/v1': { target: apiProxy, ws: true },
+      // WebSocket endpoints — only these paths need WS upgrade.
+      '^/v1/agent-sessions/[^/]+/ws': {
+        target: apiProxy,
+        ws: true,
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            const code = (err as Error & { code?: string }).code
+            if (code && ['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(code)) return
+            console.warn('ws proxy error:', err.message)
+          })
+        },
+      },
+      '^/v1/sandboxes/[^/]+/terminal': {
+        target: apiProxy,
+        ws: true,
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            const code = (err as Error & { code?: string }).code
+            if (code && ['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(code)) return
+            console.warn('ws proxy error:', err.message)
+          })
+        },
+      },
+      '^/v1/me/environments/browser/live': {
+        target: apiProxy,
+        ws: true,
+        configure: (proxy) => {
+          proxy.on('error', (err) => {
+            const code = (err as Error & { code?: string }).code
+            if (code && ['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(code)) return
+            console.warn('ws proxy error:', err.message)
+          })
+        },
+      },
+      // All other /v1/* API calls (no WebSocket).
+      '/v1': apiProxy,
       '/p': apiProxy,
       '/health': apiProxy,
     },

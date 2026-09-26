@@ -14,6 +14,7 @@ import (
 // BrowserSlot starts the user's Browser environment (Chrome / CDP).
 type BrowserSlot interface {
 	EnsureBrowser(ctx context.Context, userID string) (*userenv.BrowserTarget, error)
+	BrowserProfileFor(userID string) browser.Profile
 }
 
 // BrowserBinder attaches a browser Engine for System Agent sessions.
@@ -48,6 +49,9 @@ func (b *BrowserBinder) ensure(ctx context.Context, actor Actor) (*browser.Sessi
 	if err != nil {
 		return nil, WrapBrowserEnsure(err)
 	}
+	if b.Slots != nil && strings.TrimSpace(actor.Username) != "" {
+		b.Hub.SetProfile(id, b.Slots.BrowserProfileFor(actor.Username))
+	}
 	sess, err := b.Hub.Ensure(ctx, id)
 	if err != nil {
 		return nil, WrapBrowserEnsure(err)
@@ -75,6 +79,19 @@ func RegisterBrowser(r *Registry, binder *BrowserBinder) {
 	if r == nil || binder == nil {
 		return
 	}
+	r.Register(Tool{
+		Name:        "browser_start",
+		Description: "Start or resume the System Agent browser environment (Chrome container). Call this first if other browser tools report the environment is stopped.",
+		Mutating:    true,
+		Parameters:  objectSchema(map[string]any{}),
+		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
+			sess, err := binder.ensure(ctx, actor)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(`{"ok":true,"url":%q,"hubId":%q}`, sess.Engine.URL(), sess.SandboxID), nil
+		},
+	})
 	r.Register(Tool{
 		Name:        "browser_navigate",
 		Description: "Navigate the System Agent browser to a URL.",

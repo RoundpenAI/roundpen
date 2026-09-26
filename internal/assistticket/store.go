@@ -152,6 +152,52 @@ func (s *Store) ListByAssistant(ctx context.Context, userID, assistantID string,
 	return scanTickets(rows)
 }
 
+// Cancel abandons a pending ticket (e.g. the permission request behind it was
+// cancelled). Tickets that already reached an outcome keep it.
+func (s *Store) Cancel(ctx context.Context, id, note string) (*Ticket, error) {
+	t, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if t.Status != StatusPending {
+		return t, nil
+	}
+	now := time.Now().UTC()
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE assist_tickets SET status=$2, resolution_note=$3,
+			updated_at=$4, resolved_at=$4
+		WHERE id=$1 AND status=$5`,
+		id, StatusCancelled, note, now, StatusPending)
+	if err != nil {
+		return nil, err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		// Lost a race with a concurrent resolve; report the stored outcome.
+		return s.Get(ctx, id)
+	}
+	t.Status = StatusCancelled
+	t.ResolutionNote = note
+	t.UpdatedAt = now
+	t.ResolvedAt = &now
+	return t, nil
+}
+
+// CancelStalePending closes pending tickets created before cutoff and returns
+// how many rows changed. Called once on startup with the start time: a pending
+// ticket is only actionable while the process that raised its permission
+// request still holds the wait, and no wait survives a restart.
+func (s *Store) CancelStalePending(ctx context.Context, cutoff time.Time, note string) (int64, error) {
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE assist_tickets SET status=$1, resolution_note=$2,
+			updated_at=$3, resolved_at=$3
+		WHERE status=$4 AND created_at < $5`,
+		StatusCancelled, note, time.Now().UTC(), StatusPending, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 func (s *Store) Resolve(ctx context.Context, id, resolution, note string) (*Ticket, error) {
 	t, err := s.Get(ctx, id)
 	if err != nil {

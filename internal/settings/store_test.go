@@ -105,6 +105,37 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 	}
 }
 
+func TestVerifySecretsRejectsForeignKey(t *testing.T) {
+	ctx := context.Background()
+	db := testDB(t)
+	box, err := secretbox.New(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := secretbox.New(bytes.Repeat([]byte{8}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := settings.NewStore(db.SQL, box)
+	if err := store.Upsert(ctx, settings.AppSettings{
+		DefaultImage:      "host",
+		DefaultTtlSeconds: 1800,
+		LlmgwVirtualKeys:  "vk-devsecret:dev",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.VerifySecrets(ctx); err != nil {
+		t.Fatalf("matching key must verify: %v", err)
+	}
+	// A wrong key (usually a different ROUNDPEN_DATA_ROOT) must be reported at
+	// startup, before a read blanks the field and a save persists the blank.
+	if err := settings.NewStore(db.SQL, other).VerifySecrets(ctx); err == nil ||
+		!strings.Contains(err.Error(), "app_settings") {
+		t.Fatalf("wrong key must fail verification: %v", err)
+	}
+}
+
 func TestUpsertEncryptsSecretsAtRest(t *testing.T) {
 	ctx := context.Background()
 	db := testDB(t)

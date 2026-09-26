@@ -626,9 +626,10 @@ func (b *Backend) CopyToWorkspace(ctx context.Context, sandboxID, destRel string
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
 	hdr := &tar.Header{
-		Name: base,
-		Mode: 0o644,
-		Size: int64(len(data)),
+		Name:    base,
+		Mode:    0o644,
+		Size:    int64(len(data)),
+		ModTime: time.Now(),
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
 		return err

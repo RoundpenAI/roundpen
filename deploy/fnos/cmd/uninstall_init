@@ -1,0 +1,5 @@
+#!/bin/bash
+# Runs before uninstall; appcenter stops the compose project declared in
+# config/resource, containers and the project network go with it.
+
+exit 0

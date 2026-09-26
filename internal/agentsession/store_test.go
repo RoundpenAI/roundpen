@@ -173,6 +173,87 @@ func TestStore_UpsertToolMessage(t *testing.T) {
 	}
 }
 
+func TestStore_CancelMessageMarksRow(t *testing.T) {
+	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("DATABASE_URL")
+	}
+	if dsn == "" {
+		t.Skip("set ROUNDPEN_TEST_DATABASE_URL")
+	}
+	ctx := context.Background()
+	db, err := storage.OpenPostgres(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.MigrateEmbedded(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	user := "cancel-" + uuid.NewString()[:8]
+	if _, err := db.SQL.ExecContext(ctx, `
+		INSERT INTO users (username, email, role, api_key, created_at, updated_at)
+		VALUES ($1, $2, 'user', $3, now(), now())
+		ON CONFLICT (username) DO NOTHING`,
+		user, user+"@example.com", "rp-"+user,
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM users WHERE username=$1`, user)
+	})
+
+	store := &Store{DB: db.SQL}
+	sess, err := store.Create(ctx, user, "queue", "sysadmin", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM agent_sessions WHERE id=$1`, sess.ID)
+	})
+
+	msg, err := store.AddMessage(ctx, sess.ID, RoleUser, "pull me back", map[string]string{
+		"type": "user", "clientMsgId": "c-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CancelMessage(ctx, sess.ID, msg.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := store.ListMessages(ctx, sess.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || !IsCancelled(rows[0]) {
+		t.Fatalf("row must be cancelled: %+v", rows)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(rows[0].Meta, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if meta["state"] != MetaStateCancelled || meta["type"] != "user" || meta["clientMsgId"] != "c-1" {
+		t.Fatalf("cancel merges the marker without dropping other fields: %v", meta)
+	}
+
+	if err := store.CancelMessage(ctx, sess.ID, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cancelling an unknown row: %v", err)
+	}
+	// Session scoping: the same id under another session must not match.
+	other, err := store.Create(ctx, user, "other", "sysadmin", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM agent_sessions WHERE id=$1`, other.ID)
+	})
+	if err := store.CancelMessage(ctx, other.ID, msg.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cancelling across sessions: %v", err)
+	}
+}
+
 func TestStore_DeleteRemovesFromList(t *testing.T) {
 	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
 	if dsn == "" {

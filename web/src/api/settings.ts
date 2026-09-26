@@ -19,6 +19,8 @@ export type AppSettings = {
   allowPublicRegistration: boolean
   defaultImage: string
   defaultTtlSeconds: number
+  /** Pins the Agent sandbox image; empty follows the agent template. */
+  agentImage: string
   llmgwEnabled: boolean
   llmgwPublicUrl: string
   llmgwLogBodyMaxBytes: number

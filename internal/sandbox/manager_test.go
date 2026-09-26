@@ -200,6 +200,16 @@ type stubBackend struct {
 	startErr  error
 	execRes   *backend.ExecResult
 	execErr   error
+	// execQueue, when set, is consumed in order by Exec so a test can script
+	// multi-probe flows (test -d / test -e / mv); execCalls records every
+	// invocation.
+	execQueue []*backend.ExecResult
+	execCalls []backend.ExecOpts
+
+	// createStart is closed when Create is entered; Create then waits for
+	// createBlock (when non-nil). Tests use them to hold a create in flight.
+	createStart chan struct{}
+	createBlock chan struct{}
 
 	refreshRef     string
 	refreshChanged bool
@@ -221,6 +231,15 @@ func (b *stubBackend) Name() string { return b.name }
 func (b *stubBackend) Create(_ context.Context, opts backend.CreateOpts) (string, error) {
 	if b.createErr != nil {
 		return "", b.createErr
+	}
+	b.mu.Lock()
+	started, block := b.createStart, b.createBlock
+	b.mu.Unlock()
+	if started != nil {
+		close(started)
+	}
+	if block != nil {
+		<-block
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -253,11 +272,29 @@ func (b *stubBackend) Remove(_ context.Context, sandboxID string) error {
 	return nil
 }
 
-func (b *stubBackend) Exec(_ context.Context, _ string, _ backend.ExecOpts) (*backend.ExecResult, error) {
-	if b.execErr != nil {
-		return nil, b.execErr
+func (b *stubBackend) Exec(_ context.Context, _ string, opts backend.ExecOpts) (*backend.ExecResult, error) {
+	b.mu.Lock()
+	b.execCalls = append(b.execCalls, opts)
+	var res *backend.ExecResult
+	if len(b.execQueue) > 0 {
+		res = b.execQueue[0]
+		b.execQueue = b.execQueue[1:]
+	} else {
+		res = b.execRes
 	}
-	return b.execRes, nil
+	err := b.execErr
+	b.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// execCallsSnapshot returns the recorded exec invocations.
+func (b *stubBackend) execCallsSnapshot() []backend.ExecOpts {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]backend.ExecOpts(nil), b.execCalls...)
 }
 
 func (b *stubBackend) Logs(_ context.Context, _ string) (io.ReadCloser, error) {

@@ -17,11 +17,12 @@ const APIKeyPrefix = "rp-"
 //
 // If configuredKey is non-empty it becomes the admin API key (when no user
 // already holds that key). If empty and admin does not exist, a random key is
-// generated. When the admin has no password, a random one is generated.
+// generated. A non-empty configuredPassword pins the admin password on every
+// boot; otherwise a random one is generated when the admin has none.
 //
 // Generated credentials are written to credFile (0600) instead of the log;
 // only masked values and the file path appear in log output.
-func BootstrapAdmin(ctx context.Context, users storage.UserStore, configuredKey, credFile string, logger *slog.Logger) error {
+func BootstrapAdmin(ctx context.Context, users storage.UserStore, configuredKey, configuredPassword, credFile string, logger *slog.Logger) error {
 	if users == nil {
 		return nil
 	}
@@ -30,7 +31,7 @@ func BootstrapAdmin(ctx context.Context, users storage.UserStore, configuredKey,
 		existing, err := users.GetByUsername(ctx, "admin")
 		if err == nil && existing != nil {
 			logger.Info("admin user already exists")
-			return ensureAdminPassword(ctx, users, existing, credFile, logger)
+			return ensureAdminPassword(ctx, users, existing, configuredPassword, credFile, logger)
 		}
 		if err != nil && err != storage.ErrNotFound {
 			return err
@@ -78,10 +79,13 @@ func BootstrapAdmin(ctx context.Context, users storage.UserStore, configuredKey,
 		}
 		return err
 	}
-	return ensureAdminPassword(ctx, users, adminUser, credFile, logger)
+	return ensureAdminPassword(ctx, users, adminUser, configuredPassword, credFile, logger)
 }
 
-func ensureAdminPassword(ctx context.Context, users storage.UserStore, user *storage.User, credFile string, logger *slog.Logger) error {
+func ensureAdminPassword(ctx context.Context, users storage.UserStore, user *storage.User, configuredPassword, credFile string, logger *slog.Logger) error {
+	if configuredPassword != "" {
+		return pinAdminPassword(ctx, users, user, configuredPassword, logger)
+	}
 	plain, generated, err := EnsurePassword(ctx, users, user)
 	if err != nil {
 		logger.Warn("admin password bootstrap failed", slog.Any("err", err))
@@ -94,6 +98,32 @@ func ensureAdminPassword(ctx context.Context, users storage.UserStore, user *sto
 		logger.Warn("admin initial password generated (change immediately)",
 			slog.String("credentials_file", credFile))
 	}
+	return nil
+}
+
+// pinAdminPassword keeps the admin password equal to
+// ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD. The stored hash is only rewritten when it
+// no longer matches, so a password changed through the API is reset on the next
+// boot — that is the point of the setting, and it is meant for local dev.
+func pinAdminPassword(ctx context.Context, users storage.UserStore, user *storage.User, plain string, logger *slog.Logger) error {
+	if len(plain) < minPasswordLen {
+		return fmt.Errorf("ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD: %w", errPasswordTooShort)
+	}
+	if CheckPassword(user.PasswordHash, plain) {
+		return nil
+	}
+	hash, err := HashPassword(plain)
+	if err != nil {
+		return err
+	}
+	user.PasswordHash = hash
+	if user.AuthProvider == "" {
+		user.AuthProvider = "local"
+	}
+	if err := users.Upsert(ctx, *user); err != nil {
+		return err
+	}
+	logger.Warn("admin password pinned by ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD")
 	return nil
 }
 

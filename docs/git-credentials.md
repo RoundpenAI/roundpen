@@ -21,6 +21,9 @@ OAuth 登录（见 [auth.md](auth.md)）拿到的 token 存在 `user_identities`
 - Gitea 的 access token 默认 1 小时过期（`REFRESH_TOKEN_EXPIRATION_TIME` 控制 refresh token）：
   注入时若 5 分钟内过期会先刷新；另有后台任务每 10 分钟刷新 30 分钟内过期的身份，并重跑运行中
   Agent 沙箱的注入脚本。刷新失败沿用旧 token（git 会明确报认证失败），此时可改用 PAT。
+- **授权 / 解绑 / 保存或删除 PAT 后立即重注入**运行中的 Agent 沙箱，不等刷新 ticker：
+  GitHub 这类不过期的 token 否则要等容器重建才生效（`oauth.Service.OnIdentityChange`、
+  `gitcred.Handler.OnChange` 都接到 `userenv.Service.ReinjectGit`）。
 
 ## 用户
 
@@ -49,6 +52,11 @@ API：`GET/PUT /v1/me/git-credentials`，`DELETE /v1/me/git-credentials/{id}`。
 | `/home/roundpen/.gitconfig` | include 上面的 config，所以 SSH / exec 进来的 `git` 自动用 PAT |
 
 旧版落在 `/workspace/.roundpen/git` 的文件在注入时删除；`/workspace/.roundpen/ssh`（自动拷贝的旧 SSH 钥匙）同样删除。
+
+这些路径只有在**以 uid 1000（镜像里的 `roundpen`，`HOME=/home/roundpen`）运行**时才被 git 读到：
+容器用户由 `createEngine` 的 `engineUser = hostPathOwner(workspace)` 固定，容器创建后不再改变，
+所以 2026-09-20 之前创建的 agent 容器仍是 root（`HOME=/root`），表现为
+`fatal: could not read Username for 'https://…': terminal prompts disabled`——重建该容器即可。
 
 Agent workspace 是 per-user 的 virtio 数据盘（`workspace.qcow2`），guest 挂到 `/workspace` 且属主是 `roundpen`。宿主机不 bind、不 9p、不 `chmod 0777`——**正因为 `/workspace` 会被项目源码混在一起，凭据一律不进它，只进 `$HOME/.roundpen`**。
 

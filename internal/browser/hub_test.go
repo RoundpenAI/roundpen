@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,6 +117,70 @@ func TestHubBrowserTokenUsesLookup(t *testing.T) {
 	h2 := NewHub(t.TempDir(), nil)
 	if got := h2.browserToken("sb-1"); got != "" {
 		t.Fatalf("empty lookup should yield empty token, got %q", got)
+	}
+}
+
+// droppableEngine is a fakeEngine whose upstream link can be severed, the way
+// a remote browserless reaps an idle browser.
+type droppableEngine struct {
+	fakeEngine
+	connected atomic.Bool
+	closed    atomic.Int32
+}
+
+func newDroppableEngine() *droppableEngine {
+	e := &droppableEngine{}
+	e.connected.Store(true)
+	return e
+}
+
+func (e *droppableEngine) IsConnected() bool { return e.connected.Load() }
+
+func (e *droppableEngine) Close() error {
+	e.closed.Add(1)
+	e.connected.Store(false)
+	return nil
+}
+
+func TestHubEnsureReattachesDroppedBrowser(t *testing.T) {
+	h := NewHub(t.TempDir(), nil)
+	t.Cleanup(h.Close)
+	var engines []*droppableEngine
+	h.newEngine = func(string, int, int) (Engine, error) {
+		eng := newDroppableEngine()
+		engines = append(engines, eng)
+		return eng, nil
+	}
+	id := AgentBrowserID("s1")
+	first, err := h.Ensure(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(engines) != 1 {
+		t.Fatalf("attaches = %d, want 1", len(engines))
+	}
+
+	// The upstream browser is gone: the cached engine must not be handed out
+	// again, and status must stop advertising the dead page.
+	engines[0].connected.Store(false)
+	if st := h.StatusEx(id); st.Attached {
+		t.Fatalf("status %#v, want detached", st)
+	}
+	second, err := h.Ensure(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Engine == first.Engine {
+		t.Fatal("Ensure handed out the dead engine")
+	}
+	if len(engines) != 2 {
+		t.Fatalf("attaches = %d, want 2 (one re-attach)", len(engines))
+	}
+	if got := engines[0].closed.Load(); got != 1 {
+		t.Fatalf("dead engine closed %d times, want 1", got)
+	}
+	if st := h.StatusEx(id); !st.Attached {
+		t.Fatalf("status %#v, want attached after re-attach", st)
 	}
 }
 

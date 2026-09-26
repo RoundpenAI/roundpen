@@ -106,3 +106,13 @@ compose-up:
 
 compose-down:
 	docker compose down
+
+# fnOS app package (packaging source in deploy/fnos; needs the official fnpack,
+# see deploy/fnos/README.md). The NAS pulls the published image; WITH_IMAGE=1
+# builds and bundles it instead (offline installs).
+VERSION ?= 0.1.0
+PLATFORM ?= x86
+WITH_IMAGE ?= 0
+
+fpk:
+	@VERSION=$(VERSION) PLATFORM=$(PLATFORM) WITH_IMAGE=$(WITH_IMAGE) ./scripts/build-fnos-fpk.sh

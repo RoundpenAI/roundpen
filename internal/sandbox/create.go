@@ -43,6 +43,8 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	if err != nil {
 		return nil, err
 	}
+	release := s.trackCreate(id)
+	defer release()
 
 	if err := s.createEngine(ctx, sb, spec, req.Env, ephemeral); err != nil {
 		return nil, err

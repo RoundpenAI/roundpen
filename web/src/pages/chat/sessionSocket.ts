@@ -23,6 +23,7 @@ import {
   upsertToolMessage,
   type PermReq,
 } from './sessionChatHelpers'
+import { parseQueueItems, type QueueItem } from './sessionQueue'
 
 export type ChatSocketDeps = {
   id: string
@@ -37,6 +38,10 @@ export type ChatSocketDeps = {
   setWsStatus: Dispatch<SetStateAction<WsUiStatus>>
   setWsDetail: Dispatch<SetStateAction<string | null>>
   setBrowserSeen: Dispatch<SetStateAction<boolean>>
+  /** Queue snapshot changes (version-checked before this fires). */
+  onQueue: (items: QueueItem[]) => void
+  /** Mid-turn injection capability as reported by the runner. */
+  setSteerCap: (v: boolean) => void
   refreshCommands: () => void
 }
 
@@ -54,6 +59,8 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
     setWsStatus,
     setWsDetail,
     setBrowserSeen,
+    onQueue,
+    setSteerCap,
     refreshCommands,
   } = deps
   if (!id) return
@@ -64,6 +71,9 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
   let pollTimer: number | null = null
   let announcedOpen = false
   let ws: WebSocket | null = null
+  // Queue snapshots are versioned server-side; a fresh connection restarts the
+  // sequence, so the high-water mark resets on every connect.
+  let queueVer = 0
   // Reset before connect so Strict Mode remount cannot leave chrome on
   // 「已连接」while the live socket is still connecting / null.
   setWsStatus('connecting')
@@ -209,6 +219,11 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
           busy?: boolean
           reply?: string
           thought?: string
+          pending?: unknown
+          queueVersion?: number
+          version?: number
+          items?: unknown
+          steer?: boolean
           perm?: {
             requestId?: string
             title?: string
@@ -222,6 +237,16 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
         // Server snapshot of the runner: reconcile busy/reply/thought/perm
         // so a reconnect into an in-flight turn is seamless.
         if (msg.type === 'status') {
+          // The queue snapshot is authoritative here (reconnect baseline);
+          // version-check so an overtaken frame cannot revive stale items.
+          const ver = typeof msg.queueVersion === 'number' ? msg.queueVersion : 0
+          if (ver >= queueVer) {
+            queueVer = ver
+            onQueue(parseQueueItems(msg.pending))
+          }
+          if (typeof msg.steer === 'boolean') {
+            setSteerCap(msg.steer)
+          }
           if (msg.busy) {
             setBusy(true)
             setError(null)
@@ -246,6 +271,17 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
             setMessages((prev) => clearStreaming(prev))
             refetchMessages()
             flushOutbox(socket)
+          }
+          return
+        }
+        if (msg.type === 'queue') {
+          const ver = typeof msg.version === 'number' ? msg.version : 0
+          if (ver >= queueVer) {
+            queueVer = ver
+            onQueue(parseQueueItems(msg.items))
+          }
+          if (typeof msg.steer === 'boolean') {
+            setSteerCap(msg.steer)
           }
           return
         }
@@ -368,6 +404,7 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
           // model context restarts after the marker.
           setPerm(null)
           outboxRef.current = []
+          onQueue([])
           setMessages((prev) => clearStreaming(prev))
           refetchMessages()
           refreshCommands()
@@ -408,6 +445,7 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
     clearOpenTimer()
     clearPollTimer()
     announcedOpen = false
+    queueVer = 0
     setWsStatus('connecting')
     if (attempt === 0) setWsDetail(null)
 

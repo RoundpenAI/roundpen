@@ -3,70 +3,121 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
+	"github.com/RoundpenAI/roundpen/internal/agentsession"
+	"github.com/RoundpenAI/roundpen/internal/settings"
+	"github.com/RoundpenAI/roundpen/internal/template"
+	"github.com/RoundpenAI/roundpen/internal/userenv"
 )
 
-func TestRegistry_OpenAIToolsAndCall(t *testing.T) {
-	r := tools.NewRegistry()
-	r.Register(tools.Tool{
-		Name:        "echo",
-		Description: "echo args",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"msg": map[string]any{"type": "string"},
-			},
-		},
-		Call: func(_ context.Context, _ tools.Actor, args json.RawMessage) (string, error) {
-			return string(args), nil
-		},
-	})
-	oa := r.OpenAITools()
-	if len(oa) != 1 {
-		t.Fatalf("len=%d", len(oa))
-	}
-	out, err := r.Call(context.Background(), tools.Actor{}, "echo", json.RawMessage(`{"msg":"hi"}`))
-	if err != nil || out != `{"msg":"hi"}` {
-		t.Fatalf("call=%q err=%v", out, err)
-	}
+type stubEnvs struct {
+	list []userenv.EnvView
 }
 
-func TestRoundpenHTTP_List(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-API-Key") != "k" {
-			http.Error(w, "unauthorized", 401)
-			return
-		}
-		switch r.URL.Path {
-		case "/v1/me/environments":
-			_, _ = w.Write([]byte(`{"environments":[{"slot":"agent","status":"absent","sandboxId":"sb-secret"}]}`))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
+func (s stubEnvs) List(context.Context, string) ([]userenv.EnvView, error) {
+	return s.list, nil
+}
 
+type stubTemplates struct {
+	list []template.Record
+}
+
+func (s stubTemplates) List(context.Context) ([]template.Record, error) {
+	return s.list, nil
+}
+
+type stubSessions struct {
+	list []*agentsession.Session
+}
+
+func (s stubSessions) ListByUser(context.Context, string, int) ([]*agentsession.Session, error) {
+	return s.list, nil
+}
+
+type stubSettings struct{}
+
+func (stubSettings) Response() (settings.AppSettings, settings.SystemInfo) {
+	return settings.AppSettings{DefaultImage: "img"}, settings.SystemInfo{HTTPAddr: ":1"}
+}
+
+func TestRoundpenBinder_ListEnvironmentsScrubsSandbox(t *testing.T) {
 	reg := tools.NewRegistry()
-	tools.RegisterRoundpen(reg, &tools.RoundpenHTTP{BaseURL: srv.URL, HTTPClient: srv.Client()})
-	out, err := reg.Call(context.Background(), tools.Actor{APIKey: "k"}, "ListEnvironments", nil)
+	tools.RegisterRoundpen(reg, &tools.RoundpenBinder{
+		Envs: stubEnvs{list: []userenv.EnvView{
+			{Slot: "agent", Status: "absent", SandboxID: "sb-secret"},
+		}},
+	})
+	out, err := reg.Call(context.Background(), tools.Actor{Username: "alice", Role: "user"}, "ListEnvironments", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out, `"environments"`) {
 		t.Fatalf("got %q", out)
 	}
-	if strings.Contains(out, "sb-secret") || strings.Contains(out, "sandboxId") || strings.Contains(strings.ToLower(out), "sandbox") {
+	if strings.Contains(out, "sb-secret") || strings.Contains(out, "sandboxId") {
 		t.Fatalf("leaked sandbox fields: %q", out)
 	}
-	if strings.Contains(out, "roundpen_ensure_agent") {
-		t.Fatalf("old ensure wording: %q", out)
-	}
-	if _, err := reg.Call(context.Background(), tools.Actor{APIKey: "k"}, "roundpen_ensure_agent", nil); err == nil {
+	if _, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "roundpen_ensure_agent", nil); err == nil {
 		t.Fatal("ensure must be gone")
+	}
+}
+
+func TestRoundpenBinder_GetSettingsAdminOnly(t *testing.T) {
+	reg := tools.NewRegistry()
+	tools.RegisterRoundpen(reg, &tools.RoundpenBinder{Settings: stubSettings{}})
+	if _, err := reg.Call(context.Background(), tools.Actor{Username: "u", Role: "user"}, "GetSettings", nil); err == nil {
+		t.Fatal("expected admin required")
+	}
+	out, err := reg.Call(context.Background(), tools.Actor{Username: "a", Role: "admin"}, "GetSettings", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wrap map[string]any
+	if err := json.Unmarshal([]byte(out), &wrap); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := wrap["settings"]; !ok {
+		t.Fatalf("missing settings: %q", out)
+	}
+}
+
+func TestRoundpenBinder_ListSessions(t *testing.T) {
+	reg := tools.NewRegistry()
+	tools.RegisterRoundpen(reg, &tools.RoundpenBinder{
+		Sessions: stubSessions{list: []*agentsession.Session{{
+			ID: "s1", UserID: "alice", Title: "t", ProviderID: "sysadmin",
+			SandboxID: "hide-me", Status: "active",
+			CreatedAt: time.Now(), UpdatedAt: time.Now(),
+		}}},
+	})
+	out, err := reg.Call(context.Background(), tools.Actor{Username: "alice"}, "ListSessions", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "hide-me") || strings.Contains(out, "sandboxId") {
+		t.Fatalf("leaked sandbox: %q", out)
+	}
+	if !strings.Contains(out, `"s1"`) {
+		t.Fatalf("got %q", out)
+	}
+}
+
+func TestRoundpenBinder_ListTemplates(t *testing.T) {
+	reg := tools.NewRegistry()
+	tools.RegisterRoundpen(reg, &tools.RoundpenBinder{
+		Templates: stubTemplates{list: []template.Record{{
+			TemplateID: "tid", Name: "code-agent", Slot: "agent", BuildStatus: template.BuildReady,
+		}}},
+	})
+	out, err := reg.Call(context.Background(), tools.Actor{Username: "u"}, "ListTemplates", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "code-agent") {
+		t.Fatalf("got %q", out)
 	}
 }

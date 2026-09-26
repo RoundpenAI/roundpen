@@ -25,10 +25,45 @@ export type Assistant = {
   directoryGrants: AssistantDirectoryGrant[]
   status: 'active' | 'disabled'
   kind?: 'user' | 'system'
+  imChannels?: ImChannels
   primarySessionId?: string
   createdAt: string
   updatedAt: string
 }
+
+export type ImChannel = {
+  enabled: boolean
+  allowFrom?: string
+  token?: string
+  proxy?: string
+  groupReplyAll?: boolean
+  appId?: string
+  appSecret?: string
+  clientId?: string
+  clientSecret?: string
+  botToken?: string
+  appToken?: string
+  botId?: string
+  botSecret?: string
+  baseUrl?: string
+  accountId?: string
+}
+
+export type ImChannels = Record<string, ImChannel>
+
+export const IM_CHANNEL_META: {
+  type: string
+  label: string
+  family: 'botToken' | 'appPair' | 'dualToken' | 'wecomWS' | 'weixinQR'
+}[] = [
+  { type: 'telegram', label: 'Telegram', family: 'botToken' },
+  { type: 'discord', label: 'Discord', family: 'botToken' },
+  { type: 'slack', label: 'Slack', family: 'dualToken' },
+  { type: 'feishu', label: '飞书', family: 'appPair' },
+  { type: 'dingtalk', label: '钉钉', family: 'appPair' },
+  { type: 'wecom', label: '企业微信', family: 'wecomWS' },
+  { type: 'weixin', label: '微信', family: 'weixinQR' },
+]
 
 export const assistantsApi = {
   list: () => api<{ assistants: Assistant[] }>('/v1/assistants'),
@@ -56,11 +91,30 @@ export const assistantsApi = {
       networkAllowlist: string[]
       directoryGrants: AssistantDirectoryGrant[]
       status: 'active' | 'disabled'
+      imChannels: ImChannels
     }>,
   ) =>
     api<Assistant>(`/v1/assistants/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
+    }),
+  weixinBegin: (id: string, apiUrl?: string) =>
+    api<{ qrKey: string; qrUrl: string }>(
+      `/v1/assistants/${id}/im/weixin/begin`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ apiUrl: apiUrl || '' }),
+      },
+    ),
+  weixinPoll: (id: string, qrKey: string, apiUrl?: string) =>
+    api<{
+      status: string
+      connected?: boolean
+      accountId?: string
+      imChannels?: ImChannels
+    }>(`/v1/assistants/${id}/im/weixin/poll`, {
+      method: 'POST',
+      body: JSON.stringify({ qrKey, apiUrl: apiUrl || '' }),
     }),
   ensureSession: (id: string) =>
     api<{ sessionId: string }>(`/v1/assistants/${id}/ensure-session`, {

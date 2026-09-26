@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-const prefix = "enc:v1:"
+const Prefix = "enc:v1:"
 
 // Box seals and opens secrets with a fixed 256-bit key.
 type Box struct {
@@ -108,7 +108,7 @@ func writeKeyFile(path string, key []byte) error {
 }
 
 // IsSealed reports whether s carries the ciphertext prefix.
-func IsSealed(s string) bool { return strings.HasPrefix(s, prefix) }
+func IsSealed(s string) bool { return strings.HasPrefix(s, Prefix) }
 
 // Seal encrypts a plaintext secret. Empty strings pass through and values
 // that are already sealed are returned unchanged (idempotent).
@@ -121,7 +121,7 @@ func (b *Box) Seal(plain string) (string, error) {
 		return "", err
 	}
 	sealed := b.aead.Seal(nonce, nonce, []byte(plain), nil)
-	return prefix + base64.StdEncoding.EncodeToString(sealed), nil
+	return Prefix + base64.StdEncoding.EncodeToString(sealed), nil
 }
 
 // Open decrypts a sealed secret. Values without the "enc:v1:" prefix are
@@ -130,7 +130,7 @@ func (b *Box) Open(s string) (string, error) {
 	if !IsSealed(s) {
 		return s, nil
 	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(s, prefix))
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(s, Prefix))
 	if err != nil {
 		return "", err
 	}

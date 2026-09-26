@@ -16,7 +16,9 @@ import (
 type Actor struct {
 	Username string
 	Role     string
-	APIKey   string
+	// APIKey authenticates the REST transport (RoundpenHTTP) for tools whose
+	// validation lives in the control-plane API; in-process tools use Authz().
+	APIKey string
 }
 
 // Authz returns the control-plane identity used by owner-scoped services.

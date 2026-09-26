@@ -25,6 +25,9 @@ type RuntimeDeps struct {
 	// BrowserProfile resolves a browser item's CDP source ("" = the global
 	// default). nil falls back to the process config.
 	BrowserProfile func(itemID string) (browser.Profile, bool)
+	// SetAgentImage publishes the Agent image override ("" = follow the agent
+	// template) to the environment service.
+	SetAgentImage func(image string)
 }
 
 // Service manages persisted app settings.
@@ -82,7 +85,7 @@ func (s *Service) Current() AppSettings {
 func (s *Service) Update(ctx context.Context, next AppSettings) error {
 	prev := s.Current()
 	next.MergeSecrets(prev)
-	next.normalizeAutoMode()
+	next.normalize()
 	if err := next.Validate(); err != nil {
 		return err
 	}
@@ -114,6 +117,9 @@ func (s *Service) applyRuntime(ctx context.Context, v AppSettings) error {
 	}
 	if s.deps.Templates != nil {
 		s.deps.Templates.SetDefaultImage(v.DefaultImage)
+	}
+	if s.deps.SetAgentImage != nil {
+		s.deps.SetAgentImage(v.AgentImage)
 	}
 	if s.deps.ReconfigureLLMGW != nil {
 		if err := s.deps.ReconfigureLLMGW(ctx); err != nil {

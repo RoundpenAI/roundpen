@@ -1,6 +1,7 @@
 package gitcred
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,16 @@ import (
 // Handler serves /v1/me/git-credentials.
 type Handler struct {
 	Store *Store
+	// OnChange, when set, is called with the local user after a credential is
+	// written or removed, so a running sandbox picks the change up without
+	// waiting for a token refresh or a rebuild.
+	OnChange func(ctx context.Context, userID string)
+}
+
+func (h *Handler) changed(ctx context.Context, userID string) {
+	if h.OnChange != nil {
+		h.OnChange(ctx, userID)
+	}
 }
 
 func (h *Handler) Mount(mux *http.ServeMux) {
@@ -75,6 +86,7 @@ func (h *Handler) upsert(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
+	h.changed(r.Context(), user.Username)
 	httpx.WriteJSON(w, http.StatusOK, c.SanitizeForResponse())
 }
 
@@ -97,5 +109,6 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
+	h.changed(r.Context(), user.Username)
 	w.WriteHeader(http.StatusNoContent)
 }

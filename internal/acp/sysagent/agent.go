@@ -34,13 +34,31 @@ const (
 // maxSkillInvocationsPerTurn bounds Skill nesting within one reply.
 const maxSkillInvocationsPerTurn = 3
 
+// steerInboxSize bounds steered messages waiting for the next turn checkpoint.
+const steerInboxSize = 8
+
+var (
+	// ErrNoActiveTurn is returned when a steer arrives with no turn running;
+	// the caller falls back to queueing the message.
+	ErrNoActiveTurn = errors.New("sysagent: no active turn")
+	// ErrInboxFull is returned when steered messages outpace the checkpoints.
+	ErrInboxFull = errors.New("sysagent: steer inbox full")
+)
+
 type session struct {
+	id         string
 	cancel     context.CancelFunc
 	allowAll   bool
 	allowTools map[string]bool
 	denyTools  map[string]bool
 	planMode   bool
 	autoMode   bool
+
+	// inbox carries mid-turn user messages (steering) from the runner; the
+	// turn loop drains it at checkpoints. turnSeq lets a finishing turn clear
+	// its own cancel func without clobbering a successor's.
+	inbox   chan string
+	turnSeq uint64
 }
 
 // Deps wires LLM + tools for one agent instance.
@@ -88,9 +106,11 @@ func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (a
 	sid := randomID()
 	a.mu.Lock()
 	a.sessions[sid] = &session{
+		id:         sid,
 		allowTools: make(map[string]bool),
 		denyTools:  make(map[string]bool),
 		autoMode:   a.autoDefault,
+		inbox:      make(chan string, steerInboxSize),
 	}
 	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionId: acp.SessionId(sid)}, nil
@@ -156,12 +176,24 @@ func (a *Agent) Prompt(_ context.Context, params acp.PromptRequest) (acp.PromptR
 		s.cancel()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	// The ACP pipe cannot carry context values, so re-attach the authenticated
 	// actor for the owner-scoped sandbox/memory calls made by tools.
 	ctx = authz.WithActor(ctx, a.deps.Actor.Authz())
 	a.mu.Lock()
 	s.cancel = cancel
+	s.turnSeq++
+	seq := s.turnSeq
 	a.mu.Unlock()
+	// Clear the cancel func on every exit path, including errors. A successor
+	// turn bumps turnSeq before this runs, so its cancel func survives.
+	defer func() {
+		a.mu.Lock()
+		if s.turnSeq == seq {
+			s.cancel = nil
+		}
+		a.mu.Unlock()
+	}()
 
 	userText := ""
 	for _, block := range params.Prompt {
@@ -170,20 +202,49 @@ func (a *Agent) Prompt(_ context.Context, params acp.PromptRequest) (acp.PromptR
 		}
 	}
 
-	if err := a.turn(ctx, sid, userText); err != nil {
+	if err := a.turn(ctx, s, userText); err != nil {
 		if ctx.Err() != nil {
 			return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
 		}
 		return acp.PromptResponse{}, err
 	}
-	a.mu.Lock()
-	s.cancel = nil
-	a.mu.Unlock()
 	return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
 }
 
-func (a *Agent) turn(ctx context.Context, sid, userText string) error {
+// SteerSession hands a mid-turn user message to the running turn. The turn
+// loop drains the inbox at checkpoints (loop top, tool-batch boundary), so the
+// model sees the message on its next request without cancelling work in
+// flight. ErrNoActiveTurn tells the caller to queue the message instead;
+// the message is already persisted, so a turn ending right now loses nothing —
+// the next replay picks it up.
+func (a *Agent) SteerSession(sid, text string) error {
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+	a.mu.Lock()
+	s, ok := a.sessions[sid]
+	active := ok && s.cancel != nil
+	a.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("session %s not found", sid)
+	}
+	if !active {
+		return ErrNoActiveTurn
+	}
+	select {
+	case s.inbox <- text:
+		return nil
+	default:
+		return ErrInboxFull
+	}
+}
+
+func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
+	sid := s.id
 	messages := a.buildPromptMessages(ctx, userText)
+	// Steers that arrived before this turn started are already part of the
+	// replay above (they were persisted); keep only ones delivered from here on.
+	discardInbox(s.inbox)
 	openaiTools := a.deps.Tools.OpenAITools()
 	// Bound skill nesting: injected skill instructions may drive further Skill
 	// calls, and an unfettered instruction chain can loop forever. Skill is
@@ -195,6 +256,7 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		messages = drainInbox(s.inbox, messages)
 		if historyChars(messages) > maxHistoryChars {
 			messages = shrinkOldToolResults(messages, keepLastToolResults)
 		}
@@ -223,6 +285,12 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 		messages = append(messages, msg)
 
 		if len(msg.ToolCalls) == 0 {
+			// A steer that landed while the final text streamed must not be
+			// dropped: fold it in and ask the model again instead of ending.
+			if steered := drainInbox(s.inbox, nil); len(steered) > 0 {
+				messages = append(messages, steered...)
+				continue
+			}
 			if streamed {
 				return nil
 			}
@@ -387,6 +455,35 @@ func (a *Agent) turn(ctx context.Context, sid, userText string) error {
 				Update:    acp.UpdateAgentThoughtText(thought),
 			})
 			messages = append(messages, chatMessage{Role: "user", Content: watch.nudgeText()})
+		}
+	}
+}
+
+// drainInbox folds steered user messages into the running conversation. It is
+// called only where the message list is otherwise settled (loop top before an
+// LLM request, just before the turn would end) so appended user rows keep
+// tool_call/tool_result pairing intact.
+func drainInbox(inbox <-chan string, messages []chatMessage) []chatMessage {
+	for {
+		select {
+		case t := <-inbox:
+			if strings.TrimSpace(t) != "" {
+				messages = append(messages, chatMessage{Role: "user", Content: t})
+			}
+		default:
+			return messages
+		}
+	}
+}
+
+// discardInbox drops leftovers from earlier turns; those rows are in the
+// database, so the history replay already carries them.
+func discardInbox(inbox <-chan string) {
+	for {
+		select {
+		case <-inbox:
+		default:
+			return
 		}
 	}
 }

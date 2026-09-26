@@ -48,6 +48,7 @@ Agent 可见工具对齐 Claude Code 命名；沙箱 / ensure 是实现细节（
 | `WebFetch` | 抓取 URL 转 Markdown 并按 prompt 提炼（控制面执行，只读） |
 | `WebSearch` | 联网搜索（Tavily，只读；Settings → Web tools 配置，未配置则不注册） |
 | `ListEnvironments` | agent/browser 槽位状态（返回值剥离 `sandboxId`） |
+| `ClaimPreviewDomain` | 给 Agent workspace 的某个端口申请公共子域（`ROUNDPEN_PREVIEW_DOMAIN` 非空才注册），返回带 token 的可打开链接；同名先到先得，重复申请即改绑到当前端口 |
 | `ListTemplates` | 模板列表 |
 | `ListSessions` | 当前用户会话 |
 | `GetSettings` | 管理设置（admin） |

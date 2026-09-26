@@ -9,7 +9,7 @@ import (
 
 func TestWorkspaceToolSurface(t *testing.T) {
 	reg := tools.NewRegistry()
-	tools.RegisterRoundpen(reg, &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"})
+	tools.RegisterRoundpen(reg, &tools.RoundpenBinder{})
 	binder := &tools.AgentBinder{
 		Slots: &stubAgentSlots{id: "x"},
 		Exec:  &stubExec{},

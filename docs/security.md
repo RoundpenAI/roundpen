@@ -87,19 +87,19 @@ OCI Runtime            ← runc / gVisor / Kata 等（Agent 容器按部署选�
 
 设置接口对密钥字段回显掩码，避免通过 API 响应意外泄露。
 
-落库密钥经应用层 AES-256-GCM 加密（`enc:v1:` 前缀）：上游 LLM Key、CDP Token、Web 搜索密钥与旧版虚拟密钥串在 PostgreSQL 中不以明文存储。主密钥来自 `ROUNDPEN_SECRET_KEY`（hex/base64，32 字节）；未配置时自动生成并持久化到 `$ROUNDPEN_DATA_ROOT/secret.key`（0600）——**务必备份该文件**，丢失后已加密的值不可恢复（设置项会被置空并告警，需在设置页重新录入）。历史明文行保持可读，并在下次保存时自动转为密文。内部虚拟密钥同样随机生成（`data/llmgw-internal.key`），旧版固定常量 `vk-roundpen-internal` 在启动时从库中清除。
+落库密钥经应用层 AES-256-GCM 加密（`enc:v1:` 前缀）：上游 LLM Key、CDP Token、Web 搜索密钥与旧版虚拟密钥串在 PostgreSQL 中不以明文存储。主密钥来自 `ROUNDPEN_SECRET_KEY`（hex/base64，32 字节）；未配置时自动生成并持久化到 `$ROUNDPEN_DATA_ROOT/secret.key`（0600）——**务必备份该文件**，丢失后已加密的值不可恢复（设置项会被置空并告警，需在设置页重新录入）。换用不同的 `ROUNDPEN_DATA_ROOT` 等于换了一把主密钥，因此启动时会校验主密钥能否解开库中已有的密文，解不开就报错退出（`ROUNDPEN_ALLOW_KEY_MISMATCH=1` 可在确认要重新录入时放行），避免「读到空值再保存」把密文覆盖掉。历史明文行保持可读，并在下次保存时自动转为密文。内部虚拟密钥同样随机生成（`data/llmgw-internal.key`），旧版固定常量 `vk-roundpen-internal` 在启动时从库中清除。
 
 ### 4. 对外能力默认需认证
 
 自托管场景下，不能假设「知晓短 ID 即可访问」。Roundpen 的约束包括：
 
 - 管理 API、终端 WebSocket：需 Cookie 会话或 `rp-...` API Key（见 [auth.md](auth.md)）。
-- 端口预览：须由已认证用户通过 `preview-link` 签发**短时令牌**（默认 15 分钟）。同源部署（默认）下令牌经路径限定（`/p/{id}/{port}`）的 `HttpOnly` Cookie 下发，不出现在 URL 中，避免经浏览器历史、访问日志与 Referer 泄露，预览应用的子资源请求自动携带；配置独立预览域名（`ROUNDPEN_PREVIEW_PUBLIC_URL` 指向其他主机）时，首次导航仍经 `?token=` 传递（控制台域的 Cookie 无法送达预览域），代理随后在预览域自行种下 Cookie（跨站 iframe 场景为 `SameSite=None; Secure`，要求 HTTPS）。
+- 端口预览：须由已认证用户通过 `preview-link` 签发**短时令牌**（默认 15 分钟）。同源部署（默认）下令牌经路径限定（`/p/{id}/{port}`）的 `HttpOnly` Cookie 下发，不出现在 URL 中，避免经浏览器历史、访问日志与 Referer 泄露，预览应用的子资源请求自动携带；配置独立预览域名（`ROUNDPEN_PREVIEW_PUBLIC_URL` 指向其他主机）时，首次导航仍经 `?token=` 传递（控制台域的 Cookie 无法送达预览域），代理随后在预览域自行种下 Cookie（跨站 iframe 场景为 `SameSite=None; Secure`，要求 HTTPS）。配 `ROUNDPEN_PREVIEW_DOMAIN` 时每个端口独占一个子域（`{id}-{port}.{域名}`），该 Cookie 不带 `Domain`，只随对应子域发送，兄弟预览互不可见；控制台会话 Cookie 同样不带 `Domain`，因此预览子域上只有短时令牌这一条通路，域名通配区间内无法解析成 `{id}-{port}` 或已登记名字的主机直接 404，不会回落到控制台。子域还可由用户/Agent 通过 `POST /v1/preview-domains` **登记名字**（`{name}.{域名}`，全局先到先得，绑到自己的沙箱端口）：登记只决定"名字指向谁"，访问仍要目标端口的短时令牌，其他用户即使知道名字也拿不到内容；已被他人占用的名字返回 409，本人重复登记等于改绑，管理员可释放任何名字。
 - 登录接口按 IP 限流，减缓暴力尝试。`X-Forwarded-*` 仅在 `ROUNDPEN_TRUSTED_PROXIES`（CIDR 列表）命中时生效。
 
 预览与终端**不**提供默认无鉴权访问——这是自托管安全模型的底线。
 
-进一步加固：默认部署中预览与控制台**同源**，沙箱内任意 Web 应用的脚本运行在控制台 Origin 上，理论上可携用户会话调用控制台 API。若要运行不可信项目，建议将 `ROUNDPEN_PREVIEW_PUBLIC_URL` 指向独立域名（仍由同一 roundpend 实例服务，经 DNS / 反代路由），使预览内容与控制台会话跨站隔离；该模式要求 HTTPS。
+进一步加固：默认部署中预览与控制台**同源**，沙箱内任意 Web 应用的脚本运行在控制台 Origin 上，理论上可携用户会话调用控制台 API。若要运行不可信项目，建议将 `ROUNDPEN_PREVIEW_PUBLIC_URL` 指向独立域名，或直接启用 `ROUNDPEN_PREVIEW_DOMAIN` 子域预览（两者都由同一 roundpend 实例服务，经 DNS / 反代路由），使预览内容与控制台会话跨站隔离；该模式要求 HTTPS。
 
 ### 5. 记忆分层，数据路径清晰
 

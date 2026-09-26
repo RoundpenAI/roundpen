@@ -1,0 +1,9 @@
+{
+    "defaults":
+    {
+        "run-as": "package"
+    },
+    "username": "roundpen",
+    "groupname": "roundpen",
+    "join-groups": ["docker"]
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/manager"
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
+	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/agentapi"
@@ -44,8 +45,9 @@ import (
 )
 
 // newCoreMux creates the API mux and mounts the auth, platform, native HTTP,
-// browser and preview handlers.
-func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) *http.ServeMux {
+// browser and preview handlers. It also returns the preview handler, whose
+// host router has to wrap the finished handler stack (see main).
+func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler) {
 	mux := http.NewServeMux()
 	auth.Mount(mux, userStore, sessionStore, allowRegistration)
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
@@ -57,9 +59,11 @@ func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Servic
 		Manager:   mgr,
 		Tokens:    preview.NewStore(cfg.PreviewTokenTTL),
 		PublicURL: cfg.PreviewPublicURL,
+		Domain:    cfg.PreviewDomain,
+		Scheme:    cfg.PreviewDomainScheme,
 	}
 	previewHandler.Mount(mux)
-	return mux
+	return mux, previewHandler
 }
 
 // mountEnvStack builds the user environment, git credential, OAuth, runtime and
@@ -98,12 +102,20 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		Cfg:   cfg,
 		Dial:  sbSvc,
 	}
+	// Credential edits must reach a sandbox that is already running: a token
+	// that never expires would otherwise only land there after a rebuild. The
+	// request context is detached because the browser is already redirecting.
+	reinject := func(ctx context.Context, userID string) {
+		envSvc.ReinjectGit(context.WithoutCancel(ctx), userID)
+	}
+	oauthSvc.OnIdentityChange = reinject
+
 	envHandler.Mount(mux)
 	(&workspaceapi.Handler{
 		Envs:  envSvc,
 		Files: sbSvc,
 	}).Mount(mux)
-	(&gitcred.Handler{Store: gitStore}).Mount(mux)
+	(&gitcred.Handler{Store: gitStore, OnChange: reinject}).Mount(mux)
 	(&oauth.Handler{Svc: oauthSvc, Sessions: sessionStore}).Mount(mux)
 	(&runtime.Handler{Probe: probe}).Mount(mux)
 
@@ -177,7 +189,12 @@ func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cf
 }
 
 // newSettingsService builds the runtime settings service over the boot settings.
-func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAllowRegistration func(bool), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error, items *settingitems.Catalog) *settings.Service {
+func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAllowRegistration func(bool), setAgentImage func(string), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error, items *settingitems.Catalog) *settings.Service {
+	// The stored value is what the first Agent sandbox must use; later PUTs
+	// reach the environment service through SetAgentImage.
+	if setAgentImage != nil {
+		setAgentImage(appSettings.AgentImage)
+	}
 	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
 		AllowPublicReg:   setAllowRegistration,
 		Sandbox:          sbSvc,
@@ -185,6 +202,7 @@ func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSe
 		Probe:            probe,
 		ReconfigureLLMGW: reconfigureLLMGW,
 		LlmgwMounted:     true,
+		SetAgentImage:    setAgentImage,
 		BrowserProfile: func(itemID string) (browser.Profile, bool) {
 			if itemID == "" {
 				return browser.Resolve(items.Snapshot(), settingitems.SlotBrowserDefault, "",
@@ -442,7 +460,7 @@ func llmConfigFor(items *settingitems.Catalog, loopback, key string) func(userID
 }
 
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback string, mgr sandbox.Manager, envSvc *userenv.Service, browserHub *browser.Hub, agentStore *agentsession.Store, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, logger *slog.Logger) *manager.Manager {
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
 		LoopbackBase: loopback,
 		LLMKey:       gw.InternalKey(),
@@ -451,7 +469,15 @@ func newACPManager(loopback string, mgr sandbox.Manager, envSvc *userenv.Service
 		BrowserHub:   browserHub,
 		BrowserSlots: envSvc,
 		AgentSlots:   envSvc,
+		PreviewZone:  previewZone,
 		History:      agentStore,
+
+		Roundpen: &tools.RoundpenBinder{
+			Envs:      envSvc,
+			Templates: tplSvc,
+			Sessions:  agentStore,
+			Settings:  settingsSvc,
+		},
 
 		WebSearch: func(userID string) search.Config {
 			return search.Resolve(items.Snapshot(), settingitems.SlotSearchDefault, userID)
@@ -461,7 +487,7 @@ func newACPManager(loopback string, mgr sandbox.Manager, envSvc *userenv.Service
 }
 
 // newAgentAPI builds the agent API handler and its assist-ticket store.
-func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentStore *agentsession.Store, mgr sandbox.Manager, gw *llmgw.Gateway, browserHub *browser.Hub, envSvc *userenv.Service, acpMgr *manager.Manager, autoEvaluator *automode.LLMEvaluator, publicURL string, proxyForUser func(*storage.User) string, userVKey func(context.Context, string) string, items *settingitems.Catalog) (*agentapi.Handler, *assistticket.Store) {
+func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentStore *agentsession.Store, mgr sandbox.Manager, gw *llmgw.Gateway, browserHub *browser.Hub, envSvc *userenv.Service, acpMgr *manager.Manager, autoEvaluator *automode.LLMEvaluator, publicURL string, proxyForUser func(*storage.User) string, userVKey func(context.Context, string) string, items *settingitems.Catalog) (*agentapi.Handler, *assistticket.Store, *agentenv.Provisioner) {
 	provisioner := &agentenv.Provisioner{
 		Sandboxes: mgr,
 		Config: agentenv.Config{
@@ -490,5 +516,5 @@ func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentS
 	}
 	ticketStore := &assistticket.Store{DB: db.SQL}
 	agentHandler.Tickets = ticketStore
-	return agentHandler, ticketStore
+	return agentHandler, ticketStore, provisioner
 }

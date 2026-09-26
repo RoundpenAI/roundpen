@@ -29,6 +29,10 @@ type Hub struct {
 	// tokenLookup resolves a sandbox id to its stored browser token
 	// (sandbox.Metadata["browserToken"]); wired in cmd/roundpend.
 	tokenLookup func(sandboxID string) string
+	// profileResolver resolves a hub key to the user's configured browser
+	// profile from the settings catalog. Falls back to DefaultProfile(cfg)
+	// when nil or when the resolver returns ok=false.
+	profileResolver func(key string) (Profile, bool)
 
 	newEngine func(userDataDir string, width, height int) (Engine, error)
 }
@@ -76,6 +80,19 @@ func (h *Hub) SetTokenLookup(f func(sandboxID string) string) {
 	}
 	h.mu.Lock()
 	h.tokenLookup = f
+	h.mu.Unlock()
+}
+
+// SetProfileResolver supplies a callback that resolves a hub key to the user's
+// configured browser profile from the settings catalog. When set, attach uses
+// it before falling back to the process config, so a user-configured remote or
+// cloud endpoint is never silently overridden by the docker default.
+func (h *Hub) SetProfileResolver(f func(key string) (Profile, bool)) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.profileResolver = f
 	h.mu.Unlock()
 }
 
@@ -133,6 +150,12 @@ func (h *Hub) CloseSandbox(id string) {
 	sess := h.sessions[id]
 	delete(h.sessions, id)
 	h.mu.Unlock()
+	disposeSession(sess)
+}
+
+// disposeSession releases a session already removed from the hub map. Closing
+// talks to the browser, so it must never run under h.mu.
+func disposeSession(sess *Session) {
 	if sess == nil {
 		return
 	}
@@ -173,7 +196,9 @@ type SessionStatus struct {
 	Takeover bool
 }
 
-// StatusEx reports attachment and takeover without starting a browser.
+// StatusEx reports attachment and takeover without starting a browser. A
+// session whose upstream browser is gone reads as detached, matching what the
+// next Ensure will do (re-attach) instead of advertising a dead page.
 func (h *Hub) StatusEx(id string) SessionStatus {
 	if h == nil {
 		return SessionStatus{}
@@ -182,6 +207,9 @@ func (h *Hub) StatusEx(id string) SessionStatus {
 	defer h.mu.Unlock()
 	sess := h.sessions[id]
 	if sess == nil || sess.Engine == nil {
+		return SessionStatus{}
+	}
+	if !engineConnected(sess.Engine) {
 		return SessionStatus{}
 	}
 	return SessionStatus{
@@ -231,31 +259,49 @@ func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
 	if id == "" {
 		return nil, fmt.Errorf("sandbox id is required")
 	}
-	h.mu.Lock()
-	if sess := h.sessions[id]; sess != nil && sess.Engine != nil {
-		h.mu.Unlock()
-		return sess, nil
+	live, stale := h.cachedSession(id)
+	if live != nil {
+		return live, nil
 	}
-	h.mu.Unlock()
+	if stale != nil {
+		disposeSession(stale)
+		h.logger.Info("browser session dropped", slog.String("sandbox", id),
+			slog.String("reason", "upstream browser is gone"))
+	}
 
 	sess, err := h.attachReady(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	h.mu.Lock()
-	if existing := h.sessions[id]; existing != nil && existing.Engine != nil {
+	if existing := h.sessions[id]; existing != nil && existing.Engine != nil && engineConnected(existing.Engine) {
 		h.mu.Unlock()
-		if sess.release != nil {
-			sess.release()
-		}
-		if sess.Engine != nil {
-			_ = sess.Engine.Close()
-		}
+		disposeSession(sess)
 		return existing, nil
 	}
+	replaced := h.sessions[id]
 	h.sessions[id] = sess
 	h.mu.Unlock()
+	disposeSession(replaced)
 	h.logger.Info("browser session started", slog.String("sandbox", id))
+	return sess, nil
+}
+
+// cachedSession returns the session recorded for id when its engine still
+// talks to an upstream browser. A session that lost its browser (an idle
+// remote browserless reaped it) is removed and reported as stale instead, so
+// Ensure re-attaches rather than handing out an engine that can only fail.
+func (h *Hub) cachedSession(id string) (live, stale *Session) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	sess := h.sessions[id]
+	if sess == nil || sess.Engine == nil {
+		return nil, nil
+	}
+	if !engineConnected(sess.Engine) {
+		delete(h.sessions, id)
+		return nil, sess
+	}
 	return sess, nil
 }
 
@@ -346,7 +392,15 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 
 	width, height := 1280, 800
 	if !recorded {
-		profile = DefaultProfile(cfg)
+		h.mu.Lock()
+		resolver := h.profileResolver
+		h.mu.Unlock()
+		if resolver != nil {
+			profile, recorded = resolver(id)
+		}
+		if !recorded {
+			profile = DefaultProfile(cfg)
+		}
 	}
 	provider := profile.EffectiveProvider()
 	// att starts token-less: host/remote/cloud may only pass the endpoint token

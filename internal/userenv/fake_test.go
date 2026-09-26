@@ -250,6 +250,16 @@ func (f *fakeSandboxes) RefreshTemplateImage(_ context.Context, templateRef stri
 	}
 	return image, f.refreshChanged, f.refreshDigest, nil
 }
+func (f *fakeSandboxes) RefreshImage(_ context.Context, ref string) (string, bool, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refreshes++
+	f.refreshRef = ref
+	if f.refreshErr != nil {
+		return "", false, "", f.refreshErr
+	}
+	return ref, f.refreshChanged, f.refreshDigest, nil
+}
 func (f *fakeSandboxes) ListFiles(context.Context, string, string) ([]workspace.DirEntry, error) {
 	return nil, fmt.Errorf("unused")
 }

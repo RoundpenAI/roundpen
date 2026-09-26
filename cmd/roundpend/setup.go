@@ -75,7 +75,7 @@ func newRegistrationGate(cfg *config.Config) (func() bool, func(bool)) {
 func bootstrapAdmin(ctx context.Context, cfg *config.Config, userStore storage.UserStore, logger *slog.Logger) {
 	if cfg.BootstrapAdmin {
 		credFile := filepath.Join(cfg.DataRoot, "bootstrap-admin-credentials.txt")
-		if err := auth.BootstrapAdmin(ctx, userStore, cfg.APIKey, credFile, logger); err != nil {
+		if err := auth.BootstrapAdmin(ctx, userStore, cfg.APIKey, cfg.BootstrapAdminPassword, credFile, logger); err != nil {
 			logger.Error("bootstrap admin", slog.Any("err", err))
 			os.Exit(1)
 		}

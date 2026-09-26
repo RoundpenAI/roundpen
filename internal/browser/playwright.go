@@ -183,6 +183,12 @@ func (e *PlaywrightEngine) Navigate(ctx context.Context, target string) error {
 	return nil
 }
 
+// IsConnected reports whether the upstream browser is still attached. browser
+// is set once at construction and never replaced, so no lock is needed.
+func (e *PlaywrightEngine) IsConnected() bool {
+	return e != nil && e.browser != nil && e.browser.IsConnected()
+}
+
 // noteURL refreshes the cached page URL. Page.URL is driver-side state, so
 // this costs no round trip.
 func (e *PlaywrightEngine) noteURL() {
