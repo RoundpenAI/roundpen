@@ -3,10 +3,13 @@ package workspaceapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
@@ -29,6 +32,8 @@ type GuestFiles interface {
 	ReadGuestFile(ctx context.Context, id, rel string) (io.ReadCloser, error)
 	WriteGuestFile(ctx context.Context, id, rel string, r io.Reader) error
 	RemoveGuestFile(ctx context.Context, id, rel string) error
+	MoveGuestFile(ctx context.Context, id, src, dest string) error
+	CopyGuestFile(ctx context.Context, id, src, dest string) error
 }
 
 // Handler serves /v1/me/workspace/files*.
@@ -43,6 +48,8 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/me/workspace/files/content", h.read)
 	mux.HandleFunc("POST /v1/me/workspace/files", h.write)
 	mux.HandleFunc("DELETE /v1/me/workspace/files", h.remove)
+	mux.HandleFunc("POST /v1/me/workspace/files/move", h.move)
+	mux.HandleFunc("POST /v1/me/workspace/files/copy", h.copy)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -78,9 +85,43 @@ func (h *Handler) read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rc.Close()
-	w.Header().Set("Content-Type", "application/octet-stream")
+	ct := inlineContentType(rel)
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Disposition",
+			"attachment; filename*=UTF-8''"+url.PathEscape(path.Base(rel)))
+	} else if ct != "application/octet-stream" {
+		// Renderable types are shown inline; lock the response down so an
+		// uploaded file can never script or fetch against the console origin.
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, rc)
+}
+
+// inlineContentType maps a workspace file onto the type browsers can show
+// inline. HTML/SVG are deliberately text/plain: the console serves this from
+// the same origin, so an uploaded file must never be treated as a document.
+// Everything else stays application/octet-stream (download only).
+func inlineContentType(rel string) string {
+	switch strings.ToLower(path.Ext(rel)) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".pdf":
+		return "application/pdf"
+	case ".txt", ".md", ".markdown", ".json", ".yaml", ".yml", ".toml", ".csv", ".log",
+		".sh", ".bash", ".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".css", ".go", ".rs",
+		".java", ".c", ".h", ".cpp", ".rb", ".php", ".sql", ".html", ".htm", ".svg", ".xml":
+		return "text/plain; charset=utf-8"
+	}
+	return "application/octet-stream"
 }
 
 func (h *Handler) write(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +164,47 @@ func (h *Handler) remove(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// relocateReq is the body of the move/copy endpoints; Path (query) is the
+// source, Dest is either an existing directory or the literal target path.
+type relocateReq struct {
+	Dest string `json:"dest"`
+}
+
+func (h *Handler) move(w http.ResponseWriter, r *http.Request) {
+	h.relocate(w, r, h.Files.MoveGuestFile)
+}
+
+func (h *Handler) copy(w http.ResponseWriter, r *http.Request) {
+	h.relocate(w, r, h.Files.CopyGuestFile)
+}
+
+func (h *Handler) relocate(w http.ResponseWriter, r *http.Request, op func(ctx context.Context, id, src, dest string) error) {
+	sb, ok := h.ensure(w, r)
+	if !ok {
+		return
+	}
+	src := filePath(r)
+	if src == "" || src == "." {
+		httpx.WriteErr(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	var req relocateReq
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	dest := strings.TrimSpace(req.Dest)
+	if dest == "" {
+		httpx.WriteErr(w, http.StatusBadRequest, "dest is required")
+		return
+	}
+	if err := op(r.Context(), sb.ID, src, dest); err != nil {
+		writeGuestErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *Handler) ensure(w http.ResponseWriter, r *http.Request) (*sandbox.Sandbox, bool) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
@@ -156,6 +238,10 @@ func filePath(r *http.Request) string {
 
 func writeGuestErr(w http.ResponseWriter, err error) {
 	msg := err.Error()
+	if errors.Is(err, sandbox.ErrConflict) {
+		httpx.WriteErr(w, http.StatusConflict, msg)
+		return
+	}
 	if errors.Is(err, sandbox.ErrNotFound) || os.IsNotExist(err) || strings.Contains(msg, "no such file") {
 		httpx.WriteErr(w, http.StatusNotFound, "path not found")
 		return

@@ -44,7 +44,11 @@ export const meWorkspace = {
     api<FileList>(
       `/v1/me/workspace/files?path=${encodeURIComponent(path)}`,
     ),
+  /** Forces a browser download (attachment) of the file. */
   downloadUrl: (path: string) =>
+    `/v1/me/workspace/files/content?path=${encodeURIComponent(path)}&download=1`,
+  /** Inline URL for previewing renderable types (images, text, pdf). */
+  contentUrl: (path: string) =>
     `/v1/me/workspace/files/content?path=${encodeURIComponent(path)}`,
   upload: async (path: string, body: Blob) => {
     const res = await fetch(
@@ -61,6 +65,17 @@ export const meWorkspace = {
   remove: (path: string) =>
     api<void>(`/v1/me/workspace/files?path=${encodeURIComponent(path)}`, {
       method: 'DELETE',
+    }),
+  /** Moves (or renames) one entry; dest is a directory or the literal target. */
+  move: (path: string, dest: string) =>
+    api<void>(`/v1/me/workspace/files/move?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+      body: JSON.stringify({ dest }),
+    }),
+  copy: (path: string, dest: string) =>
+    api<void>(`/v1/me/workspace/files/copy?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+      body: JSON.stringify({ dest }),
     }),
 }
 
