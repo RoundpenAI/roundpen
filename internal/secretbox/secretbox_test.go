@@ -65,16 +65,16 @@ func TestOpenLegacyPlaintext(t *testing.T) {
 
 func TestOpenRejectsTamperedCiphertext(t *testing.T) {
 	box := testBox(t)
-	if _, err := box.Open(prefix + base64.StdEncoding.EncodeToString([]byte("garbage"))); err == nil {
+	if _, err := box.Open(Prefix + base64.StdEncoding.EncodeToString([]byte("garbage"))); err == nil {
 		t.Fatal("expected error for malformed ciphertext")
 	}
 	sealed, err := box.Seal("secret")
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(sealed, prefix))
+	raw, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(sealed, Prefix))
 	raw[len(raw)-1] ^= 0xff
-	tampered := prefix + base64.StdEncoding.EncodeToString(raw)
+	tampered := Prefix + base64.StdEncoding.EncodeToString(raw)
 	if _, err := box.Open(tampered); err == nil {
 		t.Fatal("expected auth failure for tampered ciphertext")
 	}

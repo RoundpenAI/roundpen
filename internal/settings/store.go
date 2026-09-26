@@ -90,6 +90,36 @@ func secretFields(s *AppSettings) []*string {
 	return []*string{&s.LlmgwVirtualKeys}
 }
 
+// VerifySecrets reports the first sealed secret the master key cannot open.
+// Startup checks it so a wrong key (typically a different ROUNDPEN_DATA_ROOT)
+// fails loudly instead of blanking fields one read at a time.
+func (s *Store) VerifySecrets(ctx context.Context) error {
+	if s.box == nil {
+		return nil
+	}
+	var raw []byte
+	err := s.sql.QueryRowContext(ctx, `SELECT payload FROM app_settings WHERE id=$1`, globalID).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	out, err := DecodeAppSettings(raw, AppSettings{})
+	if err != nil {
+		return err
+	}
+	for _, f := range secretFields(&out) {
+		if !secretbox.IsSealed(*f) {
+			continue
+		}
+		if _, err := s.box.Open(*f); err != nil {
+			return fmt.Errorf("app_settings %s: %w", globalID, err)
+		}
+	}
+	return nil
+}
+
 func (s *Store) sealSecrets(in AppSettings) (AppSettings, error) {
 	out := in
 	for _, f := range secretFields(&out) {

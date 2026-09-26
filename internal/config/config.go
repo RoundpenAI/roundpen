@@ -21,6 +21,7 @@ type Config struct {
 	DatabaseURL             string
 	DataRoot                string
 	SecretKey               string // master key (hex/base64, 32 bytes) sealing DB secrets; empty = auto-generated file under DataRoot
+	AllowKeyMismatch        bool   // start even when the master key cannot open secrets already sealed in the DB (recovery: re-enter them by hand)
 	Backend                 string // docker (qemu accepted as legacy alias; k8s/kern rejected)
 	DockerHost              string
 	DockerRuntime           string // e.g. runc, runsc; empty = daemon default
@@ -54,6 +55,7 @@ func Load() (*Config, error) {
 		DatabaseURL:             os.Getenv("DATABASE_URL"),
 		DataRoot:                getenv("ROUNDPEN_DATA_ROOT", "./data"),
 		SecretKey:               os.Getenv("ROUNDPEN_SECRET_KEY"),
+		AllowKeyMismatch:        getenvBool("ROUNDPEN_ALLOW_KEY_MISMATCH", false),
 		Backend:                 getenv("ROUNDPEN_BACKEND", "docker"),
 		DockerHost:              getenv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		DockerRuntime:           os.Getenv("ROUNDPEN_DOCKER_RUNTIME"),

@@ -87,7 +87,7 @@ OCI Runtime            ← runc / gVisor / Kata 等（Agent 容器按部署选�
 
 设置接口对密钥字段回显掩码，避免通过 API 响应意外泄露。
 
-落库密钥经应用层 AES-256-GCM 加密（`enc:v1:` 前缀）：上游 LLM Key、CDP Token、Web 搜索密钥与旧版虚拟密钥串在 PostgreSQL 中不以明文存储。主密钥来自 `ROUNDPEN_SECRET_KEY`（hex/base64，32 字节）；未配置时自动生成并持久化到 `$ROUNDPEN_DATA_ROOT/secret.key`（0600）——**务必备份该文件**，丢失后已加密的值不可恢复（设置项会被置空并告警，需在设置页重新录入）。历史明文行保持可读，并在下次保存时自动转为密文。内部虚拟密钥同样随机生成（`data/llmgw-internal.key`），旧版固定常量 `vk-roundpen-internal` 在启动时从库中清除。
+落库密钥经应用层 AES-256-GCM 加密（`enc:v1:` 前缀）：上游 LLM Key、CDP Token、Web 搜索密钥与旧版虚拟密钥串在 PostgreSQL 中不以明文存储。主密钥来自 `ROUNDPEN_SECRET_KEY`（hex/base64，32 字节）；未配置时自动生成并持久化到 `$ROUNDPEN_DATA_ROOT/secret.key`（0600）——**务必备份该文件**，丢失后已加密的值不可恢复（设置项会被置空并告警，需在设置页重新录入）。换用不同的 `ROUNDPEN_DATA_ROOT` 等于换了一把主密钥，因此启动时会校验主密钥能否解开库中已有的密文，解不开就报错退出（`ROUNDPEN_ALLOW_KEY_MISMATCH=1` 可在确认要重新录入时放行），避免「读到空值再保存」把密文覆盖掉。历史明文行保持可读，并在下次保存时自动转为密文。内部虚拟密钥同样随机生成（`data/llmgw-internal.key`），旧版固定常量 `vk-roundpen-internal` 在启动时从库中清除。
 
 ### 4. 对外能力默认需认证
 

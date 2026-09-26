@@ -44,6 +44,9 @@ import (
 )
 
 func main() {
+	if err := config.LoadDotEnv(".env"); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
@@ -75,6 +78,15 @@ func main() {
 	}
 
 	settingsStore := settings.NewStore(db.SQL, secretBox)
+	itemsStore := settingitems.NewPGStore(db.SQL, secretBox)
+	// Refuse to run against secrets sealed by a different key: every read would
+	// blank those fields, and the next save would overwrite the stored secret.
+	if err := settingsStore.VerifySecrets(ctx); err != nil {
+		abortOnKeyMismatch(cfg, logger, err)
+	}
+	if err := itemsStore.VerifySecrets(ctx); err != nil {
+		abortOnKeyMismatch(cfg, logger, err)
+	}
 	appSettings, err := settings.Bootstrap(ctx, settingsStore, cfg)
 	if err != nil {
 		logger.Error("settings bootstrap", slog.Any("err", err))
@@ -94,7 +106,7 @@ func main() {
 		logger.Error("setting items registry", slog.Any("err", err))
 		os.Exit(1)
 	}
-	itemsCat := settingitems.NewCatalog(settingitems.NewPGStore(db.SQL, secretBox), itemsReg)
+	itemsCat := settingitems.NewCatalog(itemsStore, itemsReg)
 	if err := itemsCat.Reload(ctx); err != nil {
 		logger.Error("setting items load", slog.Any("err", err))
 		os.Exit(1)
@@ -360,3 +372,21 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+// abortOnKeyMismatch stops startup when the master key cannot open secrets
+// sealed by an earlier run (usually a different ROUNDPEN_DATA_ROOT). Reads
+// would blank those fields and the next save would destroy the stored secret,
+// so the daemon refuses to boot unless ROUNDPEN_ALLOW_KEY_MISMATCH=1 asks for
+// the recovery flow where the key is gone and the secrets are re-entered by hand.
+func abortOnKeyMismatch(cfg *config.Config, logger *slog.Logger, err error) {
+	keySource := filepath.Join(cfg.DataRoot, "secret.key")
+	if strings.TrimSpace(cfg.SecretKey) != "" {
+		keySource = "ROUNDPEN_SECRET_KEY"
+	}
+	logger.Error("secrets master key cannot open stored secrets",
+		slog.Any("err", err), "data_root", cfg.DataRoot, "key_source", keySource)
+	if cfg.AllowKeyMismatch {
+		logger.Warn("ROUNDPEN_ALLOW_KEY_MISMATCH=1: starting with blanked secrets")
+		return
+	}
+	os.Exit(1)
+}

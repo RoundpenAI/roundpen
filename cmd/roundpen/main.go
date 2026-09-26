@@ -7,9 +7,14 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
 func main() {
+	if err := config.LoadDotEnv(".env"); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+	}
 	if len(os.Args) < 2 {
 		fmt.Fprintf(os.Stderr, "usage: roundpen <version|health>\n")
 		os.Exit(2)
