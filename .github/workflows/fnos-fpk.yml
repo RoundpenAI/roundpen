@@ -185,10 +185,19 @@ jobs:
           release_id="$(curl -fsS -H "${auth}" "${api}/releases/tags/${tag}" 2>/dev/null |
             jq -r 'first(.id)' || true)"
           if [[ -z "${release_id}" || "${release_id}" == "null" ]]; then
-            release_id="$(jq -n --arg tag "${tag}" --arg sha "${GITHUB_SHA}" \
-                '{tag_name: $tag, name: $tag, target_commitish: $sha}' |
-              curl -fsS -X POST -H "${auth}" -H "Content-Type: application/json" \
-                --data-binary @- "${api}/releases" | jq -r '.id')"
+            payload="$(jq -n --arg tag "${tag}" --arg sha "${GITHUB_SHA}" \
+                '{tag_name: $tag, name: $tag, target_commitish: $sha}')"
+            # Keep the API's reply on failure: a bare `curl -f` hides which
+            # permission or policy the token is missing.
+            reply="$(curl -sS -X POST -H "${auth}" -H "Content-Type: application/json" \
+                --data-binary "${payload}" -w $'\n%{http_code}' "${api}/releases")" || true
+            code="${reply##*$'\n'}"
+            if [[ "${code}" != 2?? ]]; then
+              echo "creating the ${tag} release failed: HTTP ${code}" >&2
+              echo "${reply%$'\n'*}" >&2
+              exit 1
+            fi
+            release_id="$(jq -r '.id' <<<"${reply%$'\n'*}")"
           fi
           echo "release ${tag}: id=${release_id}"
 
@@ -205,7 +214,7 @@ jobs:
             echo "→ ${tag}/${name}"
             if [[ "${server}" == *"github.com"* ]]; then
               # GitHub takes the file as the raw request body.
-              curl -fsS -X POST -H "${auth}" \
+              curl -sS --fail-with-body -X POST -H "${auth}" \
                 -H "Content-Type: application/octet-stream" \
                 --data-binary "@${file}" \
                 "${upload_api}/${release_id}/assets?name=${name}"
