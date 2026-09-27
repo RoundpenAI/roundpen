@@ -161,16 +161,23 @@ jobs:
             release_id="$(jq -r '.id' <<<"${reply%$'\n'*}")"
           fi
           echo "release ${tag}: id=${release_id}"
+          # Deleting an asset hangs off /releases/assets on github.com but off
+          # /releases/<id>/assets on Gitea.
+          if [[ "${server}" == *"github.com"* ]]; then
+            assets_api="${api}/releases/assets"
+          else
+            assets_api="${api}/releases/${release_id}/assets"
+          fi
 
-          sha256sum ./*.apk > sha256sums.txt
-          for file in ./*.apk sha256sums.txt; do
+          sha256sum ./*.apk > sha256sums-apk.txt
+          for file in ./*.apk sha256sums-apk.txt; do
             name="${file#./}"
             # Drop an asset of the same name left by an earlier run, so that a
             # re-run replaces it instead of failing on the duplicate.
             asset_id="$(curl -fsS -H "${auth}" "${api}/releases/${release_id}/assets" |
               jq -r --arg n "${name}" 'first(.[] | select(.name == $n) | .id)' || true)"
             if [[ -n "${asset_id}" && "${asset_id}" != "null" ]]; then
-              curl -fsS -X DELETE -H "${auth}" "${api}/releases/${release_id}/assets/${asset_id}"
+              curl -fsS -X DELETE -H "${auth}" "${assets_api}/${asset_id}"
             fi
             echo "→ ${tag}/${name}"
             if [[ "${server}" == *"github.com"* ]]; then
