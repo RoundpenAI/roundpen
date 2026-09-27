@@ -56,11 +56,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # See the egress note above. Read by the node actions, curl, git and
-      # Dart/pub; the JVM is covered by JAVA_TOOL_OPTIONS instead.
-      HTTP_PROXY: "http://10.10.1.5:18118"
-      HTTPS_PROXY: "http://10.10.1.5:18118"
+      # Dart/pub; the JVM is covered by JAVA_TOOL_OPTIONS instead. The bridge
+      # only exists on the intranet runner, so on GitHub-hosted runners the
+      # variables go empty (empty means "no proxy" to git, curl and Dart).
+      HTTP_PROXY: ${{ github.server_url != 'https://github.com' && 'http://10.10.1.5:18118' || '' }}
+      HTTPS_PROXY: ${{ github.server_url != 'https://github.com' && 'http://10.10.1.5:18118' || '' }}
       NO_PROXY: "localhost,127.0.0.1,::1,git.eaxi.com,10.10.1.5"
-      JAVA_TOOL_OPTIONS: "-DsocksProxyHost=10.10.1.4 -DsocksProxyPort=1212"
+      JAVA_TOOL_OPTIONS: ${{ github.server_url != 'https://github.com' && '-DsocksProxyHost=10.10.1.4 -DsocksProxyPort=1212' || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -133,9 +135,19 @@ jobs:
             host="$(git config --get remote.origin.url | sed -E 's#^(ssh://)?([^@/]*@)?([^:/]+)[:/].*#\3#')"
             server="https://${host}"
           fi
-          api="${server}/api/v1/repos/${REPO}"
+          # Gitea (self-hosted) and GitHub differ in the API base, the auth
+          # scheme and the asset upload host. (github.com serves its API from
+          # api.github.com; /api/v3 is GitHub Enterprise Server's prefix.)
+          if [[ "${server}" == *"github.com"* ]]; then
+            api="https://api.github.com/repos/${REPO}"
+            upload_api="https://uploads.github.com/repos/${REPO}/releases"
+            auth="Authorization: Bearer ${TOKEN}"
+          else
+            api="${server}/api/v1/repos/${REPO}"
+            upload_api="${api}/releases"
+            auth="Authorization: token ${TOKEN}"
+          fi
           tag="v${VERSION}"
-          auth="Authorization: token ${TOKEN}"
 
           # Re-running the same version reuses the release from the first try.
           release_id="$(curl -fsS -H "${auth}" "${api}/releases/tags/${tag}" 2>/dev/null |
@@ -159,8 +171,17 @@ jobs:
               curl -fsS -X DELETE -H "${auth}" "${api}/releases/${release_id}/assets/${asset_id}"
             fi
             echo "→ ${tag}/${name}"
-            curl -fsS -X POST -H "${auth}" -F "attachment=@${file}" \
-              "${api}/releases/${release_id}/assets?name=${name}"
+            if [[ "${server}" == *"github.com"* ]]; then
+              # GitHub takes the file as the raw request body.
+              curl -fsS -X POST -H "${auth}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@${file}" \
+                "${upload_api}/${release_id}/assets?name=${name}"
+            else
+              # Gitea reads the file from a multipart form field.
+              curl -fsS -X POST -H "${auth}" -F "attachment=@${file}" \
+                "${upload_api}/${release_id}/assets?name=${name}"
+            fi
             echo
           done
           echo "Published ${tag}: ${server}/${REPO}/releases/tag/${tag}"

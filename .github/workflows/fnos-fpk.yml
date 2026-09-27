@@ -2,7 +2,7 @@ name: fnOS fpk
 
 # Publish the roundpend image, then package it for 飞牛 fnOS in both
 # architectures and attach the .fpk files to the release of the pushed tag
-# (Gitea-style API, same as the mobile workflow):
+# (Gitea or github.com; the mobile workflow publishes the same way):
 #
 #   ghcr.io/<owner>/roundpend:<version>          (amd64 + arm64 manifest)
 #   dist/fnos/roundpen-<version>-fnos-x86.fpk    (+ .sha256)
@@ -166,10 +166,11 @@ jobs:
             host="$(git config --get remote.origin.url | sed -E 's#^(ssh://)?([^@/]*@)?([^:/]+)[:/].*#\3#')"
             server="https://${host}"
           fi
-          # Gitea (self-hosted) and GitHub differ in the API prefix, the auth
-          # scheme and the asset upload host.
+          # Gitea (self-hosted) and GitHub differ in the API base, the auth
+          # scheme and the asset upload host. (github.com serves its API from
+          # api.github.com; /api/v3 is GitHub Enterprise Server's prefix.)
           if [[ "${server}" == *"github.com"* ]]; then
-            api="${server}/api/v3/repos/${REPO}"
+            api="https://api.github.com/repos/${REPO}"
             upload_api="https://uploads.github.com/repos/${REPO}/releases"
             auth="Authorization: Bearer ${TOKEN}"
           else
@@ -202,7 +203,16 @@ jobs:
               curl -fsS -X DELETE -H "${auth}" "${api}/releases/${release_id}/assets/${asset_id}"
             fi
             echo "→ ${tag}/${name}"
-            curl -fsS -X POST -H "${auth}" -F "attachment=@${file}" \
-              "${upload_api}/${release_id}/assets?name=${name}"
+            if [[ "${server}" == *"github.com"* ]]; then
+              # GitHub takes the file as the raw request body.
+              curl -fsS -X POST -H "${auth}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@${file}" \
+                "${upload_api}/${release_id}/assets?name=${name}"
+            else
+              # Gitea reads the file from a multipart form field.
+              curl -fsS -X POST -H "${auth}" -F "attachment=@${file}" \
+                "${upload_api}/${release_id}/assets?name=${name}"
+            fi
             echo
           done
