@@ -23,11 +23,13 @@ name: mobile console APK
 #     than a few hundred KB (a GitHub clone dies with "unexpected EOF"), which
 #     is why the runner daemon fetches actions through `ci-proxy`, an HTTP
 #     CONNECT front for that SOCKS5 proxy running on the runner host
-#     (10.10.1.5:18118, source in /opt/ci-proxy). The job uses the same bridge
-#     for the tools that cannot speak SOCKS5 — the node-based actions, curl,
-#     git and Dart/pub. Java ignores the *_PROXY variables, so
-#     JAVA_TOOL_OPTIONS points Gradle, sdkmanager and the Gradle wrapper at
-#     the SOCKS5 proxy directly.
+#     (10.10.1.5:18118, source in /opt/ci-proxy). Job containers get the same
+#     bridge from the runner's env file — /var/lib/runner/.env —
+#     HTTP_PROXY/HTTPS_PROXY/NO_PROXY for the node-based actions, curl, git
+#     and Dart/pub, and JAVA_TOOL_OPTIONS for the JVM, which ignores *_PROXY.
+#     The workflow sets none of these: an empty HTTP_PROXY breaks sdkmanager
+#     (it parses the variable as a URL), so GitHub-hosted runners must see the
+#     variables absent, not blank.
 #   * NO_PROXY must keep intranet traffic (Gitea, the runner's cache server)
 #     off the proxy: the SOCKS5 proxy cannot route back into 10.0.0.0/8.
 
@@ -54,15 +56,6 @@ env:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    env:
-      # See the egress note above. Read by the node actions, curl, git and
-      # Dart/pub; the JVM is covered by JAVA_TOOL_OPTIONS instead. The bridge
-      # only exists on the intranet runner, so on GitHub-hosted runners the
-      # variables go empty (empty means "no proxy" to git, curl and Dart).
-      HTTP_PROXY: ${{ github.server_url != 'https://github.com' && 'http://10.10.1.5:18118' || '' }}
-      HTTPS_PROXY: ${{ github.server_url != 'https://github.com' && 'http://10.10.1.5:18118' || '' }}
-      NO_PROXY: "localhost,127.0.0.1,::1,git.eaxi.com,10.10.1.5"
-      JAVA_TOOL_OPTIONS: ${{ github.server_url != 'https://github.com' && '-DsocksProxyHost=10.10.1.4 -DsocksProxyPort=1212' || '' }}
     steps:
       - uses: actions/checkout@v4
 
