@@ -20,14 +20,21 @@ PLATFORM=arm make fpk        # arm64 包
 WITH_IMAGE=1 make fpk        # 离线包：本地构建镜像并塞进包内（需要 Docker）
 ```
 
-产物在 `dist/fnos/roundpen-<version>-fnos-<platform>.fpk`，同名 `.sha256` 是校验值。
+产物在 `dist/fnos/roundpen-<version>-fnos-<platform>.fpk`（离线包带 `-offline`
+后缀），同名 `.sha256` 是校验值。
 `.github/workflows/fnos-fpk.yml` 在打 `v*` tag 时先推送
-`ghcr.io/<owner>/roundpend:<version>`（amd64 + arm64 多架构），再按两种架构出包并挂到 release。
-`WITH_IMAGE=1` 时构建容器看不到宿主的 npm / Go 配置，脚本会自动把宿主的
-`npm config get registry` / `go env GOPROXY` 作为 build-arg 传进去（可显式覆盖
-`NPM_REGISTRY` / `GOPROXY`），并默认用 `--network=host` 构建 —— 默认 bridge 没有
-IPv6，而镜像源常解析到 IPv6，走 bridge 时每个包都要等 IPv6 超时才回落（实测
-100~300 秒/包）。需要隔离网络时用 `BUILD_NETWORK=default make fpk`。
+`ghcr.io/<owner>/roundpend:<version>`（amd64 + arm64 多架构），再按两种架构 ×
+两种形态出包：默认包安装时由 NAS 拉镜像，`-offline` 包内嵌镜像（CI 直接
+`docker pull` 刚推送的镜像再 `docker save`，不再本地重编），全部挂到 release，
+用户按 NAS 能否出网自选。
+
+本地 `WITH_IMAGE=1` 构建（`IMAGE_SOURCE=build`，默认）时构建容器看不到宿主的
+npm / Go 配置，脚本会自动把宿主的 `npm config get registry` / `go env GOPROXY`
+作为 build-arg 传进去（可显式覆盖 `NPM_REGISTRY` / `GOPROXY`），并默认用
+`--network=host` 构建 —— 默认 bridge 没有 IPv6，而镜像源常解析到 IPv6，走 bridge
+时每个包都要等 IPv6 超时才回落（实测 100~300 秒/包）。需要隔离网络时用
+`BUILD_NETWORK=default make fpk`；`IMAGE_SOURCE=pull WITH_IMAGE=1 make fpk`
+则跳过构建，直接打包已发布的镜像。
 
 ## 安装
 
@@ -75,6 +82,6 @@ Agent 镜像默认 `ghcr.io/roundpenai/code-agent:0.1.0`，网络不通时可在
 - **docker 权限**：`config/privilege` 里 `join-groups: ["docker"]` 让生命周期脚本
   能以应用用户身份访问 `docker` 组受保护的 socket（加载镜像、查状态）。若设备上
   该用户组名不同，按实际调整。
-- **纯离线安装**：`WITH_IMAGE=1` 的包已带 `roundpend` 镜像；pgvector 默认从
-  Docker Hub（走 fnOS 的镜像加速）拉取，完全离线时可把它也 `docker save`
-  成 `app/images/pgvector.tar` 再重新打包，`cmd/install_callback` 会一起加载。
+- **纯离线安装**：release 里的 `-offline` 包（`WITH_IMAGE=1` 构建）已带 `roundpend`
+  镜像；pgvector 默认从 Docker Hub（走 fnOS 的镜像加速）拉取，完全离线时可把它也
+  `docker save` 成 `app/images/pgvector.tar` 再重新打包，`cmd/install_callback` 会一起加载。

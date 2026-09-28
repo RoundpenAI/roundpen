@@ -1,17 +1,22 @@
 name: fnOS fpk
 
 # Publish the roundpend image, then package it for 飞牛 fnOS in both
-# architectures and attach the .fpk files to the release of the pushed tag
-# (Gitea or github.com; the mobile workflow publishes the same way):
+# architectures and both flavours — the default package pulls the image at
+# install time, the -offline package bundles it — and attach the .fpk files
+# to the release of the pushed tag (Gitea or github.com; the mobile workflow
+# publishes the same way):
 #
-#   ghcr.io/<owner>/roundpend:<version>          (amd64 + arm64 manifest)
-#   dist/fnos/roundpen-<version>-fnos-x86.fpk    (+ .sha256)
-#   dist/fnos/roundpen-<version>-fnos-arm.fpk    (+ .sha256)
+#   ghcr.io/<owner>/roundpend:<version>                (amd64 + arm64 manifest)
+#   dist/fnos/roundpen-<version>-fnos-x86.fpk          (+ .sha256)
+#   dist/fnos/roundpen-<version>-fnos-arm.fpk          (+ .sha256)
+#   dist/fnos/roundpen-<version>-fnos-x86-offline.fpk  (+ .sha256)
+#   dist/fnos/roundpen-<version>-fnos-arm-offline.fpk  (+ .sha256)
 #
 # Install on a NAS with: appcenter-cli install-fpk roundpen-<version>-fnos-x86.fpk
 #
-# The packages pull the image at install time; dispatch with with_image=1 to
-# also bundle it as app/images/roundpend.tar (offline installs).
+# The offline jobs pull the image the image job just pushed (pull + save of a
+# foreign architecture needs no emulation) and bundle it as
+# app/images/roundpend.tar.
 # fnpack comes from static2.fnnas.com (external; the runner's proxy env applies)
 # and is pinned by SHA-256.
 
@@ -24,11 +29,6 @@ on:
       version:
         description: "Package version to build (default: tag without v, else 0.1.0)"
         required: false
-        type: string
-      with_image:
-        description: "Bundle the image tar for offline installs (1 = yes, 0 = NAS pulls)"
-        required: false
-        default: "0"
         type: string
 
 permissions:
@@ -103,22 +103,26 @@ jobs:
             -f deploy/Dockerfile .
 
   build:
-    name: Build .fpk (${{ matrix.platform }})
+    name: Build .fpk (${{ matrix.platform }}, ${{ matrix.bundle }})
     needs: [version, image]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: x86
-          - platform: arm
+        platform: [x86, arm]
+        bundle: [pull, offline]
     steps:
       - uses: actions/checkout@v4
 
-      # Only the offline (with_image=1) arm package needs emulation.
-      - if: matrix.platform == 'arm' && github.event.inputs.with_image == '1'
-        uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      # The image always comes from the image job in CI; the login is for the
+      # offline jobs' docker pull (the package is public, but a token keeps
+      # this working if it ever stops being one).
+      - if: matrix.bundle == 'offline'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install fnpack
         run: |
@@ -132,13 +136,15 @@ jobs:
       - name: Build package
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          ROUNDPEN_IMAGE: ${{ needs.image.outputs.image }}:${{ needs.version.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
-          WITH_IMAGE: ${{ github.event.inputs.with_image || '0' }}
+          WITH_IMAGE: ${{ matrix.bundle == 'offline' && '1' || '0' }}
+          IMAGE_SOURCE: pull
         run: ./scripts/build-fnos-fpk.sh
 
       - uses: actions/upload-artifact@v4
         with:
-          name: fpk-${{ matrix.platform }}
+          name: fpk-${{ matrix.platform }}-${{ matrix.bundle }}
           path: dist/fnos/*.fpk*
 
   release:

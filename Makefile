@@ -109,7 +109,7 @@ compose-down:
 
 # fnOS app package (packaging source in deploy/fnos; needs the official fnpack,
 # see deploy/fnos/README.md). The NAS pulls the published image; WITH_IMAGE=1
-# builds and bundles it instead (offline installs).
+# builds and bundles it instead (the -offline package for offline installs).
 VERSION ?= 0.1.0
 PLATFORM ?= x86
 WITH_IMAGE ?= 0
