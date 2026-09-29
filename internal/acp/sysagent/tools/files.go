@@ -16,10 +16,12 @@ func RegisterFiles(r *Registry, binder *AgentBinder) {
 		return
 	}
 	r.Register(Tool{
-		Name:        "Read",
-		Description: "Read a text file from the Agent workspace (/workspace).",
+		Name: "Read",
+		Description: "Read a text file from the Agent workspace (/workspace) or, read-only, from a host " +
+			"directory the assistant is granted (absolute path, e.g. /vol1/share/notes.md — use Glob to list one). " +
+			"Paths outside granted directories are refused; the user can grant access when asked.",
 		Parameters: objectSchema(map[string]any{
-			"file_path": map[string]any{"type": "string", "description": "Absolute path under /workspace, or relative to /workspace"},
+			"file_path": map[string]any{"type": "string", "description": "Absolute path under /workspace or a granted host directory, or a path relative to /workspace"},
 			"offset":    map[string]any{"type": "integer", "description": "1-based start line (optional)"},
 			"limit":     map[string]any{"type": "integer", "description": "Max number of lines to return (optional)"},
 		}, "file_path"),
@@ -80,6 +82,11 @@ func RegisterFiles(r *Registry, binder *AgentBinder) {
 }
 
 func (b *AgentBinder) readFile(ctx context.Context, actor Actor, filePath string, offset, limit int) (string, error) {
+	if abs, isHost, err := hostAbsPath(filePath); err != nil {
+		return "", err
+	} else if isHost {
+		return b.readHostFile(ctx, actor, abs, offset, limit)
+	}
 	rel, err := ResolveWorkspacePath(filePath)
 	if err != nil {
 		return "", err
@@ -96,41 +103,14 @@ func (b *AgentBinder) readFile(ctx context.Context, actor Actor, filePath string
 		return "", fmt.Errorf("read file: %w", err)
 	}
 	defer rc.Close()
-	raw, err := io.ReadAll(io.LimitReader(rc, maxReadBytes+1))
+	raw, truncated, err := readCapped(rc)
 	if err != nil {
 		return "", err
-	}
-	truncated := false
-	if len(raw) > maxReadBytes {
-		raw = raw[:maxReadBytes]
-		truncated = true
 	}
 	if len(raw) == 0 {
 		return "File is empty.", nil
 	}
-	text := string(raw)
-	lines := strings.Split(text, "\n")
-	// Preserve trailing newline semantics: Split keeps a final empty element when text ends with \n.
-	start := 0
-	if offset > 0 {
-		start = offset - 1
-	}
-	if start >= len(lines) {
-		return fmt.Sprintf("Offset %d is past the end of the file (%d lines).", offset, len(lines)), nil
-	}
-	end := len(lines)
-	if limit > 0 && start+limit < end {
-		end = start + limit
-	}
-	var bld strings.Builder
-	for i := start; i < end; i++ {
-		fmt.Fprintf(&bld, "%6d|%s\n", i+1, lines[i])
-	}
-	out := strings.TrimSuffix(bld.String(), "\n")
-	if truncated {
-		out += "\n\n[File truncated at size limit; use offset/limit to read more.]"
-	}
-	return out, nil
+	return formatText(raw, truncated, offset, limit), nil
 }
 
 func (b *AgentBinder) writeFile(ctx context.Context, actor Actor, filePath, content string) (string, error) {

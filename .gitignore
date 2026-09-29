@@ -43,3 +43,6 @@ vendor/
 /web/playwright-report/
 /web/blob-report/
 /web/playwright/.cache/
+
+# fnOS package output
+deploy/fnos/*.fpk

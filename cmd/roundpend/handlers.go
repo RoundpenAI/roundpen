@@ -22,12 +22,14 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
 	"github.com/RoundpenAI/roundpen/internal/api/platform"
 	"github.com/RoundpenAI/roundpen/internal/api/workspaceapi"
+	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
+	"github.com/RoundpenAI/roundpen/internal/hostaccess"
 	"github.com/RoundpenAI/roundpen/internal/hostsetup"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
@@ -460,7 +462,9 @@ func llmConfigFor(items *settingitems.Catalog, loopback, key string) func(userID
 }
 
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, logger *slog.Logger) *manager.Manager {
+	// Grant-gated host reads (NAS shares) for the agent's Read/Glob tools.
+	hostRead := hostaccess.New(agentStore, assistantStore, logger)
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
 		LoopbackBase: loopback,
 		LLMKey:       gw.InternalKey(),
@@ -482,6 +486,7 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 		WebSearch: func(userID string) search.Config {
 			return search.Resolve(items.Snapshot(), settingitems.SlotSearchDefault, userID)
 		},
+		HostFiles: hostRead.ForSession,
 	})
 	return acpMgr
 }
