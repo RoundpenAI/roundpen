@@ -132,7 +132,7 @@ func (h *Handler) policyCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var d policy.Decision
-	prof := policyProfile(a)
+	prof := PolicyProfile(a)
 	switch body.Dimension {
 	case "network":
 		d = policy.CheckNetwork(prof, body.Target)
@@ -360,7 +360,8 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-func policyProfile(a *Assistant) *policy.Profile {
+// PolicyProfile converts an assistant into the policy slice its checks need.
+func PolicyProfile(a *Assistant) *policy.Profile {
 	if a == nil {
 		return nil
 	}
