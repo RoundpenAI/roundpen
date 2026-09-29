@@ -23,11 +23,13 @@ name: mobile console APK
 #     than a few hundred KB (a GitHub clone dies with "unexpected EOF"), which
 #     is why the runner daemon fetches actions through `ci-proxy`, an HTTP
 #     CONNECT front for that SOCKS5 proxy running on the runner host
-#     (10.10.1.5:18118, source in /opt/ci-proxy). The job uses the same bridge
-#     for the tools that cannot speak SOCKS5 — the node-based actions, curl,
-#     git and Dart/pub. Java ignores the *_PROXY variables, so
-#     JAVA_TOOL_OPTIONS points Gradle, sdkmanager and the Gradle wrapper at
-#     the SOCKS5 proxy directly.
+#     (10.10.1.5:18118, source in /opt/ci-proxy). Job containers get the same
+#     bridge from the runner's env file — /var/lib/runner/.env —
+#     HTTP_PROXY/HTTPS_PROXY/NO_PROXY for the node-based actions, curl, git
+#     and Dart/pub, and JAVA_TOOL_OPTIONS for the JVM, which ignores *_PROXY.
+#     The workflow sets none of these: an empty HTTP_PROXY breaks sdkmanager
+#     (it parses the variable as a URL), so GitHub-hosted runners must see the
+#     variables absent, not blank.
 #   * NO_PROXY must keep intranet traffic (Gitea, the runner's cache server)
 #     off the proxy: the SOCKS5 proxy cannot route back into 10.0.0.0/8.
 
@@ -54,13 +56,6 @@ env:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    env:
-      # See the egress note above. Read by the node actions, curl, git and
-      # Dart/pub; the JVM is covered by JAVA_TOOL_OPTIONS instead.
-      HTTP_PROXY: "http://10.10.1.5:18118"
-      HTTPS_PROXY: "http://10.10.1.5:18118"
-      NO_PROXY: "localhost,127.0.0.1,::1,git.eaxi.com,10.10.1.5"
-      JAVA_TOOL_OPTIONS: "-DsocksProxyHost=10.10.1.4 -DsocksProxyPort=1212"
     steps:
       - uses: actions/checkout@v4
 
@@ -133,34 +128,69 @@ jobs:
             host="$(git config --get remote.origin.url | sed -E 's#^(ssh://)?([^@/]*@)?([^:/]+)[:/].*#\3#')"
             server="https://${host}"
           fi
-          api="${server}/api/v1/repos/${REPO}"
+          # Gitea (self-hosted) and GitHub differ in the API base, the auth
+          # scheme and the asset upload host. (github.com serves its API from
+          # api.github.com; /api/v3 is GitHub Enterprise Server's prefix.)
+          if [[ "${server}" == *"github.com"* ]]; then
+            api="https://api.github.com/repos/${REPO}"
+            upload_api="https://uploads.github.com/repos/${REPO}/releases"
+            auth="Authorization: Bearer ${TOKEN}"
+          else
+            api="${server}/api/v1/repos/${REPO}"
+            upload_api="${api}/releases"
+            auth="Authorization: token ${TOKEN}"
+          fi
           tag="v${VERSION}"
-          auth="Authorization: token ${TOKEN}"
 
           # Re-running the same version reuses the release from the first try.
           release_id="$(curl -fsS -H "${auth}" "${api}/releases/tags/${tag}" 2>/dev/null |
             jq -r 'first(.id)' || true)"
           if [[ -z "${release_id}" || "${release_id}" == "null" ]]; then
-            release_id="$(jq -n --arg tag "${tag}" --arg sha "${GITHUB_SHA}" \
-                '{tag_name: $tag, name: $tag, target_commitish: $sha}' |
-              curl -fsS -X POST -H "${auth}" -H "Content-Type: application/json" \
-                --data-binary @- "${api}/releases" | jq -r '.id')"
+            payload="$(jq -n --arg tag "${tag}" --arg sha "${GITHUB_SHA}" \
+                '{tag_name: $tag, name: $tag, target_commitish: $sha}')"
+            # Keep the API's reply on failure: a bare `curl -f` hides which
+            # permission or policy the token is missing.
+            reply="$(curl -sS -X POST -H "${auth}" -H "Content-Type: application/json" \
+                --data-binary "${payload}" -w $'\n%{http_code}' "${api}/releases")" || true
+            code="${reply##*$'\n'}"
+            if [[ "${code}" != 2?? ]]; then
+              echo "creating the ${tag} release failed: HTTP ${code}" >&2
+              echo "${reply%$'\n'*}" >&2
+              exit 1
+            fi
+            release_id="$(jq -r '.id' <<<"${reply%$'\n'*}")"
           fi
           echo "release ${tag}: id=${release_id}"
+          # Deleting an asset hangs off /releases/assets on github.com but off
+          # /releases/<id>/assets on Gitea.
+          if [[ "${server}" == *"github.com"* ]]; then
+            assets_api="${api}/releases/assets"
+          else
+            assets_api="${api}/releases/${release_id}/assets"
+          fi
 
-          sha256sum ./*.apk > sha256sums.txt
-          for file in ./*.apk sha256sums.txt; do
+          sha256sum ./*.apk > sha256sums-apk.txt
+          for file in ./*.apk sha256sums-apk.txt; do
             name="${file#./}"
             # Drop an asset of the same name left by an earlier run, so that a
             # re-run replaces it instead of failing on the duplicate.
             asset_id="$(curl -fsS -H "${auth}" "${api}/releases/${release_id}/assets" |
               jq -r --arg n "${name}" 'first(.[] | select(.name == $n) | .id)' || true)"
             if [[ -n "${asset_id}" && "${asset_id}" != "null" ]]; then
-              curl -fsS -X DELETE -H "${auth}" "${api}/releases/${release_id}/assets/${asset_id}"
+              curl -fsS -X DELETE -H "${auth}" "${assets_api}/${asset_id}"
             fi
             echo "→ ${tag}/${name}"
-            curl -fsS -X POST -H "${auth}" -F "attachment=@${file}" \
-              "${api}/releases/${release_id}/assets?name=${name}"
+            if [[ "${server}" == *"github.com"* ]]; then
+              # GitHub takes the file as the raw request body.
+              curl -sS --fail-with-body -X POST -H "${auth}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@${file}" \
+                "${upload_api}/${release_id}/assets?name=${name}"
+            else
+              # Gitea reads the file from a multipart form field.
+              curl -fsS -X POST -H "${auth}" -F "attachment=@${file}" \
+                "${upload_api}/${release_id}/assets?name=${name}"
+            fi
             echo
           done
           echo "Published ${tag}: ${server}/${REPO}/releases/tag/${tag}"
