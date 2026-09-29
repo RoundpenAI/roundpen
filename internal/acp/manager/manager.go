@@ -54,6 +54,10 @@ type SysDeps struct {
 	// 的出口。
 	WebSearch func(userID string) search.Config
 
+	// HostFiles exposes granted host directories (NAS shares) to the file tools.
+	// nil disables host reads. The returned value is bound to one session.
+	HostFiles func(sessionID string) tools.HostFiles
+
 	History sysagent.MessageSource
 
 	// AutoMode classifies tool calls for the in-process System Agent when the
@@ -177,6 +181,9 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Slots: m.sys.AgentSlots,
 			Exec:  m.sandboxes,
 			Files: m.sandboxes,
+		}
+		if m.sys.HostFiles != nil {
+			binder.Host = m.sys.HostFiles(sessionID)
 		}
 		searchCfg := search.Config{}
 		if m.sys.WebSearch != nil {

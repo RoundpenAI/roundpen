@@ -14,11 +14,13 @@ func RegisterSearch(r *Registry, binder *AgentBinder) {
 		return
 	}
 	r.Register(Tool{
-		Name:        "Glob",
-		Description: "Find files by glob pattern in the Agent workspace (default root /workspace).",
+		Name: "Glob",
+		Description: "Find files by glob pattern in the Agent workspace (default root /workspace) or under a " +
+			"granted host directory (absolute path, read-only). * ? [] match within a path segment, ** spans " +
+			"directories; a pattern without / matches file names at any depth.",
 		Parameters: objectSchema(map[string]any{
 			"pattern": map[string]any{"type": "string", "description": "Glob pattern (e.g. **/*.ts)"},
-			"path":    map[string]any{"type": "string", "description": "Search root (default /workspace)"},
+			"path":    map[string]any{"type": "string", "description": "Search root (default /workspace; a granted host directory works too)"},
 		}, "pattern"),
 		Call: func(ctx context.Context, actor Actor, args json.RawMessage) (string, error) {
 			var in struct {
@@ -72,6 +74,11 @@ func resolveGuestAbs(p string) (string, error) {
 }
 
 func (b *AgentBinder) glob(ctx context.Context, actor Actor, pattern, root string) (string, error) {
+	if abs, isHost, err := hostAbsPath(root); err != nil {
+		return "", err
+	} else if isHost {
+		return b.globHost(ctx, actor, abs, pattern)
+	}
 	abs, err := resolveGuestAbs(root)
 	if err != nil {
 		return "", err

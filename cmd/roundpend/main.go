@@ -197,6 +197,7 @@ func main() {
 	})
 
 	agentStore := &agentsession.Store{DB: db.SQL}
+	assistantStore := &assistant.Store{DB: db.SQL}
 	loopback := sysagent.LoopbackBase(cfg.HTTPAddr)
 	if cfg := search.Resolve(itemsCat.Snapshot(), settingitems.SlotSearchDefault, ""); cfg.Endpoint != "" || cfg.APIKey != "" {
 		endpoint := cfg.Endpoint
@@ -207,7 +208,7 @@ func main() {
 	}
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
-	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, settingsSvc, gw, autoEvaluator, itemsCat, logger)
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, logger)
 
 	agentHandler, ticketStore, provisioner := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat)
 
@@ -223,7 +224,6 @@ func main() {
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}
 	(&issue.Handler{Store: issueStore}).Mount(mux)
-	assistantStore := &assistant.Store{DB: db.SQL}
 	denialStore := &policy.DenialStore{DB: db.SQL}
 
 	lang, imDataDir, imProvider := imconnect.EnvDefaults()

@@ -39,6 +39,8 @@ type AgentBinder struct {
 	Slots AgentSlot
 	Exec  SandboxExec
 	Files WorkspaceFiles
+	// Host serves reads of granted host directories (NAS shares); nil disables them.
+	Host HostFiles
 }
 
 func (b *AgentBinder) ensure(ctx context.Context, actor Actor) (*sandbox.Sandbox, error) {
