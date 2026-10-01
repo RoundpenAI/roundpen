@@ -336,6 +336,7 @@ export function AssistantLayout() {
 
         <Layout>
           <Header
+            className="rp-assistant-header"
             style={{
               display: 'flex',
               alignItems: 'center',

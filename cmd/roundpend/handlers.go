@@ -44,7 +44,28 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
+	"github.com/RoundpenAI/roundpen/internal/webpush"
 )
+
+// newPushService loads or generates VAPID keys and returns a push Service.
+// A nil return means push is unavailable (key error); the daemon still boots.
+func newPushService(cfg *config.Config, db *storage.DB, logger *slog.Logger) *webpush.Service {
+	vapid, err := webpush.LoadOrGenerateVAPID(
+		filepath.Join(cfg.DataRoot, "webpush-vapid.json"),
+		cfg.VAPIDPublicKey,
+		cfg.VAPIDPrivateKey,
+		cfg.VAPIDSubject,
+	)
+	if err != nil {
+		logger.Warn("web push vapid", slog.Any("err", err))
+		return nil
+	}
+	return &webpush.Service{
+		Store: &webpush.Store{DB: db.SQL},
+		VAPID: vapid,
+		Log:   logger,
+	}
+}
 
 // newCoreMux creates the API mux and mounts the auth, platform, native HTTP,
 // browser and preview handlers. It also returns the preview handler, whose
@@ -495,7 +516,7 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 }
 
 // newAgentAPI builds the agent API handler and its assist-ticket store.
-func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentStore *agentsession.Store, mgr sandbox.Manager, gw *llmgw.Gateway, browserHub *browser.Hub, envSvc *userenv.Service, acpMgr *manager.Manager, autoEvaluator *automode.LLMEvaluator, publicURL string, proxyForUser func(*storage.User) string, userVKey func(context.Context, string) string, items *settingitems.Catalog) (*agentapi.Handler, *assistticket.Store, *agentenv.Provisioner) {
+func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentStore *agentsession.Store, mgr sandbox.Manager, gw *llmgw.Gateway, browserHub *browser.Hub, envSvc *userenv.Service, acpMgr *manager.Manager, autoEvaluator *automode.LLMEvaluator, publicURL string, proxyForUser func(*storage.User) string, userVKey func(context.Context, string) string, items *settingitems.Catalog, push webpush.Notifier) (*agentapi.Handler, *assistticket.Store, *agentenv.Provisioner) {
 	provisioner := &agentenv.Provisioner{
 		Sandboxes: mgr,
 		Config: agentenv.Config{
@@ -516,6 +537,7 @@ func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentS
 		Envs:           envSvc,
 		Tasks:          &browsetask.Store{DB: db.SQL},
 		Tickets:        nil, // set below after ticketStore
+		Push:           push,
 		DestroySbx:     true,
 		AutoMode:       autoEvaluator,
 		ProxyURL:       proxyForUser,

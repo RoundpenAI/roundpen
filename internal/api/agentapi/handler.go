@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
+	"github.com/RoundpenAI/roundpen/internal/webpush"
 )
 
 // Handler serves /v1/agents and /v1/agent-sessions.
@@ -42,6 +44,9 @@ type Handler struct {
 	Tasks       *browsetask.Store
 	Tickets     *assistticket.Store
 	DestroySbx  bool // delete sandbox on session delete
+
+	// Push delivers Web Push notifications for turn_done / permission events.
+	Push webpush.Notifier
 
 	// PublicURL is the externally reachable console URL, accepted as an
 	// alternative WebSocket origin for reverse-proxy deployments.
@@ -357,7 +362,21 @@ func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
 		return
 	}
-	msgs, err := h.Store.ListMessages(r.Context(), sess.ID, 2000)
+	limit := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			httpx.WriteErr(w, http.StatusBadRequest, "limit must be a non-negative integer")
+			return
+		}
+		limit = n
+	}
+	before := strings.TrimSpace(r.URL.Query().Get("before"))
+	msgs, hasMore, err := h.Store.ListMessagesPage(r.Context(), sess.ID, limit, before)
+	if errors.Is(err, agentsession.ErrNotFound) {
+		httpx.WriteErr(w, http.StatusBadRequest, "before message not found")
+		return
+	}
 	if err != nil {
 		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
@@ -365,7 +384,10 @@ func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
 	if msgs == nil {
 		msgs = []*agentsession.Message{}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"messages": msgs})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"messages": msgs,
+		"hasMore":  hasMore,
+	})
 }
 
 type wsIn struct {

@@ -45,13 +45,19 @@ describe('agentMessageToSemi', () => {
       sessionId: 's',
       role: 'assistant',
       content: 'thinking…',
-      meta: { type: 'thought' },
+      meta: { type: 'thought', durationMs: 3200, status: 'completed' },
       createdAt: '2026-01-01T00:00:00Z',
     }
     const out = agentMessageToSemi(m)
     assert.ok(Array.isArray(out.content))
-    const items = out.content as { type: string }[]
+    const items = out.content as {
+      type: string
+      durationMs?: number
+      status?: string
+    }[]
     assert.equal(items[0]?.type, 'reasoning')
+    assert.equal(items[0]?.durationMs, 3200)
+    assert.equal(items[0]?.status, 'completed')
   })
 
   it('maps tool_call meta into function_call content', () => {
@@ -104,6 +110,28 @@ describe('agentMessageToSemi', () => {
     const out = agentMessageToSemi(m)
     assert.equal(out.role, 'user')
     assert.equal(out.content, '/review 关注并发')
+  })
+
+  it('shows AskUserQuestion choice by label, not opt id', () => {
+    const m: AgentMessage = {
+      id: 'p1',
+      sessionId: 's',
+      role: 'permission',
+      content: '下一步 · 代理可用？ · opt-0',
+      meta: {
+        type: 'permission',
+        title: '下一步 · 代理可用？',
+        optionId: 'opt-0',
+        outcome: 'selected',
+        options: [
+          { optionId: 'opt-0', name: '用代理继续' },
+          { optionId: 'opt-1', name: '直连' },
+        ],
+      },
+      createdAt: '2026-01-01T00:00:00Z',
+    }
+    const out = agentMessageToSemi(m)
+    assert.equal(out.content, '下一步 · 代理可用？: 用代理继续')
   })
 
   it('marks /clear markers as a divider', () => {
@@ -211,5 +239,44 @@ describe('agentMessagesToSemi', () => {
     assert.equal(out.length, 1)
     assert.equal(out[0]?.model, ACTIVITY_MODEL)
     assert.equal(out[0]?.status, 'in_progress')
+    const items = out[0]?.content as { type: string; status?: string }[]
+    assert.equal(items[0]?.status, 'in_progress')
+  })
+
+  it('keeps a completed thought non-streaming while tools still run', () => {
+    const rows: AgentMessage[] = [
+      {
+        id: 'th1',
+        sessionId: 's',
+        role: 'assistant',
+        content: 'plan',
+        meta: { type: 'thought', status: 'completed', durationMs: 2100 },
+        createdAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        id: 't1',
+        sessionId: 's',
+        role: 'tool',
+        content: '',
+        meta: {
+          type: 'tool_call',
+          toolId: 'c1',
+          title: 'Bash',
+          status: 'in_progress',
+        },
+        createdAt: '2026-01-01T00:00:02Z',
+      },
+    ]
+    const out = agentMessagesToSemi(rows)
+    assert.equal(out[0]?.status, 'in_progress')
+    const items = out[0]?.content as {
+      type: string
+      status?: string
+      durationMs?: number
+    }[]
+    assert.equal(items[0]?.type, 'reasoning')
+    assert.equal(items[0]?.status, 'completed')
+    assert.equal(items[0]?.durationMs, 2100)
+    assert.equal(items[1]?.status, 'in_progress')
   })
 })

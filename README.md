@@ -42,7 +42,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 | 后端 | **Agent / Browser → Docker**；**Desktop / Mobile 预留 QEMU**；`multi` 按 slot 路由 |
 | 镜像 | CI 构建（`images/code-agent/` → ghcr）+ `internal/template` 镜像目录（启动时按 env 播种）+ `ghcr.io/browserless/chrome`（Browser，pull） |
 
-仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。Browser 环境见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。Agent 安全见 [docs/security.md](docs/security.md)。
+仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。账号工作区目录约定见 [docs/workspace-layout.md](docs/workspace-layout.md)。Browser 环境见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。Agent 安全见 [docs/security.md](docs/security.md)。
 
 ## 核心能力
 

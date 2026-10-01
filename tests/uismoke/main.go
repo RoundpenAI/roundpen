@@ -247,7 +247,7 @@ func main() {
 		writeJSON(w, seed.create(body.Title, body.ProviderID, body.AssistantID))
 	})
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"messages": seed.messageList()})
+		writeJSON(w, map[string]any{"messages": seed.messageList(), "hasMore": false})
 	})
 	// Scripted agent-session socket: plays one deterministic turn per prompt
 	// (streamed text → thinking → a tool card → a permission prompt → done) so
@@ -332,7 +332,7 @@ func main() {
 			"environment": []string{"Trusted environment: the sandbox workspace is normal work."},
 			"allow":       []string{"Routine development commands in the sandbox."},
 			"softDeny":    []string{"Force-pushing or rewriting remote git history."},
-			"hardDeny":    []string{"Reaching cloud metadata or control-plane addresses."},
+			"hardDeny":    []string{"Reaching cloud metadata or the Roundpen control plane. Ordinary LAN hosts are trusted on NAS deployments."},
 		})
 	})
 	// Test hook: drop every live agent socket so clients have to reconnect.

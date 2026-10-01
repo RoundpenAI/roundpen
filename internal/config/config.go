@@ -42,6 +42,9 @@ type Config struct {
 	TrustedProxies            string        // comma-separated CIDRs that may send X-Forwarded-*
 	CDP                       CDPConfig
 	QEMUEnabled               bool // attempt to attach qemu for browser slot
+	VAPIDPublicKey            string
+	VAPIDPrivateKey           string
+	VAPIDSubject              string // mailto: or https: contact for VAPID
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -72,6 +75,9 @@ func Load() (*Config, error) {
 		PreviewTokenTTL:           15 * time.Minute,
 		TrustedProxies:            strings.TrimSpace(os.Getenv("ROUNDPEN_TRUSTED_PROXIES")),
 		QEMUEnabled:               getenvBool("ROUNDPEN_QEMU_ENABLED", true),
+		VAPIDPublicKey:            strings.TrimSpace(os.Getenv("ROUNDPEN_VAPID_PUBLIC_KEY")),
+		VAPIDPrivateKey:           strings.TrimSpace(os.Getenv("ROUNDPEN_VAPID_PRIVATE_KEY")),
+		VAPIDSubject:              strings.TrimSpace(os.Getenv("ROUNDPEN_VAPID_SUBJECT")),
 	}
 	domain, scheme, err := parsePreviewDomain(os.Getenv("ROUNDPEN_PREVIEW_DOMAIN"))
 	if err != nil {

@@ -15,7 +15,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'nav.signOutUser': '退出 ({user})',
 
   'workspace.title': '文件',
-  'workspace.subtitle': '这里的文件是账号资料根，所有助手都可以用作工作材料。',
+  'workspace.subtitle': '账号资料根，所有助手共用。请按 uploads / projects / notes / outputs / tmp 整理；详见工作区目录规范。',
   'workspace.preparing': '正在准备工作区…',
   'workspace.upload': '上传',
   'workspace.refresh': '刷新',
@@ -61,6 +61,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.section.git': 'Git 个人令牌',
   'settings.section.accounts': '关联账号',
   'settings.section.password': '密码',
+  'settings.section.notifications': '通知',
   'settings.section.agent': 'Agent 环境',
   'settings.section.general': '通用',
   'settings.section.oauth': 'OAuth 登录',
@@ -92,6 +93,17 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.password.tooShort': '新密码至少 8 个字符',
   'settings.password.mismatch': '两次输入的新密码不一致',
   'settings.password.failed': '修改密码失败',
+
+  'settings.notifications.hint':
+    '任意会话回合结束或需要审批时推送系统通知，即使 Roundpen 在后台也能收到。iPhone/iPad 请先「添加到主屏幕」（Safari → 分享 → 添加到主屏幕）。需要 HTTPS。',
+  'settings.notifications.enable': '开启通知',
+  'settings.notifications.disable': '关闭',
+  'settings.notifications.on': '本设备已开启通知。',
+  'settings.notifications.off': '本设备未开启通知。',
+  'settings.notifications.unsupported':
+    '当前浏览器不支持 Web Push（请用 Chrome/Edge，或 iOS 16.4+ 主屏幕 PWA）。',
+  'settings.notifications.serverOff':
+    '服务端未能加载 Web Push 的 VAPID 密钥，请查看控制面日志。',
 
   'settings.general.allowRegistration': '允许公开注册',
   'settings.general.defaultImage': '默认模板 / 镜像',

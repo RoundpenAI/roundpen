@@ -89,8 +89,15 @@ export const agents = {
     }),
   deleteSession: (id: string) =>
     api<void>(`/v1/agent-sessions/${id}`, { method: 'DELETE' }),
-  messages: (id: string) =>
-    api<{ messages: AgentMessage[] }>(`/v1/agent-sessions/${id}/messages`),
+  messages: (id: string, opts?: { limit?: number; before?: string }) => {
+    const q = new URLSearchParams()
+    if (opts?.limit != null) q.set('limit', String(opts.limit))
+    if (opts?.before) q.set('before', opts.before)
+    const qs = q.toString()
+    return api<{ messages: AgentMessage[]; hasMore: boolean }>(
+      `/v1/agent-sessions/${id}/messages${qs ? `?${qs}` : ''}`,
+    )
+  },
   commands: (id: string) =>
     api<{ commands: AgentCommand[] }>(`/v1/agent-sessions/${id}/commands`),
   sessionWsUrl: (id: string) => {
