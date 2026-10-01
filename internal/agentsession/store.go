@@ -21,6 +21,7 @@ type Session struct {
 	ProviderID  string    `json:"providerId"`
 	SandboxID   string    `json:"sandboxId"`
 	AssistantID string    `json:"assistantId,omitempty"`
+	Kind        string    `json:"kind"`   // chat | routine
 	Status      string    `json:"status"` // active | stopped
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -163,8 +164,17 @@ type Store struct {
 	DB *sql.DB
 }
 
-// Create inserts a new session. assistantID may be empty for legacy callers.
+// Create inserts a chat session. assistantID may be empty for legacy callers.
 func (s *Store) Create(ctx context.Context, userID, title, providerID, sandboxID, assistantID string) (*Session, error) {
+	return s.CreateKind(ctx, userID, title, providerID, sandboxID, assistantID, "chat")
+}
+
+// CreateKind inserts a session of kind "chat" or "routine". Routine sessions are
+// hidden from the primary-chat lookup.
+func (s *Store) CreateKind(ctx context.Context, userID, title, providerID, sandboxID, assistantID, kind string) (*Session, error) {
+	if kind != "chat" && kind != "routine" {
+		return nil, fmt.Errorf("invalid session kind %q", kind)
+	}
 	now := time.Now().UTC()
 	sess := &Session{
 		ID:          uuid.NewString(),
@@ -173,14 +183,15 @@ func (s *Store) Create(ctx context.Context, userID, title, providerID, sandboxID
 		ProviderID:  providerID,
 		SandboxID:   sandboxID,
 		AssistantID: assistantID,
+		Kind:        kind,
 		Status:      "active",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 	_, err := s.DB.ExecContext(ctx, `
-		INSERT INTO agent_sessions (id, user_id, title, provider_id, sandbox_id, assistant_id, status, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9)`,
-		sess.ID, sess.UserID, sess.Title, sess.ProviderID, sess.SandboxID, sess.AssistantID, sess.Status, sess.CreatedAt, sess.UpdatedAt,
+		INSERT INTO agent_sessions (id, user_id, title, provider_id, sandbox_id, assistant_id, kind, status, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,NULLIF($6,''),$7,$8,$9,$10)`,
+		sess.ID, sess.UserID, sess.Title, sess.ProviderID, sess.SandboxID, sess.AssistantID, sess.Kind, sess.Status, sess.CreatedAt, sess.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -197,7 +208,7 @@ func (s *Store) UpdateSandbox(ctx context.Context, id, sandboxID string) error {
 func scanSession(row interface{ Scan(dest ...any) error }) (*Session, error) {
 	var sess Session
 	var assistantID sql.NullString
-	if err := row.Scan(&sess.ID, &sess.UserID, &sess.Title, &sess.ProviderID, &sess.SandboxID, &assistantID, &sess.Status, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
+	if err := row.Scan(&sess.ID, &sess.UserID, &sess.Title, &sess.ProviderID, &sess.SandboxID, &assistantID, &sess.Kind, &sess.Status, &sess.CreatedAt, &sess.UpdatedAt); err != nil {
 		return nil, err
 	}
 	if assistantID.Valid {
@@ -206,7 +217,7 @@ func scanSession(row interface{ Scan(dest ...any) error }) (*Session, error) {
 	return &sess, nil
 }
 
-const sessionCols = `id, user_id, title, provider_id, sandbox_id, assistant_id, status, created_at, updated_at`
+const sessionCols = `id, user_id, title, provider_id, sandbox_id, assistant_id, kind, status, created_at, updated_at`
 
 // Get returns a session by id.
 func (s *Store) Get(ctx context.Context, id string) (*Session, error) {
@@ -256,7 +267,7 @@ func (s *Store) ListByAssistant(ctx context.Context, userID, assistantID string,
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT `+sessionCols+`
 		FROM agent_sessions
-		WHERE user_id=$1 AND assistant_id=$2 AND status <> 'stopped'
+		WHERE user_id=$1 AND assistant_id=$2 AND status <> 'stopped' AND kind = 'chat'
 		ORDER BY updated_at DESC LIMIT $3`, userID, assistantID, limit)
 	if err != nil {
 		return nil, err
