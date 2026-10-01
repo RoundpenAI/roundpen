@@ -507,6 +507,14 @@ export const zh_CN: Record<MessageKey, string> = {
   'issues.task.markCancelled': '取消任务',
   'issues.task.reopen': '重新打开',
 
+  'chat.suggest.hint': '这些可以到点自己做，结果发回这条对话。',
+  'chat.suggest.papers':
+    '每周一早上，把 AI Agent 论文整理成周报发我',
+  'chat.suggest.invest':
+    '每周看一眼创业公司的投资风向，发我一份摘要',
+  'chat.suggest.tax':
+    '每月初提醒我该报税了，先把要准备的材料列出来',
+
   'routines.section': '常驻任务',
   'routines.empty':
     '还没有定时任务。可以在对话里说「每周一早上把 AI Agent 论文发成周报」。',

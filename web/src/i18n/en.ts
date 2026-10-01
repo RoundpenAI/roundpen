@@ -525,6 +525,15 @@ export const en = {
   'issues.task.markCancelled': 'Cancel task',
   'issues.task.reopen': 'Reopen',
 
+  'chat.suggest.hint':
+    'These can run on their own and come back to this chat.',
+  'chat.suggest.papers':
+    'Every Monday morning, turn the latest AI-agent papers into a digest and send it to me',
+  'chat.suggest.invest':
+    'Each week, look at where startup investment is heading and send me a summary',
+  'chat.suggest.tax':
+    'At the start of each month, remind me to file taxes and list what I need to prepare',
+
   'routines.section': 'Standing routines',
   'routines.empty':
     'Nothing scheduled. In chat you can say “every Monday morning, send me an AI-agent paper digest.”',
