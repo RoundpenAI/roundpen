@@ -29,6 +29,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/routine"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
 	"github.com/RoundpenAI/roundpen/internal/secretbox"
@@ -224,6 +225,24 @@ func main() {
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}
 	(&issue.Handler{Store: issueStore}).Mount(mux)
+	routineStore := &routine.Store{DB: db.SQL}
+	routineRunner := &routine.Runner{
+		Store:      routineStore,
+		Users:      userStore,
+		Assistants: assistantStore,
+		Envs:       envSvc,
+		Starter:    agentHandler,
+		ACP:        acpMgr,
+		Sessions:   agentStore,
+		Log:        logger,
+	}
+	(&routine.Handler{
+		Store:      routineStore,
+		Assistants: assistantStore,
+		Sessions:   agentStore,
+		Issues:     issueStore,
+		Tickets:    ticketStore,
+	}).Mount(mux)
 	denialStore := &policy.DenialStore{DB: db.SQL}
 
 	lang, imDataDir, imProvider := imconnect.EnvDefaults()
@@ -258,8 +277,16 @@ func main() {
 		Tickets:  ticketStore,
 		Denials:  denialStore,
 		IM:       imSup,
+		OnDisabled: func(ctx context.Context, assistantID string) {
+			_ = routineStore.PauseByAssignee(ctx, assistantID)
+		},
+		OnTicketResolved: routineRunner.HandleTicket,
 	}
 	asstHandler.Mount(mux)
+	if imSup != nil {
+		routineRunner.Notify = imSup.Notify
+	}
+	go routineRunner.Loop(ctx)
 
 	if imSup != nil {
 		if err := imSup.StartAll(ctx); err != nil {

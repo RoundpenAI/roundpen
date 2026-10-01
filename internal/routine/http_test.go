@@ -99,3 +99,50 @@ func TestHandler_CreateChecksCapabilityAndOwner(t *testing.T) {
 		t.Fatalf("other user list: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestDisableAssistantPausesRoutines(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	insertUser(t, st, "routine-disable")
+	insertAssistant(t, st, "asst-disable", "routine-disable")
+	rt, err := st.Create(ctx, "routine-disable", CreateInput{
+		AssigneeAssistantID: "asst-disable", Title: "周报", Autonomy: AutonomyRead,
+		Cron: "0 8 * * 1", Timezone: "UTC",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	(&assistant.Handler{
+		Store: &assistant.Store{DB: st.DB},
+		OnDisabled: func(ctx context.Context, assistantID string) {
+			_ = st.PauseByAssignee(ctx, assistantID)
+		},
+	}).Mount(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, request(http.MethodPatch, "/v1/assistants/asst-disable", `{"status":"disabled"}`, "routine-disable"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("disable: %d %s", rec.Code, rec.Body.String())
+	}
+	got, _, err := st.Get(ctx, "routine-disable", rt.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusPaused || got.NextRunAt != nil {
+		t.Fatalf("after disable status=%s next=%v", got.Status, got.NextRunAt)
+	}
+
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, request(http.MethodPatch, "/v1/assistants/asst-disable", `{"status":"active"}`, "routine-disable"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("enable: %d %s", rec.Code, rec.Body.String())
+	}
+	got, _, err = st.Get(ctx, "routine-disable", rt.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusPaused {
+		t.Fatalf("re-enabling the assistant resumed the routine: %s", got.Status)
+	}
+}

@@ -180,6 +180,63 @@ func TestStore_ClaimFireOverlapAndStale(t *testing.T) {
 	}
 }
 
+func TestStore_WaitingUserBlocksNextClaim(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	insertUser(t, st, "routine-wait")
+	insertAssistant(t, st, "asst-wait", "routine-wait")
+	rt, err := st.Create(ctx, "routine-wait", CreateInput{
+		AssigneeAssistantID: "asst-wait", Title: "确认", Autonomy: AutonomyRead,
+		Cron: "0 8 * * 1", Timezone: "UTC",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB.ExecContext(ctx, `UPDATE routines SET next_run_at=$2 WHERE id=$1`, rt.ID, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := st.ClaimDue(ctx, 1)
+	if err != nil || len(claims) != 1 {
+		t.Fatalf("claim: %v %+v", err, claims)
+	}
+	rn, ok, err := st.MarkRunning(ctx, claims[0].Run.ID)
+	if err != nil || !ok {
+		t.Fatalf("mark: ok=%v err=%v", ok, err)
+	}
+	if err := st.AttachSession(ctx, rn.ID, "sess-wait"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RequestConfirm(ctx, "routine-wait", rn.Key, "sess-wait", "ticket-wait", 90); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB.ExecContext(ctx, `UPDATE routines SET next_run_at=$2 WHERE id=$1`, rt.ID, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	again, err := st.ClaimDue(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("waiting run must not start another, got %+v", again)
+	}
+	runs, err := st.ListRuns(ctx, "routine-wait", rt.Key, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var waiting, overlaps int
+	for _, run := range runs {
+		switch run.Status {
+		case RunWaitingUser:
+			waiting++
+		case RunSkippedOverlap:
+			overlaps++
+		}
+	}
+	if waiting != 1 || overlaps != 1 {
+		t.Fatalf("waiting=%d overlaps=%d runs=%+v", waiting, overlaps, runs)
+	}
+}
+
 func TestStore_StateLimitAndFinishSession(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()

@@ -36,6 +36,10 @@ type Handler struct {
 	Tickets  *assistticket.Store
 	Denials  *policy.DenialStore
 	IM       IMSyncer
+	// OnDisabled runs after an assistant is disabled, so standing routines can pause.
+	OnDisabled func(ctx context.Context, assistantID string)
+	// OnTicketResolved runs after an assist ticket is resolved.
+	OnTicketResolved func(ctx context.Context, t *assistticket.Ticket)
 }
 
 // Mount registers routes.
@@ -206,6 +210,9 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.ImChannels != nil || (body.Status != nil && *body.Status == StatusDisabled) {
 		h.syncIM(r.Context(), updated)
+	}
+	if body.Status != nil && *body.Status == StatusDisabled && h.OnDisabled != nil {
+		h.OnDisabled(r.Context(), updated.ID)
 	}
 	h.fillPrimarySession(r.Context(), user.Username, updated)
 	httpx.WriteJSON(w, http.StatusOK, sanitizeAssistant(updated))

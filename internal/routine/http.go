@@ -77,6 +77,12 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	if items == nil {
 		items = []Routine{}
 	}
+	for i := range items {
+		summary, err := h.Store.LastSuccessSummary(r.Context(), items[i].ID)
+		if err == nil {
+			items[i].LastSummary = summary
+		}
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"routines": items})
 }
 

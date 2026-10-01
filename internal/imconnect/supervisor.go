@@ -170,7 +170,7 @@ func (s *Supervisor) buildEngine(a *assistant.Assistant) (*Engine, error) {
 		ToolMaxLen:       500,
 		ToolMessages:     false,
 	})
-	return &Engine{assistantID: a.ID, engine: engine, agent: agent}, nil
+	return &Engine{assistantID: a.ID, engine: engine, agent: agent, platforms: platforms, sessions: sessionStore}, nil
 }
 
 func channelNames(ch assistant.ImChannels) []string {
@@ -189,6 +189,8 @@ type Engine struct {
 	assistantID string
 	engine      *core.Engine
 	agent       *Agent
+	platforms   []core.Platform
+	sessions    string
 }
 
 // Start starts platforms.

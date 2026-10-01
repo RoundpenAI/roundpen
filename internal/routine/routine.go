@@ -149,6 +149,8 @@ type Routine struct {
 	NextRunAt            *time.Time      `json:"nextRunAt,omitempty"`
 	CreatedAt            time.Time       `json:"createdAt"`
 	UpdatedAt            time.Time       `json:"updatedAt"`
+	// LastSummary is filled on list responses. It is not a stored column.
+	LastSummary string `json:"lastSummary,omitempty"`
 }
 
 // Run is one firing of a routine.

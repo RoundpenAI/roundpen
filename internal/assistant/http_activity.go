@@ -281,6 +281,9 @@ func (h *Handler) resolveTicket(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
+	if h.OnTicketResolved != nil {
+		h.OnTicketResolved(r.Context(), out)
+	}
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
