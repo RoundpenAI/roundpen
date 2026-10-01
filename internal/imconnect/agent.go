@@ -297,7 +297,7 @@ func (s *agentSession) Send(prompt string, _ string, _ []core.ImageAttachment, _
 }
 
 func (s *agentSession) runTurn(prompt string) {
-	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Minute)
+	ctx, cancel := context.WithTimeout(s.ctx, 2*time.Hour)
 	defer cancel()
 
 	var reply strings.Builder
@@ -316,7 +316,12 @@ func (s *agentSession) runTurn(prompt string) {
 	s.mu.Unlock()
 
 	if err != nil {
-		s.emit(core.Event{Type: core.EventError, SessionID: s.sess.ID, Content: err.Error(), Error: err, Done: true})
+		_ = s.agent.ACP.Cancel(s.ctx, s.sess.ID)
+		msg := err.Error()
+		if strings.Contains(msg, "context deadline exceeded") {
+			msg = "本轮工作超时（超过 2h），已停止。可拆成更小的任务再试。"
+		}
+		s.emit(core.Event{Type: core.EventError, SessionID: s.sess.ID, Content: msg, Error: err, Done: true})
 		s.finishTurn()
 		return
 	}

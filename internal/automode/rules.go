@@ -19,11 +19,16 @@ type Rules struct {
 const DefaultsToken = "$defaults"
 
 // Defaults returns the built-in rules shipped with Roundpen.
+// Roundpen targets NAS / home-lab deployments: the user's LAN is a primary
+// workplace (intranet APIs, file shares, local proxies), so private-network
+// access is allowed by default. Cloud metadata and the Roundpen control plane
+// stay hard-denied.
 func Defaults() Rules {
 	return Rules{
 		Environment: []string{
 			"Trusted environment: the agent's sandbox workspace at /workspace and everything inside it. File edits, dependency installs, builds, tests and routine development commands there are normal work.",
-			"Outside the environment: the host machine running Roundpen, the Roundpen control plane and its API, other users' sandboxes and the local network. Nothing the agent runs may target them.",
+			"Trusted network: the user's local / LAN services on this NAS deployment — home-lab hosts, file shares, intranet apps, local proxies and APIs on private-network addresses (RFC1918 / ULA). Reaching them to read or act on the user's own data is normal work.",
+			"Outside the environment: the Roundpen control plane and its API on loopback, other users' sandboxes, and cloud instance metadata endpoints. Nothing the agent runs may target them.",
 			"The agent's browser operates the user's own browsing session on the host; treat browsing as acting on the user's machine.",
 		},
 		Allow: []string{
@@ -32,6 +37,7 @@ func Defaults() Rules {
 			"Recording issues, plan documents and tasks in the user's own issue tracker (CreateIssue, UpdateIssue, WriteIssueDoc, CreateTask, UpdateTask). This writes only the user's own tracker rows and grants no new capability.",
 			"Creating and updating the user's own standing routines (CreateRoutine, UpdateRoutine, UpdateRoutineState). This writes only the user's routine rows and grants no new capability.",
 			"Fetching public documentation, package registries and ordinary public websites over HTTPS.",
+			"Calling the user's local / LAN services and proxies on private-network addresses (for example SOCKS5/HTTP proxies, intranet APIs, NAS shares exposed over HTTP) to fetch data or complete the user's request.",
 		},
 		SoftDeny: []string{
 			"Deleting or overwriting files outside /workspace, or recursive deletes (rm -rf) whose target is not clearly inside the workspace.",
@@ -42,7 +48,7 @@ func Defaults() Rules {
 		},
 		HardDeny: []string{
 			"Exfiltrating secrets: reading credentials (.env, SSH keys, tokens, cloud credentials) and sending them anywhere outside the workspace.",
-			"Reaching cloud metadata endpoints (169.254.169.254, metadata.google.internal) or loopback, link-local, private-network or control-plane addresses, including via the browser.",
+			"Reaching cloud instance metadata endpoints (169.254.169.254, metadata.google.internal) or the Roundpen control plane on loopback, including via the browser. Ordinary LAN / private-network hosts are trusted on NAS deployments and are not covered by this rule.",
 			"Piping remote content directly into a shell or interpreter (curl ... | bash and equivalents).",
 			"Disabling, bypassing or modifying Roundpen's permission handling, auto mode, auditing or sandbox guardrails.",
 			"Destructive infrastructure actions: deploying to production, dropping or deleting databases, revoking credentials, or deleting cloud resources.",

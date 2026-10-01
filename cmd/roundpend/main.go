@@ -39,6 +39,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/ui"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
+	"github.com/RoundpenAI/roundpen/internal/webpush"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 	"github.com/RoundpenAI/roundpen/internal/workspace/local"
 	"github.com/RoundpenAI/roundpen/internal/workspace/sshfs"
@@ -211,7 +212,15 @@ func main() {
 
 	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, logger)
 
-	agentHandler, ticketStore, provisioner := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat)
+	pushSvc := newPushService(cfg, db, logger)
+	if pushSvc != nil {
+		(&webpush.Handler{Svc: pushSvc}).Mount(mux)
+		logger.Info("web push enabled")
+	} else {
+		logger.Info("web push unavailable")
+	}
+
+	agentHandler, ticketStore, provisioner := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat, pushSvc)
 
 	// A pending assist ticket is only actionable while the process that raised
 	// its permission request still holds the wait; nothing survives a restart,
