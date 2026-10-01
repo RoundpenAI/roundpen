@@ -13,6 +13,7 @@ import { ChatSessionPage } from './pages/ChatSessionPage'
 import { IssueDetailPage } from './pages/IssueDetailPage'
 import { IssuesPage } from './pages/IssuesPage'
 import { LoginPage } from './pages/LoginPage'
+import { RoutineDetailPage } from './pages/RoutineDetailPage'
 import { SettingsLayout } from './pages/SettingsLayout'
 import { AdminSettingsPage } from './pages/settings/AdminSettingsPage'
 import { PersonalSettingsPage } from './pages/settings/PersonalSettingsPage'
@@ -36,6 +37,10 @@ export default function App() {
             <Route index element={<AssistantsIndexRedirect />} />
             <Route path="new" element={<AssistantCreatePage />} />
             <Route path=":assistantId" element={<AssistantDetailPage />} />
+            <Route
+              path=":assistantId/routines/:key"
+              element={<RoutineDetailPage />}
+            />
             <Route
               path=":assistantId/chat"
               element={<AssistantChatRedirect />}
