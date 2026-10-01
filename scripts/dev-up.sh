@@ -123,31 +123,6 @@ set_env_value() {
 	fi
 }
 
-# pg0 can come back on a different port than .env recorded (instance metadata
-# wins on restart). The readiness check only trusts DATABASE_URL, so align both
-# the session DSNs and .env with the instance port before starting.
-align_pg0_port() {
-	local meta="$HOME/.pg0/instances/${PG0_NAME}/instance.json"
-	[[ -f "$meta" ]] || return 0
-	local iport old_port
-	iport="$(grep -o '"port": *[0-9]\+' "$meta" | grep -o '[0-9]\+' | head -1)"
-	[[ -n "$iport" ]] || return 0
-	if [[ "$DATABASE_URL" == *":${iport}/"* ]]; then
-		return 0
-	fi
-	old_port="$(printf '%s' "$DATABASE_URL" | grep -oE ':[0-9]+/' | head -1 | tr -d ':/' || true)"
-	if [[ -z "$old_port" || "$old_port" == "$iport" ]]; then
-		return 0
-	fi
-	echo "pg0: instance port is :${iport}; aligning DATABASE_URL (was :${old_port})"
-	DATABASE_URL="$(printf '%s' "$DATABASE_URL" | sed "s#:${old_port}/#:${iport}/#")"
-	TEST_DSN_DEFAULT="$(printf '%s' "$TEST_DSN_DEFAULT" | sed "s#:${old_port}/#:${iport}/#")"
-	PG0_PORT="$iport"
-	export DATABASE_URL
-	set_env_value DATABASE_URL "$DATABASE_URL"
-	set_env_value ROUNDPEN_TEST_DATABASE_URL "$TEST_DSN_DEFAULT"
-}
-
 if [[ ! -f .env ]]; then
 	echo "Creating .env from .env.example..."
 	cp .env.example .env
@@ -164,6 +139,8 @@ ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN "true"
 # The primary dev instance owns the chat platform connections (IM defaults off).
 ensure_env_key ROUNDPEN_IM_ENABLED "true"
 ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD "RoundpenAdmin1"
+# Pin so make-dev always has a known password across restarts.
+ensure_env_key ROUNDPEN_BOOTSTRAP_ADMIN_PIN_PASSWORD "true"
 ensure_env_key ROUNDPEN_PREVIEW_PUBLIC_URL "http://${LAN_IP}:${API_PORT}"
 ensure_env_key ROUNDPEN_TEMPLATE_BUILDER ""
 
@@ -230,169 +207,17 @@ if [[ "${ROUNDPEN_BACKEND}" == "docker" ]] && need_cmd docker; then
 	fi
 fi
 
-dsn_host="${DATABASE_URL#*@}"
-dsn_host="${dsn_host%%/*}"
-dsn_host="${dsn_host%:*}"
-
-pg0_status() {
-	pg0 list 2>/dev/null | awk -v n="$PG0_NAME" '
-		$1 == n {
-			if ($0 ~ /\(running\)/) { print "running"; exit }
-			if ($0 ~ /\(stopped\)/) { print "stopped"; exit }
-			print "unknown"; exit
-		}
-	'
-}
-
-# True when DATABASE_URL (or pg0 CLI) can SELECT 1.
-# pg0 list/psql can be stale (shows stopped / wrong role) while postgres is up.
-pg_ready() {
-	if command -v psql >/dev/null 2>&1; then
-		if psql "$DATABASE_URL" -Atqc 'SELECT 1' >/dev/null 2>&1; then
-			return 0
-		fi
-	fi
-	# Fallback: pg0's bundled psql via URI (avoids pg0 CLI's stored role mismatch).
-	local bin=""
-	bin="$(ls -1 "$HOME"/.pg0/installation/*/bin/psql 2>/dev/null | sort -V | tail -1 || true)"
-	if [[ -n "$bin" ]]; then
-		if "$bin" "$DATABASE_URL" -Atqc 'SELECT 1' >/dev/null 2>&1; then
-			return 0
-		fi
-	fi
-	if pg0 psql --name "$PG0_NAME" -- -Atqc 'SELECT 1' >/dev/null 2>&1; then
-		return 0
-	fi
-	return 1
-}
-
-# Run SQL against DATABASE_URL (preferred) or pg0 psql.
-pg_exec() {
-	local db="${1:-}"
-	shift || true
-	local url="$DATABASE_URL"
-	if [[ -n "$db" && "$db" != "$PG0_DB" ]]; then
-		# Swap DB name in URI: .../roundpen?... → .../other?...
-		url="$(printf '%s' "$DATABASE_URL" | sed -E "s#/([^/?]+)(\\?|$)#/${db}\\2#")"
-	fi
-	if command -v psql >/dev/null 2>&1; then
-		psql "$url" "$@"
-		return $?
-	fi
-	local bin=""
-	bin="$(ls -1 "$HOME"/.pg0/installation/*/bin/psql 2>/dev/null | sort -V | tail -1 || true)"
-	if [[ -n "$bin" ]]; then
-		"$bin" "$url" "$@"
-		return $?
-	fi
-	if [[ -n "$db" && "$db" != "$PG0_DB" ]]; then
-		pg0 psql --name "$PG0_NAME" -- "$db" "$@"
-	else
-		pg0 psql --name "$PG0_NAME" -- "$@"
-	fi
-}
-
-wait_pg0() {
-	local i
-	for i in $(seq 1 40); do
-		if pg_ready; then
-			return 0
-		fi
-		sleep 0.25
-	done
-	return 1
-}
-
-start_pg0() {
-	if pg_ready; then
-		echo "pg0: postgres already accepting connections via DATABASE_URL"
-		return 0
-	fi
-	local st out
-	st="$(pg0_status)"
-	case "$st" in
-	stopped)
-		echo "pg0: starting existing instance '${PG0_NAME}'..."
-		# Metadata can say stopped while a postmaster still holds the port.
-		# "already running" is OK if DATABASE_URL then becomes ready.
-		out="$(pg0 start --name "$PG0_NAME" 2>&1)" || true
-		if echo "$out" | grep -qi 'already running'; then
-			echo "pg0: instance reports already running; checking DATABASE_URL..."
-		elif [[ -n "$out" ]]; then
-			echo "$out"
-		fi
-		;;
-	running)
-		echo "pg0: list says running; waiting for connections..."
-		;;
-	*)
-		echo "pg0: creating instance '${PG0_NAME}' on :${PG0_PORT}..."
-		pg0 start --name "$PG0_NAME" --port "$PG0_PORT" \
-			--username "$PG0_USER" --password "$PG0_PASS" --database "$PG0_DB" || true
-		;;
-	esac
-	if wait_pg0; then
-		return 0
-	fi
-	echo "error: postgres for '${PG0_NAME}' did not become ready on port ${PG0_PORT}" >&2
-	echo "  hint: verify with: psql \"\$DATABASE_URL\" -c 'SELECT 1'" >&2
-	echo "  if pg0 metadata is stale: pg0 stop --name ${PG0_NAME}; pg0 start --name ${PG0_NAME}" >&2
-	pg0 list 2>&1 | sed 's/^/  /' >&2 || true
-	return 1
-}
-
-ensure_extensions() {
-	echo "pg0: ensuring pgcrypto + vector extensions..."
-	pg0 install-extension --name "$PG0_NAME" vector >/dev/null 2>&1 || true
-	pg_exec "" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null
-	pg_exec "" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
-}
-
-ensure_test_db() {
-	local test_db=roundpen_test
-	if ! pg_exec "" -Atqc "SELECT 1 FROM pg_database WHERE datname='${test_db}'" | grep -q 1; then
-		echo "pg0: creating test database '${test_db}'..."
-		pg_exec "" -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${test_db} OWNER ${PG0_USER};"
-	fi
-	pg_exec "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;' >/dev/null
-	pg_exec "$test_db" -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS vector;' >/dev/null || true
-}
-
-migrate_legacy_state() {
-	# Older make dev seeded kaniko fields; drop them and map a stale kaniko
-	# engine to docker (the only local builder).
-	echo "pg0: clearing legacy kaniko settings in app_settings..."
-	pg_exec "" -v ON_ERROR_STOP=1 -c "
-UPDATE app_settings
-SET payload = (
-      payload
-      - 'kanikoDestination' - 'kanikoExecutor' - 'kanikoRegistryMirrors'
-      - 'kanikoInsecure' - 'kanikoSkipTlsVerify' - 'kanikoExtraArgs'
-    )
-  || CASE
-       WHEN COALESCE(payload->>'templateBuilder', '') = 'kaniko'
-         THEN jsonb_build_object('templateBuilder', 'docker')
-       ELSE '{}'::jsonb
-     END,
-    updated_at = now()
-WHERE id = 'global';
-" >/dev/null 2>&1 || true
-	# user_runtime only held the removed per-user agent engine picker.
-	pg_exec "" -v ON_ERROR_STOP=1 -c "DROP TABLE IF EXISTS user_runtime;" >/dev/null 2>&1 || true
-}
-
-case "$dsn_host" in
-127.0.0.1|localhost|"")
-	align_pg0_port
-	start_pg0
-	ensure_extensions
-	ensure_test_db
-	migrate_legacy_state
-	;;
-*)
-	echo "note: DATABASE_URL host is '${dsn_host}', not starting local pg0"
-	;;
-esac
+# Shared pg0 bootstrap (also used by the fnOS package). Keep .env in sync when
+# the instance port differs from what we recorded earlier.
+export PG0_NAME PG0_PORT PG0_USER PG0_PASS PG0_DB DATABASE_URL
+export ROUNDPEN_ENSURE_PG0_TEST_DB=1
+export ROUNDPEN_ENSURE_PG0_MIGRATE_LEGACY=1
+# shellcheck disable=SC1091
+source "$ROOT/scripts/ensure-pg0.sh"
+set_env_value DATABASE_URL "$DATABASE_URL"
+TEST_DSN_DEFAULT="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/roundpen_test?sslmode=disable"
+set_env_value ROUNDPEN_TEST_DATABASE_URL "$TEST_DSN_DEFAULT"
+export ROUNDPEN_TEST_DATABASE_URL="$TEST_DSN_DEFAULT"
 
 mkdir -p "${ROUNDPEN_DATA_ROOT}"
 # Ensure embed compiles even before first production UI build.
