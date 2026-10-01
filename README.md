@@ -53,6 +53,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 5. **ACP Agent 网关**：助手绑定会话 UI；Browser CDP 绑用户 Browser 环境
 6. **最小审计**：创建 / 删除 / exec / settings 写 slog
 7. **议题与任务跟踪**：对话中产生的议题落库（`ISS-n`），澄清边界/方向/决策后写版本化 Spec / Plan（`DOC-n`），拆成任务清单（`TSK-n`）逐个实现；控制台 `/issues` 可读可改
+8. **常驻任务**：对话里把反复要做的事交给一个助手（`RTN-n`），到点自行运行（`RUN-n`），结果进主对话和已有 IM 聊天。助手详情可看、可改。抢券和报税还要后续的登录态，这一期做不到端到端。
 
 助手产品模型见 [docs/superpowers/specs/2026-09-12-assistant-first-ui-design.md](docs/superpowers/specs/2026-09-12-assistant-first-ui-design.md)。对话默认安静执行；进度在助手详情「此刻」；卡壳时通过协助单升级人类。策略软拒绝（网络/目录/能力）可查询且可申请，不会自动刷单。
 
