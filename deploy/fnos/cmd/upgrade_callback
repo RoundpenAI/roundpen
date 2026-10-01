@@ -1,6 +1,6 @@
 #!/bin/bash
-# Runs after an upgrade installed the new files: data lives under var/ and the
-# pgdata Docker volume, so only the bundled images need re-loading.
+# Runs after an upgrade installed the new files: keep data under var/, ensure
+# pg0 is still reachable (or recreate), and refresh roundpend.env defaults.
 
 set -u
 
@@ -9,11 +9,53 @@ fail() {
     exit 1
 }
 
-mkdir -p "${TRIM_PKGVAR}/data" || fail "无法创建数据目录 ${TRIM_PKGVAR}/data"
+BIN_DIR="${TRIM_APPDEST}/bin"
+ENSURE_PG0="${BIN_DIR}/ensure-pg0.sh"
+ENVFILE="${TRIM_PKGVAR}/roundpend.env"
+PORT="${TRIM_SERVICE_PORT:-9527}"
+PG0_PORT="${PG0_PORT:-15432}"
 
-for tar in "${TRIM_APPDEST}"/images/*.tar; do
-    [ -f "${tar}" ] || continue
-    docker load -i "${tar}" || fail "加载镜像失败（需要 docker 权限）：${tar}"
-done
+mkdir -p "${TRIM_PKGVAR}/data" "${TRIM_PKGVAR}/.pg0" || fail "无法创建数据目录 ${TRIM_PKGVAR}/data"
+
+[ -x "${BIN_DIR}/pg0" ] || fail "包内缺少 pg0 二进制：${BIN_DIR}/pg0"
+[ -x "${BIN_DIR}/roundpend" ] || fail "包内缺少 roundpend 二进制：${BIN_DIR}/roundpend"
+[ -x "${ENSURE_PG0}" ] || fail "包内缺少 ensure-pg0.sh：${ENSURE_PG0}"
+
+export HOME="${TRIM_PKGVAR}"
+export PG0_HOME="${TRIM_PKGVAR}/.pg0"
+export PG0_DATA_DIR="${PG0_HOME}/instances/roundpen/data"
+export PG0_PORT
+export PG0_NAME=roundpen
+
+if [ ! -f "${ENVFILE}" ]; then
+    {
+        echo "DATABASE_URL=postgres://roundpen:roundpen@127.0.0.1:${PG0_PORT}/roundpen?sslmode=disable"
+        echo "ROUNDPEN_DATA_ROOT=${TRIM_PKGVAR}/data"
+        echo "ROUNDPEN_HTTP_ADDR=:${PORT}"
+        echo "ROUNDPEN_BACKEND=docker"
+        echo "ROUNDPEN_BOOTSTRAP_ADMIN=true"
+        echo "ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD=RoundpenAdmin1"
+        echo "ROUNDPEN_IM_ENABLED=true"
+        echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
+        echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
+        echo "ROUNDPEN_PREVIEW_PUBLIC_URL=http://127.0.0.1:${PORT}"
+    } > "${ENVFILE}"
+fi
+
+# Preserve an existing DATABASE_URL (user may have pointed at an external DB).
+set -a
+# shellcheck disable=SC1090
+. "${ENVFILE}"
+set +a
+
+export ROUNDPEN_PG0_BIN="${BIN_DIR}/pg0"
+export ROUNDPEN_ENSURE_PG0_ENV_FILE="${ENVFILE}"
+
+errfile="${TRIM_PKGVAR}/pg0-install.log"
+# shellcheck disable=SC1090
+if ! . "${ENSURE_PG0}" >"${errfile}" 2>&1; then
+    detail="$(tail -c 1500 "${errfile}" 2>/dev/null | tr '\n' ' ')"
+    fail "无法启动本地 pg0（或连接 DATABASE_URL）。${detail}"
+fi
 
 exit 0

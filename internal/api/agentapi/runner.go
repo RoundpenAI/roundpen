@@ -42,7 +42,7 @@ func turnErrorMessage(err error) string {
 	if isDeadlineExceeded(err) {
 		return fmt.Sprintf("本轮工作超时（超过 %s），已停止。可拆成更小的任务再试。", formatTurnTimeout(turnTimeout))
 	}
-	return err.Error()
+	return unwrapPromptErr(err)
 }
 
 func formatTurnTimeout(d time.Duration) string {
@@ -59,6 +59,7 @@ func formatTurnTimeout(d time.Duration) string {
 	}
 	return d.String()
 }
+
 // permWait tracks an outstanding interactive permission request that may outlive
 // any single WebSocket connection.
 type permWait struct {
@@ -1008,4 +1009,42 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	rt.SetAutoMode(true)
 	h.runners[sess.ID] = r
 	return r, nil
+}
+
+// unwrapPromptErr peels ACP JSON-RPC Internal error wrappers so the chat UI
+// sees the actionable message (e.g. LLM not configured) instead of raw JSON.
+func unwrapPromptErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, sysagent.ErrLLMNotConfigured) {
+		return sysagent.ErrLLMNotConfigured.Error()
+	}
+	var re *acp.RequestError
+	if errors.As(err, &re) && re != nil {
+		switch data := re.Data.(type) {
+		case map[string]any:
+			if s, ok := data["error"].(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+			if s, ok := data["details"].(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+		case string:
+			if strings.TrimSpace(data) != "" {
+				return data
+			}
+		}
+	}
+	msg := err.Error()
+	// Last resort: parse a marshalled RequestError string.
+	var parsed struct {
+		Data struct {
+			Error string `json:"error"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(msg), &parsed) == nil && strings.TrimSpace(parsed.Data.Error) != "" {
+		return parsed.Data.Error
+	}
+	return msg
 }

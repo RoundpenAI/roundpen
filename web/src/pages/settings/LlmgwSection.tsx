@@ -1,5 +1,8 @@
+import { useCallback, useState } from 'react'
 import { Collapse, Form, Input, Select, Typography } from '@douyinfe/semi-ui-19'
 import { Loading } from '../../components/Loading'
+import { LlmSetupChooser } from '../../components/LlmSetupChooser'
+import type { LlmReady } from '../../api'
 import { ItemListSection } from './items/ItemListSection'
 import { SlotBindings } from './items/SlotBindings'
 import { sectionGap } from './constants'
@@ -13,6 +16,15 @@ type Props = SectionBase & {
 // Providers are setting items (kind "llm") and each usage point picks one via
 // a slot binding; the switches below stay in the settings document.
 export function LlmgwSection({ isAdmin, loading, t, form, patch, logBodyOptions }: Props) {
+  const [llmStatus, setLlmStatus] = useState<LlmReady | null>(null)
+  const onLlmReady = useCallback((res: LlmReady) => {
+    setLlmStatus(res)
+    if (res.ready && res.mode === 'free' && !form.llmgwEnabled) {
+      // FREE path turns the gateway on server-side; refresh the toggle.
+      patch({ llmgwEnabled: true })
+    }
+  }, [form.llmgwEnabled, patch])
+
   if (!isAdmin) return null
   if (loading) return <Loading tip={t('settings.loadingSystem')} />
 
@@ -22,6 +34,23 @@ export function LlmgwSection({ isAdmin, loading, t, form, patch, logBodyOptions 
         <Typography.Text type="tertiary" size="small">
           {t('settings.llmgw.intro')}
         </Typography.Text>
+
+        <div
+          style={{
+            padding: 12,
+            background: 'var(--semi-color-fill-0)',
+            borderRadius: 8,
+          }}
+        >
+          <LlmSetupChooser
+            compact
+            autoLoad
+            inSettings
+            status={llmStatus}
+            isAdmin={isAdmin}
+            onReady={onLlmReady}
+          />
+        </div>
 
         <Toggle
           checked={form.llmgwEnabled}

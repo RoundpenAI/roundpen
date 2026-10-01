@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Banner, Button, Input, Typography } from '@douyinfe/semi-ui-19'
-import { oauthProviders, type OAuthProviderOption } from '../api'
+import { auth as authApi, oauthProviders, type OAuthProviderOption } from '../api'
 import { doLogin, useAuth } from '../auth'
 
 // The OAuth callback bounces back here with ?oauth_error=<code>.
@@ -34,6 +34,10 @@ export function LoginPage() {
   })
   const [busy, setBusy] = useState(false)
   const [providers, setProviders] = useState<OAuthProviderOption[]>([])
+  const [defaultCreds, setDefaultCreds] = useState<{
+    username: string
+    password: string
+  } | null>(null)
 
   useEffect(() => {
     let alive = true
@@ -44,6 +48,17 @@ export function LoginPage() {
       })
       .catch(() => {
         /* no federated providers is a valid state */
+      })
+    authApi
+      .bootstrapHint()
+      .then((hint) => {
+        if (!alive || !hint.username || !hint.password) return
+        setDefaultCreds({ username: hint.username, password: hint.password })
+        setUser(hint.username)
+        setPassword(hint.password)
+      })
+      .catch(() => {
+        /* no packaged default is fine */
       })
     return () => {
       alive = false
@@ -90,6 +105,15 @@ export function LoginPage() {
         >
           Sign in to your agent sandbox
         </Typography.Text>
+        {defaultCreds && (
+          <Banner
+            fullMode={false}
+            type="info"
+            closeIcon={null}
+            style={{ marginBottom: 16 }}
+            description={`首次安装默认账号 ${defaultCreds.username} / ${defaultCreds.password}（登录后请尽快修改密码）`}
+          />
+        )}
         <form
           onSubmit={(e) => void onSubmit(e)}
           style={{ display: 'flex', flexDirection: 'column', gap: 16 }}

@@ -21,7 +21,7 @@ func TestBootstrapAdminPinsConfiguredPassword(t *testing.T) {
 	users := storage.NewMemoryUserStore()
 	credFile := filepath.Join(t.TempDir(), "bootstrap-admin-credentials.txt")
 
-	if err := BootstrapAdmin(ctx, users, "rp-test-key", "RoundpenAdmin1", credFile, quietLogger()); err != nil {
+	if err := BootstrapAdmin(ctx, users, "rp-test-key", "RoundpenAdmin1", credFile, true, quietLogger()); err != nil {
 		t.Fatal(err)
 	}
 	admin, err := users.GetByUsername(ctx, "admin")
@@ -40,7 +40,7 @@ func TestBootstrapAdminPinsConfiguredPassword(t *testing.T) {
 	if err := users.Upsert(ctx, *admin); err != nil {
 		t.Fatal(err)
 	}
-	if err := BootstrapAdmin(ctx, users, "rp-test-key", "RoundpenAdmin1", credFile, quietLogger()); err != nil {
+	if err := BootstrapAdmin(ctx, users, "rp-test-key", "RoundpenAdmin1", credFile, true, quietLogger()); err != nil {
 		t.Fatal(err)
 	}
 	admin, err = users.GetByUsername(ctx, "admin")
@@ -56,10 +56,46 @@ func TestBootstrapAdminPinsConfiguredPassword(t *testing.T) {
 	}
 }
 
+func TestBootstrapAdminSetsConfiguredPasswordOnce(t *testing.T) {
+	ctx := context.Background()
+	users := storage.NewMemoryUserStore()
+	credFile := filepath.Join(t.TempDir(), "creds.txt")
+
+	if err := BootstrapAdmin(ctx, users, "rp-test-key", "RoundpenAdmin1", credFile, false, quietLogger()); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !CheckPassword(admin.PasswordHash, "RoundpenAdmin1") {
+		t.Fatal("configured password not applied on first boot")
+	}
+
+	changed, err := HashPassword("changedByOperator1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin.PasswordHash = changed
+	if err := users.Upsert(ctx, *admin); err != nil {
+		t.Fatal(err)
+	}
+	if err := BootstrapAdmin(ctx, users, "rp-test-key", "RoundpenAdmin1", credFile, false, quietLogger()); err != nil {
+		t.Fatal(err)
+	}
+	admin, err = users.GetByUsername(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !CheckPassword(admin.PasswordHash, "changedByOperator1") {
+		t.Fatal("without pin, a changed password must survive the next boot")
+	}
+}
+
 func TestBootstrapAdminRejectsShortConfiguredPassword(t *testing.T) {
 	ctx := context.Background()
 	users := storage.NewMemoryUserStore()
-	err := BootstrapAdmin(ctx, users, "rp-test-key", "short", filepath.Join(t.TempDir(), "creds.txt"), quietLogger())
+	err := BootstrapAdmin(ctx, users, "rp-test-key", "short", filepath.Join(t.TempDir(), "creds.txt"), false, quietLogger())
 	if err == nil {
 		t.Fatal("expected an error for a password below the minimum length")
 	}
@@ -70,7 +106,7 @@ func TestBootstrapAdminGeneratesPasswordWithoutConfig(t *testing.T) {
 	users := storage.NewMemoryUserStore()
 	credFile := filepath.Join(t.TempDir(), "creds.txt")
 
-	if err := BootstrapAdmin(ctx, users, "rp-test-key", "", credFile, quietLogger()); err != nil {
+	if err := BootstrapAdmin(ctx, users, "rp-test-key", "", credFile, false, quietLogger()); err != nil {
 		t.Fatal(err)
 	}
 	admin, err := users.GetByUsername(ctx, "admin")

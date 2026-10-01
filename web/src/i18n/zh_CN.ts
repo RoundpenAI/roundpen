@@ -142,6 +142,8 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'settings.llmgw.intro':
     'Roundpen 转发模型调用，使 Agent 不持有真实的 OpenAI / Anthropic 密钥。在下方配置上游凭据；Agent 与对话只拿到调用本控制面 /llmgw 的虚拟密钥。',
+  'settings.llmgw.modeHint':
+    '冷启动可选「免费试用」（内置 roundpen-free，按安装身份限频）或「自己的 API Key」。生产环境建议 BYOK；FREE 仅适合体验，触发 429 时请改绑自己的上游。',
   'settings.llmgw.enable': '启用中继（Agent 对话与记忆嵌入所需）',
   'settings.llmgw.upstreamTitle': '1 · 上游提供商',
   'settings.llmgw.upstreamHint':

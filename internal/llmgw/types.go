@@ -11,6 +11,7 @@ type Upstream struct {
 	Protocol      string            `json:"protocol"`
 	BaseURL       string            `json:"base_url"`
 	APIKey        string            `json:"-"`
+	AuthMode      string            `json:"auth_mode,omitempty"` // api_key (default) | install_identity
 	ProxyURL      string            `json:"proxy_url,omitempty"` // optional egress proxy
 	ModelMap      map[string]string `json:"model_map"`
 	ModelPatterns []ModelPattern    `json:"model_patterns"`

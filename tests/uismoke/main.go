@@ -92,7 +92,7 @@ func main() {
 	}}}
 	providers.reset()
 	mux := http.NewServeMux()
-	auth.Mount(mux, users, sessions, func() bool { return false })
+	auth.Mount(mux, users, sessions, func() bool { return false }, "")
 	(&envapi.Handler{
 		Envs:  envs,
 		Users: users,
@@ -188,7 +188,7 @@ func main() {
 		}})
 	})
 	mux.HandleFunc("GET /v1/setup/llm-ready", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"ready": true})
+		writeJSON(w, map[string]any{"ready": true, "mode": "byok", "freeAvailable": false})
 	})
 	mux.HandleFunc("POST /v1/setup/plans", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any

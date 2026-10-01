@@ -8,6 +8,7 @@ import { installVisualViewportInsets } from './lib/visualViewport'
 import { registerServiceWorker } from './lib/pushNotifications'
 // Package exports block dist/css; import via relative path for Vite.
 import '../node_modules/@douyinfe/semi-ui-19/dist/css/semi.css'
+import './fonts/ibm-plex-mono.css'
 import './index.css'
 
 installVisualViewportInsets()

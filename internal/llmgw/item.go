@@ -36,10 +36,10 @@ func Kind() settingitems.KindDef {
 				Required: true,
 			},
 			{
-				Key:      "apiKey",
-				Type:     settingitems.FieldSecret,
-				Label:    "Upstream API key",
-				Required: true,
+				Key:   "apiKey",
+				Type:  settingitems.FieldSecret,
+				Label: "Upstream API key",
+				Hint:  "Required unless Auth mode is install identity (built-in FREE).",
 			},
 			{
 				Key:     "proxyId",
@@ -52,6 +52,14 @@ func Kind() settingitems.KindDef {
 				Type:  settingitems.FieldString,
 				Label: "Fallback model",
 				Hint:  "Used when a request names a model this provider does not know.",
+			},
+			{
+				Key:      "authMode",
+				Type:     settingitems.FieldEnum,
+				Label:    "Auth mode",
+				Options:  []string{AuthModeAPIKey, AuthModeInstallIdentity},
+				Hint:     "install_identity is reserved for the built-in FREE provider.",
+				Advanced: true,
 			},
 			{
 				Key:      "modelMap",
@@ -68,8 +76,9 @@ func Kind() settingitems.KindDef {
 				Advanced: true,
 			},
 		},
-		Selectable: []string{},
-		Validate:   validateItem,
+		Selectable:   []string{},
+		ProtectedIDs: []string{FreeItemID},
+		Validate:     validateItem,
 	}
 }
 
@@ -81,6 +90,19 @@ func validateItem(it *settingitems.Item) error {
 	}
 	if it.String("baseUrl") == "" {
 		return fmt.Errorf("baseUrl is required")
+	}
+	mode := it.String("authMode")
+	switch mode {
+	case "", AuthModeAPIKey:
+		if it.Secret("apiKey") == "" {
+			return fmt.Errorf("apiKey is required")
+		}
+	case AuthModeInstallIdentity:
+		if it.ID != FreeItemID {
+			return fmt.Errorf("authMode %s is only allowed on %s", AuthModeInstallIdentity, FreeItemID)
+		}
+	default:
+		return fmt.Errorf("authMode must be %s or %s", AuthModeAPIKey, AuthModeInstallIdentity)
 	}
 	return nil
 }
@@ -175,11 +197,16 @@ func Slots() []settingitems.SlotDef {
 // UpstreamFromItem projects an LLM item onto the relay's upstream view,
 // resolving its egress proxy through the same snapshot.
 func UpstreamFromItem(snap *settingitems.Snapshot, it settingitems.Item) Upstream {
+	authMode := it.String("authMode")
+	if authMode == "" {
+		authMode = AuthModeAPIKey
+	}
 	up := Upstream{
 		Provider:      it.ID,
 		Protocol:      it.String("protocol"),
 		BaseURL:       trimRightSlash(it.String("baseUrl")),
 		APIKey:        it.Secret("apiKey"),
+		AuthMode:      authMode,
 		ModelMap:      it.StringMap("modelMap"),
 		DefaultModel:  it.String("defaultModel"),
 		Enabled:       it.Enabled,

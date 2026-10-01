@@ -12,4 +12,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = true
-changelog             = 首个打包版本：Docker Compose 部署 roundpend + PostgreSQL/pgvector，数据保存在应用目录内。
+changelog             = 宿主机安装 roundpend，包内捆绑 pg0 拉起本地 Postgres；Agent/Browser 仍走宿主 Docker。

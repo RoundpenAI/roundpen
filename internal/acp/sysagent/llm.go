@@ -12,6 +12,10 @@ import (
 	"strings"
 )
 
+// ErrLLMNotConfigured is returned when the system agent has no relay BaseURL
+// (LLM gateway disabled or no provider bound to the sysagent slot).
+var ErrLLMNotConfigured = errors.New("LLM 尚未配置：请到「设置 → LLM 网关」启用网关，添加上游地址与密钥，并保存后再试")
+
 // LLMConfig configures OpenAI-compatible chat via llmgw loopback.
 type LLMConfig struct {
 	BaseURL      string // e.g. http://127.0.0.1:19001/llmgw/openai
@@ -82,7 +86,10 @@ func (c LLMConfig) Run(ctx context.Context, system, user string) (string, error)
 // onReasoning receives reasoning deltas (reasoning_content / reasoning) if the
 // upstream model streams them; it is never treated as assistant content.
 func (c LLMConfig) chatStream(ctx context.Context, messages []chatMessage, tools []map[string]any, onContent, onReasoning func(string) error) (chatMessage, string, error) {
-	base := strings.TrimRight(c.BaseURL, "/")
+	base := strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
+	if base == "" {
+		return chatMessage{}, "", ErrLLMNotConfigured
+	}
 	body, err := json.Marshal(chatRequest{
 		Model:    c.model(),
 		Messages: messages,
@@ -203,10 +210,10 @@ func (c LLMConfig) streamClient() *http.Client {
 type streamDelta struct {
 	Choices []struct {
 		Delta struct {
-			Role             string         `json:"role"`
-			Content          string         `json:"content"`
-			ReasoningContent any            `json:"reasoning_content"`
-			Reasoning        any            `json:"reasoning"`
+			Role             string `json:"role"`
+			Content          string `json:"content"`
+			ReasoningContent any    `json:"reasoning_content"`
+			Reasoning        any    `json:"reasoning"`
 			ToolCalls        []struct {
 				Index    int    `json:"index"`
 				ID       string `json:"id"`

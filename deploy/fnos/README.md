@@ -1,12 +1,13 @@
 # Roundpen on 飞牛 fnOS
 
-把 Roundpen 打包成 fnOS 应用（`.fpk`）：`roundpend` + PostgreSQL/pgvector 走
-Docker Compose，应用中心随应用一起启动和停止它（`config/resource` 里的
-`docker-project`），`cmd/main` 只负责状态查询。
+把 Roundpen 打包成 fnOS 应用（`.fpk`）：**宿主机**运行 `roundpend` 二进制，
+包内捆绑 [pg0](https://github.com/vectorize-io/pg0) 拉起本地 Postgres（含
+pgvector）。应用中心通过 `cmd/main` 启停进程。Agent / Browser 沙箱仍使用宿主
+Docker（挂 `/var/run/docker.sock`），首次使用相关槽位时再拉镜像。
 
 ## 构建
 
-只需要飞牛官方的 `fnpack`（V1.2.3）；镜像由 CI 发布，本地打包不碰 Docker：
+需要飞牛官方的 `fnpack`（V1.2.3）、本机 `go` 与 `npm`（构建时嵌入 Web UI）：
 
 ```bash
 curl -fsSLo /usr/local/bin/fnpack https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64
@@ -15,73 +16,79 @@ chmod +x /usr/local/bin/fnpack
 ```
 
 ```bash
-make fpk                     # x86 包（安装时由 NAS 拉取 ghcr 镜像）
-PLATFORM=arm make fpk        # arm64 包
-WITH_IMAGE=1 make fpk        # 离线包：本地构建镜像并塞进包内（需要 Docker）
+make fpk                     # x86 包（roundpend + pg0）
+PLATFORM=arm make fpk        # arm64
 ```
 
-产物在 `dist/fnos/roundpen-<version>-fnos-<platform>.fpk`（离线包带 `-offline`
-后缀），同名 `.sha256` 是校验值。
-`.github/workflows/fnos-fpk.yml` 在打 `v*` tag 时先推送
-`ghcr.io/<owner>/roundpend:<version>`（amd64 + arm64 多架构），再按两种架构 ×
-两种形态出包：默认包安装时由 NAS 拉镜像，`-offline` 包内嵌镜像（CI 直接
-`docker pull` 刚推送的镜像再 `docker save`，不再本地重编），全部挂到 release，
-用户按 NAS 能否出网自选。
+产物在 `dist/fnos/roundpen-<version>-fnos-<platform>.fpk`，同名 `.sha256` 是
+校验值。构建机从 GitHub Releases 拉取已 pin 的 pg0 二进制打进包，并按版本
+缓存在 `~/.cache/roundpen/pg0/`（同一版本再次 `make fpk` 直接复用）；**安装机
+不再访问 GitHub**。
 
-本地 `WITH_IMAGE=1` 构建（`IMAGE_SOURCE=build`，默认）时构建容器看不到宿主的
-npm / Go 配置，脚本会自动把宿主的 `npm config get registry` / `go env GOPROXY`
-作为 build-arg 传进去（可显式覆盖 `NPM_REGISTRY` / `GOPROXY`），并默认用
-`--network=host` 构建 —— 默认 bridge 没有 IPv6，而镜像源常解析到 IPv6，走 bridge
-时每个包都要等 IPv6 超时才回落（实测 100~300 秒/包）。需要隔离网络时用
-`BUILD_NETWORK=default make fpk`；`IMAGE_SOURCE=pull WITH_IMAGE=1 make fpk`
-则跳过构建，直接打包已发布的镜像。
+`.github/workflows/fnos-fpk.yml` 在打 `v*` tag 时按两种架构出包并挂到 release。
+
+本地构建可用 `NPM_REGISTRY` / `GOPROXY` / `PG0_VERSION` / `PG0_CACHE` 覆盖默认源、pg0 版本与缓存目录。
 
 ## 安装
 
 - 图形界面：应用中心 → 手动安装 → 选择 `.fpk`；
 - SSH：`appcenter-cli install-fpk roundpen-0.1.0-fnos-x86.fpk`。
 
-首次安装后应用中心即启动；首启日志里打印一次管理员密码与 API key。
-PostgreSQL 不设密码（`POSTGRES_HOST_AUTH_METHOD=trust`）：数据库端口不对外发布、
-只存在于本 compose 项目的私有网络里，而应用中心在安装阶段就会校验 compose，等
-不及生命周期脚本生成口令文件。要改成口令认证，就在包里预置一个 `env_file`
-（每次出包唯一）或确认设备上的安装顺序允许脚本先写文件。
+`install_callback` 会用包内 pg0 创建本地实例，并把 `DATABASE_URL` 写入
+`var/roundpend.env`。首次安装默认账号 **admin / RoundpenAdmin1**（只设一次，
+改密后重启不会被重置）；登录页在默认密码仍有效时也会提示。
+
+若已有 Postgres，可在 `var/roundpend.env` 里把 `DATABASE_URL` 改成外置库
+（需含 `pgcrypto` / `vector`），重启应用即可；本地 pg0 不会对非 localhost
+的 DSN 再起实例。
 
 ## 运行与数据
 
 | 位置 | 内容 |
 | --- | --- |
-| `var/data` | `ROUNDPEN_DATA_ROOT`：主密钥 `secret.key`、沙箱状态、日志 |
-| Docker 卷 `roundpen_roundpen-pgdata` | PostgreSQL 数据目录 |
+| `var/data` | `ROUNDPEN_DATA_ROOT`：主密钥 `secret.key`、沙箱状态、日志工作区 |
+| `var/roundpend.env` | 运行时环境（含 `DATABASE_URL`） |
+| `var/roundpend.log` / `var/roundpend.pid` | 进程日志与 pid |
+| `var/.pg0` | pg0 实例数据（默认监听 `127.0.0.1:15432`，避开 NAS 常见的 5432） |
+| `var/pg0-install.log` | pg0 自举详细日志（安装失败时可看） |
 
-**容器里的 roundpend 用的是宿主 Docker**（挂 `/var/run/docker.sock`），Agent /
-Browser 容器是宿主上的兄弟容器，不是嵌套在 roundpend 里。因此传给 Docker 的路径
-必须是宿主真实路径：`/data` 用的是 `${TRIM_PKGVAR}/data` 这种 **bind 挂载**
-（宿主上真实存在），不能用 Docker 命名卷 —— 用命名卷时宿主侧是
-`/var/lib/docker/volumes/.../_data`，而 roundpend 传给 daemon 的是
-`/data/sandboxes/<id>`，会挂不上或挂到空目录。
+**roundpend 用的是宿主 Docker**（需 `docker` 组，见 `config/privilege`），
+Agent / Browser 容器是宿主上的兄弟容器。传给 Docker 的路径必须是宿主真实
+路径（`ROUNDPEN_DATA_ROOT` 下的 sandbox 目录）。
 
-卸载不会删除上面两处数据，重新安装即可接着用；要彻底清空需要手工删掉
-`var/data` 和 `docker volume rm roundpen_roundpen-pgdata`。
+卸载不会删除上面数据，重新安装即可接着用；要彻底清空需手工删掉 `var/` 以及
+（如需要）`pg0 stop/destroy --name roundpen`。
 
-Agent 镜像默认 `ghcr.io/roundpenai/code-agent:0.1.0`，网络不通时可在应用设置里改成
-镜像源或本地 tag。
+Agent 镜像默认 `ghcr.io/roundpenai/code-agent:0.1.0`，网络不通时可在应用设置里
+改成镜像源或本地 tag。
+
+## 模型：FREE 试用与 BYOK
+
+冷启动（新建助手 / 会话）可二选一：
+
+1. **免费试用**：内置固定云端入口 `https://api.ttz.ac.cn`（无需配置）。
+   管理员点「一键启用 FREE」后，Roundpen 会生成
+   `$ROUNDPEN_DATA_ROOT/install-identity/`（每安装一份 Ed25519 身份），向云端
+   签发短时 `rp1…` token，并按 `install_id` 在云端限频。细节与验签测试向量见
+   [docs/free-llm-token.md](../../docs/free-llm-token.md)。
+   （运维可选覆盖：`ROUNDPEN_FREE_LLM_BASE_URL` / `MODEL` / `TOKEN_TTL`。）
+
+2. **自己的 API Key（BYOK）**：设置 → LLM 网关，添加 OpenAI / Anthropic 兼容
+   上游并绑定默认槽位。生产环境建议用 BYOK；FREE 触发 429 时同样改绑自己的上游。
 
 ## 打包时需要留意
 
 - **预览地址**：`ROUNDPEN_PREVIEW_PUBLIC_URL` 默认 `http://127.0.0.1:9527`，
   在 NAS 上应改成设备地址（系统管理 → 通用），否则预览链接只能本机打开。
   有通配域名（DNS + 证书覆盖 `*.rp.mk`）时可设 `ROUNDPEN_PREVIEW_DOMAIN=rp.mk`，
-  预览改为每端口一个子域 `{沙箱}-{端口}.rp.mk`，前端资源的绝对路径与 HMR 更省事；
-  反代需保留 Host、带上 `X-Forwarded-Proto`，并把反代网段写进 `ROUNDPEN_TRUSTED_PROXIES`。
+  预览改为每端口一个子域 `{沙箱}-{端口}.rp.mk`；反代需保留 Host、带上
+  `X-Forwarded-Proto`，并把反代网段写进 `ROUNDPEN_TRUSTED_PROXIES`。
 - **端口**：`manifest.service_port` 与桌面入口固定 9527；改端口要同时改
-  `app/ui/config`。
+  `app/ui/config`。桌面入口 `type` 为 `url`（浏览器新标签打开），避免 iframe
+  内嵌带来的 CORS / Cookie 问题。
 - **图标**：由 `web/public/favicon.svg` 渲染，改 logo 后跑
   `node deploy/fnos/scripts/gen-icons.mjs` 重新生成。
 - **`os_min_version`**：真机测过之后再往 `manifest` 里补兼容范围。
-- **docker 权限**：`config/privilege` 里 `join-groups: ["docker"]` 让生命周期脚本
-  能以应用用户身份访问 `docker` 组受保护的 socket（加载镜像、查状态）。若设备上
-  该用户组名不同，按实际调整。
-- **纯离线安装**：release 里的 `-offline` 包（`WITH_IMAGE=1` 构建）已带 `roundpend`
-  镜像；pgvector 默认从 Docker Hub（走 fnOS 的镜像加速）拉取，完全离线时可把它也
-  `docker save` 成 `app/images/pgvector.tar` 再重新打包，`cmd/install_callback` 会一起加载。
+- **docker 权限**：`config/privilege` 里 `join-groups: ["docker"]` 让 roundpend
+  能访问宿主 Docker socket（创建 Agent / Browser 容器）。若设备上该用户组名
+  不同，按实际调整。

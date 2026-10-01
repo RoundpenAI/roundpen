@@ -165,9 +165,15 @@ func (c *Catalog) nextPosition(kind Kind) int {
 	return next
 }
 
+// ErrProtected reports that a built-in item cannot be deleted.
+var ErrProtected = errors.New("built-in item cannot be deleted")
+
 // Delete removes an item. Unless force is set, an item still selected by a
-// binding is refused with a *BoundError.
+// binding is refused with a *BoundError. Protected (built-in) ids are always refused.
 func (c *Catalog) Delete(ctx context.Context, kind Kind, id string, force bool) error {
+	if def, ok := c.reg.Kind(kind); ok && def.Protected(id) {
+		return fmt.Errorf("%w: %s/%s (disable it instead)", ErrProtected, kind, id)
+	}
 	if !force {
 		slots, err := c.store.BindingSlotsForItem(ctx, kind, id)
 		if err != nil {
