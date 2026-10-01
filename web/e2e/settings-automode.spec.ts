@@ -12,7 +12,11 @@ test('auto mode editor shows built-in rules', async ({ page }) => {
   await expect(
     page.getByText('Force-pushing or rewriting remote git history.'),
   ).toBeVisible()
-  await expect(page.getByText('Reaching cloud metadata or control-plane addresses.')).toBeVisible()
+  await expect(
+    page.getByText('Ordinary LAN / private-network hosts are trusted on NAS deployments', {
+      exact: false,
+    }),
+  ).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(
     page.getByText('Force-pushing or rewriting remote git history.'),

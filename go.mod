@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/PuerkitoBio/goquery v1.9.2
+	github.com/SherClockHolmes/webpush-go v1.4.0
 	github.com/chenhg5/cc-connect v1.5.0
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/docker/cli v27.5.1+incompatible
@@ -35,6 +36,7 @@ require (
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/go-telegram/bot v1.20.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect

@@ -136,6 +136,19 @@ func TestSystemPromptMentionsWebTools(t *testing.T) {
 	}
 }
 
+func TestSystemPromptMentionsWorkspaceLayout(t *testing.T) {
+	a := New(Deps{})
+	msgs := a.buildPromptMessages(context.Background(), "hi")
+	if len(msgs) == 0 || msgs[0].Role != "system" {
+		t.Fatalf("unexpected messages: %+v", msgs)
+	}
+	for _, want := range []string{"AGENTS.md", "projects/<name>/", "uploads/", "outputs/", "tmp/"} {
+		if !strings.Contains(msgs[0].Content, want) {
+			t.Fatalf("system prompt missing workspace layout cue %q", want)
+		}
+	}
+}
+
 func TestProjectHistoryStopsAtClearMarker(t *testing.T) {
 	clearMeta, _ := json.Marshal(map[string]string{"type": "clear"})
 	toolMeta, _ := json.Marshal(agentsession.ToolMeta{

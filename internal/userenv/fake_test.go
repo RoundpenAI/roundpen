@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -86,6 +87,10 @@ type fakeSandboxes struct {
 	refreshes      int
 	refreshRef     string
 	deletes        int
+
+	// hostPath, when set, makes WorkspaceHostPath return hostPath/<id>
+	// so EnsureAgent can exercise layout seeding.
+	hostPath string
 
 	execs []sandbox.ExecRequest
 }
@@ -275,8 +280,11 @@ func (f *fakeSandboxes) WriteFile(context.Context, string, string, io.Reader) er
 func (f *fakeSandboxes) RemoveFile(context.Context, string, string) error {
 	return fmt.Errorf("unused")
 }
-func (f *fakeSandboxes) WorkspaceHostPath(context.Context, string) (string, error) {
-	return "", fmt.Errorf("unused")
+func (f *fakeSandboxes) WorkspaceHostPath(_ context.Context, id string) (string, error) {
+	if f.hostPath == "" {
+		return "", fmt.Errorf("unused")
+	}
+	return filepath.Join(f.hostPath, id), nil
 }
 func (f *fakeSandboxes) Dial(context.Context, string, int) (net.Conn, error) {
 	return nil, fmt.Errorf("unused")

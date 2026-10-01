@@ -12,7 +12,7 @@ Roundpen 的技能（Skill）是一段可复用工作流指令：模型按名称
 |----|------|
 | 位置 | agent 容器内 `~/.roundpen/skills/<name>.md`（`$HOME` 下的 `.roundpen/skills`） |
 | 结构 | 一个技能 = **一个文件** `<name>.md`（不是目录） |
-| **不在** `/workspace` | 技能属于用户私有配置，**绝不放进** 项目工作区（`/workspace`），不参与 `git`、`Glob`、`Read` 等项目文件操作 |
+| **不在** `/workspace` | 技能属于用户私有配置，**绝不放进** 项目工作区（`/workspace`），不参与 `git`、`Glob`、`Read` 等项目文件操作；`/workspace` 目录约定见 [workspace-layout.md](workspace-layout.md) |
 | 命名 | `^[a-z0-9][a-z0-9_-]*$`（小写字母、数字、`-`、`_`），例如 `review-pr` |
 | 内置技能 | `commit`、`review`、`fix`、`summarize`（不可删除，安装同名技能会遮蔽它并在覆盖前询问） |
 | 生命周期 | 技能存在 agent 容器 HOME。容器重建后需重新安装；这是设计取舍：技能不进用户项目目录 |

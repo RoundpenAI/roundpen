@@ -26,6 +26,8 @@ export type SemiContentItem =
       type: 'reasoning'
       summary: Array<{ type: 'summary_text'; text: string }>
       createdAt?: number
+      durationMs?: number
+      status?: string
     }
   | {
       type: 'function_call'
@@ -66,6 +68,44 @@ function isThought(m: AgentMessage): boolean {
   return typ === 'thought' || typ === 'reasoning' || m.role === 'thought'
 }
 
+function permissionChoiceLabel(m: AgentMessage): string | undefined {
+  const optionId = m.meta?.optionId
+  const options = m.meta?.options
+  if (!optionId || !Array.isArray(options)) return undefined
+  for (const raw of options) {
+    if (!raw || typeof raw !== 'object') continue
+    const o = raw as {
+      optionId?: string
+      OptionId?: string
+      name?: string
+      Name?: string
+    }
+    const id = o.optionId || o.OptionId
+    if (id !== optionId) continue
+    const name = (o.name || o.Name || '').trim()
+    return name || undefined
+  }
+  return undefined
+}
+
+/** Prefer the chosen option's display name over raw ids like "opt-0". */
+function permissionBody(m: AgentMessage): string {
+  const content = (m.content || '').trim()
+  const optionId = m.meta?.optionId
+  const label = permissionChoiceLabel(m)
+  if (label && optionId) {
+    if (
+      !content ||
+      content === optionId ||
+      content.endsWith(` · ${optionId}`) ||
+      content === `协助单已处理 · ${optionId}`
+    ) {
+      return label
+    }
+  }
+  return content || '需要确认'
+}
+
 function isTool(m: AgentMessage): boolean {
   const typ = m.meta?.type || m.role
   return m.role === 'tool' || typ === 'tool_call' || Boolean(m.meta?.toolId && typ !== 'permission')
@@ -76,6 +116,9 @@ function thoughtItem(m: AgentMessage): SemiContentItem {
     type: 'reasoning',
     summary: [{ type: 'summary_text', text: m.content || '' }],
     createdAt: createdAtMs(m.createdAt),
+    durationMs:
+      typeof m.meta?.durationMs === 'number' ? m.meta.durationMs : undefined,
+    status: mapStatus(m.meta?.status),
   }
 }
 
@@ -151,7 +194,7 @@ export function agentMessageToSemi(m: AgentMessage): SemiChatMessage {
     return {
       id: m.id,
       role: 'system',
-      content: `${title}${m.content || '需要确认'}`,
+      content: `${title}${permissionBody(m)}`,
       createdAt,
       status: mapStatus(m.meta?.status) ?? 'completed',
     }

@@ -661,3 +661,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS routine_runs_one_open_idx
     ON routine_runs (routine_id)
     WHERE status IN ('queued', 'running', 'waiting_user');
 
+-- Web Push subscriptions (PWA system notifications)
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint    TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    user_agent  TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
+    ON push_subscriptions (user_id);
+
