@@ -460,6 +460,25 @@ export const en = {
   'issues.field.title': 'Title',
   'issues.field.summary': 'Summary',
   'issues.field.summaryHint': 'Optional — a line or two on what and why.',
+  'issues.create.guide':
+    'Use this for work worth keeping: it continues past this chat, has a decision to record, or takes more than one step. After you create it, the assistant clarifies what is in and out of scope, writes a spec and a plan, then splits the work into tasks. A quick question or a one-line edit does not need one.',
+  'issues.create.templates': 'Start from a template',
+  'issues.template.change': 'Make a change',
+  'issues.template.changeHint': 'Add a capability or change how something behaves',
+  'issues.template.changeTitle': 'Add … to …',
+  'issues.template.changeSummary':
+    'Wanted outcome:\nExplicitly out of scope:\nDone when:',
+  'issues.template.investigate': 'Find something out',
+  'issues.template.investigateHint': 'Keep the symptom and the decision it should unlock',
+  'issues.template.investigateTitle': 'Find out …',
+  'issues.template.investigateSummary':
+    'What we see now:\nThe decision this should unlock:',
+  'issues.template.process': 'Settle how to do it',
+  'issues.template.processHint':
+    'Write the process down so you can follow it, or hand it to a standing routine',
+  'issues.template.processTitle': 'Settle how to …',
+  'issues.template.processSummary':
+    'Cases to cover:\nExplicitly out of scope:\nWho does it once this is settled:',
   'issues.column.key': 'Key',
   'issues.column.title': 'Title',
   'issues.column.status': 'Status',
