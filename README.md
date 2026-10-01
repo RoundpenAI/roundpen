@@ -72,8 +72,8 @@ make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver�
 | 模式 | 适用场景 |
 |------|----------|
 | **Docker Compose（推荐）** | NAS / 小团队一键私有化 |
-| 飞牛 fnOS 应用包（`.fpk`） | 飞牛 NAS：应用中心一键安装，见 [deploy/fnos/README.md](deploy/fnos/README.md) |
-| `./roundpend` 单二进制 | 本地开发、已有 PG |
+| 飞牛 fnOS 应用包（`.fpk`） | 飞牛 NAS：宿主机 `roundpend` + 包内 pg0，见 [deploy/fnos/README.md](deploy/fnos/README.md) |
+| `./roundpend` 单二进制 | 本地开发、已有 PG（或本机 pg0） |
 | Kubernetes（规划中） | 企业集群 |
 
 两个二进制（`roundpend` / `roundpen`）启动时会自动加载**当前工作目录**下的 `.env`；已存在的环境变量优先，文件缺失则静默跳过。systemd 可用 `EnvironmentFile=` 注入同样的变量。

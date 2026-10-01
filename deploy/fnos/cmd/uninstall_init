@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs before uninstall; appcenter stops the compose project declared in
-# config/resource, containers and the project network go with it.
+# Runs before uninstall; appcenter calls cmd/main stop (ctl_stop) first.
+# Persistent data under var/ and the package user's ~/.pg0 are left in place.
 
 exit 0
