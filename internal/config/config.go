@@ -12,64 +12,66 @@ import (
 
 // Config holds process-wide settings for roundpend.
 type Config struct {
-	HTTPAddr                string
-	APIKey                  string // seeds the bootstrap admin API key; empty = generate one
-	AllowPublicRegistration bool
-	BootstrapAdmin          bool
-	BootstrapAdminPassword  string // pins the admin password on every boot (local dev); empty = random when unset
-	IMEnabled               bool   // start IM channel engines; off unless set (secondary/test instances must not race the primary one for chat connections)
-	DatabaseURL             string
-	DataRoot                string
-	SecretKey               string // master key (hex/base64, 32 bytes) sealing DB secrets; empty = auto-generated file under DataRoot
-	AllowKeyMismatch        bool   // start even when the master key cannot open secrets already sealed in the DB (recovery: re-enter them by hand)
-	Backend                 string // docker (qemu accepted as legacy alias; k8s/kern rejected)
-	DockerHost              string
-	DockerRuntime           string // e.g. runc, runsc; empty = daemon default
-	DefaultImage            string
-	DefaultBrowserTemplate  string // browser slot template name (default "browser")
-	DefaultAgentTemplate    string // agent slot template name (default code-agent)
-	AgentImage              string // default agent OCI image ref
-	BrowserImage            string // default browser OCI image
-	DefaultTTL              time.Duration
-	LogLevel                slog.Level
-	LLMGW                   LLMGWConfig
-	WebTools                WebToolsConfig
-	PreviewPublicURL        string        // absolute base URL for preview links
-	PreviewDomain           string        // host suffix for per-port preview subdomains ({id}-{port}.{domain}); "" = path previews only
-	PreviewDomainScheme     string        // scheme for those links; "" = follow the console request
-	PreviewTokenTTL         time.Duration // default 15m
-	TrustedProxies          string        // comma-separated CIDRs that may send X-Forwarded-*
-	CDP                     CDPConfig
-	QEMUEnabled             bool // attempt to attach qemu for browser slot
+	HTTPAddr                  string
+	APIKey                    string // seeds the bootstrap admin API key; empty = generate one
+	AllowPublicRegistration   bool
+	BootstrapAdmin            bool
+	BootstrapAdminPassword    string // initial admin password when unset; with Pin, restored every boot
+	BootstrapAdminPinPassword bool   // when true with BootstrapAdminPassword, pin on every boot (local dev)
+	IMEnabled                 bool   // start IM channel engines; off unless set (secondary/test instances must not race the primary one for chat connections)
+	DatabaseURL               string
+	DataRoot                  string
+	SecretKey                 string // master key (hex/base64, 32 bytes) sealing DB secrets; empty = auto-generated file under DataRoot
+	AllowKeyMismatch          bool   // start even when the master key cannot open secrets already sealed in the DB (recovery: re-enter them by hand)
+	Backend                   string // docker (qemu accepted as legacy alias; k8s/kern rejected)
+	DockerHost                string
+	DockerRuntime             string // e.g. runc, runsc; empty = daemon default
+	DefaultImage              string
+	DefaultBrowserTemplate    string // browser slot template name (default "browser")
+	DefaultAgentTemplate      string // agent slot template name (default code-agent)
+	AgentImage                string // default agent OCI image ref
+	BrowserImage              string // default browser OCI image
+	DefaultTTL                time.Duration
+	LogLevel                  slog.Level
+	LLMGW                     LLMGWConfig
+	WebTools                  WebToolsConfig
+	PreviewPublicURL          string        // absolute base URL for preview links
+	PreviewDomain             string        // host suffix for per-port preview subdomains ({id}-{port}.{domain}); "" = path previews only
+	PreviewDomainScheme       string        // scheme for those links; "" = follow the console request
+	PreviewTokenTTL           time.Duration // default 15m
+	TrustedProxies            string        // comma-separated CIDRs that may send X-Forwarded-*
+	CDP                       CDPConfig
+	QEMUEnabled               bool // attempt to attach qemu for browser slot
 }
 
 // Load reads configuration from environment variables with sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		HTTPAddr:                getenv("ROUNDPEN_HTTP_ADDR", ":9527"),
-		APIKey:                  os.Getenv("ROUNDPEN_API_KEY"),
-		AllowPublicRegistration: getenvBool("ROUNDPEN_ALLOW_PUBLIC_REGISTRATION", false),
-		BootstrapAdmin:          getenvBool("ROUNDPEN_BOOTSTRAP_ADMIN", true),
-		BootstrapAdminPassword:  os.Getenv("ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD"),
-		IMEnabled:               getenvBool("ROUNDPEN_IM_ENABLED", false),
-		DatabaseURL:             os.Getenv("DATABASE_URL"),
-		DataRoot:                getenv("ROUNDPEN_DATA_ROOT", "./data"),
-		SecretKey:               os.Getenv("ROUNDPEN_SECRET_KEY"),
-		AllowKeyMismatch:        getenvBool("ROUNDPEN_ALLOW_KEY_MISMATCH", false),
-		Backend:                 getenv("ROUNDPEN_BACKEND", "docker"),
-		DockerHost:              getenv("DOCKER_HOST", "unix:///var/run/docker.sock"),
-		DockerRuntime:           os.Getenv("ROUNDPEN_DOCKER_RUNTIME"),
-		DefaultImage:            getenv("ROUNDPEN_DEFAULT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
-		DefaultBrowserTemplate:  getenv("ROUNDPEN_DEFAULT_BROWSER_TEMPLATE", "browser"),
-		DefaultAgentTemplate:    getenv("ROUNDPEN_DEFAULT_AGENT_TEMPLATE", "code-agent"),
-		AgentImage:              getenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
-		BrowserImage:            getenv("ROUNDPEN_BROWSER_IMAGE", "ghcr.io/browserless/chrome:v2.56.7"),
-		DefaultTTL:              30 * time.Minute,
-		LogLevel:                slog.LevelInfo,
-		PreviewPublicURL:        os.Getenv("ROUNDPEN_PREVIEW_PUBLIC_URL"),
-		PreviewTokenTTL:         15 * time.Minute,
-		TrustedProxies:          strings.TrimSpace(os.Getenv("ROUNDPEN_TRUSTED_PROXIES")),
-		QEMUEnabled:             getenvBool("ROUNDPEN_QEMU_ENABLED", true),
+		HTTPAddr:                  getenv("ROUNDPEN_HTTP_ADDR", ":9527"),
+		APIKey:                    os.Getenv("ROUNDPEN_API_KEY"),
+		AllowPublicRegistration:   getenvBool("ROUNDPEN_ALLOW_PUBLIC_REGISTRATION", false),
+		BootstrapAdmin:            getenvBool("ROUNDPEN_BOOTSTRAP_ADMIN", true),
+		BootstrapAdminPassword:    os.Getenv("ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD"),
+		BootstrapAdminPinPassword: getenvBool("ROUNDPEN_BOOTSTRAP_ADMIN_PIN_PASSWORD", false),
+		IMEnabled:                 getenvBool("ROUNDPEN_IM_ENABLED", false),
+		DatabaseURL:               os.Getenv("DATABASE_URL"),
+		DataRoot:                  getenv("ROUNDPEN_DATA_ROOT", "./data"),
+		SecretKey:                 os.Getenv("ROUNDPEN_SECRET_KEY"),
+		AllowKeyMismatch:          getenvBool("ROUNDPEN_ALLOW_KEY_MISMATCH", false),
+		Backend:                   getenv("ROUNDPEN_BACKEND", "docker"),
+		DockerHost:                getenv("DOCKER_HOST", "unix:///var/run/docker.sock"),
+		DockerRuntime:             os.Getenv("ROUNDPEN_DOCKER_RUNTIME"),
+		DefaultImage:              getenv("ROUNDPEN_DEFAULT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
+		DefaultBrowserTemplate:    getenv("ROUNDPEN_DEFAULT_BROWSER_TEMPLATE", "browser"),
+		DefaultAgentTemplate:      getenv("ROUNDPEN_DEFAULT_AGENT_TEMPLATE", "code-agent"),
+		AgentImage:                getenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
+		BrowserImage:              getenv("ROUNDPEN_BROWSER_IMAGE", "ghcr.io/browserless/chrome:v2.56.7"),
+		DefaultTTL:                30 * time.Minute,
+		LogLevel:                  slog.LevelInfo,
+		PreviewPublicURL:          os.Getenv("ROUNDPEN_PREVIEW_PUBLIC_URL"),
+		PreviewTokenTTL:           15 * time.Minute,
+		TrustedProxies:            strings.TrimSpace(os.Getenv("ROUNDPEN_TRUSTED_PROXIES")),
+		QEMUEnabled:               getenvBool("ROUNDPEN_QEMU_ENABLED", true),
 	}
 	domain, scheme, err := parsePreviewDomain(os.Getenv("ROUNDPEN_PREVIEW_DOMAIN"))
 	if err != nil {

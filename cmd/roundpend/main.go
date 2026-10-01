@@ -23,6 +23,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/imconnect"
+	"github.com/RoundpenAI/roundpen/internal/installid"
 	"github.com/RoundpenAI/roundpen/internal/issue"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
@@ -77,6 +78,14 @@ func main() {
 		logger.Error("secret master key", slog.Any("err", err))
 		os.Exit(1)
 	}
+
+	freeEnv := llmgw.LoadFreeEnv()
+	installIdentity, err := installid.LoadOrGenerate(installid.Dir(cfg.DataRoot), freeEnv.TokenTTL, logger)
+	if err != nil {
+		logger.Error("install identity", slog.Any("err", err))
+		os.Exit(1)
+	}
+	logger.Info("install identity ready", slog.String("install_id", installIdentity.InstallID))
 
 	settingsStore := settings.NewStore(db.SQL, secretBox)
 	itemsStore := settingitems.NewPGStore(db.SQL, secretBox)
@@ -160,17 +169,26 @@ func main() {
 		previewHandler.Claims = &preview.ClaimStore{DB: db.SQL}
 	}
 
-	envSvc, envHandler, oauthSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
+	envSvc, envHandler, oauthSvc, setupSvc, setupHandler := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration, itemsCat)
 	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)
 	memSvc := &memory.Service{Store: memStore, Logger: logger}
 	go memory.RunPurge(ctx, memStore, logger, time.Hour)
 
-	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, itemsCat, logger)
+	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, itemsCat, installIdentity.MintToken, installIdentity.PublicKeyHex(), logger)
 
 	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
+
+	setupHandler.EnableLLMGW = func(ctx context.Context) error {
+		cur := settingsSvc.Current()
+		if cur.LlmgwEnabled {
+			return nil
+		}
+		cur.LlmgwEnabled = true
+		return settingsSvc.Update(ctx, cur)
+	}
 
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
 

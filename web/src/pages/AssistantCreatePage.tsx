@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   Banner,
   Button,
@@ -10,9 +10,10 @@ import {
   TextArea,
   Typography,
 } from '@douyinfe/semi-ui-19'
-import { assistantsApi, ApiError, setupApi } from '../api'
+import { assistantsApi, ApiError, setupApi, type LlmReady } from '../api'
 import { useAssistantLayout } from '../components/AssistantLayout'
 import { Loading } from '../components/Loading'
+import { LlmSetupChooser } from '../components/LlmSetupChooser'
 import { SetupWorkstation } from '../components/SetupWorkstation'
 import { useAuth } from '../auth'
 
@@ -59,6 +60,7 @@ export function AssistantCreatePage() {
 
   const [step, setStep] = useState<Step>('name')
   const [llmChecked, setLlmChecked] = useState(false)
+  const [llmStatus, setLlmStatus] = useState<LlmReady | null>(null)
   const [name, setName] = useState('')
   const [bio, setBio] = useState('')
   const [identityMode, setIdentityMode] = useState<
@@ -68,26 +70,33 @@ export function AssistantCreatePage() {
   const [planId, setPlanId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [llmReason, setLlmReason] = useState('')
+
+  const applyLlmStatus = useCallback((res: LlmReady) => {
+    setLlmStatus(res)
+    setLlmChecked(true)
+    if (res.ready) {
+      setStep((s) => (s === 'llm' ? 'name' : s))
+    } else {
+      setStep('llm')
+    }
+  }, [])
 
   const checkLlm = useCallback(async () => {
     setError(null)
     try {
       const res = await setupApi.llmReady()
-      setLlmChecked(true)
-      if (res.ready) {
-        setStep((s) => (s === 'llm' ? 'name' : s))
-        setLlmReason('')
-      } else {
-        setStep('llm')
-        setLlmReason(res.reason || '尚未配置模型')
-      }
+      applyLlmStatus(res)
     } catch (e) {
       setLlmChecked(true)
       setStep('llm')
-      setLlmReason(e instanceof ApiError ? e.message : String(e))
+      setLlmStatus({
+        ready: false,
+        mode: 'none',
+        freeAvailable: true,
+        reason: e instanceof ApiError ? e.message : String(e),
+      })
     }
-  }, [])
+  }, [applyLlmStatus])
 
   useEffect(() => {
     void checkLlm()
@@ -194,39 +203,12 @@ export function AssistantCreatePage() {
         )}
 
         {step === 'llm' && (
-          <div style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Typography.Title heading={5} style={{ margin: 0 }}>
-              接通大脑
-            </Typography.Title>
-            <Typography.Text type="secondary">
-              助手需要可用的模型，才能准备工位并之后对话。
-            </Typography.Text>
-            {llmReason ? (
-              <Banner
-                fullMode={false}
-                type="warning"
-                description={llmReason}
-                closeIcon={null}
-              />
-            ) : null}
-            {isAdmin ? (
-              <Typography.Text>
-                请到{' '}
-                <Link to="/settings" style={{ color: 'var(--semi-color-link)' }}>
-                  设置 · LLM gateway
-                </Link>{' '}
-                配置上游地址、密钥与默认模型。
-              </Typography.Text>
-            ) : (
-              <Typography.Text type="tertiary">
-                请联系管理员在系统设置中配置模型。
-              </Typography.Text>
-            )}
-            <div>
-              <Button theme="solid" type="primary" onClick={() => void checkLlm()}>
-                已配置，重新检查
-              </Button>
-            </div>
+          <div style={{ marginTop: 24 }}>
+            <LlmSetupChooser
+              status={llmStatus}
+              isAdmin={isAdmin}
+              onReady={applyLlmStatus}
+            />
           </div>
         )}
 

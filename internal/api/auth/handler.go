@@ -293,11 +293,12 @@ func (h *UserHandler) GenerateAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 // Mount registers auth and admin user routes.
-func Mount(mux *http.ServeMux, users storage.UserStore, sessions storage.SessionStore, allowRegistration func() bool) {
-	sh := NewSessionHandler(users, sessions, allowRegistration)
+func Mount(mux *http.ServeMux, users storage.UserStore, sessions storage.SessionStore, allowRegistration func() bool, bootstrapPassword string) {
+	sh := NewSessionHandler(users, sessions, allowRegistration, bootstrapPassword)
 	uh := NewUserHandler(users)
 	mux.HandleFunc("POST /v1/auth/register", sh.Register)
 	mux.HandleFunc("POST /v1/auth/login", sh.Login)
+	mux.HandleFunc("GET /v1/auth/bootstrap-hint", sh.BootstrapHint)
 	mux.HandleFunc("POST /v1/auth/logout", sh.Logout)
 	mux.HandleFunc("GET /v1/auth/user", uh.GetCurrentUser)
 	mux.HandleFunc("POST /v1/auth/password", sh.ChangePassword)

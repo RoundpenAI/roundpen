@@ -51,7 +51,7 @@ import (
 // host router has to wrap the finished handler stack (see main).
 func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler) {
 	mux := http.NewServeMux()
-	auth.Mount(mux, userStore, sessionStore, allowRegistration)
+	auth.Mount(mux, userStore, sessionStore, allowRegistration, cfg.BootstrapAdminPassword)
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr, PublicURL: firstNonEmpty(cfg.PreviewPublicURL, cfg.LLMGW.PublicURL)}
 	native.Mount(mux)
@@ -70,7 +70,7 @@ func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Servic
 
 // mountEnvStack builds the user environment, git credential, OAuth, runtime and
 // host-setup services and mounts their handlers.
-func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr sandbox.Manager, sbSvc *sandbox.Service, userStore storage.UserStore, sessionStore storage.SessionStore, probe *runtime.Probe, allowRegistration func() bool) (*userenv.Service, *envapi.Handler, *oauth.Service, *hostsetup.Service) {
+func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr sandbox.Manager, sbSvc *sandbox.Service, userStore storage.UserStore, sessionStore storage.SessionStore, probe *runtime.Probe, allowRegistration func() bool, items *settingitems.Catalog) (*userenv.Service, *envapi.Handler, *oauth.Service, *hostsetup.Service, *hostsetup.Handler) {
 	envStore := &userenv.Store{DB: db.SQL}
 	gitStore := &gitcred.Store{DB: db.SQL}
 	oauthStore := &oauth.Store{DB: db.SQL}
@@ -126,19 +126,22 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		Runner: hostsetup.NewRunner(hostsetup.RunnerConfig{RepoRoot: hostsetup.FindRepoRoot()}),
 		Cfg:    cfg,
 	}
-	(&hostsetup.Handler{Svc: setupSvc, Cfg: cfg}).Mount(mux)
-	return envSvc, envHandler, oauthSvc, setupSvc
+	setupHandler := &hostsetup.Handler{Svc: setupSvc, Cfg: cfg, Items: items}
+	setupHandler.Mount(mux)
+	return envSvc, envHandler, oauthSvc, setupSvc, setupHandler
 }
 
 // mountLLMGateway builds the LLM gateway on the mux and returns it with its
 // config applier and per-user virtual key lookup.
-func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cfg *config.Config, secretBox *secretbox.Box, memStore *memory.PgStore, memSvc *memory.Service, items *settingitems.Catalog, logger *slog.Logger) (*llmgw.Gateway, func(context.Context) error, func(context.Context, string) string) {
+func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cfg *config.Config, secretBox *secretbox.Box, memStore *memory.PgStore, memSvc *memory.Service, items *settingitems.Catalog, mintInstallToken func() (string, error), installPubHex string, logger *slog.Logger) (*llmgw.Gateway, func(context.Context) error, func(context.Context, string) string) {
 	gw := llmgw.New(db, llmgw.Options{
-		LogBodyMaxBytes: cfg.LLMGW.LogBodyMaxBytes,
-		PublicURL:       cfg.LLMGW.PublicURL,
-		Logger:          logger,
-		InternalKeyFile: filepath.Join(cfg.DataRoot, "llmgw-internal.key"),
-		SecretBox:       secretBox,
+		LogBodyMaxBytes:     cfg.LLMGW.LogBodyMaxBytes,
+		PublicURL:           cfg.LLMGW.PublicURL,
+		Logger:              logger,
+		InternalKeyFile:     filepath.Join(cfg.DataRoot, "llmgw-internal.key"),
+		SecretBox:           secretBox,
+		MintInstallToken:    mintInstallToken,
+		InstallPublicKeyHex: installPubHex,
 	})
 	gw.Mount(mux)
 	userKeys := llmgw.NewUserKeyManager(gw.Store(), filepath.Join(cfg.DataRoot, "vk"))

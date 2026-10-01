@@ -1,6 +1,7 @@
 package hostsetup
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,15 +10,22 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
+	"github.com/RoundpenAI/roundpen/internal/llmgw"
+	"github.com/RoundpenAI/roundpen/internal/settingitems"
 )
 
 type Handler struct {
 	Svc *Service
 	Cfg *config.Config
+	// Items is the setting-items catalog (LLM providers / slots).
+	Items *settingitems.Catalog
+	// EnableLLMGW turns on the gateway in persisted settings (admin FREE path).
+	EnableLLMGW func(ctx context.Context) error
 }
 
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/setup/llm-ready", h.llmReady)
+	mux.HandleFunc("POST /v1/setup/llm-free", auth.RequireAdmin(h.enableFree))
 	mux.HandleFunc("POST /v1/setup/plans", h.createPlan)
 	mux.HandleFunc("GET /v1/setup/plans/{id}", h.getPlan)
 	mux.HandleFunc("POST /v1/setup/plans/{id}/actions/{actionId}/confirm", auth.RequireAdmin(h.confirm))
@@ -25,13 +33,41 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/setup/plans/{id}/actions/{actionId}/retry", auth.RequireAdmin(h.retry))
 }
 
+func (h *Handler) llmStatus() LLMStatus {
+	var snap *settingitems.Snapshot
+	if h.Items != nil {
+		snap = h.Items.Snapshot()
+	}
+	return LLMReady(h.Cfg, snap)
+}
+
 func (h *Handler) llmReady(w http.ResponseWriter, r *http.Request) {
 	if auth.GetUser(r.Context()) == nil {
 		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	ready, reason := LLMReady(h.Cfg)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ready": ready, "reason": reason})
+	httpx.WriteJSON(w, http.StatusOK, h.llmStatus())
+}
+
+func (h *Handler) enableFree(w http.ResponseWriter, r *http.Request) {
+	if h.Items == nil {
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "setting items not configured")
+		return
+	}
+	env := llmgw.LoadFreeEnv()
+	if h.EnableLLMGW != nil {
+		if err := h.EnableLLMGW(r.Context()); err != nil {
+			httpx.WriteErr(w, http.StatusInternalServerError, "enable llm gateway: "+err.Error())
+			return
+		}
+	} else if h.Cfg != nil {
+		h.Cfg.LLMGW.Enabled = true
+	}
+	if err := llmgw.SeedFree(r.Context(), h.Items, env); err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, h.llmStatus())
 }
 
 func (h *Handler) createPlan(w http.ResponseWriter, r *http.Request) {

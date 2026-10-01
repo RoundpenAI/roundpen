@@ -3,6 +3,7 @@ package agentapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -380,8 +381,9 @@ func (r *runner) runTurn(text string) {
 	stop, err := r.acp.Prompt(ctx, r.session.ID, text)
 	if err != nil {
 		r.flushThought()
-		r.persist(agentsession.RoleEvent, err.Error(), map[string]string{"type": "error"})
-		r.broadcast(wsOut{Type: "error", Message: err.Error()})
+		msg := unwrapPromptErr(err)
+		r.persist(agentsession.RoleEvent, msg, map[string]string{"type": "error"})
+		r.broadcast(wsOut{Type: "error", Message: msg})
 	} else {
 		r.flushThought()
 		r.mu.Lock()
@@ -893,4 +895,42 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	rt.SetAutoMode(true)
 	h.runners[sess.ID] = r
 	return r, nil
+}
+
+// unwrapPromptErr peels ACP JSON-RPC Internal error wrappers so the chat UI
+// sees the actionable message (e.g. LLM not configured) instead of raw JSON.
+func unwrapPromptErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, sysagent.ErrLLMNotConfigured) {
+		return sysagent.ErrLLMNotConfigured.Error()
+	}
+	var re *acp.RequestError
+	if errors.As(err, &re) && re != nil {
+		switch data := re.Data.(type) {
+		case map[string]any:
+			if s, ok := data["error"].(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+			if s, ok := data["details"].(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+		case string:
+			if strings.TrimSpace(data) != "" {
+				return data
+			}
+		}
+	}
+	msg := err.Error()
+	// Last resort: parse a marshalled RequestError string.
+	var parsed struct {
+		Data struct {
+			Error string `json:"error"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(msg), &parsed) == nil && strings.TrimSpace(parsed.Data.Error) != "" {
+		return parsed.Data.Error
+	}
+	return msg
 }

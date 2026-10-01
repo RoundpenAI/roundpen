@@ -150,7 +150,35 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 	}
 
 	copyHeaders(upReq.Header, r.Header)
-	setUpstreamAuth(upReq.Header, upstream.Protocol, upstream.APIKey)
+	apiKey := upstream.APIKey
+	if upstream.AuthMode == AuthModeInstallIdentity {
+		if g.mintInstallToken == nil {
+			g.logTransaction(ctx, Transaction{
+				RequestID: requestID, VirtualKey: vk.Key, VirtualName: vk.Name,
+				Provider: provider, Method: r.Method, Path: r.URL.Path, UpstreamURL: targetURL,
+				StatusCode: http.StatusServiceUnavailable, RequestBytes: int64(len(reqRaw)),
+				Error: "install identity not configured", CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
+			}, bodiesIfLogged(logLimit, &reqLog))
+			http.Error(w, "install identity not configured", http.StatusServiceUnavailable)
+			return
+		}
+		tok, err := g.mintInstallToken()
+		if err != nil {
+			g.logTransaction(ctx, Transaction{
+				RequestID: requestID, VirtualKey: vk.Key, VirtualName: vk.Name,
+				Provider: provider, Method: r.Method, Path: r.URL.Path, UpstreamURL: targetURL,
+				StatusCode: http.StatusInternalServerError, RequestBytes: int64(len(reqRaw)),
+				Error: "mint install token: " + err.Error(), CreatedAt: start, DurationMS: time.Since(start).Milliseconds(),
+			}, bodiesIfLogged(logLimit, &reqLog))
+			http.Error(w, "mint install token failed", http.StatusInternalServerError)
+			return
+		}
+		apiKey = tok
+		if g.installPublicKeyHex != "" {
+			upReq.Header.Set("X-Roundpen-Install-Pub", g.installPublicKeyHex)
+		}
+	}
+	setUpstreamAuth(upReq.Header, upstream.Protocol, apiKey)
 
 	client, err := g.clientFor(upstream.ProxyURL)
 	if err != nil {

@@ -18,6 +18,7 @@ func TestIsPublicPath(t *testing.T) {
 		{http.MethodGet, "/v1/ready"},
 		{http.MethodPost, "/v1/auth/login"},
 		{http.MethodPost, "/v1/auth/register"},
+		{http.MethodGet, "/v1/auth/bootstrap-hint"},
 		{http.MethodGet, "/v1/auth/oauth/providers"},
 		{http.MethodGet, "/v1/auth/oauth/gitea-git-eaxi-com/start"},
 		{http.MethodGet, "/v1/auth/oauth/gitea-git-eaxi-com/callback"},

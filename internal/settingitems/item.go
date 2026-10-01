@@ -85,10 +85,22 @@ type KindDef struct {
 	Name       string   `json:"name"`
 	Fields     []Field  `json:"fields"`
 	Selectable []string `json:"selectable,omitempty"` // keys exposed to non-admin callers; empty = all non-secret
+	// ProtectedIDs cannot be deleted (built-in items); disable instead.
+	ProtectedIDs []string `json:"protectedIds,omitempty"`
 	// Normalize applies defaults (protocol, position, id) before validation.
 	Normalize func(*Item) error `json:"-"`
 	// Validate checks kind-specific rules beyond the generic ones.
 	Validate func(*Item) error `json:"-"`
+}
+
+// Protected reports whether id is a built-in item that must not be deleted.
+func (d KindDef) Protected(id string) bool {
+	for _, p := range d.ProtectedIDs {
+		if p == id {
+			return true
+		}
+	}
+	return false
 }
 
 // SecretKeys returns config keys that are sealed at rest and masked in responses.

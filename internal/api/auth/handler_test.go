@@ -123,7 +123,7 @@ func TestAdminRoutesRequireAdmin(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	Mount(mux, users, sessions, func() bool { return false })
+	Mount(mux, users, sessions, func() bool { return false }, "")
 	h := Middleware(users, sessions)(mux)
 
 	req := httptest.NewRequest("GET", "/v1/admin/users", nil)

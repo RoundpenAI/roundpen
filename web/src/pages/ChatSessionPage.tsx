@@ -21,15 +21,19 @@ import type { MessageContent } from '@douyinfe/semi-ui-19/lib/es/aiChatInput/int
 import {
   agents,
   assistantsApi,
+  setupApi,
   type AgentCommand,
   type AgentMessage,
   type AgentSession,
+  type LlmReady,
   ApiError,
 } from '../api'
 import { AgentBrowserPanel } from '../components/AgentBrowserPanel'
 import { useAssistantLayout } from '../components/AssistantLayout'
 import { SessionTabs } from '../components/SessionTabs'
 import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
+import { LlmSetupChooser } from '../components/LlmSetupChooser'
+import { useAuth } from '../auth'
 import {
   agentMessagesToSemi,
   type SemiChatMessage,
@@ -72,6 +76,18 @@ import { RoutineSuggestions } from './chat/RoutineSuggestions'
 import { clearComposer, composerEditorBridge } from './chat/editorBridge'
 import { connectChatSocket } from './chat/sessionSocket'
 
+function looksLikeLLMNotConfigured(msg: string | null | undefined): boolean {
+  if (!msg) return false
+  const m = msg.toLowerCase()
+  return (
+    msg.includes('LLM 尚未配置') ||
+    msg.includes('LLM 网关未启用') ||
+    msg.includes('尚未配置上游') ||
+    m.includes('unsupported protocol scheme') ||
+    m.includes('llm gateway')
+  )
+}
+
 export function ChatSessionPage() {
   const { id = '', assistantId: assistantIdParam } = useParams<{
     id?: string
@@ -81,11 +97,14 @@ export function ChatSessionPage() {
   const navigate = useNavigate()
   // Answering drops the ticket from the assistant sidebar's todo list.
   const { refresh: refreshAssistantLayout } = useAssistantLayout()
+  const auth = useAuth()
+  const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
   const [session, setSession] = useState<AgentSession | null>(null)
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [statusHint, setStatusHint] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [llmStatus, setLlmStatus] = useState<LlmReady | null>(null)
   const [perm, setPerm] = useState<PermReq | null>(null)
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserSeen, setBrowserSeen] = useState(false)
@@ -241,6 +260,25 @@ export function ChatSessionPage() {
       }),
     [id, refreshCommands, applyQueue],
   )
+
+  useEffect(() => {
+    let alive = true
+    setupApi
+      .llmReady()
+      .then((res) => {
+        if (!alive) return
+        setLlmStatus(res)
+      })
+      .catch(() => {
+        /* leave alone; send-time errors still surface */
+      })
+    return () => {
+      alive = false
+    }
+  }, [id])
+
+  const showLlmGuide =
+    (llmStatus != null && !llmStatus.ready) || looksLikeLLMNotConfigured(error)
 
   useEffect(() => {
     initialScrollDone.current = false
@@ -531,7 +569,32 @@ export function ChatSessionPage() {
         </Button>
       </div>
 
-      {error && (
+      {showLlmGuide && (
+        <div role="status" style={{ padding: '0 16px 8px' }}>
+          <LlmSetupChooser
+            compact
+            status={
+              llmStatus ?? {
+                ready: false,
+                mode: 'none',
+                freeAvailable: true,
+                reason:
+                  (looksLikeLLMNotConfigured(error) ? error : null) ||
+                  '尚未配置模型',
+              }
+            }
+            isAdmin={isAdmin}
+            onReady={(res) => {
+              setLlmStatus(res)
+              if (res.ready && looksLikeLLMNotConfigured(error)) {
+                setError(null)
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {error && !looksLikeLLMNotConfigured(error) && (
         <div role="alert" style={{ padding: '0 16px 8px' }}>
           <Banner
             fullMode={false}
