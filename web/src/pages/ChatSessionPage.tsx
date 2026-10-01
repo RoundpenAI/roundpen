@@ -68,6 +68,7 @@ import {
   queueItemFor,
   type QueueItem,
 } from './chat/sessionQueue'
+import { RoutineSuggestions } from './chat/RoutineSuggestions'
 import { clearComposer, composerEditorBridge } from './chat/editorBridge'
 import { connectChatSocket } from './chat/sessionSocket'
 
@@ -108,6 +109,18 @@ export function ChatSessionPage() {
   const [steerCap, setSteerCap] = useState<boolean | null>(null)
   const composerContentsRef = useRef<SendContent[] | undefined>(undefined)
   const composerExtensions = useMemo(() => [composerEditorBridge()], [])
+  const composerRef = useRef<{
+    setContent: (content: string) => void
+    focusEditor?: (pos?: string) => void
+  } | null>(null)
+  const fillSuggestion = (text: string) => {
+    const safe = text
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+    composerRef.current?.setContent(`<p>${safe}</p>`)
+    composerRef.current?.focusEditor?.('end')
+  }
   const busyRef = useRef(false)
   useEffect(() => {
     busyRef.current = busy
@@ -591,7 +604,11 @@ export function ChatSessionPage() {
               .join(' ')}
           >
             <div className="chat-composer-dock-inner">
+              {chats.length === 0 && !composerHasText && !busy && (
+                <RoutineSuggestions onPick={fillSuggestion} />
+              )}
               <AIChatInput
+                ref={composerRef}
                 keepSkillAfterSend={false}
                 generating={busy}
                 canSend={wsCanSendProp(wsStatus) && composerHasText}

@@ -158,6 +158,42 @@ func (h *Handler) StartForAssistant(ctx context.Context, user *storage.User, ass
 	return h.startSession(ctx, user, title, DefaultAssistantProvider, assistantID)
 }
 
+// StartRoutine opens a kind=routine session and starts its System Agent with the
+// narrowed tool surface for this firing.
+func (h *Handler) StartRoutine(ctx context.Context, user *storage.User, assistantID, title, runKey, autonomy string) (string, error) {
+	if title == "" {
+		title = runKey
+	}
+	sess, err := h.Store.CreateKind(ctx, user.Username, title, DefaultAssistantProvider, "", assistantID, "routine")
+	if err != nil {
+		return "", err
+	}
+	if err := h.startRoutineRuntime(ctx, user, sess.ID, runKey, autonomy); err != nil {
+		return "", err
+	}
+	return sess.ID, nil
+}
+
+// ResumeRoutine starts the runtime again for an existing run session.
+func (h *Handler) ResumeRoutine(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string) error {
+	if _, ok := h.ACP.Get(sessionID); ok {
+		return nil
+	}
+	return h.startRoutineRuntime(ctx, user, sessionID, runKey, autonomy)
+}
+
+func (h *Handler) startRoutineRuntime(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string) error {
+	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
+		Actor: manager.Actor{
+			Username: user.Username,
+			Role:     string(user.Role),
+			APIKey:   user.APIKey,
+		},
+		Routine: manager.RoutineStart{RunKey: runKey, Autonomy: autonomy},
+	})
+	return err
+}
+
 func (h *Handler) startSession(ctx context.Context, user *storage.User, title, providerID, assistantID string) (*agentsession.Session, error) {
 	provMeta, ok := providers.ByID(h.ACP.Providers(), providerID)
 	if !ok || !provMeta.Enabled {

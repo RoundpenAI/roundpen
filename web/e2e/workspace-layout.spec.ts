@@ -22,7 +22,7 @@ test('workspace page keeps a stable width from loading to loaded', async ({ page
 
   await page.goto('/workspace')
   const container = page
-    .getByRole('heading', { level: 3, name: /^(文件管理|Files)$/ })
+    .getByRole('heading', { level: 3, name: /^(文件|Files)$/ })
     .locator('..')
   await expect(container).toBeVisible()
 

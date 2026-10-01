@@ -85,6 +85,7 @@ export function IssuesPage() {
   const [createError, setCreateError] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [summary, setSummary] = useState('')
+  const [templateId, setTemplateId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -133,11 +134,50 @@ export function IssuesPage() {
     [t],
   )
 
+  const templates: {
+    id: string
+    name: MessageKey
+    hint: MessageKey
+    title: MessageKey
+    summary: MessageKey
+  }[] = [
+    {
+      id: 'change',
+      name: 'issues.template.change',
+      hint: 'issues.template.changeHint',
+      title: 'issues.template.changeTitle',
+      summary: 'issues.template.changeSummary',
+    },
+    {
+      id: 'investigate',
+      name: 'issues.template.investigate',
+      hint: 'issues.template.investigateHint',
+      title: 'issues.template.investigateTitle',
+      summary: 'issues.template.investigateSummary',
+    },
+    {
+      id: 'process',
+      name: 'issues.template.process',
+      hint: 'issues.template.processHint',
+      title: 'issues.template.processTitle',
+      summary: 'issues.template.processSummary',
+    },
+  ]
+
   const openCreate = () => {
     setTitle('')
     setSummary('')
+    setTemplateId(null)
     setCreateError(null)
     setCreateOpen(true)
+  }
+
+  const applyTemplate = (id: string) => {
+    const tpl = templates.find((item) => item.id === id)
+    if (!tpl) return
+    setTemplateId(id)
+    setTitle(t(tpl.title))
+    setSummary(t(tpl.summary))
   }
 
   async function submitCreate() {
@@ -330,7 +370,7 @@ export function IssuesPage() {
         footer={null}
         maskClosable={!creating}
         closeOnEsc={!creating}
-        width={448}
+        width={520}
       >
         <form
           onSubmit={(e) => {
@@ -339,6 +379,43 @@ export function IssuesPage() {
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
         >
+          <Typography.Text type="tertiary" size="small">
+            {t('issues.create.guide')}
+          </Typography.Text>
+          <div>
+            <Typography.Text
+              size="small"
+              type="tertiary"
+              style={{ display: 'block', marginBottom: 8 }}
+            >
+              {t('issues.create.templates')}
+            </Typography.Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {templates.map((tpl) => (
+                <Button
+                  key={tpl.id}
+                  htmlType="button"
+                  theme={templateId === tpl.id ? 'solid' : 'light'}
+                  type={templateId === tpl.id ? 'primary' : 'tertiary'}
+                  onClick={() => applyTemplate(tpl.id)}
+                  style={{
+                    height: 'auto',
+                    justifyContent: 'flex-start',
+                    textAlign: 'left',
+                    whiteSpace: 'normal',
+                    padding: '8px 12px',
+                  }}
+                >
+                  <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Typography.Text strong>{t(tpl.name)}</Typography.Text>
+                    <Typography.Text type="tertiary" size="small">
+                      {t(tpl.hint)}
+                    </Typography.Text>
+                  </span>
+                </Button>
+              ))}
+            </div>
+          </div>
           <div>
             <Typography.Text
               size="small"

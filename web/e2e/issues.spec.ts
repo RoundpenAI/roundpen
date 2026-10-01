@@ -17,8 +17,8 @@ test.describe('issues', () => {
 
     // Create from the console.
     await page.goto('/issues')
-    await page.getByRole('button', { name: '新建议题' }).click()
-    await page.getByLabel('标题').fill('e2e 议题')
+    await page.getByRole('button', { name: '新建事项' }).click()
+    await page.getByLabel('标题').fill('e2e 事项')
     await page.getByRole('button', { name: '创建' }).click()
 
     // Land on the detail page, clarifying and with no documents yet. The status
@@ -32,7 +32,7 @@ test.describe('issues', () => {
     await page.getByRole('button', { name: '新版本' }).click()
     await page
       .getByPlaceholder('用 Markdown 编写正文…')
-      .fill('# 目标\n\n验证议题闭环。')
+      .fill('# 目标\n\n验证事项闭环。')
     await page.getByRole('button', { name: '创建' }).click()
     await expect(page.getByText('当前版本')).toBeVisible()
     await expect(page.getByText('Spec 已定稿').first()).toBeVisible()

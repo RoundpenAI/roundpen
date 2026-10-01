@@ -29,6 +29,7 @@ import { ImChannelsSection } from '../components/assistant/ImChannelsSection'
 import { Loading } from '../components/Loading'
 import { isSystemAssistant } from '../lib/assistants'
 import { ticketSessionPath } from '../lib/assistTickets'
+import { RoutinesSection } from './RoutinesSection'
 
 const fieldLabel: CSSProperties = {
   display: 'block',
@@ -331,7 +332,10 @@ export function AssistantDetailPage() {
               type="warning"
               closeIcon={null}
               description={
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div
+                  id="assist-tickets"
+                  style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+                >
                   <Typography.Text strong>待处理协助单</Typography.Text>
                   {tickets.map((t) => (
                     <div key={t.id}>
@@ -432,6 +436,8 @@ export function AssistantDetailPage() {
             )}
           </div>
         </section>
+
+        <RoutinesSection assistantId={assistantId} />
 
         <section style={sectionGap}>
           <Typography.Title heading={5} style={{ margin: 0 }}>
