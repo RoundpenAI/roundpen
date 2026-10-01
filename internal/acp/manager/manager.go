@@ -132,9 +132,17 @@ func (m *Manager) Providers() []providers.Provider {
 	return out
 }
 
+// RoutineStart marks a session as one firing of a standing routine.
+// An empty RunKey is an ordinary chat.
+type RoutineStart struct {
+	RunKey   string
+	Autonomy string // read | browse
+}
+
 // StartOpts configures Start.
 type StartOpts struct {
-	Actor Actor
+	Actor   Actor
+	Routine RoutineStart
 }
 
 // Start connects an ACP agent for the given Roundpen agent session.
@@ -169,14 +177,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			}
 		}
 		reg := tools.NewRegistry()
-		tools.RegisterRoundpen(reg, m.sys.Roundpen)
 		controlPlane := &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase}
-		tools.RegisterIssues(reg, controlPlane, sessionID)
-		tools.RegisterBrowser(reg, &tools.BrowserBinder{
-			Hub:       m.sys.BrowserHub,
-			Slots:     m.sys.BrowserSlots,
-			SessionID: sessionID,
-		})
 		binder := &tools.AgentBinder{
 			Slots: m.sys.AgentSlots,
 			Exec:  m.sandboxes,
@@ -190,17 +191,22 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			searchCfg = m.sys.WebSearch(opts.Actor.Username)
 		}
 		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{ProxyURL: searchCfg.ProxyURL})
-		tools.RegisterPreviewDomain(reg, binder, controlPlane, m.sys.PreviewZone)
-		tools.RegisterShell(reg, binder)
-		tools.RegisterFiles(reg, binder)
-		tools.RegisterSearch(reg, binder)
-		tools.RegisterInteractive(reg)
-		tools.RegisterSkill(reg, binder, webClient)
-		tools.RegisterWebFetch(reg, &tools.WebBinder{HTTP: webClient, Model: llmCfg})
-		tools.RegisterWebSearch(reg, &tools.WebSearchBinder{
-			Endpoint: searchCfg.Endpoint,
-			APIKey:   searchCfg.APIKey,
-			HTTP:     webClient,
+		tools.RegisterSession(reg, tools.SessionSurface{
+			Roundpen:    m.sys.Roundpen,
+			API:         controlPlane,
+			SessionID:   sessionID,
+			RunKey:      opts.Routine.RunKey,
+			Autonomy:    opts.Routine.Autonomy,
+			Browser:     &tools.BrowserBinder{Hub: m.sys.BrowserHub, Slots: m.sys.BrowserSlots, SessionID: sessionID},
+			Agent:       binder,
+			PreviewZone: m.sys.PreviewZone,
+			Web:         &tools.WebBinder{HTTP: webClient, Model: llmCfg},
+			WebHTTP:     webClient,
+			Search: &tools.WebSearchBinder{
+				Endpoint: searchCfg.Endpoint,
+				APIKey:   searchCfg.APIKey,
+				HTTP:     webClient,
+			},
 		})
 		agent := sysagent.New(sysagent.Deps{
 			LLM:       llmCfg,

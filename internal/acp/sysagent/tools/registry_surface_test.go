@@ -90,6 +90,48 @@ func TestIssueToolSurface(t *testing.T) {
 	}
 }
 
+func TestRoutineToolSurface(t *testing.T) {
+	api := &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}
+	chat := tools.NewRegistry()
+	tools.RegisterSession(chat, tools.SessionSurface{API: api, SessionID: "sess-1"})
+	if _, ok := chat.Get("CreateRoutine"); !ok {
+		t.Fatal("chat missing CreateRoutine")
+	}
+	if _, ok := chat.Get("FinishRun"); ok {
+		t.Fatal("chat must not have FinishRun")
+	}
+
+	read := tools.NewRegistry()
+	tools.RegisterSession(read, tools.SessionSurface{
+		API: api, SessionID: "sess-r", RunKey: "RUN-1", Autonomy: "read",
+		Browser: &tools.BrowserBinder{}, Agent: &tools.AgentBinder{},
+	})
+	if _, ok := read.Get("browser_navigate"); ok {
+		t.Fatal("read run must not have browser")
+	}
+	if _, ok := read.Get("Bash"); ok {
+		t.Fatal("read run must not have Bash")
+	}
+	if _, ok := read.Get("FinishRun"); !ok {
+		t.Fatal("read run missing FinishRun")
+	}
+	if _, ok := read.Get("Read"); !ok {
+		t.Fatal("read run missing Read")
+	}
+
+	browse := tools.NewRegistry()
+	tools.RegisterSession(browse, tools.SessionSurface{
+		API: api, SessionID: "sess-b", RunKey: "RUN-2", Autonomy: "browse",
+		Browser: &tools.BrowserBinder{}, Agent: &tools.AgentBinder{},
+	})
+	if _, ok := browse.Get("browser_navigate"); !ok {
+		t.Fatal("browse run missing browser_navigate")
+	}
+	if _, ok := browse.Get("Bash"); ok {
+		t.Fatal("browse run must not have Bash")
+	}
+}
+
 func assertCleanReadOnly(t *testing.T, reg *tools.Registry) {
 	t.Helper()
 	if len(reg.List()) == 0 {
