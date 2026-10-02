@@ -63,6 +63,9 @@ type SysDeps struct {
 	// AutoMode classifies tool calls for the in-process System Agent when the
 	// chat Auto toggle is on (nil disables classifier-based auto approval).
 	AutoMode automode.Evaluator
+
+	// Google is the per-user Gmail/Calendar connector (nil skips those tools).
+	Google tools.GoogleAPI
 }
 
 // Runtime is a live ACP connection for one agent session.
@@ -207,6 +210,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 				APIKey:   searchCfg.APIKey,
 				HTTP:     webClient,
 			},
+			Google: &tools.GoogleBinder{API: m.sys.Google},
 		})
 		agent := sysagent.New(sysagent.Deps{
 			LLM:       llmCfg,

@@ -3,20 +3,23 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Banner, Button, Input, Typography } from '@douyinfe/semi-ui-19'
 import { oauthProviders, type OAuthProviderOption } from '../api'
 import { doLogin, useAuth } from '../auth'
+import { useT, type MessageKey } from '../i18n'
+import { LocaleToggle } from '../components/LocaleToggle'
+import { ThemeToggle } from '../components/ThemeToggle'
 
 // The OAuth callback bounces back here with ?oauth_error=<code>.
-const OAUTH_ERRORS: Record<string, string> = {
-  denied: 'Authorization was cancelled.',
-  state: 'This sign-in link expired or was already used. Please try again.',
-  session: 'This authorization was started in a different browser session.',
-  registration_disabled:
-    'No Roundpen account matches this identity. Sign in with your password, then link it under Settings → Linked accounts.',
-  already_linked: 'That account is already linked to another Roundpen user.',
-  provider: 'This sign-in provider is not available.',
-  failed: 'Sign-in failed. Please try again.',
+const OAUTH_ERROR_KEYS: Record<string, MessageKey> = {
+  denied: 'login.oauth.denied',
+  state: 'login.oauth.state',
+  session: 'login.oauth.session',
+  registration_disabled: 'login.oauth.registrationDisabled',
+  already_linked: 'login.oauth.alreadyLinked',
+  provider: 'login.oauth.provider',
+  failed: 'login.oauth.failed',
 }
 
 export function LoginPage() {
+  const t = useT()
   const auth = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -28,10 +31,12 @@ export function LoginPage() {
 
   const [user, setUser] = useState('admin')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(() => {
+  const [errorKey, setErrorKey] = useState<MessageKey | null>(() => {
     const code = new URLSearchParams(location.search).get('oauth_error')
-    return code ? (OAUTH_ERRORS[code] ?? OAUTH_ERRORS.failed) : null
+    if (!code) return null
+    return OAUTH_ERROR_KEYS[code] ?? OAUTH_ERROR_KEYS.failed
   })
+  const [errorRaw, setErrorRaw] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [providers, setProviders] = useState<OAuthProviderOption[]>([])
 
@@ -57,16 +62,19 @@ export function LoginPage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
-    setError(null)
+    setErrorKey(null)
+    setErrorRaw(null)
     try {
       await doLogin(user, password)
       navigate(from, { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'login failed')
+      setErrorRaw(err instanceof Error ? err.message : t('login.failed'))
     } finally {
       setBusy(false)
     }
   }
+
+  const errorText = errorKey ? t(errorKey) : errorRaw
 
   return (
     <div
@@ -77,8 +85,22 @@ export function LoginPage() {
         justifyContent: 'center',
         padding: 24,
         background: 'var(--semi-color-bg-0)',
+        position: 'relative',
       }}
     >
+      <div
+        style={{
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <LocaleToggle />
+        <ThemeToggle />
+      </div>
       <div style={{ width: '100%', maxWidth: 360 }}>
         <Typography.Title heading={2} style={{ textAlign: 'center', margin: 0 }}>
           Roundpen
@@ -87,7 +109,7 @@ export function LoginPage() {
           type="tertiary"
           style={{ display: 'block', textAlign: 'center', marginBottom: 24 }}
         >
-          Sign in to your agent sandbox
+          {t('login.subtitle')}
         </Typography.Text>
         <form
           onSubmit={(e) => void onSubmit(e)}
@@ -99,7 +121,7 @@ export function LoginPage() {
               size="small"
               style={{ display: 'block', marginBottom: 4 }}
             >
-              Username or email
+              {t('login.userLabel')}
             </Typography.Text>
             <Input
               value={user}
@@ -107,7 +129,7 @@ export function LoginPage() {
               autoComplete="username"
               autoCapitalize="none"
               autoCorrect="off"
-              aria-label="Username or email"
+              aria-label={t('login.userLabel')}
               required
             />
           </div>
@@ -117,23 +139,23 @@ export function LoginPage() {
               size="small"
               style={{ display: 'block', marginBottom: 4 }}
             >
-              Password
+              {t('login.passwordLabel')}
             </Typography.Text>
             <Input
               mode="password"
               value={password}
               onChange={setPassword}
               autoComplete="current-password"
-              aria-label="Password"
+              aria-label={t('login.passwordLabel')}
               required
             />
           </div>
-          {error && (
+          {errorText && (
             <div role="alert">
               <Banner
                 fullMode={false}
                 type="danger"
-                description={error}
+                description={errorText}
                 closeIcon={null}
               />
             </div>
@@ -145,7 +167,7 @@ export function LoginPage() {
             block
             loading={busy}
           >
-            Sign in
+            {t('login.submit')}
           </Button>
         </form>
         {providers.length > 0 && (
@@ -162,7 +184,7 @@ export function LoginPage() {
               size="small"
               style={{ textAlign: 'center' }}
             >
-              or continue with
+              {t('login.orContinue')}
             </Typography.Text>
             {providers.map((p) => (
               <Button
@@ -172,7 +194,7 @@ export function LoginPage() {
                   window.location.assign(oauthProviders.startUrl(p.id, from))
                 }
               >
-                {`Sign in with ${p.label}`}
+                {t('login.signInWith', { provider: p.label })}
               </Button>
             ))}
           </div>

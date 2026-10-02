@@ -160,7 +160,7 @@ func main() {
 		previewHandler.Claims = &preview.ClaimStore{DB: db.SQL}
 	}
 
-	envSvc, envHandler, oauthSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
+	envSvc, envHandler, oauthSvc, connectorsSvc, setupSvc := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration)
 	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)
@@ -209,7 +209,7 @@ func main() {
 	}
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
-	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, logger)
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, logger)
 
 	agentHandler, ticketStore, provisioner := newAgentAPI(cfg, db, logger, agentStore, mgr, gw, browserHub, envSvc, acpMgr, autoEvaluator, publicURL, proxyForUser, userVKey, itemsCat)
 

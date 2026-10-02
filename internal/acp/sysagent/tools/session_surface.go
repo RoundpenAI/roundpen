@@ -17,6 +17,7 @@ type SessionSurface struct {
 	Web         *WebBinder
 	WebHTTP     *http.Client
 	Search      *WebSearchBinder
+	Google      *GoogleBinder
 }
 
 // RegisterSession installs the System Agent tool surface for one session.
@@ -56,5 +57,8 @@ func RegisterSession(reg *Registry, s SessionSurface) {
 	}
 	if s.Search != nil {
 		RegisterWebSearch(reg, s.Search)
+	}
+	if s.Google != nil {
+		RegisterGoogle(reg, s.Google)
 	}
 }

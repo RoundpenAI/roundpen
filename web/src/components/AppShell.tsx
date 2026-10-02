@@ -13,6 +13,7 @@ import {
 import { doLogout, useAuth } from '../auth'
 import { useT } from '../i18n'
 import { ThemeToggle } from './ThemeToggle'
+import { LocaleToggle } from './LocaleToggle'
 import {
   matchPrimaryMenu,
   readPrimaryCollapsed,
@@ -122,7 +123,12 @@ export function AppShell() {
           gap: 4,
         }}
       >
-        {!opts.collapsedView && <ThemeToggle />}
+        {!opts.collapsedView && (
+          <>
+            <LocaleToggle block />
+            <ThemeToggle />
+          </>
+        )}
         {user && (
           <Button
             theme="borderless"

@@ -50,6 +50,9 @@ Prior user messages, your replies, and tool calls/results are included when this
 	if _, ok := a.deps.Tools.Get("WebSearch"); ok {
 		system += "\nWebSearch looks up current information; cite the URLs you used."
 	}
+	if _, ok := a.deps.Tools.Get("GmailSearch"); ok {
+		system += "\nGmail and Calendar tools (GmailSearch, GmailGet, CalendarListEvents, CalendarGetEvent) are read-only. Use them when the user asks about mail or schedule. If they return a not-connected error, tell the user to connect Google under Settings → Connectors (they must provide their own Google OAuth Client ID and Secret)."
+	}
 
 	out := []chatMessage{{Role: "system", Content: system}}
 	if a.deps.History != nil && a.deps.SessionID != "" {

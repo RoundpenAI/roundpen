@@ -71,6 +71,10 @@ func isPublicPath(r *http.Request) bool {
 	if r.Method == http.MethodGet && strings.HasPrefix(path, "/v1/auth/oauth/") {
 		return true
 	}
+	// Per-user Google connector OAuth callback (PKCE state binds the user).
+	if r.Method == http.MethodGet && path == "/v1/connectors/google/callback" {
+		return true
+	}
 	// Console SPA + static assets (auth enforced in the browser).
 	if isConsolePath(r) {
 		return true
