@@ -47,6 +47,11 @@ export function SemiAppProvider({ children }: { children: ReactNode }) {
     applyThemeToDocument(preference.theme)
   }, [preference.theme])
 
+  useEffect(() => {
+    document.documentElement.lang =
+      preference.locale === 'zh_CN' ? 'zh-CN' : 'en'
+  }, [preference.locale])
+
   const setTheme = useCallback((theme: UiTheme) => {
     setPreference((prev) => {
       const next = { ...prev, theme }

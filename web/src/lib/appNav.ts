@@ -24,6 +24,7 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
 
 export type SettingsSectionKey =
   | 'accounts'
+  | 'connectors'
   | 'password'
   | 'git'
   | 'agent'
@@ -66,6 +67,7 @@ export const PERSONAL_SETTINGS_GROUPS: SettingsGroup[] = [
 
 export const PERSONAL_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'accounts', labelKey: 'settings.section.accounts', group: 'account' },
+  { key: 'connectors', labelKey: 'settings.section.connectors', group: 'account' },
   { key: 'password', labelKey: 'settings.section.password', group: 'account' },
   { key: 'notifications', labelKey: 'settings.section.notifications', group: 'account' },
   { key: 'git', labelKey: 'settings.section.git', group: 'workspace' },

@@ -170,7 +170,7 @@ func main() {
 		previewHandler.Claims = &preview.ClaimStore{DB: db.SQL}
 	}
 
-	envSvc, envHandler, oauthSvc, setupSvc, setupHandler := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration, itemsCat)
+	envSvc, envHandler, oauthSvc, connectorsSvc, setupSvc, setupHandler := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration, itemsCat)
 	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)
@@ -228,7 +228,7 @@ func main() {
 	}
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
-	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, logger)
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, logger)
 
 	pushSvc := newPushService(cfg, db, logger)
 	if pushSvc != nil {

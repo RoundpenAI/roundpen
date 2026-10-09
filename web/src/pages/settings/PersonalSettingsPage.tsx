@@ -1,6 +1,7 @@
 import { Navigate, useParams } from 'react-router-dom'
 import { AgentEnvironmentPanel } from '../../components/AgentEnvironmentPanel'
 import { ChangePasswordForm } from '../../components/ChangePasswordForm'
+import { ConnectorsPanel } from '../../components/ConnectorsPanel'
 import { GitCredentialsPanel } from '../../components/GitCredentialsPanel'
 import { LinkedAccountsPanel } from '../../components/LinkedAccountsPanel'
 import { NotificationsPanel } from '../../components/NotificationsPanel'
@@ -37,6 +38,8 @@ export function PersonalSettingsPage() {
       {section === 'git' && <GitCredentialsPanel />}
 
       {section === 'accounts' && <LinkedAccountsPanel />}
+
+      {section === 'connectors' && <ConnectorsPanel />}
 
       {section === 'password' && <ChangePasswordForm />}
 

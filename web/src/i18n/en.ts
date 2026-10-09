@@ -11,6 +11,27 @@ export const en = {
   'nav.openMenu': 'Open menu',
   'nav.signOut': 'Sign out',
   'nav.signOutUser': 'Sign out ({user})',
+  'nav.language': 'Language',
+  'nav.theme': 'Toggle dark mode',
+
+  'login.subtitle': 'Sign in to your agent sandbox',
+  'login.userLabel': 'Username or email',
+  'login.passwordLabel': 'Password',
+  'login.submit': 'Sign in',
+  'login.failed': 'login failed',
+  'login.orContinue': 'or continue with',
+  'login.signInWith': 'Sign in with {provider}',
+  'login.oauth.denied': 'Authorization was cancelled.',
+  'login.oauth.state':
+    'This sign-in link expired or was already used. Please try again.',
+  'login.oauth.session':
+    'This authorization was started in a different browser session.',
+  'login.oauth.registrationDisabled':
+    'No Roundpen account matches this identity. Sign in with your password, then link it under Settings → Linked accounts.',
+  'login.oauth.alreadyLinked':
+    'That account is already linked to another Roundpen user.',
+  'login.oauth.provider': 'This sign-in provider is not available.',
+  'login.oauth.failed': 'Sign-in failed. Please try again.',
 
   'workspace.title': 'Files',
   'workspace.subtitle':
@@ -59,6 +80,7 @@ export const en = {
   'settings.group.sandbox': 'Sandbox & runtime',
   'settings.section.git': 'Git personal tokens',
   'settings.section.accounts': 'Linked accounts',
+  'settings.section.connectors': 'Connectors',
   'settings.section.password': 'Password',
   'settings.section.notifications': 'Notifications',
   'settings.section.agent': 'Agent environment',
@@ -227,6 +249,37 @@ export const en = {
   'accounts.errLinked': 'That account is already linked to another Roundpen user.',
   'accounts.errSession': 'The authorization was started in a different browser session.',
   'accounts.errFailed': 'Linking failed. Please try again.',
+
+  'connectors.title': 'Connectors',
+  'connectors.desc':
+    'Connect personal services for the agent. Google is bring-your-own OAuth: create a Web application in Google Cloud, enable Gmail API and Google Calendar API, then paste the Client ID and Secret here. Access is read-only (search/read mail, list/read calendar).',
+  'connectors.loading': 'Loading connectors…',
+  'connectors.loadFailed': 'failed to load connectors',
+  'connectors.saveFailed': 'failed to save Google client',
+  'connectors.connectFailed': 'failed to start Google authorization',
+  'connectors.disconnectFailed': 'failed to disconnect Google',
+  'connectors.clearFailed': 'failed to clear Google client',
+  'connectors.saved': 'Google OAuth client saved.',
+  'connectors.linked': 'Google connected.',
+  'connectors.linkFailed': 'Google authorization failed. Try again.',
+  'connectors.disconnected': 'Google disconnected.',
+  'connectors.clientCleared': 'Google OAuth client removed.',
+  'connectors.google': 'Google (Gmail + Calendar)',
+  'connectors.googleHelp':
+    'Authorized redirect URI must match exactly. Scopes requested: gmail.readonly and calendar.readonly.',
+  'connectors.callbackUrl': 'Authorized redirect URI',
+  'connectors.callbackHint': 'Paste this into your Google Cloud OAuth client.',
+  'connectors.clientId': 'Client ID',
+  'connectors.clientSecret': 'Client secret',
+  'connectors.secretPlaceholder': 'Leave as masked value to keep the current secret',
+  'connectors.saveClient': 'Save client',
+  'connectors.clearClient': 'Remove client',
+  'connectors.connect': 'Connect Google',
+  'connectors.reconnect': 'Re-authorize',
+  'connectors.disconnect': 'Disconnect',
+  'connectors.statusConnected': 'Connected as {email}',
+  'connectors.statusDisconnected': 'Not connected',
+  'connectors.scopes': 'Scopes',
 
   'oauthAdmin.title': 'OAuth login',
   'oauthAdmin.desc':
