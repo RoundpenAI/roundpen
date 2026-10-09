@@ -35,7 +35,7 @@ export const en = {
 
   'workspace.title': 'Files',
   'workspace.subtitle':
-    'Files here are shared by all your assistants as working material.',
+    'Account workspace shared by all assistants. Use uploads / projects / notes / outputs / tmp — see the workspace layout docs.',
   'workspace.preparing': 'Preparing workspace…',
   'workspace.upload': 'Upload',
   'workspace.refresh': 'Refresh',
@@ -82,6 +82,7 @@ export const en = {
   'settings.section.accounts': 'Linked accounts',
   'settings.section.connectors': 'Connectors',
   'settings.section.password': 'Password',
+  'settings.section.notifications': 'Notifications',
   'settings.section.agent': 'Agent environment',
   'settings.section.general': 'General',
   'settings.section.oauth': 'OAuth login',
@@ -113,6 +114,17 @@ export const en = {
   'settings.password.tooShort': 'New password must be at least 8 characters',
   'settings.password.mismatch': 'New passwords do not match',
   'settings.password.failed': 'failed to change password',
+
+  'settings.notifications.hint':
+    'Get a system notification when any chat turn finishes or needs your approval — even if Roundpen is in the background. On iPhone/iPad, add Roundpen to the Home Screen first (Safari → Share → Add to Home Screen). Requires HTTPS.',
+  'settings.notifications.enable': 'Enable notifications',
+  'settings.notifications.disable': 'Disable',
+  'settings.notifications.on': 'Notifications are on for this device.',
+  'settings.notifications.off': 'Notifications are off on this device.',
+  'settings.notifications.unsupported':
+    'This browser does not support Web Push (try Chrome/Edge, or an installed Home Screen PWA on iOS 16.4+).',
+  'settings.notifications.serverOff':
+    'The server could not load VAPID keys for Web Push. Check the control-plane logs.',
 
   'settings.general.allowRegistration': 'Allow public registration',
   'settings.general.defaultImage': 'Default template / image',
@@ -151,6 +163,8 @@ export const en = {
 
   'settings.llmgw.intro':
     'Roundpen relays model calls so Agents never hold your real OpenAI / Anthropic keys. Configure upstream credentials below; Agents and Chats only receive a virtual key that calls /llmgw on this control plane.',
+  'settings.llmgw.modeHint':
+    'Cold start: use Free trial (built-in roundpen-free, rate-limited by install identity) or bring your own API key. Prefer BYOK for production; Free is for trying Roundpen — on 429, rebind your own upstream.',
   'settings.llmgw.enable':
     'Enable relay (required for Agent Chats & memory embeddings)',
   'settings.llmgw.upstreamTitle': '1 · Upstream providers',

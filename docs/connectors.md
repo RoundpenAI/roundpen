@@ -48,7 +48,7 @@ https://www.googleapis.com/auth/calendar.readonly
 
 ## Storage
 
-Tables (see `migrations/0023_google_connectors.sql`):
+Tables (see `migrations/0024_google_connectors.sql`):
 
 - `user_google_oauth_clients` — per-user Client ID/Secret
 - `user_connector_grants` — access/refresh tokens for kind `google`

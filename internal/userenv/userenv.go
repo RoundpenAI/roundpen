@@ -335,7 +335,23 @@ func (s *Service) EnsureAgent(ctx context.Context, userID string) (*sandbox.Sand
 		return nil, err
 	}
 	s.injectGit(ctx, userID, sb.ID)
+	s.seedWorkspaceLayout(ctx, sb.ID)
 	return sb, nil
+}
+
+// seedWorkspaceLayout creates the canonical /workspace directories and AGENTS.md
+// when missing. Best-effort: fakes and hosts without a mount path skip quietly.
+func (s *Service) seedWorkspaceLayout(ctx context.Context, sandboxID string) {
+	if s == nil || s.Sandboxes == nil {
+		return
+	}
+	host, err := s.Sandboxes.WorkspaceHostPath(ctx, sandboxID)
+	if err != nil || strings.TrimSpace(host) == "" {
+		return
+	}
+	if err := workspace.SeedLayout(host); err != nil {
+		slog.Warn("seed workspace layout", "sandbox", sandboxID, "err", err)
+	}
 }
 
 // EnvView is the API shape for one slot.

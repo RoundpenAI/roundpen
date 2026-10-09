@@ -193,7 +193,12 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		if m.sys.WebSearch != nil {
 			searchCfg = m.sys.WebSearch(opts.Actor.Username)
 		}
-		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{ProxyURL: searchCfg.ProxyURL})
+		webClient := tools.NewWebHTTPClient(tools.WebClientOptions{
+			// NAS / home-lab: LAN hosts are a primary workplace. Still blocks
+			// loopback and link-local (cloud metadata) via the dial guard.
+			AllowPrivate: true,
+			ProxyURL:     searchCfg.ProxyURL,
+		})
 		tools.RegisterSession(reg, tools.SessionSurface{
 			Roundpen:    m.sys.Roundpen,
 			API:         controlPlane,

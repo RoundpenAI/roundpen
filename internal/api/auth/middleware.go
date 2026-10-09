@@ -66,6 +66,9 @@ func isPublicPath(r *http.Request) bool {
 			return true
 		}
 	}
+	if r.Method == http.MethodGet && path == "/v1/auth/bootstrap-hint" {
+		return true
+	}
 	// Federated login: provider discovery, redirect to the remote authorize
 	// endpoint and its callback. Writes live elsewhere and stay authenticated.
 	if r.Method == http.MethodGet && strings.HasPrefix(path, "/v1/auth/oauth/") {

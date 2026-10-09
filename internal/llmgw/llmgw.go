@@ -32,14 +32,21 @@ type Options struct {
 	// SecretBox seals upstream API keys at rest. Nil stores them plaintext
 	// (tests, single-user dev).
 	SecretBox *secretbox.Box
+	// MintInstallToken issues an rp1 token for authMode=install_identity
+	// upstreams (built-in FREE). Nil disables that auth mode at relay time.
+	MintInstallToken func() (string, error)
+	// InstallPublicKeyHex is sent as X-Roundpen-Install-Pub for cloud TOFU.
+	InstallPublicKeyHex string
 }
 
 // Gateway serves LLM relay and admin HTTP endpoints backed by PostgreSQL.
 type Gateway struct {
-	store       *Store
-	logger      *slog.Logger
-	httpClient  *http.Client
-	internalKey string
+	store               *Store
+	logger              *slog.Logger
+	httpClient          *http.Client
+	internalKey         string
+	mintInstallToken    func() (string, error)
+	installPublicKeyHex string
 
 	clientMu     sync.Mutex
 	proxyClients map[string]*http.Client // keyed by proxy URL
@@ -64,13 +71,15 @@ func New(db *storage.DB, opts Options) *Gateway {
 		logger = slog.Default()
 	}
 	return &Gateway{
-		store:        NewStore(db, opts.SecretBox),
-		enabled:      true,
-		logLimit:     limit,
-		publicURL:    opts.PublicURL,
-		logger:       logger,
-		internalKey:  loadOrGenerateInternalKey(opts.InternalKeyFile, logger),
-		proxyClients: map[string]*http.Client{},
+		store:               NewStore(db, opts.SecretBox),
+		enabled:             true,
+		logLimit:            limit,
+		publicURL:           opts.PublicURL,
+		logger:              logger,
+		internalKey:         loadOrGenerateInternalKey(opts.InternalKeyFile, logger),
+		mintInstallToken:    opts.MintInstallToken,
+		installPublicKeyHex: strings.TrimSpace(opts.InstallPublicKeyHex),
+		proxyClients:        map[string]*http.Client{},
 		httpClient: &http.Client{
 			Timeout: 0, // streaming
 		},

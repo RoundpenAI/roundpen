@@ -149,6 +149,10 @@ func (h *Handler) adminDelete(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if errors.Is(err, ErrProtected) {
+		httpx.WriteErr(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if errors.Is(err, storage.ErrNotFound) {
 		httpx.WriteErr(w, http.StatusNotFound, "not found")
 		return

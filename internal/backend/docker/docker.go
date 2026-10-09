@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
 
@@ -95,6 +97,23 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		return "", err
 	}
 
+	cfg, hostCfg := b.containerConfigs(opts)
+	name := containerName(opts.SandboxID)
+	resp, err := b.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, name)
+	if err == nil {
+		return resp.ID, nil
+	}
+	if !isNameConflict(err) {
+		return "", fmt.Errorf("container create: %w", err)
+	}
+	id, resolveErr := b.resolveNameConflict(ctx, name, opts, cfg, hostCfg)
+	if resolveErr != nil {
+		return "", resolveErr
+	}
+	return id, nil
+}
+
+func (b *Backend) containerConfigs(opts backend.CreateOpts) (*container.Config, *container.HostConfig) {
 	env := make([]string, 0, len(opts.Env))
 	for k, v := range opts.Env {
 		env = append(env, k+"="+v)
@@ -133,6 +152,7 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		Labels: map[string]string{
 			"roundpen.sandbox_id": opts.SandboxID,
 		},
+		User: opts.User,
 	}
 	if opts.UseImageCmd {
 		// Keep the image ENTRYPOINT/CMD (template snapshot with init script) and
@@ -144,18 +164,80 @@ func (b *Backend) Create(ctx context.Context, opts backend.CreateOpts) (string, 
 		// them to the bind-mounted workspace.
 		cfg.WorkingDir = "/workspace"
 	}
+	return cfg, hostCfg
+}
 
-	// Capabilities are dropped, so root cannot write a foreign-owned mount:
-	// the manager asks for the workspace owner identity instead (see
-	// CreateOpts.User) to keep host-side and in-container ownership aligned.
-	cfg.User = opts.User
-
-	name := containerName(opts.SandboxID)
+// resolveNameConflict reuses an orphan Roundpen container with the same
+// sandbox id (typical after a DB reset), or replaces incompatible leftovers.
+func (b *Backend) resolveNameConflict(
+	ctx context.Context,
+	name string,
+	opts backend.CreateOpts,
+	cfg *container.Config,
+	hostCfg *container.HostConfig,
+) (string, error) {
+	info, err := b.cli.ContainerInspect(ctx, name)
+	if err != nil {
+		return "", fmt.Errorf("container create: %w", err)
+	}
+	if canReuseContainer(info, opts) {
+		return info.ID, nil
+	}
+	if err := b.Remove(ctx, opts.SandboxID); err != nil {
+		return "", fmt.Errorf("container create: replace %q: %w", name, err)
+	}
 	resp, err := b.cli.ContainerCreate(ctx, cfg, hostCfg, nil, nil, name)
 	if err != nil {
 		return "", fmt.Errorf("container create: %w", err)
 	}
 	return resp.ID, nil
+}
+
+func canReuseContainer(info types.ContainerJSON, opts backend.CreateOpts) bool {
+	label := ""
+	image := ""
+	if info.Config != nil {
+		if info.Config.Labels != nil {
+			label = info.Config.Labels["roundpen.sandbox_id"]
+		}
+		image = info.Config.Image
+	}
+	if label != opts.SandboxID {
+		return false
+	}
+	// Image ref drift (agent upgrade) → recreate; Config.Image is the ref
+	// passed at create time for our sandboxes.
+	if opts.Image != "" && image != "" && image != opts.Image {
+		return false
+	}
+	if opts.MountDir == "" {
+		return true
+	}
+	got := workspaceMountSource(info)
+	if got == "" {
+		return true
+	}
+	return filepath.Clean(got) == filepath.Clean(opts.MountDir)
+}
+
+func isNameConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errdefs.IsConflict(err) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already in use")
+}
+
+func workspaceMountSource(info types.ContainerJSON) string {
+	for _, m := range info.Mounts {
+		if m.Destination == "/workspace" {
+			return m.Source
+		}
+	}
+	return ""
 }
 
 func (b *Backend) ensureImage(ctx context.Context, ref string) error {
@@ -188,7 +270,15 @@ func (b *Backend) HasImage(ctx context.Context, ref string) (bool, error) {
 }
 
 func (b *Backend) Start(ctx context.Context, sandboxID string) error {
-	return b.cli.ContainerStart(ctx, containerName(sandboxID), container.StartOptions{})
+	err := b.cli.ContainerStart(ctx, containerName(sandboxID), container.StartOptions{})
+	if err == nil || errdefs.IsNotModified(err) {
+		return nil
+	}
+	// Some daemons still surface "already started" as a conflict.
+	if errdefs.IsConflict(err) || strings.Contains(strings.ToLower(err.Error()), "already started") {
+		return nil
+	}
+	return err
 }
 
 // Running reports whether the sandbox container is up.

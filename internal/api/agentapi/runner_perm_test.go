@@ -16,6 +16,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/storage"
+	"github.com/RoundpenAI/roundpen/internal/webpush"
 )
 
 type stubEvaluator struct {
@@ -293,6 +294,16 @@ func TestRunnerAutoEvaluatorErrorFailsClosed(t *testing.T) {
 	}
 }
 
+type stubPush struct {
+	has      bool
+	payloads []webpush.Payload
+}
+
+func (s *stubPush) HasSubscription(context.Context, string) bool { return s.has }
+func (s *stubPush) Notify(_ context.Context, _ string, p webpush.Payload) {
+	s.payloads = append(s.payloads, p)
+}
+
 func TestRunnerAutoOffKeepsInteractivePath(t *testing.T) {
 	eval := &stubEvaluator{verdict: automode.Verdict{Decision: automode.Allow}}
 	r, store := permTestRunner(t, eval)
@@ -331,6 +342,48 @@ func TestRunnerAutoOffKeepsInteractivePath(t *testing.T) {
 	}
 	if len(outcomes) < 2 || outcomes[len(outcomes)-2] != "requested" || outcomes[len(outcomes)-1] != "cancelled" {
 		t.Fatalf("interactive path outcomes = %v, want ... requested, cancelled", outcomes)
+	}
+}
+
+func TestRunnerWaitsForPermissionWhenPushSubscribed(t *testing.T) {
+	eval := &stubEvaluator{verdict: automode.Verdict{Decision: automode.Allow}}
+	r, _ := permTestRunner(t, eval)
+	r.auto = false
+	push := &stubPush{has: true}
+	r.handler.Push = push
+
+	type result struct {
+		resp acp.RequestPermissionResponse
+		err  error
+	}
+	done := make(chan result, 1)
+	go func() {
+		resp, err := r.onPermission(permRequest("Bash", sysagentOptions(), nil))
+		done <- result{resp: resp, err: err}
+	}()
+
+	// Without push this would cancel immediately; with a subscription it must wait.
+	select {
+	case got := <-done:
+		t.Fatalf("onPermission returned early without clients: %+v err=%v", got.resp, got.err)
+	case <-time.After(800 * time.Millisecond):
+	}
+
+	if len(push.payloads) == 0 || push.payloads[0].Type != "permission" {
+		t.Fatalf("expected permission push, got %+v", push.payloads)
+	}
+
+	r.answerPermission("call-1", "allow")
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatal(got.err)
+		}
+		if got.resp.Outcome.Selected == nil || string(got.resp.Outcome.Selected.OptionId) != "allow" {
+			t.Fatalf("want allow selected, got %+v", got.resp.Outcome)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for answered permission")
 	}
 }
 

@@ -21,15 +21,19 @@ import type { MessageContent } from '@douyinfe/semi-ui-19/lib/es/aiChatInput/int
 import {
   agents,
   assistantsApi,
+  setupApi,
   type AgentCommand,
   type AgentMessage,
   type AgentSession,
+  type LlmReady,
   ApiError,
 } from '../api'
 import { AgentBrowserPanel } from '../components/AgentBrowserPanel'
 import { useAssistantLayout } from '../components/AssistantLayout'
 import { SessionTabs } from '../components/SessionTabs'
 import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
+import { LlmSetupChooser } from '../components/LlmSetupChooser'
+import { useAuth } from '../auth'
 import {
   agentMessagesToSemi,
   type SemiChatMessage,
@@ -50,7 +54,10 @@ import {
 import {
   clearPendingPrompt,
   clearStreaming,
+  isEphemeralMessageId,
   isStreamingMessage,
+  MESSAGE_PAGE_SIZE,
+  mergeHistoryWithLive,
   nowIso,
   readAutoMode,
   readPendingPrompt,
@@ -72,6 +79,18 @@ import { RoutineSuggestions } from './chat/RoutineSuggestions'
 import { clearComposer, composerEditorBridge } from './chat/editorBridge'
 import { connectChatSocket } from './chat/sessionSocket'
 
+function looksLikeLLMNotConfigured(msg: string | null | undefined): boolean {
+  if (!msg) return false
+  const m = msg.toLowerCase()
+  return (
+    msg.includes('LLM 尚未配置') ||
+    msg.includes('LLM 网关未启用') ||
+    msg.includes('尚未配置上游') ||
+    m.includes('unsupported protocol scheme') ||
+    m.includes('llm gateway')
+  )
+}
+
 export function ChatSessionPage() {
   const { id = '', assistantId: assistantIdParam } = useParams<{
     id?: string
@@ -81,11 +100,14 @@ export function ChatSessionPage() {
   const navigate = useNavigate()
   // Answering drops the ticket from the assistant sidebar's todo list.
   const { refresh: refreshAssistantLayout } = useAssistantLayout()
+  const auth = useAuth()
+  const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
   const [session, setSession] = useState<AgentSession | null>(null)
   const [messages, setMessages] = useState<AgentMessage[]>([])
   const [busy, setBusy] = useState(false)
   const [statusHint, setStatusHint] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [llmStatus, setLlmStatus] = useState<LlmReady | null>(null)
   const [perm, setPerm] = useState<PermReq | null>(null)
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserSeen, setBrowserSeen] = useState(false)
@@ -94,7 +116,17 @@ export function ChatSessionPage() {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
   const initialScrollDone = useRef(false)
+  // Follow new output only while the viewport is already near the bottom.
+  // If the user scrolls up to read history, stop fighting their scroll.
+  const stickToBottomRef = useRef(true)
   const [histReady, setHistReady] = useState(false)
+  const [hasMoreHistory, setHasMoreHistory] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const pendingScrollRestore = useRef<{ height: number; top: number } | null>(
+    null,
+  )
+  const loadingMoreRef = useRef(false)
+  const hasMoreRef = useRef(false)
   const [wsStatus, setWsStatus] = useState<WsUiStatus>('connecting')
   const [wsDetail, setWsDetail] = useState<string | null>(null)
   const wsOpen = wsStatus === 'open'
@@ -122,9 +154,13 @@ export function ChatSessionPage() {
     composerRef.current?.focusEditor?.('end')
   }
   const busyRef = useRef(false)
+  const messagesRef = useRef(messages)
   useEffect(() => {
     busyRef.current = busy
   }, [busy])
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
   const composerIdle = !composerHasText && !busy
   const showComposerSend = busy || composerHasText
 
@@ -158,21 +194,31 @@ export function ChatSessionPage() {
   }, [id, location.pathname, location.state, navigate])
 
   useEffect(() => {
+    loadingMoreRef.current = loadingMore
+  }, [loadingMore])
+  useEffect(() => {
+    hasMoreRef.current = hasMoreHistory
+  }, [hasMoreHistory])
+
+  useEffect(() => {
     let cancelled = false
     setHistReady(false)
+    setHasMoreHistory(false)
     ;(async () => {
       try {
         const [sess, hist] = await Promise.all([
           agents.getSession(id),
-          agents.messages(id),
+          agents.messages(id, { limit: MESSAGE_PAGE_SIZE }),
         ])
         if (cancelled) return
         setSession(sess)
-        // If a turn is already streaming, don't clobber it with persisted
-        // history; the runner snapshot and done/error refetch reconcile later.
-        if (!busyRef.current) {
-          setMessages(hist.messages ?? [])
-        }
+        // History is the persisted base. If the WS status snapshot already
+        // planted a live streaming bubble (refresh mid-turn), keep it on top
+        // instead of skipping history entirely — that left only a half reply.
+        setMessages((prev) =>
+          mergeHistoryWithLive(hist.messages ?? [], prev, id),
+        )
+        setHasMoreHistory(Boolean(hist.hasMore))
         setHistReady(true)
       } catch (e) {
         if (!cancelled) setError(e instanceof ApiError ? e.message : String(e))
@@ -243,8 +289,37 @@ export function ChatSessionPage() {
   )
 
   useEffect(() => {
-    initialScrollDone.current = false
+    let alive = true
+    setupApi
+      .llmReady()
+      .then((res) => {
+        if (!alive) return
+        setLlmStatus(res)
+      })
+      .catch(() => {
+        /* leave alone; send-time errors still surface */
+      })
+    return () => {
+      alive = false
+    }
   }, [id])
+
+  const showLlmGuide =
+    (llmStatus != null && !llmStatus.ready) || looksLikeLLMNotConfigured(error)
+
+  useEffect(() => {
+    initialScrollDone.current = false
+    stickToBottomRef.current = true
+    pendingScrollRestore.current = null
+  }, [id])
+
+  useLayoutEffect(() => {
+    const pending = pendingScrollRestore.current
+    const scroller = scrollRef.current
+    if (!pending || !scroller) return
+    pendingScrollRestore.current = null
+    scroller.scrollTop = pending.top + (scroller.scrollHeight - pending.height)
+  }, [messages])
 
   useLayoutEffect(() => {
     if (!histReady) return
@@ -252,11 +327,14 @@ export function ChatSessionPage() {
     const content = contentRef.current
     if (!scroller || !content) return
 
-    const pinBottom = () => {
+    const pinBottom = (force = false) => {
+      if (!force && initialScrollDone.current && !stickToBottomRef.current) {
+        return
+      }
       scroller.scrollTop = scroller.scrollHeight
     }
 
-    // Live updates after the first pin: jump once per change.
+    // Live updates after the first pin: jump only while still stuck to bottom.
     if (initialScrollDone.current) {
       pinBottom()
       return
@@ -264,20 +342,20 @@ export function ChatSessionPage() {
 
     // First paint after history: keep pinning while Markdown/layout grows,
     // otherwise refresh lands mid last-message.
-    pinBottom()
+    pinBottom(true)
     let settleTimer = 0
     const ro = new ResizeObserver(() => {
-      pinBottom()
+      pinBottom(true)
       window.clearTimeout(settleTimer)
       settleTimer = window.setTimeout(() => {
-        pinBottom()
+        pinBottom(true)
         initialScrollDone.current = true
         ro.disconnect()
       }, 120)
     })
     ro.observe(content)
     const maxWait = window.setTimeout(() => {
-      pinBottom()
+      pinBottom(true)
       initialScrollDone.current = true
       ro.disconnect()
     }, 2000)
@@ -288,6 +366,47 @@ export function ChatSessionPage() {
     }
   }, [histReady, chats, perm, statusHint, busy])
 
+  const loadOlderMessages = useCallback(async () => {
+    if (!id || loadingMoreRef.current || !hasMoreRef.current) return
+    const oldest = messagesRef.current.find((m) => !isEphemeralMessageId(m.id))
+    if (!oldest) return
+    const scroller = scrollRef.current
+    if (scroller) {
+      pendingScrollRestore.current = {
+        height: scroller.scrollHeight,
+        top: scroller.scrollTop,
+      }
+    }
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const res = await agents.messages(id, {
+        limit: MESSAGE_PAGE_SIZE,
+        before: oldest.id,
+      })
+      const older = res.messages ?? []
+      setMessages((prev) => {
+        const seen = new Set(prev.map((m) => m.id))
+        return [...older.filter((m) => !seen.has(m.id)), ...prev]
+      })
+      setHasMoreHistory(Boolean(res.hasMore))
+    } catch {
+      pendingScrollRestore.current = null
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+    }
+  }, [id])
+
+  const onScrollPane = () => {
+    const el = scrollRef.current
+    if (!el) return
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+    stickToBottomRef.current = gap <= 80
+    if (el.scrollTop < 72) {
+      void loadOlderMessages()
+    }
+  }
   const toggleAuto = () => {
     const next = !autoMode
     setAutoMode(next)
@@ -303,6 +422,7 @@ export function ChatSessionPage() {
   }
 
   const appendLocalUser = (text: string, clientMsgId?: string) => {
+    stickToBottomRef.current = true
     setMessages((prev) => [
       ...clearStreaming(prev),
       {
@@ -422,6 +542,8 @@ export function ChatSessionPage() {
 
   const answerPerm = (optionId: string) => {
     if (!perm || !wsRef.current) return
+    const chosen = perm.options.find((o) => o.optionId === optionId)
+    const label = (chosen?.name || '').trim() || optionId
     wsRef.current.send(
       JSON.stringify({
         type: 'permission',
@@ -435,7 +557,7 @@ export function ChatSessionPage() {
           ? 'reject'
           : 'allow_once'
       void assistantsApi
-        .resolveTicket(perm.ticketId, { resolution, note: optionId })
+        .resolveTicket(perm.ticketId, { resolution, note: label })
         .then(() => refreshAssistantLayout())
         .catch(() => undefined)
     }
@@ -445,12 +567,13 @@ export function ChatSessionPage() {
         id: `perm-${Date.now()}`,
         sessionId: id,
         role: 'permission',
-        content: `协助单已处理 · ${optionId}`,
+        content: label,
         meta: {
           type: 'permission',
           title: perm.title,
           optionId,
           outcome: 'selected',
+          options: perm.options,
         },
         createdAt: nowIso(),
       },
@@ -531,7 +654,32 @@ export function ChatSessionPage() {
         </Button>
       </div>
 
-      {error && (
+      {showLlmGuide && (
+        <div role="status" style={{ padding: '0 16px 8px' }}>
+          <LlmSetupChooser
+            compact
+            status={
+              llmStatus ?? {
+                ready: false,
+                mode: 'none',
+                freeAvailable: true,
+                reason:
+                  (looksLikeLLMNotConfigured(error) ? error : null) ||
+                  '尚未配置模型',
+              }
+            }
+            isAdmin={isAdmin}
+            onReady={(res) => {
+              setLlmStatus(res)
+              if (res.ready && looksLikeLLMNotConfigured(error)) {
+                setError(null)
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {error && !looksLikeLLMNotConfigured(error) && (
         <div role="alert" style={{ padding: '0 16px 8px' }}>
           <Banner
             fullMode={false}
@@ -552,11 +700,23 @@ export function ChatSessionPage() {
             ref={scrollRef}
             className="chat-pane-scroll"
             style={{ padding: '12px 16px', fontSize: 14 }}
+            onScroll={onScrollPane}
           >
             <div
               ref={contentRef}
               style={{ maxWidth: 768, margin: '0 auto', minWidth: 0 }}
             >
+              {loadingMore && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    padding: '8px 0 12px',
+                  }}
+                >
+                  <Spin size="small" />
+                </div>
+              )}
               {chats.length === 0 && !showWorking && (
                 <Typography.Text
                   type="tertiary"
@@ -658,7 +818,19 @@ export function ChatSessionPage() {
                     )}
                   </div>
                 )}
-                onFocus={() => setComposerFocused(true)}
+                onFocus={() => {
+                  setComposerFocused(true)
+                  stickToBottomRef.current = true
+                  // After the keyboard animation, visualViewport shrinks; pin
+                  // the thread to the bottom so the composer sits on the keyboard.
+                  const pin = () => {
+                    const el = scrollRef.current
+                    if (el) el.scrollTop = el.scrollHeight
+                  }
+                  requestAnimationFrame(pin)
+                  window.setTimeout(pin, 50)
+                  window.setTimeout(pin, 300)
+                }}
                 onBlur={() => setComposerFocused(false)}
                 onContentChange={(contents) => {
                   composerContentsRef.current = contents as unknown as SendContent[]

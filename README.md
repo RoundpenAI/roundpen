@@ -42,7 +42,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 | 后端 | **Agent / Browser → Docker**；**Desktop / Mobile 预留 QEMU**；`multi` 按 slot 路由 |
 | 镜像 | CI 构建（`images/code-agent/` → ghcr）+ `internal/template` 镜像目录（启动时按 env 播种）+ `ghcr.io/browserless/chrome`（Browser，pull） |
 
-仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。Browser 环境见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。Agent 安全见 [docs/security.md](docs/security.md)。
+仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。账号工作区目录约定见 [docs/workspace-layout.md](docs/workspace-layout.md)。Browser 环境见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。Agent 安全见 [docs/security.md](docs/security.md)。
 
 ## 核心能力
 
@@ -73,8 +73,8 @@ make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver�
 | 模式 | 适用场景 |
 |------|----------|
 | **Docker Compose（推荐）** | NAS / 小团队一键私有化 |
-| 飞牛 fnOS 应用包（`.fpk`） | 飞牛 NAS：应用中心一键安装，见 [deploy/fnos/README.md](deploy/fnos/README.md) |
-| `./roundpend` 单二进制 | 本地开发、已有 PG |
+| 飞牛 fnOS 应用包（`.fpk`） | 飞牛 NAS：宿主机 `roundpend` + 包内 pg0，见 [deploy/fnos/README.md](deploy/fnos/README.md) |
+| `./roundpend` 单二进制 | 本地开发、已有 PG（或本机 pg0） |
 | Kubernetes（规划中） | 企业集群 |
 
 两个二进制（`roundpend` / `roundpen`）启动时会自动加载**当前工作目录**下的 `.env`；已存在的环境变量优先，文件缺失则静默跳过。systemd 可用 `EnvironmentFile=` 注入同样的变量。

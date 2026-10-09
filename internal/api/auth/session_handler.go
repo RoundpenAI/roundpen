@@ -27,11 +27,12 @@ type SessionHandler struct {
 	users             storage.UserStore
 	sessions          storage.SessionStore
 	allowRegistration func() bool
+	bootstrapPassword string // when set, LoginHint may reveal it while still matching
 	limiter           *loginLimiter
 }
 
 // NewSessionHandler constructs a session handler. Public registration is off when allowRegistration is nil.
-func NewSessionHandler(users storage.UserStore, sessions storage.SessionStore, allowRegistration func() bool) *SessionHandler {
+func NewSessionHandler(users storage.UserStore, sessions storage.SessionStore, allowRegistration func() bool, bootstrapPassword string) *SessionHandler {
 	if allowRegistration == nil {
 		allowRegistration = func() bool { return false }
 	}
@@ -39,6 +40,7 @@ func NewSessionHandler(users storage.UserStore, sessions storage.SessionStore, a
 		users:             users,
 		sessions:          sessions,
 		allowRegistration: allowRegistration,
+		bootstrapPassword: bootstrapPassword,
 		limiter:           newLoginLimiter(),
 	}
 }
@@ -136,6 +138,26 @@ type loginRequest struct {
 	// ReturnSessionToken echoes the freshly issued session token in the body.
 	// Native clients have no cookie jar and present it as a Bearer credential.
 	ReturnSessionToken bool `json:"returnSessionToken"`
+}
+
+// BootstrapHint returns the packaged default credentials while they still match
+// the admin password (so the console login page can show them). After the
+// operator changes the password the response is empty.
+func (h *SessionHandler) BootstrapHint(w http.ResponseWriter, r *http.Request) {
+	empty := map[string]string{}
+	if h.bootstrapPassword == "" {
+		httpx.WriteJSON(w, http.StatusOK, empty)
+		return
+	}
+	admin, err := h.users.GetByUsername(r.Context(), "admin")
+	if err != nil || admin == nil || !CheckPassword(admin.PasswordHash, h.bootstrapPassword) {
+		httpx.WriteJSON(w, http.StatusOK, empty)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{
+		"username": "admin",
+		"password": h.bootstrapPassword,
+	})
 }
 
 func (h *SessionHandler) Login(w http.ResponseWriter, r *http.Request) {

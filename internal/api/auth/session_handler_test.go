@@ -17,7 +17,7 @@ func newSessionTestMux(t *testing.T, allowReg bool) (http.Handler, storage.UserS
 	users := storage.NewMemoryUserStore()
 	sessions := storage.NewMemorySessionStore()
 	mux := http.NewServeMux()
-	Mount(mux, users, sessions, func() bool { return allowReg })
+	Mount(mux, users, sessions, func() bool { return allowReg }, "")
 	return Middleware(users, sessions)(mux), users
 }
 

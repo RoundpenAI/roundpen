@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -307,5 +309,87 @@ func TestStore_DeleteRemovesFromList(t *testing.T) {
 	}
 	if _, err := store.Get(ctx, sess.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("get after delete: %v", err)
+	}
+}
+
+func TestStore_ListMessagesPage(t *testing.T) {
+	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("DATABASE_URL")
+	}
+	if dsn == "" {
+		t.Skip("set ROUNDPEN_TEST_DATABASE_URL")
+	}
+	ctx := context.Background()
+	db, err := storage.OpenPostgres(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.MigrateEmbedded(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	user := "pagehist-" + uuid.NewString()[:8]
+	if _, err := db.SQL.ExecContext(ctx, `
+		INSERT INTO users (username, email, role, api_key, created_at, updated_at)
+		VALUES ($1, $2, 'user', $3, now(), now())
+		ON CONFLICT (username) DO NOTHING`,
+		user, user+"@example.com", "rp-"+user,
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM users WHERE username=$1`, user)
+	})
+
+	store := &Store{DB: db.SQL}
+	sess, err := store.Create(ctx, user, "paging", "sysadmin", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM agent_sessions WHERE id=$1`, sess.ID)
+	})
+
+	var ids []string
+	for i := 0; i < 5; i++ {
+		msg, err := store.AddMessage(ctx, sess.ID, RoleUser, fmt.Sprintf("m%d", i), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, msg.ID)
+		// Distinct timestamps so (created_at, id) ordering is stable under load.
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	page, hasMore, err := store.ListMessagesPage(ctx, sess.ID, 2, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMore || len(page) != 2 {
+		t.Fatalf("recent page: len=%d hasMore=%v", len(page), hasMore)
+	}
+	if page[0].ID != ids[3] || page[1].ID != ids[4] {
+		t.Fatalf("recent window want %s,%s got %s,%s", ids[3], ids[4], page[0].ID, page[1].ID)
+	}
+
+	older, hasMore, err := store.ListMessagesPage(ctx, sess.ID, 2, page[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMore || len(older) != 2 {
+		t.Fatalf("older page: len=%d hasMore=%v", len(older), hasMore)
+	}
+	if older[0].ID != ids[1] || older[1].ID != ids[2] {
+		t.Fatalf("older window want %s,%s got %s,%s", ids[1], ids[2], older[0].ID, older[1].ID)
+	}
+
+	oldest, hasMore, err := store.ListMessagesPage(ctx, sess.ID, 2, older[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasMore || len(oldest) != 1 || oldest[0].ID != ids[0] {
+		t.Fatalf("oldest page: len=%d hasMore=%v id=%v", len(oldest), hasMore, oldest)
 	}
 }

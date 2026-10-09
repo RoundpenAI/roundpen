@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
-	"github.com/RoundpenAI/roundpen/internal/api/platform"
 	"github.com/RoundpenAI/roundpen/internal/api/httpapi"
+	"github.com/RoundpenAI/roundpen/internal/api/platform"
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	dockerbackend "github.com/RoundpenAI/roundpen/internal/backend/docker"
 	"github.com/RoundpenAI/roundpen/internal/preview"
@@ -80,7 +80,7 @@ func startHarness(t *testing.T, be backend.Backend, fs workspace.FS, dataRoot, d
 	mgr := sandbox.NewService(storage.NewSandboxStore(db), be, fs, defaultImage, 10*time.Minute, logger, sandbox.WithTemplates(tplSvc))
 
 	mux := http.NewServeMux()
-	auth.Mount(mux, users, sessions, func() bool { return false })
+	auth.Mount(mux, users, sessions, func() bool { return false }, "")
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr}
 	native.Mount(mux)

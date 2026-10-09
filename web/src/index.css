@@ -2,7 +2,8 @@ html,
 body,
 #root {
   height: 100%;
-  height: 100dvh;
+  height: var(--app-height, 100dvh);
+  max-height: var(--app-height, 100dvh);
   overflow-x: hidden;
 }
 
@@ -20,6 +21,36 @@ body {
 body.chat-lock {
   overflow: hidden;
   overscroll-behavior: none;
+}
+
+/* Pin the shell to the visual viewport so iOS Safari's keyboard does not
+   leave a dead band under the composer (layout viewport stays tall). */
+body.chat-lock #root {
+  position: fixed;
+  top: var(--vv-offset-top, 0px);
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: var(--app-height, 100dvh);
+  max-height: var(--app-height, 100dvh);
+}
+
+/* Home-screen PWA: status bar is translucent; top chrome absorbs the inset. */
+.rp-app-mobile-bar {
+  box-sizing: border-box;
+  min-height: 48px;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+}
+
+html.display-standalone .rp-app-mobile-bar {
+  padding-top: env(safe-area-inset-top, 0px);
+  min-height: calc(48px + env(safe-area-inset-top, 0px));
+}
+
+html.display-standalone .rp-assistant-header {
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
 }
 
 input,
@@ -84,11 +115,19 @@ button {
   max-width: 100%;
   min-width: 0;
   /* Transparent dock — only the floating input card stays visible */
-  padding: 0.5rem 0.75rem max(0.75rem, env(safe-area-inset-bottom, 0px));
+  padding: 0.5rem 0.75rem max(0.5rem, env(safe-area-inset-bottom, 0px));
+  padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+  padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
   border-top: none;
   background: transparent;
   pointer-events: none;
   overflow-x: clip;
+}
+
+/* Keyboard already clears the home-indicator band; stacking safe-area on top
+   leaves a visible gap between the composer and the keyboard on iOS Safari. */
+html.keyboard-open .chat-composer-dock {
+  padding-bottom: 0.5rem;
 }
 
 .chat-composer-dock-inner {
@@ -171,8 +210,8 @@ button {
 
 @media (max-width: 767.98px) {
   .chat-composer-dock {
-    padding-left: 0.625rem;
-    padding-right: 0.625rem;
+    padding-left: max(0.625rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.625rem, env(safe-area-inset-right, 0px));
   }
 
   .chat-composer-dock .semi-aiChatInput {

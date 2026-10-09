@@ -33,7 +33,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'login.oauth.failed': '登录失败，请重试。',
 
   'workspace.title': '文件',
-  'workspace.subtitle': '这里的文件是账号资料根，所有助手都可以用作工作材料。',
+  'workspace.subtitle': '账号资料根，所有助手共用。请按 uploads / projects / notes / outputs / tmp 整理；详见工作区目录规范。',
   'workspace.preparing': '正在准备工作区…',
   'workspace.upload': '上传',
   'workspace.refresh': '刷新',
@@ -80,6 +80,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.section.accounts': '关联账号',
   'settings.section.connectors': '连接器',
   'settings.section.password': '密码',
+  'settings.section.notifications': '通知',
   'settings.section.agent': 'Agent 环境',
   'settings.section.general': '通用',
   'settings.section.oauth': 'OAuth 登录',
@@ -111,6 +112,17 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.password.tooShort': '新密码至少 8 个字符',
   'settings.password.mismatch': '两次输入的新密码不一致',
   'settings.password.failed': '修改密码失败',
+
+  'settings.notifications.hint':
+    '任意会话回合结束或需要审批时推送系统通知，即使 Roundpen 在后台也能收到。iPhone/iPad 请先「添加到主屏幕」（Safari → 分享 → 添加到主屏幕）。需要 HTTPS。',
+  'settings.notifications.enable': '开启通知',
+  'settings.notifications.disable': '关闭',
+  'settings.notifications.on': '本设备已开启通知。',
+  'settings.notifications.off': '本设备未开启通知。',
+  'settings.notifications.unsupported':
+    '当前浏览器不支持 Web Push（请用 Chrome/Edge，或 iOS 16.4+ 主屏幕 PWA）。',
+  'settings.notifications.serverOff':
+    '服务端未能加载 Web Push 的 VAPID 密钥，请查看控制面日志。',
 
   'settings.general.allowRegistration': '允许公开注册',
   'settings.general.defaultImage': '默认模板 / 镜像',
@@ -149,6 +161,8 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'settings.llmgw.intro':
     'Roundpen 转发模型调用，使 Agent 不持有真实的 OpenAI / Anthropic 密钥。在下方配置上游凭据；Agent 与对话只拿到调用本控制面 /llmgw 的虚拟密钥。',
+  'settings.llmgw.modeHint':
+    '冷启动可选「免费试用」（内置 roundpen-free，按安装身份限频）或「自己的 API Key」。生产环境建议 BYOK；FREE 仅适合体验，触发 429 时请改绑自己的上游。',
   'settings.llmgw.enable': '启用中继（Agent 对话与记忆嵌入所需）',
   'settings.llmgw.upstreamTitle': '1 · 上游提供商',
   'settings.llmgw.upstreamHint':

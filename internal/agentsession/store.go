@@ -437,49 +437,79 @@ func (s *Store) CancelMessage(ctx context.Context, sessionID, messageID string) 
 // ListRecentMessages returns the newest messages for a session, in
 // chronological order (oldest of the returned window first).
 func (s *Store) ListRecentMessages(ctx context.Context, sessionID string, limit int) ([]*Message, error) {
+	msgs, _, err := s.ListMessagesPage(ctx, sessionID, limit, "")
+	return msgs, err
+}
+
+const (
+	defaultMessagePage = 80
+	maxMessagePage     = 200
+)
+
+// ListMessagesPage returns up to limit messages ending at the newest row
+// (beforeID empty) or strictly older than the row identified by beforeID.
+// Results are chronological (oldest first). hasMore is true when at least one
+// older row remains.
+func (s *Store) ListMessagesPage(ctx context.Context, sessionID string, limit int, beforeID string) ([]*Message, bool, error) {
 	if limit <= 0 {
-		limit = 200
+		limit = defaultMessagePage
 	}
-	rows, err := s.DB.QueryContext(ctx, `
-		SELECT id, session_id, role, content, meta, created_at
-		FROM agent_messages WHERE session_id=$1 ORDER BY created_at DESC LIMIT $2`, sessionID, limit)
+	if limit > maxMessagePage {
+		limit = maxMessagePage
+	}
+	fetch := limit + 1
+
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	beforeID = strings.TrimSpace(beforeID)
+	if beforeID == "" {
+		rows, err = s.DB.QueryContext(ctx, `
+			SELECT id, session_id, role, content, meta, created_at
+			FROM agent_messages WHERE session_id=$1
+			ORDER BY created_at DESC, id DESC
+			LIMIT $2`, sessionID, fetch)
+	} else {
+		var anchorAt time.Time
+		var anchorID string
+		err = s.DB.QueryRowContext(ctx, `
+			SELECT id, created_at FROM agent_messages
+			WHERE session_id=$1 AND id=$2`, sessionID, beforeID,
+		).Scan(&anchorID, &anchorAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, ErrNotFound
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		rows, err = s.DB.QueryContext(ctx, `
+			SELECT id, session_id, role, content, meta, created_at
+			FROM agent_messages WHERE session_id=$1
+			  AND (created_at, id) < ($2::timestamptz, $3::text)
+			ORDER BY created_at DESC, id DESC
+			LIMIT $4`, sessionID, anchorAt, anchorID, fetch)
+	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
-	var out []*Message
-	for rows.Next() {
-		var msg Message
-		var meta sql.NullString
-		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &meta, &msg.CreatedAt); err != nil {
-			return nil, err
-		}
-		if meta.Valid {
-			msg.Meta = json.RawMessage(meta.String)
-		}
-		out = append(out, &msg)
+
+	out, err := scanMessages(rows)
+	if err != nil {
+		return nil, false, err
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
 	}
 	for l, r := 0, len(out)-1; l < r; l, r = l+1, r-1 {
 		out[l], out[r] = out[r], out[l]
 	}
-	return out, nil
+	return out, hasMore, nil
 }
 
-// ListMessages returns messages for a session.
-func (s *Store) ListMessages(ctx context.Context, sessionID string, limit int) ([]*Message, error) {
-	if limit <= 0 {
-		limit = 2000
-	}
-	rows, err := s.DB.QueryContext(ctx, `
-		SELECT id, session_id, role, content, meta, created_at
-		FROM agent_messages WHERE session_id=$1 ORDER BY created_at ASC LIMIT $2`, sessionID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+func scanMessages(rows *sql.Rows) ([]*Message, error) {
 	var out []*Message
 	for rows.Next() {
 		var msg Message
@@ -493,6 +523,21 @@ func (s *Store) ListMessages(ctx context.Context, sessionID string, limit int) (
 		out = append(out, &msg)
 	}
 	return out, rows.Err()
+}
+
+// ListMessages returns messages for a session.
+func (s *Store) ListMessages(ctx context.Context, sessionID string, limit int) ([]*Message, error) {
+	if limit <= 0 {
+		limit = 2000
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT id, session_id, role, content, meta, created_at
+		FROM agent_messages WHERE session_id=$1 ORDER BY created_at ASC, id ASC LIMIT $2`, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanMessages(rows)
 }
 
 func nullJSON(raw json.RawMessage) any {
