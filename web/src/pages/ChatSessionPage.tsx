@@ -141,10 +141,7 @@ export function ChatSessionPage() {
   const [steerCap, setSteerCap] = useState<boolean | null>(null)
   const composerContentsRef = useRef<SendContent[] | undefined>(undefined)
   const composerExtensions = useMemo(() => [composerEditorBridge()], [])
-  const composerRef = useRef<{
-    setContent: (content: string) => void
-    focusEditor?: (pos?: string) => void
-  } | null>(null)
+  const composerRef = useRef<AIChatInput | null>(null)
   const fillSuggestion = (text: string) => {
     const safe = text
       .replaceAll('&', '&amp;')
