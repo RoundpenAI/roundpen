@@ -13,9 +13,10 @@ export function skipIfNoLivePassword() {
 
 export async function loginViaUi(page: Page) {
   await page.goto('/login')
-  await page.getByLabel('Username or email').fill(ADMIN.user)
-  await page.getByLabel('Password', { exact: true }).fill(ADMIN.password)
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+  // The console defaults to the zh_CN locale (unless a test switches it).
+  await page.getByLabel('用户名或邮箱').fill(ADMIN.user)
+  await page.getByLabel('密码', { exact: true }).fill(ADMIN.password)
+  await page.getByRole('button', { name: '登录', exact: true }).click()
   // Leaving /login means the session cookie is set; navigating before the
   // login POST completes aborts it and bounces the next goto back to /login.
   await page.waitForURL((url) => !url.pathname.startsWith('/login'))

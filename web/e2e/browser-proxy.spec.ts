@@ -6,7 +6,10 @@ test('browser page selects an egress proxy', async ({ page }) => {
   await loginViaApi(page)
   await page.goto('/browser')
 
-  const select = page.locator('.semi-select').first()
+  // The egress picker is labelled via aria-labelledby (locale toggle has no
+  // label of its own), so the accessible name disambiguates it from the
+  // header's language combobox.
+  const select = page.getByRole('combobox', { name: /Egress proxy/ })
   await expect(select).toBeVisible()
   await select.click()
   await page.getByRole('option', { name: /JP egress/ }).click()

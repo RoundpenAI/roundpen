@@ -25,7 +25,9 @@ test('agent env panel selects an egress proxy', async ({ page }) => {
   await loginViaApi(page)
   await page.goto('/settings/agent')
 
-  const select = page.locator('.semi-select').first()
+  // Locate the egress picker by its accessible name; the header's language
+  // combobox shares the generic .semi-select class.
+  const select = page.getByRole('combobox', { name: /出口代理|Egress proxy/ })
   await select.click()
   await page.getByRole('option', { name: /US egress/ }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'confirm' }).click()

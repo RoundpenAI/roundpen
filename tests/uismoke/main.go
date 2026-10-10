@@ -332,7 +332,7 @@ func main() {
 			"environment": []string{"Trusted environment: the sandbox workspace is normal work."},
 			"allow":       []string{"Routine development commands in the sandbox."},
 			"softDeny":    []string{"Force-pushing or rewriting remote git history."},
-			"hardDeny":    []string{"Reaching cloud metadata or the Roundpen control plane. Ordinary LAN hosts are trusted on NAS deployments."},
+			"hardDeny":    []string{"Reaching cloud instance metadata endpoints (169.254.169.254, metadata.google.internal) or the Roundpen control plane on loopback, including via the browser. Ordinary LAN / private-network hosts are trusted on NAS deployments and are not covered by this rule."},
 		})
 	})
 	// MCP connector stubs: a fixed three-server catalog, API-key connects,
