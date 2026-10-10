@@ -33,6 +33,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/hostaccess"
 	"github.com/RoundpenAI/roundpen/internal/hostsetup"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
+	"github.com/RoundpenAI/roundpen/internal/mcp"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/preview"
@@ -91,8 +92,8 @@ func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Servic
 }
 
 // mountEnvStack builds the user environment, git credential, OAuth, connectors,
-// runtime and host-setup services and mounts their handlers.
-func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr sandbox.Manager, sbSvc *sandbox.Service, userStore storage.UserStore, sessionStore storage.SessionStore, probe *runtime.Probe, allowRegistration func() bool, items *settingitems.Catalog) (*userenv.Service, *envapi.Handler, *oauth.Service, *connectors.Service, *hostsetup.Service, *hostsetup.Handler) {
+// MCP, runtime and host-setup services and mounts their handlers.
+func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr sandbox.Manager, sbSvc *sandbox.Service, userStore storage.UserStore, sessionStore storage.SessionStore, probe *runtime.Probe, allowRegistration func() bool, items *settingitems.Catalog, secretBox *secretbox.Box) (*userenv.Service, *envapi.Handler, *oauth.Service, *connectors.Service, *mcp.Service, *hostsetup.Service, *hostsetup.Handler) {
 	envStore := &userenv.Store{DB: db.SQL}
 	gitStore := &gitcred.Store{DB: db.SQL}
 	oauthStore := &oauth.Store{DB: db.SQL}
@@ -102,6 +103,7 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		AllowRegistration: allowRegistration,
 	}
 	connectorsSvc := &connectors.Service{Store: &connectors.Store{DB: db.SQL}}
+	mcpSvc := &mcp.Service{Store: &mcp.Store{DB: db.SQL, Box: secretBox}}
 	envSvc := &userenv.Service{
 		Store:          envStore,
 		Sandboxes:      mgr,
@@ -143,6 +145,7 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 	(&gitcred.Handler{Store: gitStore, OnChange: reinject}).Mount(mux)
 	(&oauth.Handler{Svc: oauthSvc, Sessions: sessionStore}).Mount(mux)
 	(&connectors.Handler{Svc: connectorsSvc}).Mount(mux)
+	(&mcp.Handler{Svc: mcpSvc}).Mount(mux)
 	(&runtime.Handler{Probe: probe}).Mount(mux)
 
 	setupSvc := &hostsetup.Service{
@@ -152,7 +155,7 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 	}
 	setupHandler := &hostsetup.Handler{Svc: setupSvc, Cfg: cfg, Items: items}
 	setupHandler.Mount(mux)
-	return envSvc, envHandler, oauthSvc, connectorsSvc, setupSvc, setupHandler
+	return envSvc, envHandler, oauthSvc, connectorsSvc, mcpSvc, setupSvc, setupHandler
 }
 
 // mountLLMGateway builds the LLM gateway on the mux and returns it with its
@@ -489,7 +492,7 @@ func llmConfigFor(items *settingitems.Catalog, loopback, key string) func(userID
 }
 
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, mcpSvc *mcp.Service, logger *slog.Logger) *manager.Manager {
 	// Grant-gated host reads (NAS shares) for the agent's Read/Glob tools.
 	hostRead := hostaccess.New(agentStore, assistantStore, logger)
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
@@ -503,6 +506,7 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 		PreviewZone:  previewZone,
 		History:      agentStore,
 		Google:       connectorsSvc,
+		MCP:          mcpSvc,
 
 		Roundpen: &tools.RoundpenBinder{
 			Envs:      envSvc,

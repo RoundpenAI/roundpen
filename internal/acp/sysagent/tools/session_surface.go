@@ -18,6 +18,7 @@ type SessionSurface struct {
 	WebHTTP     *http.Client
 	Search      *WebSearchBinder
 	Google      *GoogleBinder
+	MCP         *MCPBinder
 }
 
 // RegisterSession installs the System Agent tool surface for one session.
@@ -60,5 +61,10 @@ func RegisterSession(reg *Registry, s SessionSurface) {
 	}
 	if s.Google != nil {
 		RegisterGoogle(reg, s.Google)
+	}
+	// MCP tools mutate remote state by default and rely on interactive
+	// approval; scheduled runs have no approver, so they never get them.
+	if s.MCP != nil && !routine {
+		RegisterMCP(reg, s.MCP)
 	}
 }

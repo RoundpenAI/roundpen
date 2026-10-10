@@ -66,6 +66,10 @@ type SysDeps struct {
 
 	// Google is the per-user Gmail/Calendar connector (nil skips those tools).
 	Google tools.GoogleAPI
+
+	// MCP is the per-user MCP connector layer (nil skips MCP tools). Tool
+	// snapshots are read once per session start.
+	MCP tools.MCPAPI
 }
 
 // Runtime is a live ACP connection for one agent session.
@@ -148,6 +152,26 @@ type StartOpts struct {
 	Routine RoutineStart
 }
 
+// mcpBinder loads the user's MCP tool snapshots for one session. Scheduled
+// runs skip MCP entirely (no approval surface). Snapshot failures degrade to
+// no MCP tools instead of blocking the session.
+func (m *Manager) mcpBinder(userID string, routine bool) *tools.MCPBinder {
+	if m.sys.MCP == nil || routine {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	servers, err := m.sys.MCP.ToolsForSession(ctx, userID)
+	if err != nil {
+		m.log.Warn("mcp tool snapshot", slog.String("user", userID), slog.Any("err", err))
+		return nil
+	}
+	if len(servers) == 0 {
+		return nil
+	}
+	return &tools.MCPBinder{API: m.sys.MCP, Servers: servers}
+}
+
 // Start connects an ACP agent for the given Roundpen agent session.
 func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, providerID string, opts StartOpts) (*Runtime, error) {
 	p, ok := providers.ByID(m.providers, providerID)
@@ -216,6 +240,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 				HTTP:     webClient,
 			},
 			Google: &tools.GoogleBinder{API: m.sys.Google},
+			MCP:    m.mcpBinder(opts.Actor.Username, opts.Routine.RunKey != ""),
 		})
 		agent := sysagent.New(sysagent.Deps{
 			LLM:       llmCfg,

@@ -1,13 +1,14 @@
 package tools
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 // WebClientOptions 控制 WebFetch / WebSearch / Skill install 出站 client 的防护行为。
@@ -38,7 +39,7 @@ func NewWebHTTPClient(opts WebClientOptions) *http.Client {
 		if isProxyDial(address, proxyIPs, proxyPort) {
 			return nil
 		}
-		return blockedDialAddr(address, opts.AllowLoopback, opts.AllowPrivate)
+		return httpx.BlockedDialAddr(address, opts.AllowLoopback, opts.AllowPrivate)
 	}
 	tr := &http.Transport{
 		ForceAttemptHTTP2:     true,
@@ -90,27 +91,4 @@ func isProxyDial(address string, proxyIPs map[string]struct{}, proxyPort string)
 		return false
 	}
 	return proxyPort == "" || port == proxyPort
-}
-
-// blockedDialAddr 校验拨号地址（形如 "1.2.3.4:443" 或 "[::1]:443"）。
-func blockedDialAddr(address string, allowLoopback, allowPrivate bool) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		host = strings.Trim(address, "[]")
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return fmt.Errorf("address %q is not allowed", address)
-	}
-	if ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return fmt.Errorf("address %s is not allowed", ip)
-	}
-	if ip.IsLoopback() && !allowLoopback {
-		return fmt.Errorf("address %s is not allowed", ip)
-	}
-	if ip.IsPrivate() && !allowPrivate {
-		return fmt.Errorf("address %s is not allowed", ip)
-	}
-	return nil
 }

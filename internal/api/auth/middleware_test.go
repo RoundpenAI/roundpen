@@ -23,6 +23,7 @@ func TestIsPublicPath(t *testing.T) {
 		{http.MethodGet, "/v1/auth/oauth/gitea-git-eaxi-com/start"},
 		{http.MethodGet, "/v1/auth/oauth/gitea-git-eaxi-com/callback"},
 		{http.MethodGet, "/v1/connectors/google/callback"},
+		{http.MethodGet, "/v1/connectors/mcp/callback"},
 		{http.MethodGet, "/settings/accounts"},
 	}
 	for _, tc := range public {
