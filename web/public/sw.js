@@ -1,5 +1,13 @@
 /* Roundpen PWA service worker — Web Push + notification click routing. */
 
+// Resolve console paths against the service-worker scope. The backend sends
+// root-absolute deep links ("/a/..."); re-anchoring them to the scope keeps
+// navigation correct when the console is served under a base path
+// (e.g. /app/roundpen/), while '/' remains a no-op for the default build.
+function scopeUrl(path) {
+  return new URL(String(path).replace(/^\/+/, ''), self.registration.scope).href
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting())
 })
@@ -14,12 +22,12 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = (event.notification.data && event.notification.data.url) || '/a'
+  const url = (event.notification.data && event.notification.data.url) || 'a'
   event.waitUntil(openOrFocus(url))
 })
 
 async function handlePush(event) {
-  let data = { type: 'turn_done', title: 'Roundpen', body: '', url: '/a' }
+  let data = { type: 'turn_done', title: 'Roundpen', body: '', url: 'a' }
   try {
     if (event.data) {
       data = { ...data, ...event.data.json() }
@@ -42,9 +50,9 @@ async function handlePush(event) {
   const title = data.title || 'Roundpen'
   const opts = {
     body: data.body || '',
-    icon: '/icon-192.png',
-    badge: '/icon-192.png',
-    data: { url: data.url || '/a', type: data.type || '' },
+    icon: scopeUrl('icon-192.png'),
+    badge: scopeUrl('icon-192.png'),
+    data: { url: data.url || 'a', type: data.type || '' },
     tag: data.type === 'permission' ? 'rp-permission' : 'rp-turn-done',
     renotify: true,
   }
@@ -52,7 +60,7 @@ async function handlePush(event) {
 }
 
 async function openOrFocus(url) {
-  const abs = new URL(url, self.location.origin).href
+  const abs = scopeUrl(url)
   const clients = await self.clients.matchAll({
     type: 'window',
     includeUncontrolled: true,

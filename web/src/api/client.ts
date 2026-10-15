@@ -80,6 +80,22 @@ export async function parseError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, message, extra)
 }
 
+/** Vite base path without a trailing slash ('' for the default root build). */
+export function appBasePath(): string {
+  return (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
+}
+
+/**
+ * Prefixes a same-origin path (e.g. '/v1/...') with the Vite base path so the
+ * console works when served under a prefix like /app/roundpen/. With the
+ * default base ('/') the string is returned unchanged.
+ */
+export function apiUrl(path: string): string {
+  const base = import.meta.env.BASE_URL || '/'
+  const normalizedBase = base.endsWith('/') ? base : `${base}/`
+  return `${normalizedBase}${path.replace(/^\//, '')}`
+}
+
 export async function api<T>(
   path: string,
   init: RequestInit = {},
@@ -88,7 +104,7 @@ export async function api<T>(
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     ...init,
     headers,
     credentials: 'include',

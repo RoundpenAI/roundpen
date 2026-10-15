@@ -333,11 +333,19 @@ func main() {
 	// the previewed app rather than to the SPA.
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           previewHandler.VhostRouter(auth.Middleware(userStore, sessionStore)(mux)),
+		Handler:           stripGatewayHeaders(previewHandler.VhostRouter(auth.Middleware(userStore, sessionStore)(mux))),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // LLM relay and terminal WS stream past a write deadline
 		IdleTimeout:       120 * time.Second,
+	}
+
+	// fnOS unified-gateway SSO listens on a Unix socket beside the TCP listener.
+	// The no-fnOS build compiles the feature out, so this is a no-op there.
+	gwCloser, err := installFnosGateway(cfg, userStore, sessionStore, mux, logger)
+	if err != nil {
+		logger.Error("fnos gateway", slog.Any("err", err))
+		os.Exit(1)
 	}
 
 	go func() {
@@ -355,7 +363,25 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
+	if gwCloser != nil {
+		_ = gwCloser.Close()
+	}
 	logger.Info("roundpend shut down")
+}
+
+// stripGatewayHeaders removes the fnOS gateway identity headers from requests
+// reaching the TCP listener. Only the Unix-socket gateway chain may trust
+// X-Trim-*; scrubbing them here stops a TCP client from forging an identity
+// (the socket middleware is the primary gate; this is defence in depth).
+func stripGatewayHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for name := range r.Header {
+			if strings.HasPrefix(name, "X-Trim-") {
+				r.Header.Del(name)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func newWorkspaceFS(cfg *config.Config, dataRoot string, logger *slog.Logger) (workspace.FS, error) {

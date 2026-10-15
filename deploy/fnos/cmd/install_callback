@@ -46,6 +46,8 @@ export DATABASE_URL="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/${
     echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
     echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
     echo "ROUNDPEN_PREVIEW_PUBLIC_URL=http://127.0.0.1:${PORT}"
+    echo "ROUNDPEN_FNOS_GATEWAY_SOCKET=${TRIM_APPDEST}/app.sock"
+    echo "ROUNDPEN_FNOS_GATEWAY_PREFIX=/app/roundpen"
 } > "${ENVFILE}"
 
 export ROUNDPEN_PG0_BIN="${BIN_DIR}/pg0"

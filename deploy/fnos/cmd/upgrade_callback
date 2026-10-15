@@ -48,6 +48,16 @@ set -a
 . "${ENVFILE}"
 set +a
 
+# Unified-gateway env is appended only when absent, so an upgrade never
+# clobbers a user-edited roundpend.env.
+append_env_if_missing() { # append_env_if_missing <KEY> <VALUE>
+    if ! grep -q "^${1}=" "${ENVFILE}" 2>/dev/null; then
+        echo "${1}=${2}" >> "${ENVFILE}"
+    fi
+}
+append_env_if_missing ROUNDPEN_FNOS_GATEWAY_SOCKET "${TRIM_APPDEST}/app.sock"
+append_env_if_missing ROUNDPEN_FNOS_GATEWAY_PREFIX "/app/roundpen"
+
 export ROUNDPEN_PG0_BIN="${BIN_DIR}/pg0"
 export ROUNDPEN_ENSURE_PG0_ENV_FILE="${ENVFILE}"
 

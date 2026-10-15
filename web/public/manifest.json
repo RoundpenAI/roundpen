@@ -3,9 +3,9 @@
   "short_name": "Roundpen",
   "description": "私有化 Agent 沙箱控制台",
   "lang": "zh-CN",
-  "start_url": "/a",
-  "scope": "/",
-  "id": "/",
+  "start_url": "a",
+  "scope": "./",
+  "id": "./",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
   "orientation": "any",
@@ -13,19 +13,19 @@
   "theme_color": "#1a1612",
   "icons": [
     {
-      "src": "/icon-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-512.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icon-512.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

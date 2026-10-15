@@ -45,6 +45,8 @@ type Config struct {
 	VAPIDPublicKey            string
 	VAPIDPrivateKey           string
 	VAPIDSubject              string // mailto: or https: contact for VAPID
+	FnosGatewaySocket         string // fnOS unified-gateway Unix socket; empty = gateway SSO off
+	FnosGatewayPrefix         string // gateway path prefix the fnOS web console mounts at
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -78,6 +80,8 @@ func Load() (*Config, error) {
 		VAPIDPublicKey:            strings.TrimSpace(os.Getenv("ROUNDPEN_VAPID_PUBLIC_KEY")),
 		VAPIDPrivateKey:           strings.TrimSpace(os.Getenv("ROUNDPEN_VAPID_PRIVATE_KEY")),
 		VAPIDSubject:              strings.TrimSpace(os.Getenv("ROUNDPEN_VAPID_SUBJECT")),
+		FnosGatewaySocket:         strings.TrimSpace(os.Getenv("ROUNDPEN_FNOS_GATEWAY_SOCKET")),
+		FnosGatewayPrefix:         strings.TrimSpace(getenv("ROUNDPEN_FNOS_GATEWAY_PREFIX", "/app/roundpen")),
 	}
 	domain, scheme, err := parsePreviewDomain(os.Getenv("ROUNDPEN_PREVIEW_DOMAIN"))
 	if err != nil {

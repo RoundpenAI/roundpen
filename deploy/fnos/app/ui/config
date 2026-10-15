@@ -3,10 +3,11 @@
         "roundpen.main": {
             "title": "Roundpen",
             "icon": "images/icon_{0}.png",
-            "type": "url",
-            "protocol": "http",
-            "port": "9527",
-            "url": "/",
+            "type": "iframe",
+            "protocol": "",
+            "gatewayPrefix": "/app/roundpen",
+            "gatewaySocket": "app.sock",
+            "url": "/app/roundpen",
             "allUsers": true
         }
     }

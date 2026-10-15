@@ -5,6 +5,9 @@ const apiProxy = process.env.ROUNDPEN_API_PROXY || 'http://127.0.0.1:19001'
 
 export default defineConfig({
   plugins: [react()],
+  // fnOS serves the console under a path prefix (/app/roundpen/); every other
+  // channel leaves VITE_BASE unset so base stays '/' and behavior is unchanged.
+  base: process.env.VITE_BASE || '/',
   server: {
     host: '0.0.0.0',
     port: 19000,

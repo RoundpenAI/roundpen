@@ -83,9 +83,14 @@ Agent 镜像默认 `ghcr.io/roundpenai/code-agent:0.1.0`，网络不通时可在
   有通配域名（DNS + 证书覆盖 `*.rp.mk`）时可设 `ROUNDPEN_PREVIEW_DOMAIN=rp.mk`，
   预览改为每端口一个子域 `{沙箱}-{端口}.rp.mk`；反代需保留 Host、带上
   `X-Forwarded-Proto`，并把反代网段写进 `ROUNDPEN_TRUSTED_PROXIES`。
-- **端口**：`manifest.service_port` 与桌面入口固定 9527；改端口要同时改
-  `app/ui/config`。桌面入口 `type` 为 `url`（浏览器新标签打开），避免 iframe
-  内嵌带来的 CORS / Cookie 问题。
+- **入口与端口**：桌面入口走**统一网关**（`app/ui/config` 里的
+  `gatewayPrefix: "/app/roundpen"` + `gatewaySocket: "app.sock"`），飞牛校验 NAS
+  登录态后经 Unix Socket 转发，并注入 `X-Trim-Userid` / `X-Trim-Isadmin` /
+  `X-Trim-Username`；不同飞牛用户会映射为不同本地账号（`fnos-<uid>`），飞牛管理员
+  映射为管理员。
+  `manifest.service_port`（默认 9527）+ `checkport=true` **保留**，作为独立端口
+  供 **API / 移动端 / CLI / 外部 LLM 客户端** 使用，也可用浏览器打开 `:9527` 以
+  `admin`+密码登录 Web 控制台。网关条目下 `protocol`/`port` 被忽略。
 - **图标**：由 `web/public/favicon.svg` 渲染，改 logo 后跑
   `node deploy/fnos/scripts/gen-icons.mjs` 重新生成。
 - **`os_min_version`**：真机测过之后再往 `manifest` 里补兼容范围。

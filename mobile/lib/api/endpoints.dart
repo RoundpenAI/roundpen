@@ -23,6 +23,20 @@ class RoundpenApi {
     );
   }
 
+  /// Authenticates with an API key (`rp-...`) instead of username/password.
+  ///
+  /// The control plane resolves any `Authorization: Bearer rp-...` value as an
+  /// API key (see auth.Middleware), so there is no login round-trip: present the
+  /// key as the Bearer credential and confirm it against `/v1/auth/user`. Needed
+  /// for fnOS-provisioned accounts, which have no local password.
+  ///
+  /// Leaves the client configured with the key on success; callers reset it on
+  /// failure.
+  Future<User> loginWithApiKey(String apiKey) async {
+    client.configure(token: apiKey);
+    return me();
+  }
+
   Future<User> me() async {
     final res = await client.get('/v1/auth/user') as Map<String, dynamic>;
     return User.fromJson(res);

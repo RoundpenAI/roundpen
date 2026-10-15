@@ -90,6 +90,8 @@ do_start() {
         echo "ROUNDPEN_AGENT_IMAGE=${ROUNDPEN_AGENT_IMAGE}"
         echo "ROUNDPEN_DEFAULT_IMAGE=${ROUNDPEN_DEFAULT_IMAGE}"
         echo "ROUNDPEN_PREVIEW_PUBLIC_URL=${ROUNDPEN_PREVIEW_PUBLIC_URL}"
+        echo "ROUNDPEN_FNOS_GATEWAY_SOCKET=${TRIM_APPDEST}/app.sock"
+        echo "ROUNDPEN_FNOS_GATEWAY_PREFIX=/app/roundpen"
     } > "${ENVFILE}"
 
     # Roundpend loads .env from cwd; run from the data root and pass env.

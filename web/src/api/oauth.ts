@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, apiUrl } from './client'
 
 export type OAuthProviderOption = {
   id: string
@@ -12,9 +12,11 @@ export const oauthProviders = {
   list: () =>
     api<{ providers: OAuthProviderOption[] }>('/v1/auth/oauth/providers'),
   startUrl: (id: string, redirect?: string) =>
-    `/v1/auth/oauth/${encodeURIComponent(id)}/start${
-      redirect ? `?redirect=${encodeURIComponent(redirect)}` : ''
-    }`,
+    apiUrl(
+      `/v1/auth/oauth/${encodeURIComponent(id)}/start${
+        redirect ? `?redirect=${encodeURIComponent(redirect)}` : ''
+      }`,
+    ),
 }
 
 export type Identity = {
