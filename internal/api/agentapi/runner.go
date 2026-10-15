@@ -3,6 +3,7 @@ package agentapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -18,9 +19,46 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/storage"
+	"github.com/RoundpenAI/roundpen/internal/webpush"
 )
 
-const turnTimeout = 10 * time.Minute
+// turnTimeout caps one prompt turn (thinking + tools + replies + permission
+// waits). Multi-step coding work routinely exceeds 10 minutes; keep a safety
+// bound so a hung LLM stream cannot occupy the concurrency gate forever.
+const turnTimeout = 2 * time.Hour
+
+func isDeadlineExceeded(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// ACP wraps the deadline as JSON-RPC -32603 Internal error.
+	return strings.Contains(err.Error(), "context deadline exceeded")
+}
+
+func turnErrorMessage(err error) string {
+	if isDeadlineExceeded(err) {
+		return fmt.Sprintf("本轮工作超时（超过 %s），已停止。可拆成更小的任务再试。", formatTurnTimeout(turnTimeout))
+	}
+	return unwrapPromptErr(err)
+}
+
+func formatTurnTimeout(d time.Duration) string {
+	if d%(time.Hour) == 0 && d >= time.Hour {
+		h := int(d / time.Hour)
+		if h == 1 {
+			return "1 小时"
+		}
+		return fmt.Sprintf("%d 小时", h)
+	}
+	if d%(time.Minute) == 0 && d >= time.Minute {
+		m := int(d / time.Minute)
+		return fmt.Sprintf("%d 分钟", m)
+	}
+	return d.String()
+}
 
 // permWait tracks an outstanding interactive permission request that may outlive
 // any single WebSocket connection.
@@ -380,8 +418,12 @@ func (r *runner) runTurn(text string) {
 	stop, err := r.acp.Prompt(ctx, r.session.ID, text)
 	if err != nil {
 		r.flushThought()
-		r.persist(agentsession.RoleEvent, err.Error(), map[string]string{"type": "error"})
-		r.broadcast(wsOut{Type: "error", Message: err.Error()})
+		// Client wait ended (timeout / cancel / transport); stop the in-process
+		// agent so the next turn does not collide with leftover work.
+		r.cancelTurn()
+		msg := turnErrorMessage(err)
+		r.persist(agentsession.RoleEvent, msg, map[string]string{"type": "error"})
+		r.broadcast(wsOut{Type: "error", Message: msg})
 	} else {
 		r.flushThought()
 		r.mu.Lock()
@@ -395,6 +437,7 @@ func (r *runner) runTurn(text string) {
 			"stopReason": string(stop),
 		})
 		r.broadcast(wsOut{Type: "done", StopReason: string(stop)})
+		r.notifyTurnDone()
 	}
 	r.finishTurn()
 }
@@ -466,7 +509,8 @@ func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID, title stri
 		return acp.RequestPermissionResponse{}, false
 	}
 	if opt := acpclient.PickOrdinaryAllow(req.Options); opt != "" {
-		r.persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
+		label := permissionOptionLabel(req.Options, opt)
+		r.persist(agentsession.RolePermission, label, agentsession.PermissionMeta{
 			Type:      "permission",
 			RequestID: reqID,
 			Title:     title,
@@ -539,8 +583,10 @@ func (r *runner) recentDigest() string {
 }
 
 // onPermission is wired to the ACP runtime exactly once per runtime and
-// outlives any individual WebSocket connection.  If no client is connected the
-// permission is auto-cancelled so the turn is not stuck.
+// outlives any individual WebSocket connection. If no client is connected and
+// the user has no Web Push subscription, the permission is auto-cancelled so
+// the turn is not stuck. With a push subscription we keep waiting (turn
+// timeout /clear / answer still apply) so the user can open the notification.
 func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
 	reqID := string(req.ToolCall.ToolCallId)
 	ch := make(chan string, 1)
@@ -605,8 +651,9 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 		Options:   req.Options,
 		TicketID:  ticketID,
 	})
+	r.notifyPermission(title)
 
-	if nclients == 0 {
+	if nclients == 0 && !r.userHasPush() {
 		r.cancelPermission(reqID, title, req.Options)
 		r.mu.Lock()
 		resp := r.permResult(reqID, "", true)
@@ -618,7 +665,7 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 		r.mu.Lock()
 		nclients = len(r.clients)
 		r.mu.Unlock()
-		if nclients == 0 {
+		if nclients == 0 && !r.userHasPush() {
 			r.cancelPermission(reqID, title, req.Options)
 			r.mu.Lock()
 			resp := r.permResult(reqID, "", true)
@@ -627,7 +674,8 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 		}
 		select {
 		case opt := <-ch:
-			r.persist(agentsession.RolePermission, title+" · "+opt, agentsession.PermissionMeta{
+			label := permissionOptionLabel(req.Options, opt)
+			r.persist(agentsession.RolePermission, label, agentsession.PermissionMeta{
 				Type:      "permission",
 				RequestID: reqID,
 				Title:     title,
@@ -642,7 +690,7 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 			r.mu.Unlock()
 			return resp, nil
 		case <-time.After(300 * time.Millisecond):
-			// Re-check whether a client is still connected.
+			// Re-check whether a client is still connected (or push can cover).
 		case <-r.permCancel(reqID):
 			r.cancelPermission(reqID, title, req.Options)
 			r.mu.Lock()
@@ -695,6 +743,53 @@ func (r *runner) cancelTicket(ticketID string) {
 	if _, err := r.handler.Tickets.Cancel(ctx, ticketID, "权限请求已取消"); err != nil && r.handler.Log != nil {
 		r.handler.Log.Warn("cancel assist ticket", "ticket", ticketID, "err", err)
 	}
+}
+
+func (r *runner) userHasPush() bool {
+	if r.handler == nil || r.handler.Push == nil || r.session == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), 2*time.Second)
+	defer cancel()
+	return r.handler.Push.HasSubscription(ctx, r.session.UserID)
+}
+
+func (r *runner) notifyPermission(toolTitle string) {
+	if r.handler == nil || r.handler.Push == nil || r.session == nil {
+		return
+	}
+	title := "需要确认"
+	body := strings.TrimSpace(toolTitle)
+	if body == "" {
+		body = "助手请求权限"
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), 5*time.Second)
+	defer cancel()
+	r.handler.Push.Notify(ctx, r.session.UserID, webpush.Payload{
+		Type:  "permission",
+		Title: title,
+		Body:  body,
+		URL:   webpush.SessionURL(r.session.AssistantID, r.session.ID),
+	})
+}
+
+func (r *runner) notifyTurnDone() {
+	if r.handler == nil || r.handler.Push == nil || r.session == nil {
+		return
+	}
+	sessTitle := webpush.TruncateTitle(r.session.Title, 48)
+	body := "回合已完成"
+	if sessTitle != "" {
+		body = sessTitle + " · 回合已完成"
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), 5*time.Second)
+	defer cancel()
+	r.handler.Push.Notify(ctx, r.session.UserID, webpush.Payload{
+		Type:  "turn_done",
+		Title: "会话完成",
+		Body:  body,
+		URL:   webpush.SessionURL(r.session.AssistantID, r.session.ID),
+	})
 }
 
 // permCancel returns the /clear abandonment channel for a pending permission
@@ -780,6 +875,27 @@ func optionRejects(options any, optionID string) bool {
 			o.Kind == acp.PermissionOptionKindRejectAlways
 	}
 	return strings.Contains(optionID, "reject")
+}
+
+// permissionOptionLabel resolves an ACP option id to its user-facing name so
+// transcript rows show "继续用代理" instead of "opt-0".
+func permissionOptionLabel(options any, optionID string) string {
+	if optionID == "" {
+		return ""
+	}
+	opts, ok := options.([]acp.PermissionOption)
+	if ok {
+		for _, o := range opts {
+			if string(o.OptionId) != optionID {
+				continue
+			}
+			if name := strings.TrimSpace(o.Name); name != "" {
+				return name
+			}
+			break
+		}
+	}
+	return optionID
 }
 
 // cancelTurn cancels the in-progress ACP prompt.
@@ -893,4 +1009,42 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	rt.SetAutoMode(true)
 	h.runners[sess.ID] = r
 	return r, nil
+}
+
+// unwrapPromptErr peels ACP JSON-RPC Internal error wrappers so the chat UI
+// sees the actionable message (e.g. LLM not configured) instead of raw JSON.
+func unwrapPromptErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errors.Is(err, sysagent.ErrLLMNotConfigured) {
+		return sysagent.ErrLLMNotConfigured.Error()
+	}
+	var re *acp.RequestError
+	if errors.As(err, &re) && re != nil {
+		switch data := re.Data.(type) {
+		case map[string]any:
+			if s, ok := data["error"].(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+			if s, ok := data["details"].(string); ok && strings.TrimSpace(s) != "" {
+				return s
+			}
+		case string:
+			if strings.TrimSpace(data) != "" {
+				return data
+			}
+		}
+	}
+	msg := err.Error()
+	// Last resort: parse a marshalled RequestError string.
+	var parsed struct {
+		Data struct {
+			Error string `json:"error"`
+		} `json:"data"`
+	}
+	if json.Unmarshal([]byte(msg), &parsed) == nil && strings.TrimSpace(parsed.Data.Error) != "" {
+		return parsed.Data.Error
+	}
+	return msg
 }

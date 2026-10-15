@@ -24,10 +24,13 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
 
 export type SettingsSectionKey =
   | 'accounts'
+  | 'connectors'
+  | 'mcp'
   | 'password'
   | 'git'
   | 'agent'
   | 'slots'
+  | 'notifications'
   | 'general'
   | 'oauth'
   | 'llmgw'
@@ -65,7 +68,10 @@ export const PERSONAL_SETTINGS_GROUPS: SettingsGroup[] = [
 
 export const PERSONAL_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'accounts', labelKey: 'settings.section.accounts', group: 'account' },
+  { key: 'connectors', labelKey: 'settings.section.connectors', group: 'account' },
+  { key: 'mcp', labelKey: 'settings.section.mcp', group: 'account' },
   { key: 'password', labelKey: 'settings.section.password', group: 'account' },
+  { key: 'notifications', labelKey: 'settings.section.notifications', group: 'account' },
   { key: 'git', labelKey: 'settings.section.git', group: 'workspace' },
   { key: 'agent', labelKey: 'settings.section.agent', group: 'workspace' },
   { key: 'slots', labelKey: 'settings.section.slots', group: 'workspace' },

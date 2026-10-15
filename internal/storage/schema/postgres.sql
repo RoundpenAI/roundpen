@@ -661,3 +661,98 @@ CREATE UNIQUE INDEX IF NOT EXISTS routine_runs_one_open_idx
     ON routine_runs (routine_id)
     WHERE status IN ('queued', 'running', 'waiting_user');
 
+
+-- Per-user Google OAuth clients and connector grants (Gmail + Calendar read-only).
+CREATE TABLE IF NOT EXISTS user_google_oauth_clients (
+    user_id       TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
+    client_id     TEXT NOT NULL DEFAULT '',
+    client_secret TEXT NOT NULL DEFAULT '',
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS user_connector_grants (
+    id               TEXT PRIMARY KEY,
+    user_id          TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    kind             TEXT NOT NULL DEFAULT 'google',
+    subject          TEXT NOT NULL DEFAULT '',
+    email            TEXT NOT NULL DEFAULT '',
+    access_token     TEXT NOT NULL DEFAULT '',
+    refresh_token    TEXT NOT NULL DEFAULT '',
+    token_expires_at TIMESTAMPTZ,
+    scopes           TEXT NOT NULL DEFAULT '',
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, kind)
+);
+CREATE INDEX IF NOT EXISTS user_connector_grants_user_idx ON user_connector_grants (user_id);
+
+CREATE TABLE IF NOT EXISTS connector_oauth_states (
+    state        TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    verifier     TEXT NOT NULL DEFAULT '',
+    redirect_uri TEXT NOT NULL DEFAULT '',
+    redirect_to  TEXT NOT NULL DEFAULT '',
+    expires_at   TIMESTAMPTZ NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Per-user MCP server connections. Secret material (API key, OAuth tokens,
+-- DCR client secret) is secretbox-sealed at rest; plaintext when the box is
+-- not configured (tests).
+CREATE TABLE IF NOT EXISTS user_mcp_connections (
+    id               TEXT PRIMARY KEY,
+    user_id          TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    server_id        TEXT NOT NULL,
+    auth_kind        TEXT NOT NULL DEFAULT 'oauth',      -- oauth | api_key
+    status           TEXT NOT NULL DEFAULT 'connected',  -- connected | needs_reauth | error
+    account_label    TEXT NOT NULL DEFAULT '',
+    api_key          TEXT NOT NULL DEFAULT '',
+    access_token     TEXT NOT NULL DEFAULT '',
+    refresh_token    TEXT NOT NULL DEFAULT '',
+    token_expires_at TIMESTAMPTZ,
+    scopes           TEXT NOT NULL DEFAULT '',
+    token_endpoint   TEXT NOT NULL DEFAULT '',
+    client_id        TEXT NOT NULL DEFAULT '',
+    client_secret    TEXT NOT NULL DEFAULT '',
+    resource         TEXT NOT NULL DEFAULT '',
+    tools            JSONB NOT NULL DEFAULT '[]'::jsonb,
+    tools_synced_at  TIMESTAMPTZ,
+    last_error       TEXT NOT NULL DEFAULT '',
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, server_id)
+);
+CREATE INDEX IF NOT EXISTS user_mcp_connections_user_idx ON user_mcp_connections (user_id);
+
+-- In-flight MCP OAuth flows. The row carries the full flow context
+-- (discovery result, DCR client, PKCE verifier) so the callback does not
+-- re-run discovery.
+CREATE TABLE IF NOT EXISTS mcp_oauth_states (
+    state                  TEXT PRIMARY KEY,
+    user_id                TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    server_id              TEXT NOT NULL,
+    verifier               TEXT NOT NULL DEFAULT '',
+    redirect_uri           TEXT NOT NULL DEFAULT '',
+    redirect_to            TEXT NOT NULL DEFAULT '',
+    resource               TEXT NOT NULL DEFAULT '',
+    authorization_endpoint TEXT NOT NULL,
+    token_endpoint         TEXT NOT NULL,
+    client_id              TEXT NOT NULL,
+    client_secret          TEXT NOT NULL DEFAULT '',
+    scopes                 TEXT NOT NULL DEFAULT '',
+    expires_at             TIMESTAMPTZ NOT NULL,
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Web Push subscriptions (PWA system notifications)
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    endpoint    TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    user_agent  TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
+    ON push_subscriptions (user_id);

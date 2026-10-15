@@ -8,6 +8,8 @@ export const auth = {
       method: 'POST',
       body: JSON.stringify({ user, password }),
     }),
+  bootstrapHint: () =>
+    api<{ username?: string; password?: string }>('/v1/auth/bootstrap-hint'),
   logout: () => api<void>('/v1/auth/logout', { method: 'POST' }),
   changePassword: (currentPassword: string, newPassword: string) =>
     api<void>('/v1/auth/password', {

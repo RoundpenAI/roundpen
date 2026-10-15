@@ -82,6 +82,10 @@ func (f *catalogSandboxes) Exec(_ context.Context, _ string, req sandbox.ExecReq
 	return &sandbox.ExecResult{}, nil
 }
 
+func (f *catalogSandboxes) WorkspaceHostPath(context.Context, string) (string, error) {
+	return "", fmt.Errorf("unused")
+}
+
 func catalogHandler(status sandbox.Status) *Handler {
 	boxes := &catalogSandboxes{status: status}
 	return &Handler{

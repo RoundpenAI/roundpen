@@ -1,6 +1,6 @@
 #!/bin/bash
 # Runs after the package files are installed: create the persistent data
-# directory and load the bundled images (if any).
+# directory, start the bundled pg0 instance, and write roundpend.env.
 
 set -u
 
@@ -9,13 +9,53 @@ fail() {
     exit 1
 }
 
-mkdir -p "${TRIM_PKGVAR}/data" || fail "无法创建数据目录 ${TRIM_PKGVAR}/data"
+BIN_DIR="${TRIM_APPDEST}/bin"
+ENSURE_PG0="${BIN_DIR}/ensure-pg0.sh"
+ENVFILE="${TRIM_PKGVAR}/roundpend.env"
+PORT="${TRIM_SERVICE_PORT:-9527}"
+# Avoid clashing with a NAS-wide Postgres on :5432.
+PG0_PORT="${PG0_PORT:-15432}"
 
-# Offline packages ship image tars whose tags match docker-compose.yaml; a
-# pull-based package simply has none.
-for tar in "${TRIM_APPDEST}"/images/*.tar; do
-    [ -f "${tar}" ] || continue
-    docker load -i "${tar}" || fail "加载镜像失败（需要 docker 权限）：${tar}"
-done
+mkdir -p "${TRIM_PKGVAR}/data" "${TRIM_PKGVAR}/.pg0" || fail "无法创建数据目录 ${TRIM_PKGVAR}/data"
+
+[ -x "${BIN_DIR}/pg0" ] || fail "包内缺少 pg0 二进制：${BIN_DIR}/pg0"
+[ -x "${BIN_DIR}/roundpend" ] || fail "包内缺少 roundpend 二进制：${BIN_DIR}/roundpend"
+[ -x "${ENSURE_PG0}" ] || fail "包内缺少 ensure-pg0.sh：${ENSURE_PG0}"
+
+# pg0 stores state under $HOME/.pg0 — point HOME at the package var dir so
+# install hooks (often without a login HOME) still have a writable root.
+export HOME="${TRIM_PKGVAR}"
+export PG0_HOME="${TRIM_PKGVAR}/.pg0"
+export PG0_DATA_DIR="${PG0_HOME}/instances/roundpen/data"
+export PG0_PORT
+export PG0_NAME=roundpen
+export PG0_USER=roundpen
+export PG0_PASS=roundpen
+export PG0_DB=roundpen
+export DATABASE_URL="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/${PG0_DB}?sslmode=disable"
+
+# Seed env before first start; cmd/main will refresh it.
+{
+    echo "DATABASE_URL=${DATABASE_URL}"
+    echo "ROUNDPEN_DATA_ROOT=${TRIM_PKGVAR}/data"
+    echo "ROUNDPEN_HTTP_ADDR=:${PORT}"
+    echo "ROUNDPEN_BACKEND=docker"
+    echo "ROUNDPEN_BOOTSTRAP_ADMIN=true"
+    echo "ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD=RoundpenAdmin1"
+    echo "ROUNDPEN_IM_ENABLED=true"
+    echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
+    echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
+    echo "ROUNDPEN_PREVIEW_PUBLIC_URL=http://127.0.0.1:${PORT}"
+} > "${ENVFILE}"
+
+export ROUNDPEN_PG0_BIN="${BIN_DIR}/pg0"
+export ROUNDPEN_ENSURE_PG0_ENV_FILE="${ENVFILE}"
+
+errfile="${TRIM_PKGVAR}/pg0-install.log"
+# shellcheck disable=SC1090
+if ! . "${ENSURE_PG0}" >"${errfile}" 2>&1; then
+    detail="$(tail -c 1500 "${errfile}" 2>/dev/null | tr '\n' ' ')"
+    fail "无法启动本地 pg0（或连接 DATABASE_URL）。${detail}"
+fi
 
 exit 0

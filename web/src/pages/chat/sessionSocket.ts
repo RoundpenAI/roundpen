@@ -16,10 +16,13 @@ import {
 import {
   appendThoughtMessage,
   clearStreaming,
+  finalizeOpenThoughts,
   isBrowserTool,
   isStreamingMessage,
+  MESSAGE_PAGE_SIZE,
   nowIso,
   readAutoMode,
+  reconcileRefetch,
   upsertToolMessage,
   type PermReq,
 } from './sessionChatHelpers'
@@ -137,10 +140,10 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
 
   const refetchMessages = () => {
     agents
-      .messages(id)
+      .messages(id, { limit: MESSAGE_PAGE_SIZE })
       .then((res) => {
         if (disposed || !wsRef.current) return
-        setMessages(res.messages ?? [])
+        setMessages((prev) => reconcileRefetch(prev, res.messages ?? []))
       })
       .catch(() => undefined)
   }
@@ -179,6 +182,46 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
           role: 'assistant',
           content: reply,
           meta: { type: 'agent_message', status: 'in_progress' },
+          createdAt: nowIso(),
+        },
+      ]
+    })
+  }
+
+  // In-progress thought is only buffered in the runner until a boundary
+  // flushes it; restore absolute content from the status snapshot.
+  const restoreStreamingThought = (thought: string) => {
+    if (!thought) return
+    setMessages((prev) => {
+      for (let i = prev.length - 1; i >= 0; i--) {
+        const m = prev[i]
+        const typ = m.meta?.type || m.role
+        if (
+          m.role === 'user' ||
+          typ === 'agent_message' ||
+          (m.role === 'assistant' && typ !== 'thought' && typ !== 'reasoning')
+        ) {
+          break
+        }
+        if (typ === 'thought' || typ === 'reasoning' || m.role === 'thought') {
+          if (m.meta?.status === 'completed') break
+          const next = [...prev]
+          next[i] = {
+            ...m,
+            content: thought,
+            meta: { ...m.meta, type: 'thought', status: 'in_progress' },
+          }
+          return next
+        }
+      }
+      return [
+        ...prev,
+        {
+          id: `thought-${Date.now()}`,
+          sessionId: id,
+          role: 'assistant',
+          content: thought,
+          meta: { type: 'thought', status: 'in_progress' },
           createdAt: nowIso(),
         },
       ]
@@ -251,6 +294,9 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
             setBusy(true)
             setError(null)
             setStatusHint('工作中')
+            if (msg.thought) {
+              restoreStreamingThought(msg.thought)
+            }
             if (msg.reply) {
               restoreStreamingReply(msg.reply)
             }
@@ -290,7 +336,8 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
           if (e.type === 'agent_message' && e.text) {
             setStatusHint(null)
             setMessages((prev) => {
-              const last = prev[prev.length - 1]
+              const base = finalizeOpenThoughts(prev)
+              const last = base[base.length - 1]
               const lastTyp = last?.meta?.type
               if (
                 last &&
@@ -300,12 +347,12 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
                 !last.meta?.toolId
               ) {
                 return [
-                  ...prev.slice(0, -1),
+                  ...base.slice(0, -1),
                   { ...last, content: last.content + e.text },
                 ]
               }
               return [
-                ...prev,
+                ...base,
                 {
                   id: `stream-${Date.now()}`,
                   sessionId: id,
@@ -353,7 +400,7 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
             }
             setStatusHint('工作中')
             setMessages((prev) =>
-              upsertToolMessage(prev, id, {
+              upsertToolMessage(finalizeOpenThoughts(prev), id, {
                 toolId,
                 title: title || undefined,
                 status: status || undefined,

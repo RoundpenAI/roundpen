@@ -275,10 +275,15 @@ export function BrowserPage() {
               </div>
               {proxyOptions.length > 0 && (
                 <div style={{ marginTop: 16 }}>
-                  <Typography.Text type="tertiary" size="small">
+                  <Typography.Text
+                    id="browser-egress-proxy-label"
+                    type="tertiary"
+                    size="small"
+                  >
                     Egress proxy (rebuilds the browser container when changed)
                   </Typography.Text>
                   <Select
+                    aria-labelledby="browser-egress-proxy-label"
                     style={{ display: 'block', marginTop: 8, maxWidth: 320 }}
                     size="small"
                     value={browserProxy}

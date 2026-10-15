@@ -4,6 +4,7 @@ import { Button, Layout, Nav, Typography } from '@douyinfe/semi-ui-19'
 import { doLogout, useAuth } from '../auth'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
 import { ThemeToggle } from './ThemeToggle'
+import { LocaleToggle } from './LocaleToggle'
 
 export type AppSection =
   | 'assistants'
@@ -107,6 +108,7 @@ export function PageShell({
               {user.username}
             </Typography.Text>
           )}
+          <LocaleToggle />
           <ThemeToggle />
           {user && (
             <Button type="tertiary" onClick={() => setChangePasswordOpen(true)}>

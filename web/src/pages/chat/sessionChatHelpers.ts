@@ -34,12 +34,115 @@ export function isStreamingMessage(m: AgentMessage): boolean {
   return m.meta?.status === 'in_progress' || m.meta?.status === 'pending'
 }
 
+function isThoughtMessage(m: AgentMessage): boolean {
+  const typ = m.meta?.type || m.role
+  return typ === 'thought' || typ === 'reasoning' || m.role === 'thought'
+}
+
+/** Elapsed ms from the thought's createdAt to now (or a provided end). */
+export function thoughtDurationMs(m: AgentMessage, endMs = Date.now()): number {
+  const start = Date.parse(m.createdAt)
+  if (!Number.isFinite(start)) return 0
+  return Math.max(0, endMs - start)
+}
+
+/**
+ * Close any open thought blocks and stamp durationMs. Called at boundaries
+ * (reply text / tool / turn end) so the live timer stops when thinking ends.
+ */
+export function finalizeOpenThoughts(
+  prev: AgentMessage[],
+  endMs = Date.now(),
+): AgentMessage[] {
+  let changed = false
+  const next = prev.map((m) => {
+    if (!isThoughtMessage(m) || !isStreamingMessage(m)) return m
+    changed = true
+    return {
+      ...m,
+      meta: {
+        ...m.meta,
+        type: 'thought',
+        status: 'completed',
+        durationMs: m.meta?.durationMs ?? thoughtDurationMs(m, endMs),
+      },
+    }
+  })
+  return changed ? next : prev
+}
+
 export function clearStreaming(prev: AgentMessage[]): AgentMessage[] {
-  return prev.map((m) =>
-    isStreamingMessage(m)
-      ? { ...m, meta: { ...m.meta, status: 'completed' } }
-      : m,
+  return finalizeOpenThoughts(
+    prev.map((m) =>
+      isStreamingMessage(m) && !isThoughtMessage(m)
+        ? { ...m, meta: { ...m.meta, status: 'completed' } }
+        : m,
+    ),
   )
+}
+
+/**
+ * After a refresh/reconnect, history may arrive after the WS status snapshot
+ * already planted an in-progress reply/thought. Use persisted history as the
+ * base and keep ephemeral live overlays (stream-/thought-/tool- rows that are
+ * not yet in the DB) on top so we never drop either side.
+ */
+export function mergeHistoryWithLive(
+  hist: AgentMessage[],
+  live: AgentMessage[],
+  sessionId: string,
+): AgentMessage[] {
+  const histIds = new Set(hist.map((m) => m.id))
+  const histToolIds = new Set(
+    hist
+      .map((m) => m.meta?.toolId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0),
+  )
+  const overlays: AgentMessage[] = []
+  for (const m of live) {
+    if (m.sessionId && m.sessionId !== sessionId) continue
+    if (!isStreamingMessage(m)) continue
+    if (histIds.has(m.id)) continue
+    const toolId = m.meta?.toolId
+    if (typeof toolId === 'string' && toolId && histToolIds.has(toolId)) {
+      continue
+    }
+    overlays.push(m)
+  }
+  if (overlays.length === 0) return hist
+  return [...hist, ...overlays]
+}
+
+/**
+ * Reconcile a recent-window refetch with already-loaded older pages so a
+ * turn-end refresh does not wipe scroll-loaded history.
+ */
+export function reconcileRefetch(
+  prev: AgentMessage[],
+  fresh: AgentMessage[],
+): AgentMessage[] {
+  if (fresh.length === 0) return prev
+  const freshIds = new Set(fresh.map((m) => m.id))
+  const oldestFresh = fresh[0]!
+  const older = prev.filter((m) => {
+    if (freshIds.has(m.id)) return false
+    if (isStreamingMessage(m)) return false
+    if (m.createdAt < oldestFresh.createdAt) return true
+    if (m.createdAt === oldestFresh.createdAt && m.id < oldestFresh.id) {
+      return true
+    }
+    return false
+  })
+  const live = prev.filter((m) => isStreamingMessage(m) && !freshIds.has(m.id))
+  return [...older, ...fresh, ...live]
+}
+
+/** Default page size for chat transcript fetches. */
+export const MESSAGE_PAGE_SIZE = 80
+
+/** True when the row is a client-only ephemeral bubble (not a DB uuid). */
+export function isEphemeralMessageId(id: string): boolean {
+  return /^(stream|thought|tool|perm)-/.test(id)
 }
 
 export function upsertToolMessage(
@@ -130,7 +233,10 @@ export function appendThoughtMessage(
     ) {
       break
     }
-    if (typ === 'thought' || m.role === 'thought') {
+    if (isThoughtMessage(m)) {
+      // A completed thought is a finished segment; start a new block so the
+      // next round of thinking gets its own timer.
+      if (m.meta?.status === 'completed') break
       const next = [...prev]
       next[i] = {
         ...m,

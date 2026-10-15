@@ -58,3 +58,34 @@ func TestDefaults_AllowsIssueTrackerWrites(t *testing.T) {
 	}
 	t.Fatal("defaults must allow recording issues, docs and tasks")
 }
+
+func TestDefaults_AllowsLANForNAS(t *testing.T) {
+	def := Defaults()
+	foundLAN := false
+	for _, rule := range def.Environment {
+		if strings.Contains(rule, "Trusted network") && strings.Contains(rule, "LAN") {
+			foundLAN = true
+			break
+		}
+	}
+	if !foundLAN {
+		t.Fatal("environment must treat the user's LAN as trusted on NAS deployments")
+	}
+	for _, rule := range def.HardDeny {
+		if strings.Contains(strings.ToLower(rule), "private-network") &&
+			!strings.Contains(rule, "not covered") &&
+			!strings.Contains(rule, "Ordinary LAN") {
+			t.Fatalf("hard deny must not blanket-block private-network access: %q", rule)
+		}
+	}
+	foundAllow := false
+	for _, rule := range def.Allow {
+		if strings.Contains(rule, "private-network") || strings.Contains(rule, "LAN") {
+			foundAllow = true
+			break
+		}
+	}
+	if !foundAllow {
+		t.Fatal("allow rules must mention LAN / private-network access")
+	}
+}

@@ -203,9 +203,20 @@ type ThoughtProps = {
   text: string
   streaming?: boolean
   startedAtMs?: number
+  durationMs?: number
 }
 
-export function ThoughtBlock({ text, streaming, startedAtMs }: ThoughtProps) {
+function formatThoughtSeconds(ms: number): string {
+  const secs = Math.max(0, Math.round(ms / 1000))
+  return secs < 1 ? '已思考' : `已思考${secs}秒`
+}
+
+export function ThoughtBlock({
+  text,
+  streaming,
+  startedAtMs,
+  durationMs,
+}: ThoughtProps) {
   const [open, setOpen] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
@@ -215,16 +226,14 @@ export function ThoughtBlock({ text, streaming, startedAtMs }: ThoughtProps) {
     return () => window.clearInterval(timer)
   }, [streaming])
 
-  const streamingSince =
-    streaming && startedAtMs
-      ? Math.max(0, Math.round((now - startedAtMs) / 1000))
-      : null
-  const label =
-    streamingSince != null
-      ? streamingSince < 1
-        ? '思考中…'
-        : `思考 ${streamingSince}s`
-      : '思考'
+  let label = '思考'
+  if (streaming && startedAtMs) {
+    const elapsed = Math.max(0, now - startedAtMs)
+    const secs = Math.max(0, Math.round(elapsed / 1000))
+    label = secs < 1 ? '思考中…' : `思考 ${secs}s`
+  } else if (typeof durationMs === 'number' && durationMs >= 0) {
+    label = formatThoughtSeconds(durationMs)
+  }
   const preview = thoughtPreview(text)
 
   return (

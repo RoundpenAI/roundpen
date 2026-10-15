@@ -83,9 +83,17 @@ export type SetupPlan = {
   createdAt: string
 }
 
+export type LlmReady = {
+  ready: boolean
+  mode: 'free' | 'byok' | 'none' | string
+  reason?: string
+  freeAvailable: boolean
+}
+
 export const setupApi = {
-  llmReady: () =>
-    api<{ ready: boolean; reason?: string }>('/v1/setup/llm-ready'),
+  llmReady: () => api<LlmReady>('/v1/setup/llm-ready'),
+  enableFreeLlm: () =>
+    api<LlmReady>('/v1/setup/llm-free', { method: 'POST' }),
   createPlan: (body: {
     name: string
     bio: string

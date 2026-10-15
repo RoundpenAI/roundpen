@@ -192,9 +192,12 @@ export function AgentEnvironmentPanel() {
         </Radio.Group>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <Typography.Text strong>{t('agentEnv.proxy')}</Typography.Text>
+        <Typography.Text strong id="agent-egress-proxy-label">
+          {t('agentEnv.proxy')}
+        </Typography.Text>
         <Typography.Text type="tertiary">{t('agentEnv.proxy.hint')}</Typography.Text>
         <Select
+          aria-labelledby="agent-egress-proxy-label"
           style={{ maxWidth: 320 }}
           value={agentProxy}
           disabled={busy || proxyOptions.length === 0}

@@ -37,21 +37,34 @@ function parseArgs(raw: string | undefined): unknown {
 }
 
 function activityFromMessage(message: DialogueMessage): {
-  thoughts: { text: string; streaming?: boolean; startedAtMs?: number }[]
+  thoughts: {
+    text: string
+    streaming?: boolean
+    startedAtMs?: number
+    durationMs?: number
+  }[]
   tools: ToolCallData[]
 } {
   const items = Array.isArray(message.content)
     ? (message.content as SemiContentItem[])
     : []
-  const thoughts: { text: string; streaming?: boolean; startedAtMs?: number }[] = []
+  const thoughts: {
+    text: string
+    streaming?: boolean
+    startedAtMs?: number
+    durationMs?: number
+  }[] = []
   const tools: ToolCallData[] = []
-  const messageInProgress = message.status === 'in_progress'
   for (const item of items) {
     if (item.type === 'reasoning') {
       const text = item.summary?.map((s) => s.text).join('\n') || ''
       thoughts.push({
         text,
         startedAtMs: item.createdAt,
+        durationMs: item.durationMs,
+        // Per-thought status: a finished segment must stop the timer even if
+        // the surrounding activity turn is still in progress (tools / later text).
+        streaming: item.status === 'in_progress',
       })
     } else if (item.type === 'function_call') {
       tools.push({
@@ -62,9 +75,6 @@ function activityFromMessage(message: DialogueMessage): {
         output: item.output,
       })
     }
-  }
-  if (messageInProgress && thoughts.length > 0) {
-    thoughts[thoughts.length - 1].streaming = true
   }
   return { thoughts, tools }
 }
@@ -80,6 +90,7 @@ export function renderActivityContent(message: DialogueMessage): ReactNode {
             text={t.text}
             streaming={t.streaming}
             startedAtMs={t.startedAtMs}
+            durationMs={t.durationMs}
           />
         ) : null,
       )}

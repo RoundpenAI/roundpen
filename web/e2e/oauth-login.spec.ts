@@ -8,7 +8,7 @@ import {
 
 test('login page offers the configured providers', async ({ page }) => {
   await page.goto('/login')
-  const button = page.getByRole('button', { name: 'Sign in with Gitea' })
+  const button = page.getByRole('button', { name: '使用 Gitea 登录' })
   await expect(button).toBeVisible()
 
   // /v1/auth/oauth/{id}/start redirects to the remote authorize page; the
@@ -21,7 +21,7 @@ test('login page offers the configured providers', async ({ page }) => {
 test('login page surfaces oauth_error from the callback', async ({ page }) => {
   await page.goto('/login?oauth_error=registration_disabled')
   await expect(page.getByRole('alert').first()).toContainText(
-    'No Roundpen account matches this identity',
+    '没有匹配的 Roundpen 账号',
   )
 })
 

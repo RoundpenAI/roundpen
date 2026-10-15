@@ -42,7 +42,7 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 | 后端 | **Agent / Browser → Docker**；**Desktop / Mobile 预留 QEMU**；`multi` 按 slot 路由 |
 | 镜像 | CI 构建（`images/code-agent/` → ghcr）+ `internal/template` 镜像目录（启动时按 env 播种）+ `ghcr.io/browserless/chrome`（Browser，pull） |
 
-仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。Browser 环境见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。Agent 安全见 [docs/security.md](docs/security.md)。
+仓库布局见 [docs/architecture/project-layout.md](docs/architecture/project-layout.md)。账号工作区目录约定见 [docs/workspace-layout.md](docs/workspace-layout.md)。Browser 环境见 [docs/architecture/browser-env.md](docs/architecture/browser-env.md)。Agent 安全见 [docs/security.md](docs/security.md)。
 
 ## 核心能力
 
@@ -54,6 +54,8 @@ Browser: 控制面拨入容器 CDP :3000；实时视图 = 容器内 browserless 
 6. **最小审计**：创建 / 删除 / exec / settings 写 slog
 7. **事项与任务跟踪**：对话中产生的事项落库（`ISS-n`），澄清边界/方向/决策后写版本化 Spec / Plan（`DOC-n`），拆成任务清单（`TSK-n`）逐个实现；控制台 `/issues` 可读可改
 8. **常驻任务**：对话里把反复要做的事交给一个助手（`RTN-n`），到点自行运行（`RUN-n`），结果进主对话和已有 IM 聊天。助手详情可看、可改。抢券和报税还要后续的登录态，这一期做不到端到端。
+9. **Google 连接器（只读）**：用户自备 OAuth Client，连接 Gmail / Calendar；见 [docs/connectors.md](docs/connectors.md)
+10. **MCP 连接器**：内置审核过的 MCP 服务器目录（Notion / Linear / GitHub 等），用户按 API key 或 OAuth（DCR + PKCE）逐个连接；已连接服务器的工具动态进入会话，全部走审批。见 [docs/mcp-connectors.md](docs/mcp-connectors.md)
 
 助手产品模型见 [docs/superpowers/specs/2026-09-12-assistant-first-ui-design.md](docs/superpowers/specs/2026-09-12-assistant-first-ui-design.md)。对话默认安静执行；进度在助手详情「此刻」；卡壳时通过协助单升级人类。策略软拒绝（网络/目录/能力）可查询且可申请，不会自动刷单。
 
@@ -72,8 +74,8 @@ make browser-driver   # 裸机 / 开发环境可选：预装 Playwright driver�
 | 模式 | 适用场景 |
 |------|----------|
 | **Docker Compose（推荐）** | NAS / 小团队一键私有化 |
-| 飞牛 fnOS 应用包（`.fpk`） | 飞牛 NAS：应用中心一键安装，见 [deploy/fnos/README.md](deploy/fnos/README.md) |
-| `./roundpend` 单二进制 | 本地开发、已有 PG |
+| 飞牛 fnOS 应用包（`.fpk`） | 飞牛 NAS：宿主机 `roundpend` + 包内 pg0，见 [deploy/fnos/README.md](deploy/fnos/README.md) |
+| `./roundpend` 单二进制 | 本地开发、已有 PG（或本机 pg0） |
 | Kubernetes（规划中） | 企业集群 |
 
 两个二进制（`roundpend` / `roundpen`）启动时会自动加载**当前工作目录**下的 `.env`；已存在的环境变量优先，文件缺失则静默跳过。systemd 可用 `EnvironmentFile=` 注入同样的变量。

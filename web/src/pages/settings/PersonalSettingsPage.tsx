@@ -1,8 +1,11 @@
 import { Navigate, useParams } from 'react-router-dom'
 import { AgentEnvironmentPanel } from '../../components/AgentEnvironmentPanel'
 import { ChangePasswordForm } from '../../components/ChangePasswordForm'
+import { ConnectorsPanel } from '../../components/ConnectorsPanel'
 import { GitCredentialsPanel } from '../../components/GitCredentialsPanel'
 import { LinkedAccountsPanel } from '../../components/LinkedAccountsPanel'
+import { McpPanel } from '../../components/McpPanel'
+import { NotificationsPanel } from '../../components/NotificationsPanel'
 import { PersonalSlotsPanel } from '../../components/PersonalSlotsPanel'
 import { useAuth } from '../../auth'
 import { isAdminSectionKey, SETTINGS_AREAS } from '../../lib/appNav'
@@ -37,7 +40,13 @@ export function PersonalSettingsPage() {
 
       {section === 'accounts' && <LinkedAccountsPanel />}
 
+      {section === 'connectors' && <ConnectorsPanel />}
+
+      {section === 'mcp' && <McpPanel />}
+
       {section === 'password' && <ChangePasswordForm />}
+
+      {section === 'notifications' && <NotificationsPanel />}
 
       {section === 'agent' && <AgentEnvironmentPanel />}
 

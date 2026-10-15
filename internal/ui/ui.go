@@ -13,12 +13,13 @@ var distEmbed embed.FS
 
 // contentSecurityPolicy is the CSP for the console SPA only (mounted at "/").
 // 'unsafe-eval' is required because Semi MarkdownRender compiles MDX at
-// runtime via new Function; the Google Fonts hosts are referenced from
-// index.html. API and preview routes are mounted separately and unaffected.
+// runtime via new Function. Console fonts are bundled with the SPA, so
+// style and font sources stay on the same origin. API and preview routes
+// are mounted separately and unaffected.
 const contentSecurityPolicy = "default-src 'self'; " +
 	"script-src 'self' 'unsafe-eval'; " +
-	"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-	"font-src 'self' https://fonts.gstatic.com data:; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"font-src 'self' data:; " +
 	"img-src * data: blob:; " +
 	"media-src * blob:; " +
 	"connect-src 'self' ws: wss:; " +

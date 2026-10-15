@@ -92,7 +92,7 @@ func main() {
 	}}}
 	providers.reset()
 	mux := http.NewServeMux()
-	auth.Mount(mux, users, sessions, func() bool { return false })
+	auth.Mount(mux, users, sessions, func() bool { return false }, "")
 	(&envapi.Handler{
 		Envs:  envs,
 		Users: users,
@@ -188,7 +188,7 @@ func main() {
 		}})
 	})
 	mux.HandleFunc("GET /v1/setup/llm-ready", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"ready": true})
+		writeJSON(w, map[string]any{"ready": true, "mode": "byok", "freeAvailable": false})
 	})
 	mux.HandleFunc("POST /v1/setup/plans", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -247,7 +247,7 @@ func main() {
 		writeJSON(w, seed.create(body.Title, body.ProviderID, body.AssistantID))
 	})
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"messages": seed.messageList()})
+		writeJSON(w, map[string]any{"messages": seed.messageList(), "hasMore": false})
 	})
 	// Scripted agent-session socket: plays one deterministic turn per prompt
 	// (streamed text → thinking → a tool card → a permission prompt → done) so
@@ -332,9 +332,51 @@ func main() {
 			"environment": []string{"Trusted environment: the sandbox workspace is normal work."},
 			"allow":       []string{"Routine development commands in the sandbox."},
 			"softDeny":    []string{"Force-pushing or rewriting remote git history."},
-			"hardDeny":    []string{"Reaching cloud metadata or control-plane addresses."},
+			"hardDeny":    []string{"Reaching cloud instance metadata endpoints (169.254.169.254, metadata.google.internal) or the Roundpen control plane on loopback, including via the browser. Ordinary LAN / private-network hosts are trusted on NAS deployments and are not covered by this rule."},
 		})
 	})
+	// MCP connector stubs: a fixed three-server catalog, API-key connects,
+	// tool refresh, and OAuth that round-trips straight back to settings.
+	mcpFixture := newSmokeMcp()
+	mux.HandleFunc("GET /v1/me/mcp/catalog", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"servers": mcpFixture.catalog()})
+	})
+	mux.HandleFunc("GET /v1/me/mcp/connections", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"connections": mcpFixture.list()})
+	})
+	mux.HandleFunc("POST /v1/me/mcp/connections", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			ServerID string `json:"serverId"`
+			APIKey   string `json:"apiKey"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.APIKey == "bad" {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "authentication with the MCP server failed"})
+			return
+		}
+		writeJSON(w, map[string]any{"connection": mcpFixture.connect(body.ServerID, body.APIKey)})
+	})
+	mux.HandleFunc("DELETE /v1/me/mcp/connections/{serverId}", func(w http.ResponseWriter, r *http.Request) {
+		mcpFixture.remove(r.PathValue("serverId"))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/me/mcp/connections/{serverId}/refresh-tools", func(w http.ResponseWriter, r *http.Request) {
+		conn, ok := mcpFixture.refresh(r.PathValue("serverId"))
+		if !ok {
+			writeJSONStatus(w, http.StatusNotFound, map[string]any{"error": "not connected"})
+			return
+		}
+		writeJSON(w, map[string]any{
+			"connection": conn,
+			"tools":      []map[string]any{{"name": "search"}, {"name": "read"}, {"name": "extra"}},
+		})
+	})
+	mux.HandleFunc("POST /v1/me/mcp/connections/{serverId}/oauth/start", func(w http.ResponseWriter, r *http.Request) {
+		// A real flow leaves the origin; the stub returns a same-site URL with
+		// the callback params a completed consent produces.
+		writeJSON(w, map[string]any{"authorizeUrl": "/settings/mcp?mcpResult=linked&mcp=" + r.PathValue("serverId")})
+	})
+
 	// Test hook: drop every live agent socket so clients have to reconnect.
 	mux.HandleFunc("POST /v1/test/drop-sockets", func(w http.ResponseWriter, r *http.Request) {
 		dropped := 0
@@ -359,6 +401,7 @@ func main() {
 		envs.reset()
 		identities.reset()
 		providers.reset()
+		mcpFixture.reset()
 		writeJSON(w, map[string]any{"ok": true})
 	})
 	// Test hook: replace the enabled provider list, so a spec can reach the
@@ -878,4 +921,106 @@ func newSeedSession() *seedSession {
 		{"name": "commit", "kind": "skill", "source": "builtin", "description": "审阅工作区改动并生成规范的提交信息", "args": true},
 	}
 	return &seedSession{session: sess, messages: messages, commands: commands}
+}
+
+// smokeMcp is the in-memory MCP connector fixture behind /v1/me/mcp/*.
+type smokeMcp struct {
+	mu    sync.Mutex
+	conns map[string]map[string]any
+}
+
+func newSmokeMcp() *smokeMcp {
+	return &smokeMcp{conns: map[string]map[string]any{}}
+}
+
+func (s *smokeMcp) reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.conns = map[string]map[string]any{}
+}
+
+var smokeMcpServers = []map[string]any{
+	{
+		"id": "notion", "name": "Notion", "endpoint": "https://mcp.notion.com",
+		"auth": "oauth", "group": "knowledge",
+		"description": "Notion workspace.", "docsUrl": "https://developers.notion.com/docs/mcp",
+	},
+	{
+		"id": "exa", "name": "Exa", "endpoint": "https://mcp.exa.ai/mcp",
+		"auth": "api_key", "group": "search",
+		"description": "Web search.", "docsUrl": "https://docs.exa.ai/reference/exa-mcp",
+	},
+	{
+		"id": "linear", "name": "Linear", "endpoint": "https://mcp.linear.app/mcp",
+		"auth": "both", "group": "tasks",
+		"description": "Linear issues.", "docsUrl": "https://linear.app/docs/mcp",
+	},
+}
+
+func (s *smokeMcp) serverName(serverID string) string {
+	for _, sv := range smokeMcpServers {
+		if sv["id"] == serverID {
+			name, _ := sv["name"].(string)
+			return name
+		}
+	}
+	return serverID
+}
+
+func (s *smokeMcp) catalog() []map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]map[string]any, 0, len(smokeMcpServers))
+	for _, sv := range smokeMcpServers {
+		item := map[string]any{}
+		for k, v := range sv {
+			item[k] = v
+		}
+		if c, ok := s.conns[sv["id"].(string)]; ok {
+			item["connected"] = true
+			item["status"] = c["status"]
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func (s *smokeMcp) list() []map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]map[string]any, 0, len(s.conns))
+	for _, id := range []string{"notion", "exa", "linear"} {
+		if c, ok := s.conns[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (s *smokeMcp) connect(serverID, _ string) map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := map[string]any{
+		"serverId": serverID, "serverName": s.serverName(serverID),
+		"authKind": "api_key", "status": "connected", "toolCount": 2,
+	}
+	s.conns[serverID] = c
+	return c
+}
+
+func (s *smokeMcp) remove(serverID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.conns, serverID)
+}
+
+func (s *smokeMcp) refresh(serverID string) (map[string]any, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.conns[serverID]
+	if !ok {
+		return nil, false
+	}
+	c["toolCount"] = 3
+	return c, true
 }

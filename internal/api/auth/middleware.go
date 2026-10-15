@@ -66,9 +66,20 @@ func isPublicPath(r *http.Request) bool {
 			return true
 		}
 	}
+	if r.Method == http.MethodGet && path == "/v1/auth/bootstrap-hint" {
+		return true
+	}
 	// Federated login: provider discovery, redirect to the remote authorize
 	// endpoint and its callback. Writes live elsewhere and stay authenticated.
 	if r.Method == http.MethodGet && strings.HasPrefix(path, "/v1/auth/oauth/") {
+		return true
+	}
+	// Per-user Google connector OAuth callback (PKCE state binds the user).
+	if r.Method == http.MethodGet && path == "/v1/connectors/google/callback" {
+		return true
+	}
+	// Per-user MCP connector OAuth callback (state row binds the user).
+	if r.Method == http.MethodGet && path == "/v1/connectors/mcp/callback" {
 		return true
 	}
 	// Console SPA + static assets (auth enforced in the browser).

@@ -28,10 +28,12 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/connectors"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/hostaccess"
 	"github.com/RoundpenAI/roundpen/internal/hostsetup"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
+	"github.com/RoundpenAI/roundpen/internal/mcp"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/preview"
@@ -44,14 +46,35 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
+	"github.com/RoundpenAI/roundpen/internal/webpush"
 )
+
+// newPushService loads or generates VAPID keys and returns a push Service.
+// A nil return means push is unavailable (key error); the daemon still boots.
+func newPushService(cfg *config.Config, db *storage.DB, logger *slog.Logger) *webpush.Service {
+	vapid, err := webpush.LoadOrGenerateVAPID(
+		filepath.Join(cfg.DataRoot, "webpush-vapid.json"),
+		cfg.VAPIDPublicKey,
+		cfg.VAPIDPrivateKey,
+		cfg.VAPIDSubject,
+	)
+	if err != nil {
+		logger.Warn("web push vapid", slog.Any("err", err))
+		return nil
+	}
+	return &webpush.Service{
+		Store: &webpush.Store{DB: db.SQL},
+		VAPID: vapid,
+		Log:   logger,
+	}
+}
 
 // newCoreMux creates the API mux and mounts the auth, platform, native HTTP,
 // browser and preview handlers. It also returns the preview handler, whose
 // host router has to wrap the finished handler stack (see main).
 func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler) {
 	mux := http.NewServeMux()
-	auth.Mount(mux, userStore, sessionStore, allowRegistration)
+	auth.Mount(mux, userStore, sessionStore, allowRegistration, cfg.BootstrapAdminPassword)
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr, PublicURL: firstNonEmpty(cfg.PreviewPublicURL, cfg.LLMGW.PublicURL)}
 	native.Mount(mux)
@@ -68,9 +91,9 @@ func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Servic
 	return mux, previewHandler
 }
 
-// mountEnvStack builds the user environment, git credential, OAuth, runtime and
-// host-setup services and mounts their handlers.
-func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr sandbox.Manager, sbSvc *sandbox.Service, userStore storage.UserStore, sessionStore storage.SessionStore, probe *runtime.Probe, allowRegistration func() bool) (*userenv.Service, *envapi.Handler, *oauth.Service, *hostsetup.Service) {
+// mountEnvStack builds the user environment, git credential, OAuth, connectors,
+// MCP, runtime and host-setup services and mounts their handlers.
+func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr sandbox.Manager, sbSvc *sandbox.Service, userStore storage.UserStore, sessionStore storage.SessionStore, probe *runtime.Probe, allowRegistration func() bool, items *settingitems.Catalog, secretBox *secretbox.Box) (*userenv.Service, *envapi.Handler, *oauth.Service, *connectors.Service, *mcp.Service, *hostsetup.Service, *hostsetup.Handler) {
 	envStore := &userenv.Store{DB: db.SQL}
 	gitStore := &gitcred.Store{DB: db.SQL}
 	oauthStore := &oauth.Store{DB: db.SQL}
@@ -79,6 +102,8 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		Users:             userStore,
 		AllowRegistration: allowRegistration,
 	}
+	connectorsSvc := &connectors.Service{Store: &connectors.Store{DB: db.SQL}}
+	mcpSvc := &mcp.Service{Store: &mcp.Store{DB: db.SQL, Box: secretBox}}
 	envSvc := &userenv.Service{
 		Store:          envStore,
 		Sandboxes:      mgr,
@@ -119,6 +144,8 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 	}).Mount(mux)
 	(&gitcred.Handler{Store: gitStore, OnChange: reinject}).Mount(mux)
 	(&oauth.Handler{Svc: oauthSvc, Sessions: sessionStore}).Mount(mux)
+	(&connectors.Handler{Svc: connectorsSvc}).Mount(mux)
+	(&mcp.Handler{Svc: mcpSvc}).Mount(mux)
 	(&runtime.Handler{Probe: probe}).Mount(mux)
 
 	setupSvc := &hostsetup.Service{
@@ -126,19 +153,22 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		Runner: hostsetup.NewRunner(hostsetup.RunnerConfig{RepoRoot: hostsetup.FindRepoRoot()}),
 		Cfg:    cfg,
 	}
-	(&hostsetup.Handler{Svc: setupSvc, Cfg: cfg}).Mount(mux)
-	return envSvc, envHandler, oauthSvc, setupSvc
+	setupHandler := &hostsetup.Handler{Svc: setupSvc, Cfg: cfg, Items: items}
+	setupHandler.Mount(mux)
+	return envSvc, envHandler, oauthSvc, connectorsSvc, mcpSvc, setupSvc, setupHandler
 }
 
 // mountLLMGateway builds the LLM gateway on the mux and returns it with its
 // config applier and per-user virtual key lookup.
-func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cfg *config.Config, secretBox *secretbox.Box, memStore *memory.PgStore, memSvc *memory.Service, items *settingitems.Catalog, logger *slog.Logger) (*llmgw.Gateway, func(context.Context) error, func(context.Context, string) string) {
+func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cfg *config.Config, secretBox *secretbox.Box, memStore *memory.PgStore, memSvc *memory.Service, items *settingitems.Catalog, mintInstallToken func() (string, error), installPubHex string, logger *slog.Logger) (*llmgw.Gateway, func(context.Context) error, func(context.Context, string) string) {
 	gw := llmgw.New(db, llmgw.Options{
-		LogBodyMaxBytes: cfg.LLMGW.LogBodyMaxBytes,
-		PublicURL:       cfg.LLMGW.PublicURL,
-		Logger:          logger,
-		InternalKeyFile: filepath.Join(cfg.DataRoot, "llmgw-internal.key"),
-		SecretBox:       secretBox,
+		LogBodyMaxBytes:     cfg.LLMGW.LogBodyMaxBytes,
+		PublicURL:           cfg.LLMGW.PublicURL,
+		Logger:              logger,
+		InternalKeyFile:     filepath.Join(cfg.DataRoot, "llmgw-internal.key"),
+		SecretBox:           secretBox,
+		MintInstallToken:    mintInstallToken,
+		InstallPublicKeyHex: installPubHex,
 	})
 	gw.Mount(mux)
 	userKeys := llmgw.NewUserKeyManager(gw.Store(), filepath.Join(cfg.DataRoot, "vk"))
@@ -462,7 +492,7 @@ func llmConfigFor(items *settingitems.Catalog, loopback, key string) func(userID
 }
 
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, mcpSvc *mcp.Service, logger *slog.Logger) *manager.Manager {
 	// Grant-gated host reads (NAS shares) for the agent's Read/Glob tools.
 	hostRead := hostaccess.New(agentStore, assistantStore, logger)
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
@@ -475,6 +505,8 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 		AgentSlots:   envSvc,
 		PreviewZone:  previewZone,
 		History:      agentStore,
+		Google:       connectorsSvc,
+		MCP:          mcpSvc,
 
 		Roundpen: &tools.RoundpenBinder{
 			Envs:      envSvc,
@@ -492,7 +524,7 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 }
 
 // newAgentAPI builds the agent API handler and its assist-ticket store.
-func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentStore *agentsession.Store, mgr sandbox.Manager, gw *llmgw.Gateway, browserHub *browser.Hub, envSvc *userenv.Service, acpMgr *manager.Manager, autoEvaluator *automode.LLMEvaluator, publicURL string, proxyForUser func(*storage.User) string, userVKey func(context.Context, string) string, items *settingitems.Catalog) (*agentapi.Handler, *assistticket.Store, *agentenv.Provisioner) {
+func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentStore *agentsession.Store, mgr sandbox.Manager, gw *llmgw.Gateway, browserHub *browser.Hub, envSvc *userenv.Service, acpMgr *manager.Manager, autoEvaluator *automode.LLMEvaluator, publicURL string, proxyForUser func(*storage.User) string, userVKey func(context.Context, string) string, items *settingitems.Catalog, push webpush.Notifier) (*agentapi.Handler, *assistticket.Store, *agentenv.Provisioner) {
 	provisioner := &agentenv.Provisioner{
 		Sandboxes: mgr,
 		Config: agentenv.Config{
@@ -513,6 +545,7 @@ func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentS
 		Envs:           envSvc,
 		Tasks:          &browsetask.Store{DB: db.SQL},
 		Tickets:        nil, // set below after ticketStore
+		Push:           push,
 		DestroySbx:     true,
 		AutoMode:       autoEvaluator,
 		ProxyURL:       proxyForUser,

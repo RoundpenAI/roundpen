@@ -1,22 +1,23 @@
 package tools
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 // WebClientOptions 控制 WebFetch / WebSearch / Skill install 出站 client 的防护行为。
 type WebClientOptions struct {
 	// AllowLoopback 仅供测试使用（httptest 监听 127.0.0.1）；生产恒为 false。
 	AllowLoopback bool
-	// AllowPrivate 允许访问 RFC1918/ULA 私网地址。默认拦截：skill install 可从
-	// URL 拉取内容并注入对话，私网不应是模型可读的数据源。确需抓取内网的
-	// 自建部署可显式打开。
+	// AllowPrivate 允许访问 RFC1918/ULA 私网地址。NAS / 家庭实验室部署默认打开
+	// （见 manager 构造处）：内网服务与本地代理是正常工作面。仍拦截环回与
+	// link-local（含云元数据 169.254.169.254）。单元测试若要验证拦截路径，可显式传 false。
 	AllowPrivate bool
 	// ProxyURL 是管理员配置的出口代理。启用后实际拨号目标只剩代理本身，
 	// SSRF 拨号校验因此只对代理地址放行，被代理请求的目的地校验交给代理；
@@ -26,7 +27,7 @@ type WebClientOptions struct {
 
 // NewWebHTTPClient 返回带 SSRF 防护的 HTTP client：在 DNS 解析之后、建立连接之前
 // 校验实际拨号地址，拒绝环回、link-local（含云元数据 169.254.169.254）、
-// unspecified、multicast 与私网网段（RFC1918/ULA，AllowPrivate 可放行）。
+// unspecified、multicast；私网网段（RFC1918/ULA）由 AllowPrivate 控制（NAS 生产默认打开）。
 func NewWebHTTPClient(opts WebClientOptions) *http.Client {
 	proxyURL := strings.TrimSpace(opts.ProxyURL)
 	proxyIPs, proxyPort := resolveProxyAddr(proxyURL)
@@ -38,7 +39,7 @@ func NewWebHTTPClient(opts WebClientOptions) *http.Client {
 		if isProxyDial(address, proxyIPs, proxyPort) {
 			return nil
 		}
-		return blockedDialAddr(address, opts.AllowLoopback, opts.AllowPrivate)
+		return httpx.BlockedDialAddr(address, opts.AllowLoopback, opts.AllowPrivate)
 	}
 	tr := &http.Transport{
 		ForceAttemptHTTP2:     true,
@@ -90,27 +91,4 @@ func isProxyDial(address string, proxyIPs map[string]struct{}, proxyPort string)
 		return false
 	}
 	return proxyPort == "" || port == proxyPort
-}
-
-// blockedDialAddr 校验拨号地址（形如 "1.2.3.4:443" 或 "[::1]:443"）。
-func blockedDialAddr(address string, allowLoopback, allowPrivate bool) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		host = strings.Trim(address, "[]")
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return fmt.Errorf("address %q is not allowed", address)
-	}
-	if ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() ||
-		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return fmt.Errorf("address %s is not allowed", ip)
-	}
-	if ip.IsLoopback() && !allowLoopback {
-		return fmt.Errorf("address %s is not allowed", ip)
-	}
-	if ip.IsPrivate() && !allowPrivate {
-		return fmt.Errorf("address %s is not allowed", ip)
-	}
-	return nil
 }
