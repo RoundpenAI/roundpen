@@ -33,7 +33,20 @@
 
 - **预览链接打不开**：把 `ROUNDPEN_PREVIEW_PUBLIC_URL` 改成 NAS 地址（**系统管理 → 通用**），默认是 `http://127.0.0.1:9527`。
 - **Agent 镜像拉不动**：默认 `ghcr.io/roundpenai/code-agent:0.1.0`，在 **系统管理 → 通用** 换成镜像源或本地 tag。
-- **Docker 权限**：`config/privilege` 里 `join-groups: ["docker"]`；组名不同就按设备改。
+- **Docker 权限**：包用户 `roundpen` 加入 `docker` 组（`config/privilege` → `join-groups`）；组名不同就按设备改。
+
+### 升级与 `secret.key` 权限
+
+生命周期脚本以 root 跑，便于把 `var/` 收归包用户；真正的 `roundpend` 再用 `runuser` 降到 `roundpen`。
+
+若从早期 **Docker 版 fpk** 升上来，以前容器可能把 `var/data/secret.key` 写成 `root:root` 且 `0600`，降权后的进程会报 `permission denied`。新包在 `upgrade_callback` / 启动时会 `chown` 整棵 `var/`。若仍失败，在 NAS 上执行：
+
+```bash
+chown -R roundpen:roundpen /vol1/@appdata/roundpen
+chmod 0600 /vol1/@appdata/roundpen/data/secret.key
+```
+
+（路径以实际 `TRIM_PKGVAR` 为准。）
 
 ## 构建 `.fpk`
 
