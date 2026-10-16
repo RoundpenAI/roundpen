@@ -56,6 +56,26 @@ func normalizeGatewayPath(p string) string {
 	return p
 }
 
+// TCPHandler mounts the console at the gateway prefix on the TCP listener too.
+// The fnOS SPA is built for the "/app/roundpen/" base, so prefixed requests are
+// unwrapped and a bare "/" is redirected to the prefixed console so the SPA
+// router basename matches the URL.
+func TCPHandler(prefix string, next http.Handler) http.Handler {
+	prefix = strings.TrimRight(prefix, "/")
+	if prefix == "" {
+		return next
+	}
+	inner := stripGatewayPrefix(prefix, next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) &&
+			(r.URL.Path == "/" || r.URL.Path == "/index.html") {
+			http.Redirect(w, r, prefix+"/", http.StatusFound)
+			return
+		}
+		inner.ServeHTTP(w, r)
+	})
+}
+
 // Serve listens on the fnOS gateway Unix socket and serves the gateway handler
 // chain. A stale socket left by a previous run is removed first. The returned
 // io.Closer shuts the server down.

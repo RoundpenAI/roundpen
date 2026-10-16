@@ -235,6 +235,25 @@ func TestGatewayIdentity_SkipsPublicAuthEndpoints(t *testing.T) {
 	}
 }
 
+func TestTCPHandler(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(r.URL.Path))
+	})
+	h := TCPHandler("/app/roundpen", next)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/app/roundpen/" {
+		t.Fatalf("root: code=%d loc=%q, want 302 -> /app/roundpen/", rec.Code, rec.Header().Get("Location"))
+	}
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/app/roundpen/assets/x.js", nil))
+	if rec.Code != http.StatusOK || rec.Body.String() != "/assets/x.js" {
+		t.Fatalf("prefixed: code=%d body=%q, want 200 /assets/x.js", rec.Code, rec.Body.String())
+	}
+}
+
 func TestStripGatewayPrefix(t *testing.T) {
 	cases := []struct{ prefix, path, want string }{
 		{"/app/roundpen", "/app/roundpen/v1/whoami", "/v1/whoami"},

@@ -333,7 +333,7 @@ func main() {
 	// the previewed app rather than to the SPA.
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           stripGatewayHeaders(previewHandler.VhostRouter(auth.Middleware(userStore, sessionStore)(mux))),
+		Handler:           stripGatewayHeaders(previewHandler.VhostRouter(fnosConsoleWrapper(cfg, auth.Middleware(userStore, sessionStore)(mux)))),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // LLM relay and terminal WS stream past a write deadline

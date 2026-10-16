@@ -30,3 +30,13 @@ func installFnosGateway(cfg *config.Config, users storage.UserStore, sessions st
 	auth.SetFnosGatewayActive(true)
 	return closer, nil
 }
+
+// fnosConsoleWrapper mounts the TCP console at the gateway prefix when the
+// gateway is active, so the port-based console and the gateway console resolve
+// to the same URL. Inert when the gateway is not configured.
+func fnosConsoleWrapper(cfg *config.Config, next http.Handler) http.Handler {
+	if strings.TrimSpace(cfg.FnosGatewaySocket) == "" || strings.TrimSpace(cfg.FnosGatewayPrefix) == "" {
+		return next
+	}
+	return fnosgateway.TCPHandler(cfg.FnosGatewayPrefix, next)
+}
