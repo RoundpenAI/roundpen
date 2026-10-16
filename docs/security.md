@@ -53,23 +53,21 @@ OCI Runtime            ← runc / gVisor / Kata 等（Agent 容器按部署选�
 | 控制面 | 鉴权、策略、审计、记忆、LLM 与工具网关 |
 | Environment Services | Agent 操作面：文件、终端、预览等 |
 | Sandbox 抽象 | 统一生命周期与 exec，不绑定具体引擎 |
-| Backend | 槽位固定后端：**Agent / Browser → Docker**；**Desktop / Mobile → QEMU**（规划：Kubernetes） |
-| OCI Runtime | Agent 容器由后端选用 runc / gVisor / Kata 等 |
+| Backend | Agent / Browser 用 Docker；Desktop / Mobile 以后用 QEMU（集群扩展另议） |
+| OCI Runtime | Agent 容器可选 runc / gVisor / Kata 等 |
 
-控制面与执行面职责分离：安全策略集中在控制面执行，更换后端引擎时不必重写规则。
+控制面与执行面分开：策略在控制面，换执行引擎时不必重写规则。
 
 ## 设计原则
 
-### 1. 槽位后端钉死
+### 1. 不让用户选运行时
 
-用户不应被要求选择运行时。Roundpen 按槽位固定后端，减少错误配置面：
+Agent 和 Browser 就是 Docker，没有「选 Kern / QEMU / Docker」这种开关，少一种配错的可能：
 
-- **Agent → Docker**：容器默认丢弃特权（`CapDrop: ALL`）、禁止提权（`no-new-privileges`），可按需选用 `runc`、`crun`、`gVisor`、`Kata` 等 OCI 运行时。镜像从官方注册表 pull 或离线 load。
-- **Browser → Docker**：browserless/chrome 容器提供 CDP 与实时调试画面（不发布端口，控制面经容器网络拨入；容器内开鉴权 token）；与 Agent 容器同为 Docker 引擎、按属主隔离。
-- **Desktop / Mobile → QEMU**（预留）：qemu 虚拟机提供画面。
-- **Kubernetes**（规划中）：面向集群扩展，预留 Backend 接口。
-
-同一套 API、按槽位固定后端——不再提供 QEMU/Kern/Docker 三选一。
+- **Agent**：Docker 容器，默认丢弃特权（`CapDrop: ALL`）、禁止提权（`no-new-privileges`）；运行时可选用 `runc`、`crun`、`gVisor`、`Kata` 等。镜像从注册表 pull 或离线 load。
+- **Browser**：同样是 Docker（browserless/chrome），提供 CDP 与实时调试画面；不发布端口，控制面经容器网络拨入，容器内开鉴权 token；按属主隔离。
+- **Desktop / Mobile**（预留）：以后用 QEMU 虚拟机出画面。
+- **Kubernetes**：集群扩展时再接，接口预留。
 
 ### 2. 工作区有边界，文件访问可管
 

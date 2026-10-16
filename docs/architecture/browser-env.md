@@ -140,4 +140,4 @@ make browser-driver            # = go run ./cmd/browserdriver
 
 ## 二期
 
-Agent 槽位固定 Docker；Browser 已迁 Docker（见上）。`internal/backend/qemu` 保留，作为 **Desktop / Mobile 槽位**的落点（qcow2 + kernel sidecar + VNC unix sock 均保留）。旧的 Agent-on-QEMU 方案及其镜像构建（`images/agent-qemu/`）已删除，历史见 git 记录。
+Agent 和 Browser 都用 Docker（见上）。`internal/backend/qemu` 留给以后的 Desktop / Mobile 虚拟机槽位（qcow2、kernel sidecar、VNC unix sock）。以前的 Agent-on-QEMU 和 `images/agent-qemu/` 已删，细节看 git 历史。

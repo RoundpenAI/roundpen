@@ -205,7 +205,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.system.hostChromeMissing': '不在 PATH',
   'settings.system.unavailable': '无法获取系统信息。',
   'settings.system.footer':
-    '数据库与监听地址需通过环境变量配置并重启进程。Agent 与 Browser 固定使用 Docker；Desktop / Mobile 预留 QEMU。Agent 镜像与 Browser 镜像在首次启动时从注册表拉取（或离线加载）。LLM 网关设置在运行时生效。',
+    '数据库与监听地址需通过环境变量配置并重启进程。Agent 和 Browser 用 Docker 跑（手机/桌面虚拟机槽位以后用 QEMU）。镜像首次使用时从注册表拉取，也可离线 load。LLM 网关改完即可用，不用重启。',
 
   'git.title': 'Git 个人令牌',
   'git.desc':

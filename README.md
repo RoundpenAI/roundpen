@@ -62,7 +62,7 @@ Agent、Browser 都跑在 Docker 里。首次用会拉：
 | [docs/auth.md](docs/auth.md) | 登录与 OAuth |
 | [docs/free-llm-token.md](docs/free-llm-token.md) | 内置 FREE 模型的安装身份与限频 |
 | [docs/connectors.md](docs/connectors.md) / [docs/mcp-connectors.md](docs/mcp-connectors.md) | Google / MCP 连接器 |
-| [mobile/](mobile/) | 移动端控制台（Flutter；和预留的 Mobile 槽位不是一回事） |
+| [mobile/](mobile/) | 手机上的控制台 App（Flutter） |
 
 ## License
 

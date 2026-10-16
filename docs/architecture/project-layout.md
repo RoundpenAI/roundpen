@@ -1,8 +1,8 @@
 # Roundpen 项目结构
 
-单 Go module，按「控制面 → 环境抽象 → 后端 → 存储」分层。私有化 Linux / NAS：**Agent 与 Browser 槽位固定 Docker**（官方 `code-agent` OCI 镜像 / `browserless/chrome` 容器），**Desktop / Mobile 槽位预留 QEMU**。
+单 Go module，按「控制面 → 环境抽象 → 执行引擎 → 存储」分层。在 Linux / NAS 上，Agent 和 Browser 用 Docker 跑（官方 `code-agent` 镜像 / `browserless/chrome`）；手机/桌面虚拟机槽位以后用 QEMU。
 
-两个前端工程互不引用、各自独立依赖管理：`web/`（控制台 SPA，npm）与 `mobile/`（移动端控制台，Flutter/Dart，pub）。注意后者与上文的 **Mobile 槽位**（QEMU Agent 环境）无关，只是名字相近，文档里一律写全称「移动端控制台」。
+两个前端互不引用：`web/`（控制台，npm）与 `mobile/`（手机 App，Flutter）。后者和上面的「手机虚拟机槽位」只是名字像，文档里写全称「移动端控制台」。
 
 ## 目录树
 
@@ -64,5 +64,5 @@ roundpen/
 
 ## 演进
 
-- 本期：删除 E2B 兼容；Browser 迁 Docker（browserless/chrome + Playwright）；Agent 固定 Docker；删除 Kern 与 Agent-QEMU 默认路径
-- 二期：Browser 实时视图增强；Mobile 槽位（QEMU）
+- 已做：去掉 E2B 兼容与 Kern；Agent / Browser 都走 Docker（browserless/chrome + Playwright）
+- 下一步：Browser 实时视图；手机虚拟机槽位（QEMU）

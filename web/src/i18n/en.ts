@@ -208,7 +208,7 @@ export const en = {
   'settings.system.hostChromeMissing': 'not on PATH',
   'settings.system.unavailable': 'System info unavailable.',
   'settings.system.footer':
-    'Database and listen address require environment variables and a process restart. Agent and Browser always run on Docker; Desktop/Mobile are reserved for QEMU. The Agent and Browser images are pulled from the registry (or loaded offline) on first start. LLM gateway settings apply at runtime.',
+    'Database and listen address need env vars and a process restart. Agent and Browser run in Docker (phone/desktop VM slots later use QEMU). Images pull on first use, or load offline. LLM gateway changes apply without restart.',
 
   'git.title': 'Git personal tokens',
   'git.desc':
