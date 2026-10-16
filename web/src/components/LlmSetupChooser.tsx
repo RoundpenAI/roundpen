@@ -123,7 +123,7 @@ export function LlmSetupChooser({
       <Typography.Text type="tertiary" size="small">
         {modeLabel(mode)}
       </Typography.Text>
-      {reason && !alreadyFree ? (
+      {reason ? (
         <Banner fullMode={false} type="warning" description={reason} closeIcon={null} />
       ) : null}
       {error ? (
@@ -170,9 +170,9 @@ export function LlmSetupChooser({
             </Typography.Text>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {!inSettings ? (
-                <Link to="/settings">
+                <Link to="/admin/settings/llmgw">
                   <Button theme="light" type="primary">
-                    前往设置 · LLM 网关
+                    前往系统管理 · LLM 网关
                   </Button>
                 </Link>
               ) : (

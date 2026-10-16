@@ -20,7 +20,7 @@ func LLMReady(cfg *config.Config, snap *settingitems.Snapshot) LLMStatus {
 	free := llmgw.LoadFreeEnv()
 	st := LLMStatus{FreeAvailable: free.Available(), Mode: "none"}
 	if cfg == nil || !cfg.LLMGW.Enabled {
-		st.Reason = "LLM 网关未启用。可一键启用免费试用，或到「设置 → LLM 网关」配置自己的 API Key。"
+		st.Reason = "LLM 网关未启用。可一键启用免费试用，或到「系统管理 → LLM 网关」配置自己的 API Key。"
 		return st
 	}
 	mode := llmgw.ModeOf(true, snap)
@@ -30,7 +30,7 @@ func LLMReady(cfg *config.Config, snap *settingitems.Snapshot) LLMStatus {
 		st.Ready = true
 		return st
 	default:
-		st.Reason = "尚未配置上游模型。可一键启用免费试用，或到「设置 → LLM 网关」添加提供商。"
+		st.Reason = "尚未配置上游模型。可一键启用免费试用，或到「系统管理 → LLM 网关」添加提供商。"
 		return st
 	}
 }

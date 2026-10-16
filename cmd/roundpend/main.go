@@ -191,6 +191,14 @@ func main() {
 		return settingsSvc.Update(ctx, cur)
 	}
 
+	// Zero-config FREE: fresh installs get the built-in cloud model without an
+	// admin click. Already-bound BYOK (or an intentional gateway-off with
+	// bindings still present) is left alone. Quota / 429 later cues BYOK.
+	if err := llmgw.EnsureDefaultFree(ctx, itemsCat, freeEnv, setupHandler.EnableLLMGW); err != nil {
+		logger.Error("seed default free llm", slog.Any("err", err))
+		os.Exit(1)
+	}
+
 	(&memory.Handler{Store: memStore, Service: memSvc}).Mount(mux)
 
 	publicURL := publicBaseURL(cfg)

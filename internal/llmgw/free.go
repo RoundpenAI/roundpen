@@ -100,6 +100,42 @@ func SeedFree(ctx context.Context, cat *settingitems.Catalog, env FreeEnv) error
 	return nil
 }
 
+// NeedsFreeBootstrap reports whether default/sysagent have no LLM binding yet.
+// When true, the install can enable FREE with zero admin clicks.
+// Bindings that already exist (FREE or BYOK) are left alone — including the
+// case where the gateway is off but slots still point at a provider.
+func NeedsFreeBootstrap(snap *settingitems.Snapshot) bool {
+	if snap == nil {
+		return true
+	}
+	if _, ok := Resolve(snap, settingitems.SlotLLMDefault, ""); ok {
+		return false
+	}
+	if _, ok := Resolve(snap, settingitems.SlotLLMSysAgent, ""); ok {
+		return false
+	}
+	return true
+}
+
+// EnsureDefaultFree enables the gateway (when enable is non-nil) and seeds the
+// built-in FREE provider when no default/sysagent binding exists. It is a no-op
+// once any LLM slot is already bound, so BYOK and intentional gateway-off
+// installs are not overwritten on restart.
+func EnsureDefaultFree(ctx context.Context, cat *settingitems.Catalog, env FreeEnv, enable func(context.Context) error) error {
+	if cat == nil {
+		return fmt.Errorf("llmgw: catalog required")
+	}
+	if !NeedsFreeBootstrap(cat.Snapshot()) {
+		return nil
+	}
+	if enable != nil {
+		if err := enable(ctx); err != nil {
+			return fmt.Errorf("llmgw: enable gateway: %w", err)
+		}
+	}
+	return SeedFree(ctx, cat, env)
+}
+
 // ModeOf reports free|byok|none from gateway enablement and slot bindings.
 func ModeOf(enabled bool, snap *settingitems.Snapshot) string {
 	if !enabled || snap == nil {
