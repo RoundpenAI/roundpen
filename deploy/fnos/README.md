@@ -64,17 +64,17 @@ Agent 镜像默认 `ghcr.io/roundpenai/code-agent:0.1.0`，网络不通时可在
 
 ## 模型：FREE 试用与 BYOK
 
-冷启动（新建助手 / 会话）可二选一：
-
-1. **免费试用**：内置固定云端入口 `https://api.ttz.ac.cn`（无需配置）。
-   管理员点「一键启用 FREE」后，Roundpen 会生成
+1. **免费试用（零配置）**：首次启动若尚未绑定任何默认模型，Roundpen 会自动启用
+   内置云端入口 `https://api.ttz.ac.cn`，生成
    `$ROUNDPEN_DATA_ROOT/install-identity/`（每安装一份 Ed25519 身份），向云端
-   签发短时 `rp1…` token，并按 `install_id` 在云端限频。细节与验签测试向量见
+   签发短时 `rp1…` token，并按 `install_id` 在云端限频。飞牛用户登录后即可直接
+   对话，无需点「一键启用」。细节与验签测试向量见
    [docs/free-llm-token.md](../../docs/free-llm-token.md)。
    （运维可选覆盖：`ROUNDPEN_FREE_LLM_BASE_URL` / `MODEL` / `TOKEN_TTL`。）
 
-2. **自己的 API Key（BYOK）**：设置 → LLM 网关，添加 OpenAI / Anthropic 兼容
-   上游并绑定默认槽位。生产环境建议用 BYOK；FREE 触发 429 时同样改绑自己的上游。
+2. **自己的 API Key（BYOK）**：达到 FREE 限额（HTTP 429）后再配置——
+   **系统管理 → LLM 网关**，添加 OpenAI / Anthropic 兼容上游并绑定默认槽位。
+   生产环境建议用 BYOK。
 
 ## 打包时需要留意
 

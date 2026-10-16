@@ -91,6 +91,21 @@ function looksLikeLLMNotConfigured(msg: string | null | undefined): boolean {
   )
 }
 
+/** FREE cloud entry (or any upstream) hit rate limit / quota — cue BYOK. */
+function looksLikeFreeQuotaExceeded(msg: string | null | undefined): boolean {
+  if (!msg) return false
+  const m = msg.toLowerCase()
+  return (
+    msg.includes('免费额度') ||
+    msg.includes('额度已用尽') ||
+    m.includes('too many requests') ||
+    m.includes('rate limit') ||
+    m.includes('quota') ||
+    /\b429\b/.test(m) ||
+    m.includes('llm http 429')
+  )
+}
+
 export function ChatSessionPage() {
   const { id = '', assistantId: assistantIdParam } = useParams<{
     id?: string
@@ -302,7 +317,9 @@ export function ChatSessionPage() {
   }, [id])
 
   const showLlmGuide =
-    (llmStatus != null && !llmStatus.ready) || looksLikeLLMNotConfigured(error)
+    (llmStatus != null && !llmStatus.ready) ||
+    looksLikeLLMNotConfigured(error) ||
+    looksLikeFreeQuotaExceeded(error)
 
   useEffect(() => {
     initialScrollDone.current = false
@@ -656,18 +673,32 @@ export function ChatSessionPage() {
           <LlmSetupChooser
             compact
             status={
-              llmStatus ?? {
-                ready: false,
-                mode: 'none',
-                freeAvailable: true,
-                reason:
-                  (looksLikeLLMNotConfigured(error) ? error : null) ||
-                  '尚未配置模型',
-              }
+              llmStatus != null
+                ? {
+                    ...llmStatus,
+                    reason:
+                      (looksLikeFreeQuotaExceeded(error) ||
+                      looksLikeLLMNotConfigured(error)
+                        ? error
+                        : null) ||
+                      llmStatus.reason ||
+                      undefined,
+                  }
+                : {
+                    ready: false,
+                    mode: 'none',
+                    freeAvailable: true,
+                    reason:
+                      (looksLikeLLMNotConfigured(error) ||
+                      looksLikeFreeQuotaExceeded(error)
+                        ? error
+                        : null) || '尚未配置模型',
+                  }
             }
             isAdmin={isAdmin}
             onReady={(res) => {
               setLlmStatus(res)
+              // Clearing only helps cold-start misconfig; FREE quota needs BYOK.
               if (res.ready && looksLikeLLMNotConfigured(error)) {
                 setError(null)
               }
@@ -676,7 +707,9 @@ export function ChatSessionPage() {
         </div>
       )}
 
-      {error && !looksLikeLLMNotConfigured(error) && (
+      {error &&
+        !looksLikeLLMNotConfigured(error) &&
+        !looksLikeFreeQuotaExceeded(error) && (
         <div role="alert" style={{ padding: '0 16px 8px' }}>
           <Banner
             fullMode={false}

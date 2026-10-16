@@ -1020,6 +1020,9 @@ func unwrapPromptErr(err error) string {
 	if errors.Is(err, sysagent.ErrLLMNotConfigured) {
 		return sysagent.ErrLLMNotConfigured.Error()
 	}
+	if errors.Is(err, sysagent.ErrFreeQuotaExceeded) {
+		return sysagent.ErrFreeQuotaExceeded.Error()
+	}
 	var re *acp.RequestError
 	if errors.As(err, &re) && re != nil {
 		switch data := re.Data.(type) {

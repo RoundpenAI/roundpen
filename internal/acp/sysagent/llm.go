@@ -14,7 +14,12 @@ import (
 
 // ErrLLMNotConfigured is returned when the system agent has no relay BaseURL
 // (LLM gateway disabled or no provider bound to the sysagent slot).
-var ErrLLMNotConfigured = errors.New("LLM 尚未配置：请到「设置 → LLM 网关」启用网关，添加上游地址与密钥，并保存后再试")
+var ErrLLMNotConfigured = errors.New("LLM 尚未配置：请到「系统管理 → LLM 网关」启用网关，添加上游地址与密钥，并保存后再试")
+
+// ErrFreeQuotaExceeded is returned when the built-in FREE upstream rate-limits
+// the install (HTTP 429). Surfaces a BYOK cue pointing at system admin, not
+// personal settings.
+var ErrFreeQuotaExceeded = errors.New("免费额度已用尽或请求过于频繁：请到「系统管理 → LLM 网关」配置自己的 API Key（BYOK）")
 
 // LLMConfig configures OpenAI-compatible chat via llmgw loopback.
 type LLMConfig struct {
@@ -108,6 +113,9 @@ func (c LLMConfig) chatStream(ctx context.Context, messages []chatMessage, tools
 			return msg, finish, nil
 		}
 		lastErr = err
+		if isHTTPStatus(err, http.StatusTooManyRequests) {
+			return chatMessage{}, "", ErrFreeQuotaExceeded
+		}
 		if !isHTTPStatus(err, 404) {
 			return chatMessage{}, "", err
 		}

@@ -165,7 +165,7 @@ export const en = {
   'settings.llmgw.intro':
     'Roundpen relays model calls so Agents never hold your real OpenAI / Anthropic keys. Configure upstream credentials below; Agents and Chats only receive a virtual key that calls /llmgw on this control plane.',
   'settings.llmgw.modeHint':
-    'Cold start: use Free trial (built-in roundpen-free, rate-limited by install identity) or bring your own API key. Prefer BYOK for production; Free is for trying Roundpen — on 429, rebind your own upstream.',
+    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → LLM gateway for production; on 429 the UI cues the same path.',
   'settings.llmgw.enable':
     'Enable relay (required for Agent Chats & memory embeddings)',
   'settings.llmgw.upstreamTitle': '1 · Upstream providers',
