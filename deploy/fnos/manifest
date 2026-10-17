@@ -1,7 +1,22 @@
 appname               = roundpen
 version               = 0.1.0
 display_name          = AI助手
-desc                  = 在飞牛上用 AI：多助手对话、写代码、浏览网页，数据留在 NAS，开箱可用。
+desc                  = """
+<p><b>飞牛上的 AI 工作台</b></p>
+<p>多助手对话、写代码、浏览网页——数据留在 NAS，用飞牛账号打开即用。</p>
+<p><font color="#0F766E"><b>开箱即用</b></font><br/>
+装好即可对话，内置免费模型会自动启用，不用先填 Key。<br/>
+额度用尽或需要更强模型时，到 <b>系统管理 → LLM 网关</b> 接自己的 OpenAI / Anthropic 兼容上游。</p>
+<p><font color="#0F766E"><b>能做什么</b></font></p>
+<p>
+· <b>多助手</b>：各自设定与会话，按场景分开用<br/>
+· <b>写代码</b>：Agent 在 Docker 沙箱里改文件、跑命令<br/>
+· <b>浏览网页</b>：托管浏览器环境，适合查资料、操作页面<br/>
+· <b>飞牛直通</b>：桌面入口走统一网关，当前登录用户自动映射；飞牛管理员即应用管理员
+</p>
+<p><font color="#0F766E"><b>适合谁</b></font><br/>
+想把 AI 助手跑在自己 NAS 上、数据不出内网的人。Agent / Browser 依赖宿主 Docker，首次用到会拉镜像。</p>
+"""
 platform              = x86
 source                = thirdparty
 maintainer            = Roundpen
@@ -12,4 +27,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = true
-changelog             = 应用中心展示名改为「AI助手」，简介改为直白能力说明；包名仍为 roundpen，升级不受影响。
+changelog             = 应用中心描述改为 HTML 排版；桌面入口新窗口打开。

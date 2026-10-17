@@ -485,10 +485,25 @@ func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
-		CheckOrigin:     func(r *http.Request) bool { return httpx.CheckSameOrigin(r, h.PublicURL) },
+		CheckOrigin: func(r *http.Request) bool {
+			ok := httpx.CheckSameOrigin(r, h.PublicURL)
+			if !ok && h.Log != nil {
+				h.Log.Warn("websocket origin rejected",
+					slog.String("origin", r.Header.Get("Origin")),
+					slog.String("host", r.Host),
+					slog.String("x_forwarded_host", r.Header.Get("X-Forwarded-Host")),
+					slog.Bool("has_trim_userid", r.Header.Get("X-Trim-Userid") != ""),
+					slog.String("remote", r.RemoteAddr),
+				)
+			}
+			return ok
+		},
 	}
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		if h.Log != nil {
+			h.Log.Warn("websocket upgrade failed", slog.String("session", id), slog.Any("err", err))
+		}
 		return
 	}
 	client := &wsClient{conn: conn}

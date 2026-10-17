@@ -114,6 +114,9 @@ do_start() {
     # Record the daemon pid inside that user session — backgrounding runuser
     # itself would leave a dead pid in the pidfile.
     cd "${TRIM_PKGVAR}" || exit 1
+    # One-line credential dump so Docker sock permission issues are obvious
+    # (expect groups=…,docker,… when join-groups applied).
+    run_as_pkg id >> "${LOGFILE}" 2>&1 || true
     run_as_pkg bash -c "nohup \"${ROUNDPEND}\" >> \"${LOGFILE}\" 2>&1 & echo \$! > \"${PIDFILE}\""
     if is_root; then
         chown "$(pkg_user):$(pkg_group)" "${PIDFILE}" "${LOGFILE}" 2>/dev/null || true

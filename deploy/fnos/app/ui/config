@@ -3,7 +3,7 @@
         "roundpen.main": {
             "title": "AI助手",
             "icon": "images/icon_{0}.png",
-            "type": "iframe",
+            "type": "url",
             "protocol": "",
             "gatewayPrefix": "/app/roundpen",
             "gatewaySocket": "app.sock",
