@@ -136,6 +136,23 @@ func TestSystemPromptMentionsWebTools(t *testing.T) {
 	}
 }
 
+func TestSystemPromptPrefersWebFetchOverBrowser(t *testing.T) {
+	a := New(Deps{})
+	msgs := a.buildPromptMessages(context.Background(), "hi")
+	if len(msgs) == 0 || msgs[0].Role != "system" {
+		t.Fatalf("unexpected messages: %+v", msgs)
+	}
+	for _, want := range []string{
+		"prefer WebFetch",
+		"fall back to browser_*",
+		"explicitly asks for the browser",
+	} {
+		if !strings.Contains(msgs[0].Content, want) {
+			t.Fatalf("system prompt missing web-vs-browser routing cue %q", want)
+		}
+	}
+}
+
 func TestSystemPromptMentionsWorkspaceLayout(t *testing.T) {
 	a := New(Deps{})
 	msgs := a.buildPromptMessages(context.Background(), "hi")
