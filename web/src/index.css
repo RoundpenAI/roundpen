@@ -857,12 +857,27 @@ html.keyboard-open .chat-composer-dock {
 }
 
 /* Workspace file manager: context menu, rows, name cells */
+.rp-app-content {
+  -webkit-overflow-scrolling: touch;
+}
+
 .rp-ws-table .semi-table-row {
   cursor: pointer;
 }
 
 .rp-ws-table .semi-table-row:hover {
   background: var(--semi-color-fill-0);
+}
+
+/* Semi's .semi-table-body uses overflow:auto; a wider-than-viewport table
+   then owns the touch gesture as horizontal pan. On phones we drop the
+   extra columns and kill the horizontal scrollport so vertical pans reach
+   .rp-app-content. */
+.rp-ws-table .rp-ws-table-narrow .semi-table-body,
+.rp-ws-table .rp-ws-table-narrow .semi-table-header {
+  overflow-x: hidden;
+  overflow-y: visible;
+  touch-action: pan-y;
 }
 
 .rp-ws-name {
@@ -873,7 +888,23 @@ html.keyboard-open .chat-composer-dock {
   max-width: 100%;
 }
 
+.rp-ws-name-stack {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
 .rp-ws-name-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rp-ws-name-meta {
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+  line-height: 1.3;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

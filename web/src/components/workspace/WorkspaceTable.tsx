@@ -1,8 +1,10 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Input, Table, Typography } from '@douyinfe/semi-ui-19'
+import type { ColumnProps } from '@douyinfe/semi-ui-19/lib/es/table'
 import { IconFile, IconFolder } from '@douyinfe/semi-icons'
 import type { DirEntry } from '../../api'
 import type { MessageKey } from '../../i18n'
+import { useMatchMedia } from '../../lib/useMatchMedia'
 import {
   fileKind,
   formatBytes,
@@ -81,6 +83,10 @@ export function WorkspaceTable({
   onRenameCancel,
   t,
 }: Props) {
+  // Wide fixed columns + Semi's overflow:auto body steal vertical pans on
+  // phones (fnOS WebView). Compact the table so only the page scrolls.
+  const narrow = useMatchMedia('(max-width: 767px)')
+
   // Row-level props only cover click + style (Semi wires onClick itself);
   // double-click and the context menu ride on every cell, which is the hook
   // the table reliably forwards.
@@ -92,8 +98,92 @@ export function WorkspaceTable({
     },
   })
 
+  const columns = useMemo((): ColumnProps<DirEntry>[] => {
+    const nameCol: ColumnProps<DirEntry> = {
+      title: t('workspace.column.name'),
+      dataIndex: 'name',
+      onCell: (record) => cellProps(record as DirEntry),
+      render: (name: string, record: DirEntry) => {
+        if (renaming === name) {
+          return (
+            <RenameInput
+              initial={name}
+              onSubmit={(next) => onRenameSubmit(name, next)}
+              onCancel={onRenameCancel}
+            />
+          )
+        }
+        const meta = narrow
+          ? [
+              record.is_dir ? null : formatBytes(record.size),
+              formatTime(record.mod_time),
+            ]
+              .filter(Boolean)
+              .join(' · ')
+          : null
+        return (
+          <span
+            className="rp-ws-name"
+            // Bound here rather than relying on the table's cell/row
+            // forwarding: the name is our own node, so the events always
+            // reach it (double-click opens, right-click opens the menu).
+            onDoubleClick={() => onRowDoubleClick(record)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              onRowContextMenu(record, e)
+            }}
+          >
+            {record.is_dir ? <IconFolder /> : <IconFile />}
+            <span className="rp-ws-name-stack">
+              <span className="rp-ws-name-text">{name}</span>
+              {meta ? (
+                <span className="rp-ws-name-meta">{meta}</span>
+              ) : null}
+            </span>
+          </span>
+        )
+      },
+    }
+
+    if (narrow) return [nameCol]
+
+    return [
+      nameCol,
+      {
+        title: t('workspace.column.size'),
+        dataIndex: 'size',
+        width: 110,
+        onCell: (record) => cellProps(record as DirEntry),
+        render: (size: number, record: DirEntry) =>
+          record.is_dir ? '—' : formatBytes(size),
+      },
+      {
+        title: t('workspace.column.type'),
+        width: 110,
+        onCell: (record) => cellProps(record as DirEntry),
+        render: (_: unknown, record: DirEntry) =>
+          t(`workspace.type.${fileKind(record)}` as MessageKey),
+      },
+      {
+        title: t('workspace.column.modified'),
+        width: 170,
+        onCell: (record) => cellProps(record as DirEntry),
+        render: (_: unknown, record: DirEntry) => formatTime(record.mod_time),
+      },
+    ]
+  }, [
+    narrow,
+    renaming,
+    t,
+    onRenameSubmit,
+    onRenameCancel,
+    onRowDoubleClick,
+    onRowContextMenu,
+  ])
+
   return (
     <Table<DirEntry>
+      className={narrow ? 'rp-ws-table-narrow' : undefined}
       dataSource={entries}
       rowKey="name"
       size="small"
@@ -112,61 +202,7 @@ export function WorkspaceTable({
           onClick: (e: React.MouseEvent) => onRowClick(entry.name, e),
         }
       }}
-      columns={[
-        {
-          title: t('workspace.column.name'),
-          dataIndex: 'name',
-          onCell: (record) => cellProps(record as DirEntry),
-          render: (name: string, record: DirEntry) => {
-            if (renaming === name) {
-              return (
-                <RenameInput
-                  initial={name}
-                  onSubmit={(next) => onRenameSubmit(name, next)}
-                  onCancel={onRenameCancel}
-                />
-              )
-            }
-            return (
-              <span
-                className="rp-ws-name"
-                // Bound here rather than relying on the table's cell/row
-                // forwarding: the name is our own node, so the events always
-                // reach it (double-click opens, right-click opens the menu).
-                onDoubleClick={() => onRowDoubleClick(record)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  onRowContextMenu(record, e)
-                }}
-              >
-                {record.is_dir ? <IconFolder /> : <IconFile />}
-                <span className="rp-ws-name-text">{name}</span>
-              </span>
-            )
-          },
-        },
-        {
-          title: t('workspace.column.size'),
-          dataIndex: 'size',
-          width: 110,
-          onCell: (record) => cellProps(record as DirEntry),
-          render: (size: number, record: DirEntry) =>
-            record.is_dir ? '—' : formatBytes(size),
-        },
-        {
-          title: t('workspace.column.type'),
-          width: 110,
-          onCell: (record) => cellProps(record as DirEntry),
-          render: (_: unknown, record: DirEntry) =>
-            t(`workspace.type.${fileKind(record)}` as MessageKey),
-        },
-        {
-          title: t('workspace.column.modified'),
-          width: 170,
-          onCell: (record) => cellProps(record as DirEntry),
-          render: (_: unknown, record: DirEntry) => formatTime(record.mod_time),
-        },
-      ]}
+      columns={columns}
     />
   )
 }

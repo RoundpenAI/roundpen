@@ -325,6 +325,7 @@ export function WorkspacePage() {
       className="rp-ws-page"
       style={{
         padding: '16px 20px',
+        paddingBottom: 'max(24px, env(safe-area-inset-bottom, 0px))',
         // Without an explicit width (and with the auto margins that center
         // it in the flex column shell) the box sizes to its content, so the
         // page visibly jumps between narrow (loading) and wide (table).
@@ -332,6 +333,7 @@ export function WorkspacePage() {
         maxWidth: 960,
         margin: '0 auto',
         boxSizing: 'border-box',
+        flex: '0 0 auto',
       }}
       onContextMenu={handleEmptyContextMenu}
     >

@@ -39,3 +39,44 @@ test('workspace page keeps a stable width from loading to loaded', async ({ page
   expect(Math.abs(loadedWidth - loadingWidth)).toBeLessThanOrEqual(1)
   expect(loadedWidth).toBeLessThanOrEqual(960)
 })
+
+// On phones the size/type/modified columns made the Semi table wider than the
+// viewport; its overflow:auto body then captured vertical pans as horizontal
+// swipes. Compact layout keeps only the name column (meta under the name).
+test('workspace table is compact on a phone viewport', async ({ page }) => {
+  skipIfNoLivePassword()
+  await loginViaApi(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+
+  await page.route('**/v1/me/workspace/files**', async (route) => {
+    await route.fulfill({
+      json: {
+        entries: [
+          {
+            name: 'notes.txt',
+            is_dir: false,
+            size: 2048,
+            mod_time: '2026-09-21T10:05:00Z',
+          },
+        ],
+      },
+    })
+  })
+
+  await page.goto('/workspace')
+  await expect(page.getByText('notes.txt', { exact: true })).toBeVisible()
+  await expect(page.locator('.rp-ws-table-narrow')).toBeVisible()
+  await expect(page.locator('.rp-ws-name-meta')).toBeVisible()
+  // Desktop column headers must not appear in the compact layout.
+  await expect(
+    page.getByRole('columnheader', { name: /^(大小|Size)$/ }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('columnheader', { name: /^(类型|Type)$/ }),
+  ).toHaveCount(0)
+
+  const bodyOverflowX = await page
+    .locator('.rp-ws-table-narrow .semi-table-body')
+    .evaluate((el) => getComputedStyle(el).overflowX)
+  expect(bodyOverflowX).toBe('hidden')
+})
