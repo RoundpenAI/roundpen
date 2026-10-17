@@ -36,7 +36,7 @@
 - **预览链接打不开**：把 `ROUNDPEN_PREVIEW_PUBLIC_URL` 改成 NAS 地址（**系统管理 → 通用**），默认是 `http://127.0.0.1:9527`。
 - **Agent 镜像拉不动**：默认 `ghcr.io/roundpenai/code-agent:0.1.0`，在 **系统管理 → 通用** 换成镜像源或本地 tag。
 - **Browser 镜像拉不动**：默认 `ghcr.io/browserless/chrome:v2.56.7`，可在 `var/roundpend.env` 设 `ROUNDPEN_BROWSER_IMAGE`（例如内网镜像或 offline `docker load` 后的本地 tag）。离线包太大，`.fpk` 不内嵌 OCI 层。
-- **国内访问 ghcr.io 失败**：Docker 的 `registry-mirrors` **不会**加速 ghcr。Roundpen 会自动按序试 DaoCloud → `ghcr.1ms.run` → `ghcr.nju.edu.cn`，成功后打回原 tag；也可用 `ROUNDPEN_IMAGE_MIRRORS` 自定义（逗号分隔模板，支持 `{image}` / `{path}`），设 `none` 关闭内置回退。
+- **国内访问 ghcr.io 失败**：Docker 的 `registry-mirrors` **不会**加速 ghcr。Roundpen 会自动按序试 `ghcr.1ms.run` → `ghcr.nju.edu.cn` → DaoCloud（限速源靠后），成功后打回原 tag；也可用 `ROUNDPEN_IMAGE_MIRRORS` 自定义（逗号分隔模板，支持 `{image}` / `{path}`），设 `none` 关闭内置回退。
 - **Docker 权限**：包用户 `roundpen` 加入 `docker` 组（`config/privilege` → `join-groups`）；组名不同就按设备改。
 
 ### 升级与 `secret.key` 权限

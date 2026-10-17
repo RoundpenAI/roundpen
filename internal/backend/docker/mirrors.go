@@ -85,21 +85,19 @@ func builtinMirrorsFor(logicalRef string) []string {
 	}
 	switch registry {
 	case "ghcr.io":
-		// Order: DaoCloud (prefix + replace) → 1ms.run → NJU cache.
-		// DaoCloud is widely used but rate-limited and has had outages;
-		// 1ms/NJU are alternate China paths (NJU is a university cache and
-		// may lag on brand-new tags).
+		// Prefer mirrors that are less rate-limited first; DaoCloud last.
+		// NJU is a university cache (fast when present, may 404 on new tags).
 		return []string{
-			"m.daocloud.io/{image}",
-			"ghcr.m.daocloud.io/{path}",
 			"ghcr.1ms.run/{path}",
 			"ghcr.nju.edu.cn/{path}",
+			"m.daocloud.io/{image}",
+			"ghcr.m.daocloud.io/{path}",
 		}
 	case "docker.io":
 		return []string{
+			"docker.1ms.run/{path}",
 			"m.daocloud.io/{image}",
 			"docker.m.daocloud.io/{path}",
-			"docker.1ms.run/{path}",
 		}
 	default:
 		return []string{"m.daocloud.io/{image}"}

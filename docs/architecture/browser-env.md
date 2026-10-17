@@ -130,10 +130,10 @@ make browser-driver            # = go run ./cmd/browserdriver
 1. 进程内记住的上次成功源  
 2. 原始 ref（如 `ghcr.io/browserless/chrome:v2.56.7`）  
 3. `ROUNDPEN_IMAGE_MIRRORS` 自定义模板（`{image}` = 完整 ref，`{path}` = 去掉 registry 后的路径）  
-4. 内置回退（按序，任一成功即停）：
-   - `m.daocloud.io/{image}`、`ghcr.m.daocloud.io/{path}`（DaoCloud，常用但有限速/偶发故障）
+4. 内置回退（按序，任一成功即停；限速源靠后）：
    - `ghcr.1ms.run/{path}`（毫秒镜像免费 ghcr 通道）
    - `ghcr.nju.edu.cn/{path}`（南大镜像站缓存；新 tag 可能尚未同步）
+   - `m.daocloud.io/{image}`、`ghcr.m.daocloud.io/{path}`（DaoCloud，常用但有限速）
 
 从镜像源拉成功后会 `docker tag` 回逻辑名，上层配置无需改写。设 `ROUNDPEN_IMAGE_MIRRORS=none` 可关闭内置回退。第三方镜像源无 SLA，内置多源是为了提高「装完能用」概率，不是对某一家做背书。
 
