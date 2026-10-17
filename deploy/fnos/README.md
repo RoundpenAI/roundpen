@@ -1,5 +1,7 @@
 # Roundpen on 飞牛 fnOS
 
+应用中心展示名是 **AI助手**（`display_name`）；包名 / 数据目录仍是 `roundpen`，升级路径不变。
+
 把 Roundpen 打成 fnOS 应用（`.fpk`）：宿主机跑 `roundpend`，包里带 [pg0](https://github.com/vectorize-io/pg0) 起本地 Postgres（含 pgvector）。Agent / Browser 用宿主 Docker（挂 `/var/run/docker.sock`），第一次用到再拉镜像。
 
 ## 安装

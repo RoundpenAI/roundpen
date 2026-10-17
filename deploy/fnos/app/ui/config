@@ -1,7 +1,7 @@
 {
     ".url": {
         "roundpen.main": {
-            "title": "Roundpen",
+            "title": "AI助手",
             "icon": "images/icon_{0}.png",
             "type": "iframe",
             "protocol": "",
