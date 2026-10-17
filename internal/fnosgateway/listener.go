@@ -24,9 +24,15 @@ import (
 // The prefix is stripped first so the downstream mux and identity middleware
 // see the same paths they would on the TCP listener.
 func Handler(prefix string, users storage.UserStore, sessions storage.SessionStore, mux http.Handler) http.Handler {
+	return HandlerWithLogger(prefix, users, sessions, mux, nil)
+}
+
+// HandlerWithLogger is Handler with an optional slog logger for upgrade probes.
+func HandlerWithLogger(prefix string, users storage.UserStore, sessions storage.SessionStore, mux http.Handler, logger *slog.Logger) http.Handler {
 	h := auth.Middleware(users, sessions)(mux)
 	h = gatewayIdentity(users, sessions)(h)
-	return stripGatewayPrefix(prefix, h)
+	h = stripGatewayPrefix(prefix, h)
+	return logGatewayUpgrades(logger, h)
 }
 
 // stripGatewayPrefix removes the gateway path prefix from the request the fnOS
@@ -44,6 +50,31 @@ func stripGatewayPrefix(prefix string, next http.Handler) http.Handler {
 					r.URL.RawPath = normalizeGatewayPath(rp)
 				}
 			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// logGatewayUpgrades logs WebSocket upgrade attempts that reach the Unix
+// socket. If the desktop shows a WS failure but this line never appears, the
+// fnOS gateway (or the desktop proxy on :5666) is not forwarding the Upgrade.
+func logGatewayUpgrades(logger *slog.Logger, next http.Handler) http.Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		connHdr := strings.ToLower(r.Header.Get("Connection"))
+		if strings.Contains(connHdr, "upgrade") ||
+			strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			logger.Info("fnos gateway websocket upgrade",
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.String("origin", r.Header.Get("Origin")),
+				slog.String("host", r.Host),
+				slog.String("x_forwarded_host", r.Header.Get("X-Forwarded-Host")),
+				slog.Bool("has_trim_userid", r.Header.Get("X-Trim-Userid") != ""),
+				slog.String("remote", r.RemoteAddr),
+			)
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -90,8 +121,14 @@ func Serve(socket, prefix string, users storage.UserStore, sessions storage.Sess
 	if err != nil {
 		return nil, fmt.Errorf("fnos gateway: listen unix %s: %w", socket, err)
 	}
+	// Nginx (unified gateway) connects as a different uid; world-writable socket
+	// is the usual pattern for app.sock under target/.
+	if err := os.Chmod(socket, 0o666); err != nil {
+		_ = ln.Close()
+		return nil, fmt.Errorf("fnos gateway: chmod %s: %w", socket, err)
+	}
 	srv := &http.Server{
-		Handler:           Handler(prefix, users, sessions, mux),
+		Handler:           HandlerWithLogger(prefix, users, sessions, mux, logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No ReadTimeout: hijacked WebSocket connections reuse the accepted
 		// conn; a global read deadline would tear down long-lived chat sockets.

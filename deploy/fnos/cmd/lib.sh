@@ -32,14 +32,20 @@ ensure_pkgvar_perms() {
 
 # Run a command as the package user when the lifecycle script is root.
 # Long-running services should not stay root (see config/privilege).
+#
+# Prefer setpriv --init-groups so join-groups from config/privilege (e.g.
+# docker) are actually in the process credential set. runuser -u/-g alone has
+# been observed on fnOS to drop supplementary groups, which yields
+# permission denied on /var/run/docker.sock.
 run_as_pkg() {
 	local user group
 	user="$(pkg_user)"
 	group="$(pkg_group)"
-	if is_root && command -v runuser >/dev/null 2>&1; then
-		runuser -u "${user}" -g "${group}" --preserve-environment -- "$@"
-	elif is_root && command -v setpriv >/dev/null 2>&1; then
+	if is_root && command -v setpriv >/dev/null 2>&1; then
 		setpriv --reuid="${user}" --regid="${group}" --init-groups -- "$@"
+	elif is_root && command -v runuser >/dev/null 2>&1; then
+		# No -g: let runuser load the account's full group set (incl. docker).
+		runuser -u "${user}" --preserve-environment -- "$@"
 	elif is_root; then
 		echo "runuser/setpriv missing; cannot drop privileges to ${user}" >&2
 		return 1

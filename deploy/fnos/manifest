@@ -12,4 +12,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = true
-changelog             = 修复飞牛桌面内嵌打开时 WebSocket 无法连接；带网关身份时放宽 Origin 校验。展示名「AI助手」。
+changelog             = 修复 Docker sock 附加组未生效；网关侧记录 WebSocket Upgrade 以便判断是否被飞牛转发。展示名「AI助手」。
