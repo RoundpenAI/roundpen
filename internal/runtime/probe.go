@@ -154,8 +154,9 @@ func (p *Probe) RequireBrowser(profile browser.Profile) error {
 		}
 	}
 
-	// docker — managed browserless container. The image itself is pulled
-	// lazily by the Docker backend on create, so presence is not required here.
+	// docker — managed browserless container. Presence of the image is not
+	// required here: roundpend / fnOS preload it in the background, and the
+	// Docker backend still pulls on create if the warm path has not finished.
 	snap := p.Snapshot()
 	if !snap.DockerReady {
 		return &NotReady{Engine: EngineDocker, Message: missingMessage(snap.Missing), Setup: snap.Setup}

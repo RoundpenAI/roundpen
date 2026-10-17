@@ -21,18 +21,26 @@ import (
 
 // Options configure lazy engine attachment.
 type Options struct {
-	DataRoot      string
-	DockerHost    string
-	DockerRuntime string
-	DisableQEMU   bool
+	DataRoot              string
+	DockerHost            string
+	DockerRuntime         string
+	DisableQEMU           bool
+	ImageMirrors          []string // ROUNDPEN_IMAGE_MIRRORS templates/hosts
+	DisableBuiltinMirrors bool
+	// MirrorRaceDelay: wait on official pull before racing first mirror.
+	// nil = default (15s); explicit 0 disables racing.
+	MirrorRaceDelay *time.Duration
 }
 
 // Backend picks an engine per sandbox based on slot and image.
 type Backend struct {
-	DataRoot      string
-	DockerHost    string
-	DockerRuntime string
-	disableQEMU   bool
+	DataRoot              string
+	DockerHost            string
+	DockerRuntime         string
+	disableQEMU           bool
+	imageMirrors          []string
+	disableBuiltinMirrors bool
+	mirrorRaceDelay       *time.Duration
 
 	mu     sync.Mutex
 	qemu   *qemu.Backend
@@ -46,11 +54,14 @@ type Backend struct {
 // later when binaries or the daemon appear (no process restart required).
 func New(opts Options) *Backend {
 	return &Backend{
-		DataRoot:      opts.DataRoot,
-		DockerHost:    opts.DockerHost,
-		DockerRuntime: opts.DockerRuntime,
-		disableQEMU:   opts.DisableQEMU,
-		routes:        make(map[string]string),
+		DataRoot:              opts.DataRoot,
+		DockerHost:            opts.DockerHost,
+		DockerRuntime:         opts.DockerRuntime,
+		disableQEMU:           opts.DisableQEMU,
+		imageMirrors:          append([]string(nil), opts.ImageMirrors...),
+		disableBuiltinMirrors: opts.DisableBuiltinMirrors,
+		mirrorRaceDelay:       opts.MirrorRaceDelay,
+		routes:                make(map[string]string),
 	}
 }
 
@@ -91,6 +102,10 @@ func (b *Backend) dockerEngine() (*dockerbackend.Backend, error) {
 	if err != nil {
 		b.derr = err
 		return nil, err
+	}
+	be.SetImageMirrors(b.imageMirrors, b.disableBuiltinMirrors)
+	if b.mirrorRaceDelay != nil {
+		be.SetMirrorRaceDelay(*b.mirrorRaceDelay)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -273,6 +288,18 @@ func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, e
 		return false, "", err
 	}
 	return eng.RefreshImage(ctx, ref)
+}
+
+// EnsureLocalImage pulls ref when missing (no-op when already local).
+func (b *Backend) EnsureLocalImage(ctx context.Context, ref string) error {
+	if isQcow2(ref) {
+		return fmt.Errorf("image ensure is not supported for qemu images")
+	}
+	eng, err := b.dockerEngine()
+	if err != nil {
+		return err
+	}
+	return eng.EnsureLocalImage(ctx, ref)
 }
 
 func (b *Backend) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {

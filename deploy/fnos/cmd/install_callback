@@ -48,6 +48,7 @@ export DATABASE_URL="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/${
     echo "ROUNDPEN_IM_ENABLED=true"
     echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
     echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
+    echo "ROUNDPEN_BROWSER_IMAGE=ghcr.io/browserless/chrome:v2.56.7"
     echo "ROUNDPEN_PREVIEW_PUBLIC_URL=http://127.0.0.1:${PORT}"
     echo "ROUNDPEN_FNOS_GATEWAY_SOCKET=${TRIM_APPDEST}/app.sock"
     echo "ROUNDPEN_FNOS_GATEWAY_PREFIX=/app/roundpen"
@@ -65,5 +66,12 @@ if ! run_as_pkg bash -c ". \"${ENSURE_PG0}\"" >"${errfile}" 2>&1; then
 fi
 
 ensure_pkgvar_perms || fail "无法校正数据目录权限 ${TRIM_PKGVAR}"
+
+# Pull Browser/Agent images while install finishes so first browser_* is warm.
+# shellcheck disable=SC1090
+set -a
+. "${ENVFILE}"
+set +a
+warm_docker_images "${TRIM_PKGVAR}/warm-images.log"
 
 exit 0

@@ -38,9 +38,9 @@ make setup && make dev
 Agent、Browser 都跑在 Docker 里。首次用会拉：
 
 - Agent：`ghcr.io/roundpenai/code-agent:0.1.0`（可用 `ROUNDPEN_AGENT_IMAGE` 或 `docker load`）
-- Browser：`ghcr.io/browserless/chrome:v2.56.7`（可用 `ROUNDPEN_BROWSER_IMAGE`）
+- Browser：`ghcr.io/browserless/chrome:v2.56.7`（可用 `ROUNDPEN_BROWSER_IMAGE`；安装/启动时后台预拉）
 
-离线或内网把镜像准备好即可，不必本机留 Dockerfile。
+`ghcr.io` 拉不动时会自动试国内代理镜像（见 `ROUNDPEN_IMAGE_MIRRORS`），成功后打回原 tag。离线或内网也可 `docker load`，不必本机留 Dockerfile。
 
 ## 二进制
 

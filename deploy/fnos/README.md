@@ -2,7 +2,7 @@
 
 应用中心展示名是 **AI助手**（`display_name`）；包名 / 数据目录仍是 `roundpen`，升级路径不变。
 
-把 Roundpen 打成 fnOS 应用（`.fpk`）：宿主机跑 `roundpend`，包里带 [pg0](https://github.com/vectorize-io/pg0) 起本地 Postgres（含 pgvector）。Agent / Browser 用宿主 Docker（挂 `/var/run/docker.sock`），第一次用到再拉镜像。
+把 Roundpen 打成 fnOS 应用（`.fpk`）：宿主机跑 `roundpend`，包里带 [pg0](https://github.com/vectorize-io/pg0) 起本地 Postgres（含 pgvector）。Agent / Browser 用宿主 Docker（挂 `/var/run/docker.sock`）。安装与启动时会在后台预拉 `ROUNDPEN_BROWSER_IMAGE` / `ROUNDPEN_AGENT_IMAGE`（默认 browserless/chrome 与 code-agent），避免装完立刻 `browser_navigate` 时才开始下多 GB 镜像；进度见 `var/warm-images.log`。
 
 ## 安装
 
@@ -35,6 +35,8 @@
 
 - **预览链接打不开**：把 `ROUNDPEN_PREVIEW_PUBLIC_URL` 改成 NAS 地址（**系统管理 → 通用**），默认是 `http://127.0.0.1:9527`。
 - **Agent 镜像拉不动**：默认 `ghcr.io/roundpenai/code-agent:0.1.0`，在 **系统管理 → 通用** 换成镜像源或本地 tag。
+- **Browser 镜像拉不动**：默认 `ghcr.io/browserless/chrome:v2.56.7`，可在 `var/roundpend.env` 设 `ROUNDPEN_BROWSER_IMAGE`（例如内网镜像或 offline `docker load` 后的本地 tag）。离线包太大，`.fpk` 不内嵌 OCI 层。
+- **国内访问 ghcr.io 失败/很慢**：Docker 的 `registry-mirrors` **不会**加速 ghcr。Roundpen 会按序试 `ghcr.1ms.run` → `ghcr.nju.edu.cn` → DaoCloud；若官方能通但很慢，约 15s 后会与第一个镜像源并行竞速。可用 `ROUNDPEN_IMAGE_MIRRORS` / `ROUNDPEN_IMAGE_MIRROR_RACE_DELAY` 调整（`none` / `0` 分别关闭内置源与竞速）。
 - **Docker 权限**：包用户 `roundpen` 加入 `docker` 组（`config/privilege` → `join-groups`）；组名不同就按设备改。
 
 ### 升级与 `secret.key` 权限

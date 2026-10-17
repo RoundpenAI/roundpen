@@ -20,7 +20,7 @@ const (
 const (
 	loopNudgeText        = "You are repeating the same tool calls without new information. Change approach, try a different control or URL, or write your final report now."
 	loopStopText         = "Stopped: the same actions kept repeating without progress. Say what you still need, or try a different starting point."
-	infraNudgeText       = "Browser Chrome is not ready. Do not keep clicking page tools. Wait, then retry browser_* once. If it still fails, report that the Browser environment is not available."
+	infraNudgeText       = "Browser is not ready (image still downloading or Chrome DevTools unreachable). Do not keep clicking page tools. Wait, then retry browser_* once. If it still fails, report that the Browser environment is not available."
 	infraStopText        = "Stopped: Browser DevTools is not reachable. Retrying page tools will not help."
 	agentAbsentNudgeText = "Agent workspace is not started (status=absent). That is not a missing capability. Call Bash or a file tool now. Do not stop after listing, and do not use the Browser for git or shell."
 )
