@@ -13,6 +13,8 @@ func TestPullCandidatesGHCR(t *testing.T) {
 		ref,
 		"m.daocloud.io/ghcr.io/browserless/chrome:v2.56.7",
 		"ghcr.m.daocloud.io/browserless/chrome:v2.56.7",
+		"ghcr.1ms.run/browserless/chrome:v2.56.7",
+		"ghcr.nju.edu.cn/browserless/chrome:v2.56.7",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)

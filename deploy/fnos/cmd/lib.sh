@@ -48,7 +48,9 @@ pull_image_with_mirrors() {
 		path="${ref#ghcr.io/}"
 		for candidate in \
 			"m.daocloud.io/${ref}" \
-			"ghcr.m.daocloud.io/${path}"; do
+			"ghcr.m.daocloud.io/${path}" \
+			"ghcr.1ms.run/${path}" \
+			"ghcr.nju.edu.cn/${path}"; do
 			echo "[warm-images] retry via ${candidate}"
 			if docker pull "${candidate}"; then
 				docker tag "${candidate}" "${ref}" || return 1
