@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Banner, Input, Select, Typography } from '@douyinfe/semi-ui-19'
 import {
+  llmgwVendors,
   settingItems,
   type ItemKind,
+  type LlmgwVendor,
   type SettingItem,
   type SlotDef,
   type UserBindingEntry,
@@ -22,6 +24,7 @@ export function PersonalSlotsPanel() {
   const [defs, setDefs] = useState<SlotDef[]>([])
   const [items, setItems] = useState<Record<string, SettingItem[]>>({})
   const [models, setModels] = useState<Record<string, string>>({})
+  const [vendors, setVendors] = useState<LlmgwVendor[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,6 +51,9 @@ export function PersonalSlotsPanel() {
         loaded[kind] = (await settingItems.userItems(kind)).items ?? []
       }
       setItems(loaded)
+      if (kinds.includes('llm')) {
+        setVendors(await llmgwVendors().catch(() => []))
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t('personalSlots.loadFailed'))
     } finally {
@@ -94,11 +100,28 @@ export function PersonalSlotsPanel() {
       <Typography.Text type="tertiary">{t('personalSlots.intro')}</Typography.Text>
       {error && <Banner type="danger" description={error} />}
       {notice && <Banner type="success" description={notice} />}
+      {(() => {
+        const llmCount = (items.llm ?? []).filter((i) => i.enabled).length
+        if (llmCount === 1) {
+          return (
+            <Typography.Text type="tertiary" size="small">
+              {t('settings.slots.singleProvider')}
+            </Typography.Text>
+          )
+        }
+        return null
+      })()}
       {defs.map((slot) => {
+        const llmCount = (items.llm ?? []).filter((i) => i.enabled).length
+        if (slot.kind === 'llm' && llmCount < 2) return null
         const entry = slots[slot.key]
         const chosen = entry?.itemId ?? ''
         const options = items[slot.kind] ?? []
         const hasModel = (slot.bindingFields ?? []).some((f) => f.key === 'model')
+        const chosenItem = options.find((i) => i.id === chosen)
+        const vendorId = String(chosenItem?.config.vendor ?? '')
+        const vendor = vendors.find((v) => v.id === vendorId)
+        const modelOptions = vendor && vendor.id !== 'custom' ? vendor.models : []
         return (
           <div
             key={slot.key}
@@ -125,7 +148,21 @@ export function PersonalSlotsPanel() {
                 ...options.map((i) => ({ value: i.id, label: i.name || i.id })),
               ]}
             />
-            {hasModel && chosen !== '' && (
+            {hasModel && chosen !== '' && modelOptions.length > 0 && (
+              <Select
+                style={{ maxWidth: 360 }}
+                disabled={busy}
+                placeholder={t('personalSlots.modelPlaceholder')}
+                value={models[slot.key] || undefined}
+                onChange={(v) => {
+                  const model = String(v)
+                  setModels((p) => ({ ...p, [slot.key]: model }))
+                  void save(slot, chosen, model)
+                }}
+                optionList={modelOptions.map((m) => ({ value: m.id, label: m.label }))}
+              />
+            )}
+            {hasModel && chosen !== '' && modelOptions.length === 0 && (
               <Input
                 style={{ maxWidth: 360 }}
                 autoComplete="off"

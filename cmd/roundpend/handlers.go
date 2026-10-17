@@ -516,7 +516,15 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 		},
 
 		WebSearch: func(userID string) search.Config {
-			return search.Resolve(items.Snapshot(), settingitems.SlotSearchDefault, userID)
+			cfg := search.Resolve(items.Snapshot(), settingitems.SlotSearchDefault, userID)
+			// A dedicated search backend wins. Otherwise a built-in LLM
+			// platform's own web search is used directly.
+			if strings.TrimSpace(cfg.Endpoint) == "" && strings.TrimSpace(cfg.APIKey) == "" {
+				if vendor := llmgw.VendorSearch(items.Snapshot(), userID); vendor.Vendor != "" {
+					return vendor
+				}
+			}
+			return cfg
 		},
 		HostFiles: hostRead.ForSession,
 	})

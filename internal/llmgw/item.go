@@ -22,6 +22,13 @@ func Kind() settingitems.KindDef {
 		Name: "LLM provider",
 		Fields: []settingitems.Field{
 			{
+				Key:     "vendor",
+				Type:    settingitems.FieldEnum,
+				Label:   "Platform",
+				Options: VendorIDs(),
+				Hint:    "Built-in platforms need only an API key and a model. Custom keeps the protocol and base URL fields.",
+			},
+			{
 				Key:      "protocol",
 				Type:     settingitems.FieldEnum,
 				Label:    "Protocol",
@@ -78,11 +85,44 @@ func Kind() settingitems.KindDef {
 		},
 		Selectable:   []string{},
 		ProtectedIDs: []string{FreeItemID},
+		Normalize:    normalizeItem,
 		Validate:     validateItem,
 	}
 }
 
+// normalizeItem fills protocol and base URL from a built-in platform so the
+// form only has to submit a key and a model.
+func normalizeItem(it *settingitems.Item) error {
+	vendor := LookupVendor(it.String("vendor"))
+	if !vendor.Preset() {
+		if it.String("vendor") == "" {
+			it.Config["vendor"] = VendorCustom
+		}
+		return nil
+	}
+	it.Config["vendor"] = vendor.ID
+	it.Config["protocol"] = vendor.Protocol
+	it.Config["baseUrl"] = vendor.BaseURL
+	if it.String("defaultModel") == "" && len(vendor.Models) > 0 {
+		it.Config["defaultModel"] = vendor.Models[0].ID
+	}
+	return nil
+}
+
 func validateItem(it *settingitems.Item) error {
+	vendor := LookupVendor(it.String("vendor"))
+	if it.String("vendor") != "" && it.String("vendor") != VendorCustom && !vendor.Preset() {
+		return fmt.Errorf("vendor %q is not a built-in platform", it.String("vendor"))
+	}
+	if vendor.Preset() {
+		model := it.String("defaultModel")
+		if model == "" {
+			return fmt.Errorf("defaultModel is required")
+		}
+		if !vendor.AllowsModel(model) {
+			return fmt.Errorf("defaultModel %q is not offered by %s", model, vendor.ID)
+		}
+	}
 	switch it.String("protocol") {
 	case ProtocolOpenAI, ProtocolAnthropic:
 	default:
@@ -263,19 +303,50 @@ type Target struct {
 func (t Target) RelayPath() string { return "/llmgw/" + t.ItemID }
 
 // Resolve resolves a slot into a target ("" user = the global default).
+// An unbound chain inherits the first enabled provider the slot accepts, so
+// a single provider (or several left on "inherit") needs no per-slot binding.
 func Resolve(snap *settingitems.Snapshot, slot, user string) (Target, bool) {
 	if snap == nil {
 		return Target{}, false
 	}
 	res := snap.Resolve(slot, user)
-	if !res.OK {
-		return Target{}, false
+	if res.OK {
+		model := res.Param("model")
+		if model == "" {
+			model = res.Item.String("defaultModel")
+		}
+		return Target{ItemID: res.Item.ID, Protocol: res.Item.String("protocol"), Model: model}, true
 	}
-	model := res.Param("model")
-	if model == "" {
-		model = res.Item.String("defaultModel")
+	return implicitTarget(snap, slot)
+}
+
+// implicitTarget is the provider every unbound slot inherits: the first
+// enabled item whose protocol the slot accepts, in position order.
+func implicitTarget(snap *settingitems.Snapshot, slot string) (Target, bool) {
+	var protocols []string
+	for _, def := range Slots() {
+		if def.Key == slot {
+			protocols = def.Protocols
+			break
+		}
 	}
-	return Target{ItemID: res.Item.ID, Protocol: res.Item.String("protocol"), Model: model}, true
+	for _, it := range snap.Items(settingitems.KindLLM, false) {
+		proto := it.String("protocol")
+		if len(protocols) > 0 && !containsString(protocols, proto) {
+			continue
+		}
+		return Target{ItemID: it.ID, Protocol: proto, Model: it.String("defaultModel")}, true
+	}
+	return Target{}, false
+}
+
+func containsString(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
 }
 
 // ProtocolFallback returns the first enabled item speaking protocol, ordered

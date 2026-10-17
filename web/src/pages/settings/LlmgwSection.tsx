@@ -71,7 +71,7 @@ export function LlmgwSection({ isAdmin, loading, t, form, patch, logBodyOptions 
           />
         </div>
 
-        <SlotBindings kind="llm" t={t} />
+        <SlotBindings kind="llm" t={t} revealAt={2} />
 
         <div
           style={{
@@ -96,18 +96,6 @@ export function LlmgwSection({ isAdmin, loading, t, form, patch, logBodyOptions 
               placeholder="http://127.0.0.1:9527"
               value={form.llmgwPublicUrl}
               onChange={(v) => patch({ llmgwPublicUrl: v })}
-            />
-          </Field>
-          <Field
-            label={t('settings.llmgw.virtualKeys')}
-            hint={t('settings.llmgw.virtualKeysHint')}
-          >
-            <Input
-              spellCheck={false}
-              autoComplete="off"
-              placeholder="vk-dev:dev"
-              value={form.llmgwVirtualKeys}
-              onChange={(v) => patch({ llmgwVirtualKeys: v })}
             />
           </Field>
         </div>
