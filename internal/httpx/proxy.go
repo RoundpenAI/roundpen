@@ -51,7 +51,12 @@ func (t *Trust) SetNets(nets []*net.IPNet) {
 }
 
 // TrustsRemote reports whether r.RemoteAddr is a configured trusted hop.
+// Unix-socket peers are always trusted: the fnOS unified gateway is the only
+// client of roundpend's gateway socket, and TCP listeners never use Unix addrs.
 func (t *Trust) TrustsRemote(r *http.Request) bool {
+	if r != nil && isUnixRemoteAddr(r.RemoteAddr) {
+		return true
+	}
 	if t == nil {
 		return false
 	}
@@ -75,6 +80,20 @@ func (t *Trust) TrustsRemote(r *http.Request) bool {
 		}
 	}
 	return false
+}
+
+// isUnixRemoteAddr reports whether remoteAddr looks like a Unix socket peer
+// (path or abstract "@…") rather than a TCP host:port.
+func isUnixRemoteAddr(remoteAddr string) bool {
+	remoteAddr = strings.TrimSpace(remoteAddr)
+	if remoteAddr == "" || remoteAddr == "@" || strings.HasPrefix(remoteAddr, "@") || strings.HasPrefix(remoteAddr, "/") {
+		return true
+	}
+	if _, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return false
+	}
+	// Go's net.UnixAddr.String() is the filesystem path (no host:port).
+	return true
 }
 
 // ClientIP returns the client address. X-Forwarded-For is used only from a trusted hop.
