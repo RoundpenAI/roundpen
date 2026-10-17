@@ -12,18 +12,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 19000,
     proxy: {
-      // WebSocket endpoints — only these paths need WS upgrade.
-      '^/v1/agent-sessions/[^/]+/ws': {
-        target: apiProxy,
-        ws: true,
-        configure: (proxy) => {
-          proxy.on('error', (err) => {
-            const code = (err as Error & { code?: string }).code
-            if (code && ['EPIPE', 'ECONNRESET', 'ECONNABORTED'].includes(code)) return
-            console.warn('ws proxy error:', err.message)
-          })
-        },
-      },
+      // Terminal / browser-live still need WebSocket upgrade.
       '^/v1/sandboxes/[^/]+/terminal': {
         target: apiProxy,
         ws: true,

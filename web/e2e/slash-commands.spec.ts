@@ -1,5 +1,5 @@
-import type { WebSocketRoute } from '@playwright/test'
 import { expect, test } from './fixtures'
+import { installChatStreamMock, pushChatFrame } from './chatStreamMock'
 import { loginViaApi, skipIfNoLivePassword } from './helpers'
 
 type Frame = { type?: string; name?: string; args?: string; text?: string }
@@ -7,26 +7,19 @@ type Frame = { type?: string; name?: string; args?: string; text?: string }
 const SESSION_PATH = '/a/as-seed/s/sess-seed'
 
 // The uismoke stub serves the catalog and the transcript (including a /clear
-// marker row); the agent socket is mocked so the protocol can be asserted
+// marker row); the agent stream is mocked so the protocol can be asserted
 // without a live agent.
 test('slash menu sends a command frame and renders the clear divider', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
 
   const frames: Frame[] = []
-  let socket: WebSocketRoute | null = null
-  await page.routeWebSocket('**/v1/agent-sessions/*/ws', (ws) => {
-    socket = ws
-    ws.onMessage((message) => {
-      const text = typeof message === 'string' ? message : message.toString()
-      try {
-        frames.push(JSON.parse(text) as Frame)
-      } catch {
-        /* ignore non-JSON frames */
-      }
-    })
-    ws.send(JSON.stringify({ type: 'hello', message: 'ok' }))
-    ws.send(JSON.stringify({ type: 'status', busy: false }))
+  await installChatStreamMock(page, {
+    initialFrames: [
+      { type: 'hello', message: 'ok' },
+      { type: 'status', busy: false },
+    ],
+    onAction: (f) => frames.push(f),
   })
 
   await page.goto(SESSION_PATH)
@@ -54,9 +47,8 @@ test('slash menu sends a command frame and renders the clear divider', async ({ 
   await expect(editor).toHaveText('')
 
   // /clear only re-syncs: the transcript survives and gains a divider.
-  expect(socket).not.toBeNull()
   const refetch = page.waitForRequest((req) => req.url().includes('/messages'))
-  socket!.send(JSON.stringify({ type: 'cleared' }))
+  await pushChatFrame(page, { type: 'cleared' })
   await refetch
   await expect(page.getByText('上下文已清空')).toBeVisible()
   await expect(page.getByText('把超时改成 60 秒。')).toBeVisible()

@@ -65,7 +65,7 @@ func queueTestRunner(t *testing.T, llmURL string) (*runner, *agentsession.Store)
 		actor:   actor,
 		ctx:     ctx,
 		cancel:  func() {},
-		clients: map[*wsClient]struct{}{},
+		clients: map[*streamClient]struct{}{},
 		auto:    true,
 		perms:   map[string]*permWait{},
 	}
@@ -147,7 +147,9 @@ func TestRunnerUnqueueCancelsRow(t *testing.T) {
 		t.Fatalf("queue: %+v", got)
 	}
 
-	r.unqueue(got[0].ID, &wsClient{closed: true})
+	dead := newStreamClient(1)
+	dead.close()
+	r.unqueue(got[0].ID, dead)
 
 	if left := r.pendingSnapshot(); len(left) != 0 {
 		t.Fatalf("queue after pull-back: %+v", left)
@@ -173,7 +175,9 @@ func TestRunnerUnqueueDrainedMessageIsRefused(t *testing.T) {
 	r.pending = nil
 	r.mu.Unlock()
 
-	r.unqueue(got[0].ID, &wsClient{closed: true})
+	dead := newStreamClient(1)
+	dead.close()
+	r.unqueue(got[0].ID, dead)
 
 	rows := r.testRows(t)
 	if len(rows) != 1 || agentsession.IsCancelled(rows[0]) {

@@ -2,10 +2,14 @@ import type { Dispatch, SetStateAction } from 'react'
 import { agents, type AgentMessage } from '../../api'
 import { drainOutbox, outboxWaitingHint } from '../../lib/sessionOutbox'
 import {
-  detachSocket,
-  shouldApplySocketOpen,
-  socketLooksOpen,
-} from '../../lib/sessionWsConnect'
+  detachStream,
+  shouldApplyStreamOpen,
+  streamLooksOpen,
+  STREAM_CLOSED,
+  STREAM_CONNECTING,
+  STREAM_OPEN,
+  type ChatStreamHandle,
+} from '../../lib/sessionStreamConnect'
 import {
   WS_CONNECT_TIMEOUT_MS,
   wsCloseDetail,
@@ -30,7 +34,7 @@ import { parseQueueItems, type QueueItem } from './sessionQueue'
 
 export type ChatSocketDeps = {
   id: string
-  wsRef: { current: WebSocket | null }
+  wsRef: { current: ChatStreamHandle | null }
   outboxRef: { current: string[] }
   busyRef: { current: boolean }
   setBusy: Dispatch<SetStateAction<boolean>>
@@ -48,7 +52,62 @@ export type ChatSocketDeps = {
   refreshCommands: () => void
 }
 
-export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefined {
+type StreamMsg = {
+  type: string
+  event?: {
+    type?: string
+    text?: string
+    title?: string
+    status?: string
+    kind?: string
+    toolId?: string
+    input?: unknown
+    output?: unknown
+  }
+  message?: string
+  stopReason?: string
+  requestId?: string
+  title?: string
+  options?: { optionId: string; name: string; kind?: string }[]
+  busy?: boolean
+  reply?: string
+  thought?: string
+  pending?: unknown
+  queueVersion?: number
+  version?: number
+  items?: unknown
+  steer?: boolean
+  ticketId?: string
+  perm?: {
+    requestId?: string
+    title?: string
+    options?: { optionId: string; name: string; kind?: string }[]
+    ticketId?: string
+  }
+}
+
+/** Parse one SSE chunk buffer; returns leftover incomplete text. */
+function consumeSSE(
+  chunk: string,
+  onData: (json: string) => void,
+): string {
+  const parts = chunk.split('\n\n')
+  const rest = parts.pop() ?? ''
+  for (const block of parts) {
+    const dataLines: string[] = []
+    for (const line of block.split('\n')) {
+      if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).trimStart())
+      }
+    }
+    if (dataLines.length) onData(dataLines.join('\n'))
+  }
+  return rest
+}
+
+export function connectChatSocket(
+  deps: ChatSocketDeps,
+): (() => void) | undefined {
   const {
     id,
     wsRef,
@@ -71,14 +130,12 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
   let attempt = 0
   let retryTimer: number | null = null
   let openTimer: number | null = null
-  let pollTimer: number | null = null
   let announcedOpen = false
-  let ws: WebSocket | null = null
+  let stream: ChatStreamHandle | null = null
+  let abort: AbortController | null = null
   // Queue snapshots are versioned server-side; a fresh connection restarts the
   // sequence, so the high-water mark resets on every connect.
   let queueVer = 0
-  // Reset before connect so Strict Mode remount cannot leave chrome on
-  // 「已连接」while the live socket is still connecting / null.
   setWsStatus('connecting')
   setWsDetail(null)
 
@@ -89,19 +146,11 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
     }
   }
 
-  const clearPollTimer = () => {
-    if (pollTimer != null) {
-      window.clearInterval(pollTimer)
-      pollTimer = null
-    }
-  }
-
   /** @returns true only on the connecting → open transition */
-  const markOpen = (socket: WebSocket) => {
-    if (!shouldApplySocketOpen(disposed, wsRef.current, socket)) return false
-    if (!socketLooksOpen(socket)) return false
+  const markOpen = (handle: ChatStreamHandle) => {
+    if (!shouldApplyStreamOpen(disposed, wsRef.current, handle)) return false
+    if (!streamLooksOpen(handle)) return false
     clearOpenTimer()
-    clearPollTimer()
     attempt = 0
     setError(null)
     setWsDetail(null)
@@ -114,8 +163,6 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
   const scheduleReconnect = (detail: string) => {
     setWsStatus('error')
     setWsDetail(detail)
-    // Do NOT clear busy here: an in-flight turn on the server keeps running
-    // while this tab reconnects; the status snapshot will reconcile it.
     if (!busyRef.current) {
       setStatusHint(outboxWaitingHint(outboxRef.current.length))
     }
@@ -127,14 +174,16 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
     retryTimer = window.setTimeout(connect, delay)
   }
 
-  const flushOutbox = (socket: WebSocket) => {
+  const flushOutbox = () => {
     const { remaining, items } = drainOutbox(outboxRef.current)
     outboxRef.current = remaining
     for (const text of items) {
       setBusy(true)
       setStatusHint('Working…')
       setError(null)
-      socket.send(JSON.stringify({ type: 'prompt', text }))
+      void agents.sessionAction(id, { type: 'prompt', text }).catch(() => {
+        outboxRef.current = [text, ...outboxRef.current]
+      })
     }
   }
 
@@ -148,8 +197,6 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
       .catch(() => undefined)
   }
 
-  // Re-seed the live assistant bubble from the server's authoritative
-  // snapshot after a reconnect, so a partial reply is never doubled.
   const restoreStreamingReply = (reply: string) => {
     setMessages((prev) => {
       const last = prev[prev.length - 1]
@@ -188,8 +235,6 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
     })
   }
 
-  // In-progress thought is only buffered in the runner until a boundary
-  // flushes it; restore absolute content from the status snapshot.
   const restoreStreamingThought = (thought: string) => {
     if (!thought) return
     setMessages((prev) => {
@@ -228,258 +273,198 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
     })
   }
 
-  const bind = (socket: WebSocket) => {
-    socket.onmessage = (ev) => {
-      // Any server frame means the upgrade completed — sync UI even if
-      // onopen was missed (seen with Vite proxy + slow ACP Start).
-      if (markOpen(socket)) {
-        try {
-          socket.send(
-            JSON.stringify({ type: 'auto', enabled: readAutoMode() }),
-          )
-        } catch {
-          /* ignore */
-        }
+  const handleFrame = (handle: ChatStreamHandle, raw: string) => {
+    if (markOpen(handle)) {
+      void agents
+        .sessionAction(id, { type: 'auto', enabled: readAutoMode() })
+        .catch(() => undefined)
+    }
+    try {
+      const msg = JSON.parse(raw) as StreamMsg
+      if (msg.type === 'hello') {
+        return
       }
-      try {
-        const msg = JSON.parse(String(ev.data)) as {
-          type: string
-          event?: {
-            type?: string
-            text?: string
-            title?: string
-            status?: string
-            kind?: string
-            toolId?: string
-            input?: unknown
-            output?: unknown
-          }
-          message?: string
-          stopReason?: string
-          requestId?: string
-          title?: string
-          options?: { optionId: string; name: string; kind?: string }[]
-          busy?: boolean
-          reply?: string
-          thought?: string
-          pending?: unknown
-          queueVersion?: number
-          version?: number
-          items?: unknown
-          steer?: boolean
-          perm?: {
-            requestId?: string
-            title?: string
-            options?: { optionId: string; name: string; kind?: string }[]
-            ticketId?: string
-          }
+      if (msg.type === 'status') {
+        const ver = typeof msg.queueVersion === 'number' ? msg.queueVersion : 0
+        if (ver >= queueVer) {
+          queueVer = ver
+          onQueue(parseQueueItems(msg.pending))
         }
-        if (msg.type === 'hello') {
-          return
+        if (typeof msg.steer === 'boolean') {
+          setSteerCap(msg.steer)
         }
-        // Server snapshot of the runner: reconcile busy/reply/thought/perm
-        // so a reconnect into an in-flight turn is seamless.
-        if (msg.type === 'status') {
-          // The queue snapshot is authoritative here (reconnect baseline);
-          // version-check so an overtaken frame cannot revive stale items.
-          const ver = typeof msg.queueVersion === 'number' ? msg.queueVersion : 0
-          if (ver >= queueVer) {
-            queueVer = ver
-            onQueue(parseQueueItems(msg.pending))
+        if (msg.busy) {
+          setBusy(true)
+          setError(null)
+          setStatusHint('工作中')
+          if (msg.thought) {
+            restoreStreamingThought(msg.thought)
           }
-          if (typeof msg.steer === 'boolean') {
-            setSteerCap(msg.steer)
+          if (msg.reply) {
+            restoreStreamingReply(msg.reply)
           }
-          if (msg.busy) {
-            setBusy(true)
-            setError(null)
-            setStatusHint('工作中')
-            if (msg.thought) {
-              restoreStreamingThought(msg.thought)
-            }
-            if (msg.reply) {
-              restoreStreamingReply(msg.reply)
-            }
-            if (msg.perm) {
-              setPerm({
-                requestId: msg.perm.requestId ?? '',
-                title: msg.perm.title ?? 'Permission',
-                options: msg.perm.options ?? [],
-                ticketId: msg.perm.ticketId,
-              })
-            } else {
-              setPerm(null)
-            }
-          } else {
-            setBusy(false)
-            setStatusHint(null)
-            setPerm(null)
-            setMessages((prev) => clearStreaming(prev))
-            refetchMessages()
-            flushOutbox(socket)
-          }
-          return
-        }
-        if (msg.type === 'queue') {
-          const ver = typeof msg.version === 'number' ? msg.version : 0
-          if (ver >= queueVer) {
-            queueVer = ver
-            onQueue(parseQueueItems(msg.items))
-          }
-          if (typeof msg.steer === 'boolean') {
-            setSteerCap(msg.steer)
-          }
-          return
-        }
-        if (msg.type === 'event' && msg.event) {
-          const e = msg.event
-          if (e.type === 'agent_message' && e.text) {
-            setStatusHint(null)
-            setMessages((prev) => {
-              const base = finalizeOpenThoughts(prev)
-              const last = base[base.length - 1]
-              const lastTyp = last?.meta?.type
-              if (
-                last &&
-                last.role === 'assistant' &&
-                (lastTyp === 'agent_message' || !lastTyp) &&
-                isStreamingMessage(last) &&
-                !last.meta?.toolId
-              ) {
-                return [
-                  ...base.slice(0, -1),
-                  { ...last, content: last.content + e.text },
-                ]
-              }
-              return [
-                ...base,
-                {
-                  id: `stream-${Date.now()}`,
-                  sessionId: id,
-                  role: 'assistant',
-                  content: e.text ?? '',
-                  meta: { type: 'agent_message', status: 'in_progress' },
-                  createdAt: nowIso(),
-                },
-              ]
+          if (msg.perm) {
+            setPerm({
+              requestId: msg.perm.requestId ?? '',
+              title: msg.perm.title ?? 'Permission',
+              options: msg.perm.options ?? [],
+              ticketId: msg.perm.ticketId,
             })
-            return
+          } else {
+            setPerm(null)
           }
-          if (e.type === 'agent_thought' && e.text) {
-            setMessages((prev) => appendThoughtMessage(prev, id, e.text ?? ''))
-            return
-          }
-          if (e.type === 'permission') {
-            if ((e.status || 'auto') === 'auto') return
-            setMessages((prev) => [
-              ...prev,
+        } else {
+          setBusy(false)
+          setStatusHint(null)
+          setPerm(null)
+          setMessages((prev) => clearStreaming(prev))
+          refetchMessages()
+          flushOutbox()
+        }
+        return
+      }
+      if (msg.type === 'queue') {
+        const ver = typeof msg.version === 'number' ? msg.version : 0
+        if (ver >= queueVer) {
+          queueVer = ver
+          onQueue(parseQueueItems(msg.items))
+        }
+        if (typeof msg.steer === 'boolean') {
+          setSteerCap(msg.steer)
+        }
+        return
+      }
+      if (msg.type === 'event' && msg.event) {
+        const e = msg.event
+        if (e.type === 'agent_message' && e.text) {
+          setStatusHint(null)
+          setMessages((prev) => {
+            const base = finalizeOpenThoughts(prev)
+            const last = base[base.length - 1]
+            const lastTyp = last?.meta?.type
+            if (
+              last &&
+              last.role === 'assistant' &&
+              (lastTyp === 'agent_message' || !lastTyp) &&
+              isStreamingMessage(last) &&
+              !last.meta?.toolId
+            ) {
+              return [
+                ...base.slice(0, -1),
+                { ...last, content: last.content + e.text },
+              ]
+            }
+            return [
+              ...base,
               {
-                id: `perm-${Date.now()}`,
+                id: `stream-${Date.now()}`,
                 sessionId: id,
-                role: 'permission',
-                content:
-                  [e.title, e.text].filter(Boolean).join(' · ') ||
-                  'permission',
-                meta: {
-                  type: 'permission',
-                  title: e.title,
-                  optionId: e.text,
-                  outcome: e.status || 'auto',
-                },
+                role: 'assistant',
+                content: e.text ?? '',
+                meta: { type: 'agent_message', status: 'in_progress' },
                 createdAt: nowIso(),
               },
-            ])
-            return
-          }
-          if (e.type === 'tool_call' || e.type === 'tool_call_update') {
-            const toolId = (e.toolId ?? '').trim() || `anon-${Date.now()}`
-            const title = (e.title ?? '').trim()
-            const status = (e.status ?? '').trim()
-            if (isBrowserTool(title)) {
-              setBrowserSeen(true)
-            }
-            setStatusHint('工作中')
-            setMessages((prev) =>
-              upsertToolMessage(finalizeOpenThoughts(prev), id, {
-                toolId,
-                title: title || undefined,
-                status: status || undefined,
-                kind: e.kind,
-                input: e.input,
-                output: e.output,
-              }),
-            )
-            return
-          }
+            ]
+          })
+          return
+        }
+        if (e.type === 'agent_thought' && e.text) {
+          setMessages((prev) => appendThoughtMessage(prev, id, e.text ?? ''))
+          return
+        }
+        if (e.type === 'permission') {
+          if ((e.status || 'auto') === 'auto') return
           setMessages((prev) => [
             ...prev,
             {
-              id: `${Date.now()}-${prev.length}`,
+              id: `perm-${Date.now()}`,
               sessionId: id,
-              role: 'system',
-              content: e.text ?? e.type ?? '',
-              meta: { type: 'event' },
+              role: 'permission',
+              content:
+                [e.title, e.text].filter(Boolean).join(' · ') || 'permission',
+              meta: {
+                type: 'permission',
+                title: e.title,
+                optionId: e.text,
+                outcome: e.status || 'auto',
+              },
               createdAt: nowIso(),
             },
           ])
-        } else if (msg.type === 'permission_request') {
-          // Auto mode is answered server-side by the policy classifier; a
-          // frame reaching the UI always means a human decision is needed.
-          const options = msg.options ?? []
-          setStatusHint('等待你处理协助单…')
-          setPerm({
-            requestId: msg.requestId ?? '',
-            title: msg.title ?? 'Permission',
-            options,
-            ticketId: (msg as { ticketId?: string }).ticketId,
-          })
-        } else if (msg.type === 'permission_resolved') {
-          setPerm((cur) =>
-            cur && cur.requestId === msg.requestId ? null : cur,
+          return
+        }
+        if (e.type === 'tool_call' || e.type === 'tool_call_update') {
+          const toolId = (e.toolId ?? '').trim() || `anon-${Date.now()}`
+          const title = (e.title ?? '').trim()
+          const status = (e.status ?? '').trim()
+          if (isBrowserTool(title)) {
+            setBrowserSeen(true)
+          }
+          setStatusHint('工作中')
+          setMessages((prev) =>
+            upsertToolMessage(finalizeOpenThoughts(prev), id, {
+              toolId,
+              title: title || undefined,
+              status: status || undefined,
+              kind: e.kind,
+              input: e.input,
+              output: e.output,
+            }),
           )
           return
-        } else if (msg.type === 'done') {
-          setBusy(false)
-          setStatusHint(null)
-          setPerm(null)
-          setMessages((prev) => clearStreaming(prev))
-          refetchMessages()
-          flushOutbox(socket)
-          refreshCommands()
-        } else if (msg.type === 'cleared') {
-          // /clear only appends a marker row: the transcript stays, the
-          // model context restarts after the marker.
-          setPerm(null)
-          outboxRef.current = []
-          onQueue([])
-          setMessages((prev) => clearStreaming(prev))
-          refetchMessages()
-          refreshCommands()
-        } else if (msg.type === 'error') {
-          setBusy(false)
-          setStatusHint(null)
-          setMessages((prev) => clearStreaming(prev))
-          const msgText = msg.message ?? 'error'
-          setError(msgText)
-          setWsStatus('error')
-          setWsDetail(msgText)
-          refetchMessages()
         }
-      } catch {
-        /* ignore */
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${prev.length}`,
+            sessionId: id,
+            role: 'system',
+            content: e.text ?? e.type ?? '',
+            meta: { type: 'event' },
+            createdAt: nowIso(),
+          },
+        ])
+      } else if (msg.type === 'permission_request') {
+        const options = msg.options ?? []
+        setStatusHint('等待你处理协助单…')
+        setPerm({
+          requestId: msg.requestId ?? '',
+          title: msg.title ?? 'Permission',
+          options,
+          ticketId: msg.ticketId,
+        })
+      } else if (msg.type === 'permission_resolved') {
+        setPerm((cur) =>
+          cur && cur.requestId === msg.requestId ? null : cur,
+        )
+        return
+      } else if (msg.type === 'done') {
+        setBusy(false)
+        setStatusHint(null)
+        setPerm(null)
+        setMessages((prev) => clearStreaming(prev))
+        refetchMessages()
+        flushOutbox()
+        refreshCommands()
+      } else if (msg.type === 'cleared') {
+        setPerm(null)
+        outboxRef.current = []
+        onQueue([])
+        setMessages((prev) => clearStreaming(prev))
+        refetchMessages()
+        refreshCommands()
+      } else if (msg.type === 'error') {
+        setBusy(false)
+        setStatusHint(null)
+        setMessages((prev) => clearStreaming(prev))
+        const msgText = msg.message ?? 'error'
+        setError(msgText)
+        setWsStatus('error')
+        setWsDetail(msgText)
+        refetchMessages()
       }
-    }
-    socket.onerror = () => {
-      if (!disposed && wsRef.current === socket) {
-        setWsDetail('WebSocket 错误')
-      }
-    }
-    socket.onclose = (ev) => {
-      clearOpenTimer()
-      if (disposed) return
-      if (wsRef.current !== socket) return
-      wsRef.current = null
-      scheduleReconnect(wsCloseDetail(ev.code, ev.reason || ''))
+    } catch {
+      /* ignore */
     }
   }
 
@@ -490,78 +475,100 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
       retryTimer = null
     }
     clearOpenTimer()
-    clearPollTimer()
     announcedOpen = false
     queueVer = 0
     setWsStatus('connecting')
     if (attempt === 0) setWsDetail(null)
 
-    const prev = ws
-    ws = null
+    const prev = stream
+    stream = null
     if (wsRef.current === prev) {
       wsRef.current = null
     }
-    detachSocket(prev)
-
-    const socket = new WebSocket(agents.sessionWsUrl(id))
-    ws = socket
-    wsRef.current = socket
-
-    const onBecameOpen = () => {
-      if (!markOpen(socket)) return
-      try {
-        socket.send(
-          JSON.stringify({ type: 'auto', enabled: readAutoMode() }),
-        )
-      } catch {
-        /* ignore */
-      }
+    if (abort) {
+      abort.abort()
+      abort = null
     }
+    detachStream(prev)
 
-    socket.onopen = onBecameOpen
-    bind(socket)
-
-    if (socketLooksOpen(socket)) {
-      onBecameOpen()
+    const ac = new AbortController()
+    abort = ac
+    const handle: ChatStreamHandle = {
+      readyState: STREAM_CONNECTING,
+      close: () => {
+        handle.readyState = STREAM_CLOSED
+        ac.abort()
+      },
     }
-    pollTimer = window.setInterval(() => {
-      if (disposed || wsRef.current !== socket) {
-        clearPollTimer()
-        return
-      }
-      if (socketLooksOpen(socket)) {
-        onBecameOpen()
-      }
-    }, 100)
+    stream = handle
+    wsRef.current = handle
 
     openTimer = window.setTimeout(() => {
       openTimer = null
-      clearPollTimer()
-      if (disposed || wsRef.current !== socket) return
-      // Heal: socket is live but UI missed onopen.
-      if (socketLooksOpen(socket)) {
-        onBecameOpen()
-        return
-      }
-      detachSocket(socket)
-      if (wsRef.current === socket) {
+      if (disposed || wsRef.current !== handle) return
+      if (streamLooksOpen(handle)) return
+      detachStream(handle)
+      if (wsRef.current === handle) {
         wsRef.current = null
       }
-      if (ws === socket) {
-        ws = null
+      if (stream === handle) {
+        stream = null
       }
       scheduleReconnect(wsConnectTimeoutDetail())
     }, WS_CONNECT_TIMEOUT_MS)
+
+    void (async () => {
+      try {
+        const res = await fetch(agents.sessionEventsUrl(id), {
+          credentials: 'include',
+          headers: { Accept: 'text/event-stream' },
+          signal: ac.signal,
+        })
+        if (!res.ok || !res.body) {
+          throw new Error(`events HTTP ${res.status}`)
+        }
+        handle.readyState = STREAM_OPEN
+        if (markOpen(handle)) {
+          void agents
+            .sessionAction(id, { type: 'auto', enabled: readAutoMode() })
+            .catch(() => undefined)
+        }
+        const reader = res.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ''
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          buf = consumeSSE(buf, (json) => handleFrame(handle, json))
+        }
+        if (disposed || wsRef.current !== handle) return
+        handle.readyState = STREAM_CLOSED
+        wsRef.current = null
+        if (stream === handle) stream = null
+        scheduleReconnect(wsCloseDetail(1000, 'stream ended'))
+      } catch (err) {
+        if (ac.signal.aborted || disposed) return
+        if (wsRef.current !== handle) return
+        handle.readyState = STREAM_CLOSED
+        wsRef.current = null
+        if (stream === handle) stream = null
+        const detail =
+          err instanceof Error && err.message
+            ? err.message
+            : '事件流连接失败'
+        scheduleReconnect(detail)
+      }
+    })()
   }
 
   const reconnectNowIfNeeded = () => {
     if (disposed) return
     if (document.visibilityState === 'hidden') return
-    const cur = wsRef.current ?? ws
+    const cur = wsRef.current ?? stream
     if (
       cur &&
-      (cur.readyState === WebSocket.OPEN ||
-        cur.readyState === WebSocket.CONNECTING)
+      (cur.readyState === STREAM_OPEN || cur.readyState === STREAM_CONNECTING)
     ) {
       return
     }
@@ -576,16 +583,19 @@ export function connectChatSocket(deps: ChatSocketDeps): (() => void) | undefine
     disposed = true
     document.removeEventListener('visibilitychange', reconnectNowIfNeeded)
     clearOpenTimer()
-    clearPollTimer()
     if (retryTimer != null) {
       window.clearTimeout(retryTimer)
       retryTimer = null
     }
-    const s = ws
-    ws = null
+    const s = stream
+    stream = null
     if (wsRef.current === s) {
       wsRef.current = null
     }
-    detachSocket(s)
+    if (abort) {
+      abort.abort()
+      abort = null
+    }
+    detachStream(s)
   }
 }

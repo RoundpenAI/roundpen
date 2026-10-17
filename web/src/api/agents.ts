@@ -100,12 +100,15 @@ export const agents = {
   },
   commands: (id: string) =>
     api<{ commands: AgentCommand[] }>(`/v1/agent-sessions/${id}/commands`),
-  sessionWsUrl: (id: string) => {
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${window.location.host}${apiUrl(
-      `/v1/agent-sessions/${id}/ws`,
-    )}`
-  },
+  /** SSE event stream for one chat session (server → client). */
+  sessionEventsUrl: (id: string) =>
+    apiUrl(`/v1/agent-sessions/${id}/events`),
+  /** Client → server chat control (prompt / steer / cancel / …). */
+  sessionAction: (id: string, body: Record<string, unknown>) =>
+    api<{ ok?: boolean }>(`/v1/agent-sessions/${id}/actions`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   browserStatus: (id: string) =>
     api<AgentBrowserStatus>(`/v1/agent-sessions/${id}/browser`),
   browserScreenshotUrl: (id: string, bust?: number) =>

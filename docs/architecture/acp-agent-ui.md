@@ -90,7 +90,8 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权用每实�
 | GET | `/v1/agents` | Provider 列表 |
 | GET/POST | `/v1/agent-sessions` | 列出会话 / 创建（sysadmin 跳过 Provisioner） |
 | GET/DELETE | `/v1/agent-sessions/{id}` | 详情 / 结束 |
-| GET | `/v1/agent-sessions/{id}/ws` | prompt / command / cancel / permission ↔ session updates（`command` 是 `/技能` 与 `/clear`、`/help`；出站有 `cleared`） |
+| GET | `/v1/agent-sessions/{id}/events` | SSE：session updates（status / queue / event / done / cleared / permission_*） |
+| POST | `/v1/agent-sessions/{id}/actions` | prompt / steer / command / cancel / permission / auto / unqueue |
 | GET | `/v1/agent-sessions/{id}/commands` | Slash 命令目录：内置技能 + 动作命令恒有，已安装技能仅在 agent 环境 running 时列出 |
 | GET | `/v1/agent-sessions/{id}/browser` | System Agent 浏览器状态（Hub key `sysagent-<id>`） |
 | GET | `/v1/agent-sessions/{id}/browser/screenshot` | viewport PNG（聊天右侧轮询） |

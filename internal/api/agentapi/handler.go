@@ -1,4 +1,4 @@
-// Package agentapi serves Agent Web UI REST + WebSocket endpoints.
+// Package agentapi serves Agent Web UI REST + SSE stream endpoints.
 package agentapi
 
 import (
@@ -10,9 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/RoundpenAI/roundpen/internal/acp/manager"
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
@@ -48,8 +45,8 @@ type Handler struct {
 	// Push delivers Web Push notifications for turn_done / permission events.
 	Push webpush.Notifier
 
-	// PublicURL is the externally reachable console URL, accepted as an
-	// alternative WebSocket origin for reverse-proxy deployments.
+	// PublicURL is retained for callers that still pass the console base URL
+	// (preview / terminal origin checks live elsewhere).
 	PublicURL string
 
 	// AutoMode classifies permission requests while the chat Auto toggle is on.
@@ -80,7 +77,8 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/agent-sessions/{id}", h.deleteSession)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", h.listMessages)
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/commands", h.listCommands)
-	mux.HandleFunc("GET /v1/agent-sessions/{id}/ws", h.sessionWS)
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", h.sessionEvents)
+	mux.HandleFunc("POST /v1/agent-sessions/{id}/actions", h.sessionAction)
 	h.mountBrowser(mux)
 	h.mountTasks(mux)
 }
@@ -388,194 +386,4 @@ func (h *Handler) listMessages(w http.ResponseWriter, r *http.Request) {
 		"messages": msgs,
 		"hasMore":  hasMore,
 	})
-}
-
-type wsIn struct {
-	Type      string `json:"type"`
-	Text      string `json:"text,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Args      string `json:"args,omitempty"`
-	OptionID  string `json:"optionId,omitempty"`
-	RequestID string `json:"requestId,omitempty"`
-	Enabled   bool   `json:"enabled"`
-	// ID is a queue item reference (unqueue); ClientMsgID echoes the sender's
-	// optimistic row so the queue snapshot can be matched per client.
-	ID          string `json:"id,omitempty"`
-	ClientMsgID string `json:"clientMsgId,omitempty"`
-}
-
-type wsOut struct {
-	Type       string `json:"type"`
-	Event      any    `json:"event,omitempty"`
-	Message    string `json:"message,omitempty"`
-	StopReason string `json:"stopReason,omitempty"`
-	RequestID  string `json:"requestId,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Options    any    `json:"options,omitempty"`
-	TicketID   string `json:"ticketId,omitempty"`
-}
-
-// wsClient wraps a browser WebSocket so the runner can fan out to many
-// connections without sharing one write mutex.
-type wsClient struct {
-	mu     sync.Mutex
-	conn   *websocket.Conn
-	closed bool
-}
-
-func (c *wsClient) write(v any) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return
-	}
-	_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := c.conn.WriteJSON(v); err != nil {
-		c.closed = true
-		_ = c.conn.Close()
-	}
-}
-
-func (c *wsClient) ping() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return
-	}
-	_ = c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-		c.closed = true
-		_ = c.conn.Close()
-	}
-}
-
-func (h *Handler) sessionWS(w http.ResponseWriter, r *http.Request) {
-	user := auth.GetUser(r.Context())
-	if user == nil {
-		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	id := r.PathValue("id")
-	sess, err := h.Store.Get(r.Context(), id)
-	if errors.Is(err, agentsession.ErrNotFound) {
-		httpx.WriteErr(w, http.StatusNotFound, "not found")
-		return
-	}
-	if err != nil || (sess.UserID != user.Username && user.Role != "admin") {
-		httpx.WriteErr(w, http.StatusForbidden, "forbidden")
-		return
-	}
-
-	// Fail fast with a clear 4xx before upgrading when the runtime can't be
-	// restarted (unknown provider / missing sandbox).
-	if _, ok := h.ACP.Get(id); !ok {
-		provMeta, found := providers.ByID(h.ACP.Providers(), sess.ProviderID)
-		if !found {
-			httpx.WriteErr(w, http.StatusConflict, "unknown provider")
-			return
-		}
-		if providers.NeedsSandbox(provMeta) && sess.SandboxID == "" {
-			httpx.WriteErr(w, http.StatusConflict, "agent runtime not running")
-			return
-		}
-	}
-
-	// Upgrade before Start so the browser leaves CONNECTING quickly.  A
-	// slow/hanging ACP Start used to block the handshake entirely.
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:  4096,
-		WriteBufferSize: 4096,
-		CheckOrigin: func(r *http.Request) bool {
-			ok := httpx.CheckSameOrigin(r, h.PublicURL)
-			if !ok && h.Log != nil {
-				h.Log.Warn("websocket origin rejected",
-					slog.String("origin", r.Header.Get("Origin")),
-					slog.String("host", r.Host),
-					slog.String("x_forwarded_host", r.Header.Get("X-Forwarded-Host")),
-					slog.Bool("has_trim_userid", r.Header.Get("X-Trim-Userid") != ""),
-					slog.String("remote", r.RemoteAddr),
-				)
-			}
-			return ok
-		},
-	}
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		if h.Log != nil {
-			h.Log.Warn("websocket upgrade failed", slog.String("session", id), slog.Any("err", err))
-		}
-		return
-	}
-	client := &wsClient{conn: conn}
-
-	// Push a frame immediately so reverse proxies flush the 101 upgrade
-	// before ACP Start (which can take seconds) runs on this goroutine.
-	client.write(wsOut{Type: "hello", Message: "ok"})
-
-	// The runner owns the turn lifecycle independent of this connection: a
-	// dropped or closed browser tab must not stop generation.  Attaching just
-	// mirrors its stream.
-	run, runErr := h.runnerFor(sess, user)
-	if runErr != nil {
-		client.write(wsOut{Type: "error", Message: "restart agent: " + runErr.Error()})
-		_ = conn.Close()
-		return
-	}
-
-	// Send the in-progress snapshot BEFORE subscribing so a late broadcast
-	// cannot interleave ahead of it; the client rebuilds its UI from it.
-	client.write(run.snapshot())
-	run.subscribe(client)
-	defer func() {
-		run.unsubscribe(client)
-		_ = conn.Close()
-	}()
-
-	const (
-		wsPongWait  = 60 * time.Second
-		wsPingEvery = 30 * time.Second
-	)
-	_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
-	conn.SetPongHandler(func(string) error {
-		_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
-		return nil
-	})
-	pingDone := make(chan struct{})
-	defer close(pingDone)
-	go func() {
-		t := time.NewTicker(wsPingEvery)
-		defer t.Stop()
-		for {
-			select {
-			case <-pingDone:
-				return
-			case <-t.C:
-				client.ping()
-			}
-		}
-	}()
-
-	for {
-		var in wsIn
-		if err := conn.ReadJSON(&in); err != nil {
-			return
-		}
-		_ = conn.SetReadDeadline(time.Now().Add(wsPongWait))
-		switch strings.ToLower(in.Type) {
-		case "prompt":
-			run.prompt(in.Text, in.ClientMsgID)
-		case "steer":
-			run.steer(in.Text, in.ClientMsgID)
-		case "unqueue":
-			run.unqueue(in.ID, client)
-		case "command":
-			run.command(in.Name, in.Args)
-		case "cancel":
-			run.cancelTurn()
-		case "auto":
-			run.setAuto(in.Enabled)
-		case "permission":
-			run.answerPermission(in.RequestID, in.OptionID)
-		}
-	}
 }

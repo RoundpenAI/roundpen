@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/api/envapi"
@@ -249,42 +248,61 @@ func main() {
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/messages", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"messages": seed.messageList(), "hasMore": false})
 	})
-	// Scripted agent-session socket: plays one deterministic turn per prompt
+	// Scripted agent-session SSE: plays one deterministic turn per prompt
 	// (streamed text → thinking → a tool card → a permission prompt → done) so
 	// real clients can be exercised without a Docker agent. The web console
-	// fakes the socket in the browser, so this route is for native/device smoke.
-	mux.HandleFunc("GET /v1/agent-sessions/{id}/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := sessionUpgrader.Upgrade(w, r, nil)
-		if err != nil {
+	// fakes the stream in the browser, so this route is for native/device smoke.
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "no flush", 500)
 			return
 		}
-		openSockets.Store(conn, struct{}{})
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(200)
+		slot := newStreamSlot()
+		openStreams.Store(slot, struct{}{})
 		defer func() {
-			openSockets.Delete(conn)
-			conn.Close()
+			openStreams.Delete(slot)
+			slot.Close()
 		}()
-		_ = conn.WriteJSON(map[string]any{"type": "hello", "message": "ok"})
-		_ = conn.WriteJSON(map[string]any{"type": "status", "busy": false})
+		writeSSE := func(frame map[string]any) {
+			b, _ := json.Marshal(frame)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+		}
+		writeSSE(map[string]any{"type": "hello", "message": "ok"})
+		writeSSE(map[string]any{"type": "status", "busy": false})
 		for {
-			var in struct {
-				Type      string `json:"type"`
-				Text      string `json:"text"`
-				RequestID string `json:"requestId"`
-			}
-			if err := conn.ReadJSON(&in); err != nil {
+			select {
+			case <-r.Context().Done():
 				return
-			}
-			switch in.Type {
-			case "prompt":
-				playScriptedTurn(conn, seed, in.Text)
-			case "permission":
-				_ = conn.WriteJSON(map[string]any{
-					"type": "permission_resolved", "requestId": in.RequestID,
-				})
-			case "cancel":
-				_ = conn.WriteJSON(map[string]any{"type": "done", "stopReason": "cancelled"})
+			case frame, ok := <-slot.ch:
+				if !ok {
+					return
+				}
+				writeSSE(frame)
 			}
 		}
+	})
+	mux.HandleFunc("POST /v1/agent-sessions/{id}/actions", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Type      string `json:"type"`
+			Text      string `json:"text"`
+			RequestID string `json:"requestId"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		switch in.Type {
+		case "prompt":
+			go playScriptedTurn(seed, in.Text)
+		case "permission":
+			signalPermission(in.RequestID)
+			broadcastStream(map[string]any{"type": "permission_resolved", "requestId": in.RequestID})
+		case "cancel":
+			broadcastStream(map[string]any{"type": "done", "stopReason": "cancelled"})
+		}
+		writeJSON(w, map[string]any{"ok": true})
 	})
 	mux.HandleFunc("GET /v1/agent-sessions/{id}/commands", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"commands": seed.commands})
@@ -377,12 +395,13 @@ func main() {
 		writeJSON(w, map[string]any{"authorizeUrl": "/settings/mcp?mcpResult=linked&mcp=" + r.PathValue("serverId")})
 	})
 
-	// Test hook: drop every live agent socket so clients have to reconnect.
+	// Test hook: drop every live agent stream so clients have to reconnect.
 	mux.HandleFunc("POST /v1/test/drop-sockets", func(w http.ResponseWriter, r *http.Request) {
 		dropped := 0
-		openSockets.Range(func(key, _ any) bool {
-			if conn, ok := key.(*websocket.Conn); ok {
-				_ = conn.Close()
+		openStreams.Range(func(key, _ any) bool {
+			if slot, ok := key.(*streamSlot); ok {
+				slot.Close()
+				openStreams.Delete(slot)
 				dropped++
 			}
 			return true
@@ -707,18 +726,62 @@ func writeJSON(w http.ResponseWriter, v any) {
 // seedSession fabricates a chat session with a long assistant reply so UI
 // smoke can exercise bubble rendering (including narrow mobile viewports)
 // without a live agent.
-var sessionUpgrader = websocket.Upgrader{
-	CheckOrigin: func(*http.Request) bool { return true },
+// openStreams lets the test route below drop live agent SSE attachments, which
+// is how the mobile console's reconnect path gets exercised on a device.
+var openStreams sync.Map
+
+type streamSlot struct {
+	ch   chan map[string]any
+	once sync.Once
 }
 
-// openSockets lets the test route below drop live agent sockets, which is how
-// the mobile console's reconnect path gets exercised on a device.
-var openSockets sync.Map
+func newStreamSlot() *streamSlot {
+	return &streamSlot{ch: make(chan map[string]any, 64)}
+}
 
-// playScriptedTurn streams one canned turn over the socket and persists the
-// same rows, so the post-`done` /messages refetch matches what was streamed.
-func playScriptedTurn(conn *websocket.Conn, seed *seedSession, prompt string) {
-	send := func(frame map[string]any) { _ = conn.WriteJSON(frame) }
+func (s *streamSlot) Close() {
+	s.once.Do(func() { close(s.ch) })
+}
+
+var permAnswers sync.Map // requestId -> chan struct{}
+
+func waitPermission(requestID string, d time.Duration) {
+	ch := make(chan struct{})
+	permAnswers.Store(requestID, ch)
+	defer permAnswers.Delete(requestID)
+	select {
+	case <-ch:
+	case <-time.After(d):
+	}
+}
+
+func signalPermission(requestID string) {
+	if v, ok := permAnswers.Load(requestID); ok {
+		if ch, ok := v.(chan struct{}); ok {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+func broadcastStream(frame map[string]any) {
+	openStreams.Range(func(key, _ any) bool {
+		if slot, ok := key.(*streamSlot); ok {
+			select {
+			case slot.ch <- frame:
+			default:
+			}
+		}
+		return true
+	})
+}
+
+// playScriptedTurn streams one canned turn over SSE and persists the same
+// rows, so the post-`done` /messages refetch matches what was streamed.
+func playScriptedTurn(seed *seedSession, prompt string) {
+	send := broadcastStream
 	event := func(typ string, fields map[string]any) {
 		payload := map[string]any{"type": typ}
 		for k, v := range fields {
@@ -770,15 +833,7 @@ func playScriptedTurn(conn *websocket.Conn, seed *seedSession, prompt string) {
 			{"optionId": "reject_once", "name": "拒绝", "kind": "reject_once"},
 		},
 	})
-	_ = conn.SetReadDeadline(time.Now().Add(20 * time.Second))
-	var answer struct {
-		Type      string `json:"type"`
-		RequestID string `json:"requestId"`
-	}
-	if err := conn.ReadJSON(&answer); err == nil && answer.Type == "permission" {
-		send(map[string]any{"type": "permission_resolved", "requestId": answer.RequestID})
-	}
-	_ = conn.SetReadDeadline(time.Time{})
+	waitPermission(requestID, 20*time.Second)
 
 	tail := "\n\n权限确认了，处理完成。"
 	event("agent_message", map[string]any{"text": tail})
