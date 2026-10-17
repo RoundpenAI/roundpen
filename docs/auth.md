@@ -52,7 +52,7 @@ OAuth 回调不经过该限流器（不涉及凭据猜测，state 单次使用�
 
 1. `POST /v1/auth/login` `{ user, password, returnSessionToken: true }` → 响应体里的 `sessionToken`
    （64 位十六进制，明文只此一次；服务端存的是 SHA-256）连同 `Set-Cookie` 一起下发，客户端忽略 Cookie。
-2. 之后所有 REST 与 WebSocket 升级请求都带 `Authorization: Bearer <sessionToken>`
+2. 之后所有 REST、聊天 SSE（`/events`）与其余 WebSocket 升级请求都带 `Authorization: Bearer <sessionToken>`
    （`X-API-Key` 不接受会话 token，只认 `rp-` 开头的 API Key）。
 3. token 进系统钥匙串（Keychain / Keystore）。同一条 token 同时只有一个设备持有；
    会话 7 天滑动过期，期间任意一次请求都会续期。
