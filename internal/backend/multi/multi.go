@@ -21,18 +21,22 @@ import (
 
 // Options configure lazy engine attachment.
 type Options struct {
-	DataRoot      string
-	DockerHost    string
-	DockerRuntime string
-	DisableQEMU   bool
+	DataRoot              string
+	DockerHost            string
+	DockerRuntime         string
+	DisableQEMU           bool
+	ImageMirrors          []string // ROUNDPEN_IMAGE_MIRRORS templates/hosts
+	DisableBuiltinMirrors bool
 }
 
 // Backend picks an engine per sandbox based on slot and image.
 type Backend struct {
-	DataRoot      string
-	DockerHost    string
-	DockerRuntime string
-	disableQEMU   bool
+	DataRoot              string
+	DockerHost            string
+	DockerRuntime         string
+	disableQEMU           bool
+	imageMirrors          []string
+	disableBuiltinMirrors bool
 
 	mu     sync.Mutex
 	qemu   *qemu.Backend
@@ -46,11 +50,13 @@ type Backend struct {
 // later when binaries or the daemon appear (no process restart required).
 func New(opts Options) *Backend {
 	return &Backend{
-		DataRoot:      opts.DataRoot,
-		DockerHost:    opts.DockerHost,
-		DockerRuntime: opts.DockerRuntime,
-		disableQEMU:   opts.DisableQEMU,
-		routes:        make(map[string]string),
+		DataRoot:              opts.DataRoot,
+		DockerHost:            opts.DockerHost,
+		DockerRuntime:         opts.DockerRuntime,
+		disableQEMU:           opts.DisableQEMU,
+		imageMirrors:          append([]string(nil), opts.ImageMirrors...),
+		disableBuiltinMirrors: opts.DisableBuiltinMirrors,
+		routes:                make(map[string]string),
 	}
 }
 
@@ -92,6 +98,7 @@ func (b *Backend) dockerEngine() (*dockerbackend.Backend, error) {
 		b.derr = err
 		return nil, err
 	}
+	be.SetImageMirrors(b.imageMirrors, b.disableBuiltinMirrors)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := be.Ping(ctx); err != nil {

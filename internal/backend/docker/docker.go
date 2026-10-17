@@ -47,6 +47,10 @@ type Backend struct {
 	// imagePulls dedupes concurrent pulls of the same ref (fresh install +
 	// first browser_navigate often race the same multi-GB download).
 	imagePulls singleflight.Group
+
+	// Image pull fallbacks when the primary registry is unreachable (e.g. ghcr.io in CN).
+	imageMirrors          []string
+	disableBuiltinMirrors bool
 }
 
 // New connects to Docker. host may be empty for the SDK default.
@@ -78,6 +82,15 @@ func New(host, runtime string) (*Backend, error) {
 		return nil, err
 	}
 	return &Backend{cli: cli, runtime: runtime, host: host, ptys: make(map[string]string)}, nil
+}
+
+// SetImageMirrors configures pull fallbacks (ROUNDPEN_IMAGE_MIRRORS).
+func (b *Backend) SetImageMirrors(custom []string, disableBuiltin bool) {
+	if b == nil {
+		return
+	}
+	b.imageMirrors = append([]string(nil), custom...)
+	b.disableBuiltinMirrors = disableBuiltin
 }
 
 // Close releases the Docker client.
@@ -282,16 +295,48 @@ func (b *Backend) pullImage(ctx context.Context, ref string) error {
 	if err == nil {
 		return nil
 	}
+	return b.pullImageWithMirrors(ctx, ref)
+}
+
+// pullImageWithMirrors always contacts a registry (original then mirrors).
+func (b *Backend) pullImageWithMirrors(ctx context.Context, ref string) error {
+	var errs []string
+	preferredMu.Lock()
+	pref := preferredPull[ref]
+	preferredMu.Unlock()
+	for _, candidate := range pullCandidates(ref, b.imageMirrors, b.disableBuiltinMirrors) {
+		if err := b.pullOneImage(ctx, candidate); err != nil {
+			errs = append(errs, candidate+": "+err.Error())
+			if candidate == pref {
+				preferredMu.Lock()
+				delete(preferredPull, ref)
+				preferredMu.Unlock()
+			}
+			continue
+		}
+		if candidate != ref {
+			if err := b.cli.ImageTag(ctx, candidate, ref); err != nil {
+				errs = append(errs, "tag "+candidate+" -> "+ref+": "+err.Error())
+				continue
+			}
+			rememberPreferredPull(ref, candidate)
+		}
+		return nil
+	}
+	if len(errs) == 0 {
+		return fmt.Errorf("image pull %s: no candidates", ref)
+	}
+	return fmt.Errorf("image pull %s: all sources failed: %s", ref, strings.Join(errs, "; "))
+}
+
+func (b *Backend) pullOneImage(ctx context.Context, ref string) error {
 	rc, err := b.cli.ImagePull(ctx, ref, types.ImagePullOptions{})
 	if err != nil {
-		return fmt.Errorf("image pull %s: %w", ref, err)
+		return err
 	}
 	defer rc.Close()
 	// Mid-stream failures arrive as JSON messages with HTTP 200.
-	if err := jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil); err != nil {
-		return fmt.Errorf("image pull %s: %w", ref, err)
-	}
-	return nil
+	return jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil)
 }
 
 // HasImage reports whether ref is present in the local image store.
@@ -354,22 +399,11 @@ func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, e
 		return false, "", fmt.Errorf("image ref is empty")
 	}
 	local, hadLocal := b.imageDigest(ctx, ref)
-	pullFailed := func(err error) (bool, string, error) {
+	if err := b.pullImageWithMirrors(ctx, ref); err != nil {
 		if hadLocal {
 			return false, local, nil
 		}
-		return false, "", fmt.Errorf("image pull %s: %w", ref, err)
-	}
-	rc, err := b.cli.ImagePull(ctx, ref, types.ImagePullOptions{})
-	if err != nil {
-		return pullFailed(err)
-	}
-	defer rc.Close()
-	// pull failures mid-stream (failed layer download/registration, auth
-	// errors) arrive as JSON messages with HTTP 200, so the drain must
-	// surface them instead of discarding the stream.
-	if err := jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil); err != nil {
-		return pullFailed(err)
+		return false, "", err
 	}
 	pulled, _ := b.imageDigest(ctx, ref)
 	return refreshChanged(local, pulled, hadLocal), pulled, nil

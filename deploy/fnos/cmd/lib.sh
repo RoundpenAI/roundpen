@@ -35,6 +35,46 @@ ensure_pkgvar_perms() {
 default_agent_image() { printf '%s\n' "${ROUNDPEN_AGENT_IMAGE:-ghcr.io/roundpenai/code-agent:0.1.0}"; }
 default_browser_image() { printf '%s\n' "${ROUNDPEN_BROWSER_IMAGE:-ghcr.io/browserless/chrome:v2.56.7}"; }
 
+# Pull one image; on failure try China-friendly ghcr mirrors (daemon.json
+# registry-mirrors do not apply to ghcr.io). Retag to the logical name.
+pull_image_with_mirrors() {
+	local ref="$1"
+	local candidate path
+	if docker pull "${ref}"; then
+		return 0
+	fi
+	case "${ref}" in
+	ghcr.io/*)
+		path="${ref#ghcr.io/}"
+		for candidate in \
+			"m.daocloud.io/${ref}" \
+			"ghcr.m.daocloud.io/${path}"; do
+			echo "[warm-images] retry via ${candidate}"
+			if docker pull "${candidate}"; then
+				docker tag "${candidate}" "${ref}" || return 1
+				return 0
+			fi
+		done
+		;;
+	esac
+	# Optional operator templates: ROUNDPEN_IMAGE_MIRRORS=host/{image},host2/{path}
+	if [ -n "${ROUNDPEN_IMAGE_MIRRORS:-}" ] && [ "${ROUNDPEN_IMAGE_MIRRORS}" != "none" ] && [ "${ROUNDPEN_IMAGE_MIRRORS}" != "off" ]; then
+		local tmpl IFS=','
+		path="${ref#*/}"
+		for tmpl in ${ROUNDPEN_IMAGE_MIRRORS}; do
+			tmpl="$(printf '%s' "${tmpl}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+			[ -n "${tmpl}" ] || continue
+			candidate="$(printf '%s' "${tmpl}" | sed -e "s|{image}|${ref}|g" -e "s|{path}|${path}|g")"
+			echo "[warm-images] retry via ${candidate}"
+			if docker pull "${candidate}"; then
+				docker tag "${candidate}" "${ref}" || return 1
+				return 0
+			fi
+		done
+	fi
+	return 1
+}
+
 # Kick off a background docker pull for Agent + Browser images so the first
 # browser_navigate after install does not wait on a multi-GB download inside
 # the tool call. Never blocks install/start; failures only go to the log.
@@ -49,9 +89,9 @@ warm_docker_images() {
 	(
 		set +e
 		echo "[warm-images] pulling ${browser}"
-		docker pull "${browser}"
+		pull_image_with_mirrors "${browser}" || echo "[warm-images] browser pull failed"
 		echo "[warm-images] pulling ${agent}"
-		docker pull "${agent}"
+		pull_image_with_mirrors "${agent}" || echo "[warm-images] agent pull failed"
 		echo "[warm-images] done"
 	) >>"${logfile:-/dev/null}" 2>&1 &
 	return 0

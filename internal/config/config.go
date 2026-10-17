@@ -31,6 +31,7 @@ type Config struct {
 	DefaultAgentTemplate      string // agent slot template name (default code-agent)
 	AgentImage                string // default agent OCI image ref
 	BrowserImage              string // default browser OCI image
+	ImageMirrors              string // ROUNDPEN_IMAGE_MIRRORS: comma templates, or none/off
 	DefaultTTL                time.Duration
 	LogLevel                  slog.Level
 	LLMGW                     LLMGWConfig
@@ -71,6 +72,7 @@ func Load() (*Config, error) {
 		DefaultAgentTemplate:      getenv("ROUNDPEN_DEFAULT_AGENT_TEMPLATE", "code-agent"),
 		AgentImage:                getenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
 		BrowserImage:              getenv("ROUNDPEN_BROWSER_IMAGE", "ghcr.io/browserless/chrome:v2.56.7"),
+		ImageMirrors:              strings.TrimSpace(os.Getenv("ROUNDPEN_IMAGE_MIRRORS")),
 		DefaultTTL:                30 * time.Minute,
 		LogLevel:                  slog.LevelInfo,
 		PreviewPublicURL:          os.Getenv("ROUNDPEN_PREVIEW_PUBLIC_URL"),

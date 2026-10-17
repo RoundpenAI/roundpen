@@ -47,6 +47,8 @@ services:
       ROUNDPEN_AGENT_IMAGE: "${ROUNDPEN_AGENT_IMAGE:-ghcr.io/roundpenai/code-agent:0.1.0}"
       ROUNDPEN_DEFAULT_IMAGE: "${ROUNDPEN_DEFAULT_IMAGE:-ghcr.io/roundpenai/code-agent:0.1.0}"
       ROUNDPEN_BROWSER_IMAGE: "${ROUNDPEN_BROWSER_IMAGE:-ghcr.io/browserless/chrome:v2.56.7}"
+      # Optional: comma templates for ghcr pull fallbacks; "none" disables built-ins.
+      ROUNDPEN_IMAGE_MIRRORS: "${ROUNDPEN_IMAGE_MIRRORS:-}"
       ROUNDPEN_DATA_ROOT: /data
       ROUNDPEN_BOOTSTRAP_ADMIN: "true"
       ROUNDPEN_IM_ENABLED: "true"

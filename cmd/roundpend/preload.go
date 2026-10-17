@@ -6,9 +6,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/backend/docker"
 	"github.com/RoundpenAI/roundpen/internal/backend/multi"
 	"github.com/RoundpenAI/roundpen/internal/config"
 )
+
+func dockerMirrorsFromConfig(cfg *config.Config) (custom []string, disableBuiltin bool) {
+	if cfg == nil {
+		return nil, false
+	}
+	return docker.ParseImageMirrors(cfg.ImageMirrors)
+}
 
 // preloadDockerImages warms Agent/Browser OCI images in the background so the
 // first browser_navigate (or Agent Bash) after a fresh install does not pay a
