@@ -158,7 +158,7 @@ func (r *runner) command(name, args string) {
 	if err != nil {
 		// Unknown or unreadable commands land in the transcript as a system
 		// bubble; sending a WS "error" frame would flip the connection chrome.
-		r.broadcast(wsOut{Type: "event", Event: acpclient.Event{
+		r.broadcast(streamOut{Type: "event", Event: acpclient.Event{
 			Type: "command_error",
 			Text: "命令 " + name + " 执行失败：" + err.Error(),
 		}})
@@ -194,7 +194,7 @@ func commandDisplay(name, args string) string {
 func (r *runner) help() {
 	text := commands.HelpText(r.handler.commandCatalog(r.ctx, r.session))
 	r.persist(agentsession.RoleEvent, text, map[string]string{"type": "event", "command": "help"})
-	r.broadcast(wsOut{Type: "event", Event: acpclient.Event{Type: "command_result", Text: text}})
+	r.broadcast(streamOut{Type: "event", Event: acpclient.Event{Type: "command_result", Text: text}})
 }
 
 // requestClear starts a context reset. A turn in flight is cancelled and the
@@ -239,14 +239,14 @@ func (r *runner) requestClear() {
 func (r *runner) reset() {
 	r.broadcast(r.snapshot())
 	r.persist(agentsession.RoleEvent, "上下文已清空", map[string]string{"type": agentsession.MetaTypeClear})
-	r.broadcast(wsOut{Type: "cleared"})
+	r.broadcast(streamOut{Type: "cleared"})
 
 	rt, err := r.restartRuntime()
 	if err != nil {
 		if r.handler.Log != nil {
 			r.handler.Log.Warn("clear: restart agent runtime", "session", r.session.ID, "err", err)
 		}
-		r.broadcast(wsOut{Type: "error", Message: "清空后重启 agent 失败：" + err.Error()})
+		r.broadcast(streamOut{Type: "error", Message: "清空后重启 agent 失败：" + err.Error()})
 	} else {
 		r.mu.Lock()
 		r.rt = rt

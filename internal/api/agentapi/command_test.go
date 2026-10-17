@@ -210,7 +210,7 @@ func commandTestRunner(t *testing.T) (*runner, *agentsession.Store) {
 		actor:   manager.Actor{Username: user, Role: "user"},
 		ctx:     ctx,
 		cancel:  func() {},
-		clients: map[*wsClient]struct{}{},
+		clients: map[*streamClient]struct{}{},
 		auto:    true,
 		perms:   map[string]*permWait{},
 	}
