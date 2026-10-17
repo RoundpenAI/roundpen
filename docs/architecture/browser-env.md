@@ -116,6 +116,7 @@ make browser-driver            # = go run ./cmd/browserdriver
 | `ROUNDPEN_CDP_TOKEN` | 空 | `remote` / `cloud` 的 token，以 `?token=` 追加 |
 | `ROUNDPEN_BROWSER_IMAGE` | `ghcr.io/browserless/chrome:v2.56.7` | 托管容器 OCI 镜像（`internal/config` 与 `internal/template` 两处默认值一致） |
 | `ROUNDPEN_IMAGE_MIRRORS` | 空（启用内置 ghcr 回退） | 逗号分隔拉取模板/主机；`none` 关闭内置回退 |
+| `ROUNDPEN_IMAGE_MIRROR_RACE_DELAY` | `15` | 官方拉取进行中多久后并行试第一个镜像；`0` 关闭竞速 |
 | `ROUNDPEN_DEFAULT_BROWSER_TEMPLATE` | `browser` | 槽位模板名 |
 | `ROUNDPEN_QEMU_ENABLED` / `ROUNDPEN_QEMU_BIN` | `true` / `qemu-system-x86_64` | 只影响 Desktop / Mobile 槽位；Browser 不再使用 QEMU |
 
@@ -136,6 +137,8 @@ make browser-driver            # = go run ./cmd/browserdriver
    - `m.daocloud.io/{image}`、`ghcr.m.daocloud.io/{path}`（DaoCloud，常用但有限速）
 
 从镜像源拉成功后会 `docker tag` 回逻辑名，上层配置无需改写。设 `ROUNDPEN_IMAGE_MIRRORS=none` 可关闭内置回退。第三方镜像源无 SLA，内置多源是为了提高「装完能用」概率，不是对某一家做背书。
+
+**官方源能通但很慢：** 默认在开始拉官方镜像约 15s 后，若仍未完成，会并行启动列表中的第一个镜像源，谁先成功用谁（并取消另一方）。可用 `ROUNDPEN_IMAGE_MIRROR_RACE_DELAY`（秒）调整等待；`0` 关闭竞速，改回「官方失败再试镜像」。
 
 ## API
 

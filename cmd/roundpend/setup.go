@@ -101,6 +101,7 @@ func newBackendSet(cfg *config.Config, dataRoot string, wsFS workspace.FS, brows
 		DisableQEMU:           !cfg.QEMUEnabled,
 		ImageMirrors:          mirrors,
 		DisableBuiltinMirrors: disableBuiltinMirrors,
+		MirrorRaceDelay:       cfg.ImageMirrorRaceDelay,
 	})
 	eng.Warm()
 

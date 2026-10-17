@@ -31,7 +31,8 @@ type Config struct {
 	DefaultAgentTemplate      string // agent slot template name (default code-agent)
 	AgentImage                string // default agent OCI image ref
 	BrowserImage              string // default browser OCI image
-	ImageMirrors              string // ROUNDPEN_IMAGE_MIRRORS: comma templates, or none/off
+	ImageMirrors              string         // ROUNDPEN_IMAGE_MIRRORS: comma templates, or none/off
+	ImageMirrorRaceDelay      *time.Duration // nil=default 15s; 0=disable race; ROUNDPEN_IMAGE_MIRROR_RACE_DELAY
 	DefaultTTL                time.Duration
 	LogLevel                  slog.Level
 	LLMGW                     LLMGWConfig
@@ -103,6 +104,14 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("ROUNDPEN_DEFAULT_TTL: must be positive seconds")
 		}
 		cfg.DefaultTTL = time.Duration(secs) * time.Second
+	}
+	if v := strings.TrimSpace(os.Getenv("ROUNDPEN_IMAGE_MIRROR_RACE_DELAY")); v != "" {
+		secs, err := strconv.Atoi(v)
+		if err != nil || secs < 0 {
+			return nil, fmt.Errorf("ROUNDPEN_IMAGE_MIRROR_RACE_DELAY: must be >= 0 seconds")
+		}
+		d := time.Duration(secs) * time.Second
+		cfg.ImageMirrorRaceDelay = &d
 	}
 	if v := os.Getenv("ROUNDPEN_LOG_LEVEL"); v != "" {
 		var level slog.Level

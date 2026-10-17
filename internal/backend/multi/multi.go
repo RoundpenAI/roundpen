@@ -27,6 +27,9 @@ type Options struct {
 	DisableQEMU           bool
 	ImageMirrors          []string // ROUNDPEN_IMAGE_MIRRORS templates/hosts
 	DisableBuiltinMirrors bool
+	// MirrorRaceDelay: wait on official pull before racing first mirror.
+	// nil = default (15s); explicit 0 disables racing.
+	MirrorRaceDelay *time.Duration
 }
 
 // Backend picks an engine per sandbox based on slot and image.
@@ -37,6 +40,7 @@ type Backend struct {
 	disableQEMU           bool
 	imageMirrors          []string
 	disableBuiltinMirrors bool
+	mirrorRaceDelay       *time.Duration
 
 	mu     sync.Mutex
 	qemu   *qemu.Backend
@@ -56,6 +60,7 @@ func New(opts Options) *Backend {
 		disableQEMU:           opts.DisableQEMU,
 		imageMirrors:          append([]string(nil), opts.ImageMirrors...),
 		disableBuiltinMirrors: opts.DisableBuiltinMirrors,
+		mirrorRaceDelay:       opts.MirrorRaceDelay,
 		routes:                make(map[string]string),
 	}
 }
@@ -99,6 +104,9 @@ func (b *Backend) dockerEngine() (*dockerbackend.Backend, error) {
 		return nil, err
 	}
 	be.SetImageMirrors(b.imageMirrors, b.disableBuiltinMirrors)
+	if b.mirrorRaceDelay != nil {
+		be.SetMirrorRaceDelay(*b.mirrorRaceDelay)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := be.Ping(ctx); err != nil {
