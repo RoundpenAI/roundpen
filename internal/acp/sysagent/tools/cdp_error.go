@@ -30,6 +30,14 @@ func WrapBrowserEnsure(err error) error {
 		return err
 	}
 	msg := err.Error()
+	if isImagePullMessage(msg) {
+		return &InfraError{
+			Kind: "browser_image_pulling",
+			Msg: "Browser Docker image is not ready yet (still downloading or pull failed). " +
+				"This is an environment problem, not a page problem. " +
+				"Wait for the image preload to finish, then retry browser_* once. (" + shortInfra(msg) + ")",
+		}
+	}
 	if !isCDPInfraMessage(msg) {
 		return err
 	}
@@ -40,6 +48,12 @@ func WrapBrowserEnsure(err error) error {
 			"Do not keep retrying page tools; wait briefly and try browser_* once more, " +
 			"or report that the Browser is not ready. (" + shortInfra(msg) + ")",
 	}
+}
+
+func isImagePullMessage(msg string) bool {
+	s := strings.ToLower(msg)
+	return strings.Contains(s, "image pull") ||
+		strings.Contains(s, "ensure browser environment") && strings.Contains(s, "image")
 }
 
 func isCDPInfraMessage(msg string) bool {
@@ -72,6 +86,11 @@ func shortInfra(msg string) string {
 // InfraKind extracts a stable class from a tool result string.
 func InfraKind(result string) string {
 	s := strings.ToLower(result)
+	if strings.Contains(s, "browser_image_pulling") ||
+		strings.Contains(s, "docker image is not ready") ||
+		strings.Contains(s, "image pull") {
+		return "browser_image_pulling"
+	}
 	if strings.Contains(s, "cdp_unavailable") ||
 		strings.Contains(s, "browser cdp is down") ||
 		strings.Contains(s, "devtools is not reachable") ||

@@ -110,6 +110,7 @@ func newBackendSet(cfg *config.Config, dataRoot string, wsFS workspace.FS, brows
 	if eng.HasDocker() {
 		probe.DockerReady = true
 		logger.Info("docker backend enabled")
+		preloadDockerImages(eng, cfg, logger)
 	} else if err := eng.DockerErr(); err != nil {
 		probe.DockerErr = err.Error()
 		logger.Warn("docker not ready", slog.Any("err", err))

@@ -35,7 +35,7 @@ endpoint 规约（`remote` / `cloud`）：
 | 后端 | `internal/backend/multi` 按 slot 路由：`browser`（及 agent）→ Docker；只有 `mobile` / `.qcow2` 才走 QEMU |
 | 端口 | 容器内 CDP `ROUNDPEN_CDP_PORT`（默认 `3000`）；**不发布端口**，控制面经 `Backend.Dial` 拨入容器网络（bridge 直连），再在本地起 TCP 转发给引擎 |
 | 工作区 | 容器 bind 挂载该沙箱自己的 workspace 目录（`{data_root}/sandboxes/<id>/workspace`）到 `/workspace`；独立目录，不与 Agent 槽位共享 |
-| 就绪 | `runtime.Probe.RequireBrowser`：Docker ready + 镜像在本地（缺失时给出 `docker pull <镜像>` 的 setup 提示） |
+| 就绪 | `runtime.Probe.RequireBrowser`：Docker ready（镜像可缺省；`roundpend` 启动与 fnOS 安装/启动会后台 `EnsureLocalImage` / `docker pull` 预热） |
 
 容器 env（创建沙箱时写入）：
 
@@ -118,7 +118,9 @@ make browser-driver            # = go run ./cmd/browserdriver
 | `ROUNDPEN_DEFAULT_BROWSER_TEMPLATE` | `browser` | 槽位模板名 |
 | `ROUNDPEN_QEMU_ENABLED` / `ROUNDPEN_QEMU_BIN` | `true` / `qemu-system-x86_64` | 只影响 Desktop / Mobile 槽位；Browser 不再使用 QEMU |
 
-部署前置：Docker（托管来源）+ 首次使用拉取镜像。`host` 来源还需要宿主机装 Chrome。
+部署前置：Docker（托管来源）。控制面在 Docker 就绪后异步预拉 `ROUNDPEN_BROWSER_IMAGE`（与 Agent 镜像）；fnOS 安装/启动另有一层后台 `docker pull`。首次 `browser_navigate` 仍会在镜像未就绪时走同一拉取路径（进程内 singleflight），但多数情况下安装后镜像已在本地。`host` 来源还需要宿主机装 Chrome。
+
+说明：Browser 镜像约 1GB+ 压缩体积，不适合打进 `.fpk`；“内置初始化”指安装/启动时自动预热上游 browserless 镜像，而不是把 OCI 层塞进安装包。需要更小体积时可改 `ROUNDPEN_BROWSER_IMAGE` 为 `ghcr.io/browserless/chromium:v2.56.7`（路径探测会命中 `/chromium`）。
 
 ## API
 

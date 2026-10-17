@@ -27,6 +27,7 @@ import (
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/config"
@@ -42,6 +43,10 @@ type Backend struct {
 
 	ptyMu sync.Mutex
 	ptys  map[string]string // sessionKey -> exec ID
+
+	// imagePulls dedupes concurrent pulls of the same ref (fresh install +
+	// first browser_navigate often race the same multi-GB download).
+	imagePulls singleflight.Group
 }
 
 // New connects to Docker. host may be empty for the SDK default.
@@ -240,7 +245,39 @@ func workspaceMountSource(info types.ContainerJSON) string {
 	return ""
 }
 
+const imagePullTimeout = 30 * time.Minute
+
+// EnsureLocalImage pulls ref when it is not already present locally.
+// Concurrent callers for the same ref share one pull.
+func (b *Backend) EnsureLocalImage(ctx context.Context, ref string) error {
+	return b.ensureImage(ctx, ref)
+}
+
 func (b *Backend) ensureImage(ctx context.Context, ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return fmt.Errorf("image ref is empty")
+	}
+	_, _, err := b.cli.ImageInspectWithRaw(ctx, ref)
+	if err == nil {
+		return nil
+	}
+	ch := b.imagePulls.DoChan(ref, func() (any, error) {
+		// Detach from the caller's cancel so one timed-out tool call cannot
+		// abort a shared pull that other waiters still need.
+		pullCtx, cancel := context.WithTimeout(context.Background(), imagePullTimeout)
+		defer cancel()
+		return nil, b.pullImage(pullCtx, ref)
+	})
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("image pull %s: %w", ref, ctx.Err())
+	case res := <-ch:
+		return res.Err
+	}
+}
+
+func (b *Backend) pullImage(ctx context.Context, ref string) error {
 	_, _, err := b.cli.ImageInspectWithRaw(ctx, ref)
 	if err == nil {
 		return nil
@@ -250,7 +287,10 @@ func (b *Backend) ensureImage(ctx context.Context, ref string) error {
 		return fmt.Errorf("image pull %s: %w", ref, err)
 	}
 	defer rc.Close()
-	_, _ = io.Copy(io.Discard, rc)
+	// Mid-stream failures arrive as JSON messages with HTTP 200.
+	if err := jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil); err != nil {
+		return fmt.Errorf("image pull %s: %w", ref, err)
+	}
 	return nil
 }
 

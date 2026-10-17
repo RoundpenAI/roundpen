@@ -30,6 +30,33 @@ ensure_pkgvar_perms() {
 	return 0
 }
 
+# Default OCI images for Agent / Browser slots (keep in sync with
+# internal/config and template seeds).
+default_agent_image() { printf '%s\n' "${ROUNDPEN_AGENT_IMAGE:-ghcr.io/roundpenai/code-agent:0.1.0}"; }
+default_browser_image() { printf '%s\n' "${ROUNDPEN_BROWSER_IMAGE:-ghcr.io/browserless/chrome:v2.56.7}"; }
+
+# Kick off a background docker pull for Agent + Browser images so the first
+# browser_navigate after install does not wait on a multi-GB download inside
+# the tool call. Never blocks install/start; failures only go to the log.
+warm_docker_images() {
+	local logfile="${1:-}"
+	local agent browser
+	agent="$(default_agent_image)"
+	browser="$(default_browser_image)"
+	if ! command -v docker >/dev/null 2>&1; then
+		return 0
+	fi
+	(
+		set +e
+		echo "[warm-images] pulling ${browser}"
+		docker pull "${browser}"
+		echo "[warm-images] pulling ${agent}"
+		docker pull "${agent}"
+		echo "[warm-images] done"
+	) >>"${logfile:-/dev/null}" 2>&1 &
+	return 0
+}
+
 # Run a command as the package user when the lifecycle script is root.
 # Long-running services should not stay root (see config/privilege).
 #

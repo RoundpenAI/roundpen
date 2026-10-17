@@ -275,6 +275,18 @@ func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, e
 	return eng.RefreshImage(ctx, ref)
 }
 
+// EnsureLocalImage pulls ref when missing (no-op when already local).
+func (b *Backend) EnsureLocalImage(ctx context.Context, ref string) error {
+	if isQcow2(ref) {
+		return fmt.Errorf("image ensure is not supported for qemu images")
+	}
+	eng, err := b.dockerEngine()
+	if err != nil {
+		return err
+	}
+	return eng.EnsureLocalImage(ctx, ref)
+}
+
 func (b *Backend) Dial(ctx context.Context, sandboxID string, destPort int) (net.Conn, error) {
 	return b.engine(sandboxID).Dial(ctx, sandboxID, destPort)
 }

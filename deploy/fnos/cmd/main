@@ -75,6 +75,7 @@ do_start() {
     export ROUNDPEN_IM_ENABLED="${ROUNDPEN_IM_ENABLED:-true}"
     export ROUNDPEN_AGENT_IMAGE="${ROUNDPEN_AGENT_IMAGE:-ghcr.io/roundpenai/code-agent:0.1.0}"
     export ROUNDPEN_DEFAULT_IMAGE="${ROUNDPEN_DEFAULT_IMAGE:-ghcr.io/roundpenai/code-agent:0.1.0}"
+    export ROUNDPEN_BROWSER_IMAGE="${ROUNDPEN_BROWSER_IMAGE:-ghcr.io/browserless/chrome:v2.56.7}"
     if [ -z "${ROUNDPEN_PREVIEW_PUBLIC_URL:-}" ]; then
         export ROUNDPEN_PREVIEW_PUBLIC_URL="http://127.0.0.1:${PORT}"
     fi
@@ -102,6 +103,7 @@ do_start() {
         echo "ROUNDPEN_IM_ENABLED=${ROUNDPEN_IM_ENABLED}"
         echo "ROUNDPEN_AGENT_IMAGE=${ROUNDPEN_AGENT_IMAGE}"
         echo "ROUNDPEN_DEFAULT_IMAGE=${ROUNDPEN_DEFAULT_IMAGE}"
+        echo "ROUNDPEN_BROWSER_IMAGE=${ROUNDPEN_BROWSER_IMAGE}"
         echo "ROUNDPEN_PREVIEW_PUBLIC_URL=${ROUNDPEN_PREVIEW_PUBLIC_URL}"
         echo "ROUNDPEN_FNOS_GATEWAY_SOCKET=${ROUNDPEN_FNOS_GATEWAY_SOCKET}"
         echo "ROUNDPEN_FNOS_GATEWAY_PREFIX=${ROUNDPEN_FNOS_GATEWAY_PREFIX}"
@@ -121,6 +123,9 @@ do_start() {
     if is_root; then
         chown "$(pkg_user):$(pkg_group)" "${PIDFILE}" "${LOGFILE}" 2>/dev/null || true
     fi
+
+    # Warm Browser/Agent images without blocking the health wait below.
+    warm_docker_images "${TRIM_PKGVAR}/warm-images.log"
 
     # Brief wait so status/checkport see a live listener when possible.
     i=0
