@@ -682,11 +682,14 @@ func (s *Service) AttachTerminal(ctx context.Context, id, sessionKey string, opt
 }
 
 func (s *Service) ResizeTerminal(ctx context.Context, id, sessionKey string, rows, cols uint16) error {
+	if _, err := s.load(ctx, id); err != nil {
+		return err
+	}
 	return s.backend.ResizePTY(ctx, id, sessionKey, rows, cols)
 }
 
 func (s *Service) AttachExec(ctx context.Context, id string, opts AttachExecOpts, stdin io.Reader, stdout, stderr io.Writer) error {
-	sb, err := s.store.Get(ctx, id)
+	sb, err := s.load(ctx, id)
 	if err != nil {
 		return err
 	}

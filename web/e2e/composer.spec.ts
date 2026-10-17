@@ -1,5 +1,5 @@
-import type { WebSocketRoute } from '@playwright/test'
 import { expect, test } from './fixtures'
+import { installChatStreamMock } from './chatStreamMock'
 import { loginViaApi, skipIfNoLivePassword } from './helpers'
 
 type Frame = { type?: string; text?: string }
@@ -15,17 +15,12 @@ test('sending with the send key empties the composer', async ({ page }) => {
   await loginViaApi(page)
 
   const frames: Frame[] = []
-  await page.routeWebSocket('**/v1/agent-sessions/*/ws', (ws: WebSocketRoute) => {
-    ws.onMessage((message) => {
-      const text = typeof message === 'string' ? message : message.toString()
-      try {
-        frames.push(JSON.parse(text) as Frame)
-      } catch {
-        /* ignore non-JSON frames */
-      }
-    })
-    ws.send(JSON.stringify({ type: 'hello', message: 'ok' }))
-    ws.send(JSON.stringify({ type: 'status', busy: false }))
+  await installChatStreamMock(page, {
+    initialFrames: [
+      { type: 'hello', message: 'ok' },
+      { type: 'status', busy: false, queueVersion: 0, steer: true },
+    ],
+    onAction: (f) => frames.push(f),
   })
 
   await page.goto(SESSION_PATH)

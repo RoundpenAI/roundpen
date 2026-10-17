@@ -1,8 +1,12 @@
 #!/bin/bash
-# Runs after an upgrade installed the new files: keep data under var/, ensure
-# pg0 is still reachable (or recreate), and refresh roundpend.env defaults.
+# Runs after an upgrade installed the new files: keep data under var/, fix
+# ownership (root-owned secret.key from older Docker packages), ensure pg0 is
+# still reachable, and refresh roundpend.env defaults.
 
 set -u
+
+# shellcheck source=lib.sh
+. "$(dirname "$0")/lib.sh"
 
 fail() {
     echo "$1" > "${TRIM_TEMP_LOGFILE}"
@@ -15,7 +19,9 @@ ENVFILE="${TRIM_PKGVAR}/roundpend.env"
 PORT="${TRIM_SERVICE_PORT:-9527}"
 PG0_PORT="${PG0_PORT:-15432}"
 
-mkdir -p "${TRIM_PKGVAR}/data" "${TRIM_PKGVAR}/.pg0" || fail "无法创建数据目录 ${TRIM_PKGVAR}/data"
+# Critical on upgrade: older packages ran roundpend in Docker as root and left
+# data/secret.key mode 0600 root:root. The daemon now runs as the package user.
+ensure_pkgvar_perms || fail "无法校正数据目录权限（secret.key 可能仍属 root）。请检查 ${TRIM_PKGVAR}/data"
 
 [ -x "${BIN_DIR}/pg0" ] || fail "包内缺少 pg0 二进制：${BIN_DIR}/pg0"
 [ -x "${BIN_DIR}/roundpend" ] || fail "包内缺少 roundpend 二进制：${BIN_DIR}/roundpend"
@@ -38,6 +44,7 @@ if [ ! -f "${ENVFILE}" ]; then
         echo "ROUNDPEN_IM_ENABLED=true"
         echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
         echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
+        echo "ROUNDPEN_BROWSER_IMAGE=ghcr.io/browserless/chrome:v2.56.7"
         echo "ROUNDPEN_PREVIEW_PUBLIC_URL=http://127.0.0.1:${PORT}"
     } > "${ENVFILE}"
 fi
@@ -48,14 +55,34 @@ set -a
 . "${ENVFILE}"
 set +a
 
+# Unified-gateway env is appended only when absent, so an upgrade never
+# clobbers a user-edited roundpend.env.
+append_env_if_missing() { # append_env_if_missing <KEY> <VALUE>
+    if ! grep -q "^${1}=" "${ENVFILE}" 2>/dev/null; then
+        echo "${1}=${2}" >> "${ENVFILE}"
+    fi
+}
+append_env_if_missing ROUNDPEN_FNOS_GATEWAY_SOCKET "${TRIM_APPDEST}/app.sock"
+append_env_if_missing ROUNDPEN_FNOS_GATEWAY_PREFIX "/app/roundpen"
+append_env_if_missing ROUNDPEN_BROWSER_IMAGE "ghcr.io/browserless/chrome:v2.56.7"
+
 export ROUNDPEN_PG0_BIN="${BIN_DIR}/pg0"
 export ROUNDPEN_ENSURE_PG0_ENV_FILE="${ENVFILE}"
 
 errfile="${TRIM_PKGVAR}/pg0-install.log"
 # shellcheck disable=SC1090
-if ! . "${ENSURE_PG0}" >"${errfile}" 2>&1; then
+if ! run_as_pkg bash -c ". \"${ENSURE_PG0}\"" >"${errfile}" 2>&1; then
     detail="$(tail -c 1500 "${errfile}" 2>/dev/null | tr '\n' ' ')"
     fail "无法启动本地 pg0（或连接 DATABASE_URL）。${detail}"
 fi
+
+ensure_pkgvar_perms || fail "无法校正数据目录权限 ${TRIM_PKGVAR}"
+
+# Refresh local Browser/Agent images after upgrade (background).
+set -a
+# shellcheck disable=SC1090
+. "${ENVFILE}"
+set +a
+warm_docker_images "${TRIM_PKGVAR}/warm-images.log"
 
 exit 0

@@ -93,11 +93,15 @@ type backendSet struct {
 
 // newBackendSet builds the sandbox engine stack and wires the browser hub to it.
 func newBackendSet(cfg *config.Config, dataRoot string, wsFS workspace.FS, browserHub *browser.Hub, tplSvc *template.Service, store *storage.SandboxStore, logger *slog.Logger) *backendSet {
+	mirrors, disableBuiltinMirrors := dockerMirrorsFromConfig(cfg)
 	eng := multi.New(multi.Options{
-		DataRoot:      dataRoot,
-		DockerHost:    cfg.DockerHost,
-		DockerRuntime: cfg.DockerRuntime,
-		DisableQEMU:   !cfg.QEMUEnabled,
+		DataRoot:              dataRoot,
+		DockerHost:            cfg.DockerHost,
+		DockerRuntime:         cfg.DockerRuntime,
+		DisableQEMU:           !cfg.QEMUEnabled,
+		ImageMirrors:          mirrors,
+		DisableBuiltinMirrors: disableBuiltinMirrors,
+		MirrorRaceDelay:       cfg.ImageMirrorRaceDelay,
 	})
 	eng.Warm()
 
@@ -110,6 +114,7 @@ func newBackendSet(cfg *config.Config, dataRoot string, wsFS workspace.FS, brows
 	if eng.HasDocker() {
 		probe.DockerReady = true
 		logger.Info("docker backend enabled")
+		preloadDockerImages(eng, cfg, logger)
 	} else if err := eng.DockerErr(); err != nil {
 		probe.DockerErr = err.Error()
 		logger.Warn("docker not ready", slog.Any("err", err))

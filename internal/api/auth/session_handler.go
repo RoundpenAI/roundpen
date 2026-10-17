@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/httpx"
@@ -140,24 +141,36 @@ type loginRequest struct {
 	ReturnSessionToken bool `json:"returnSessionToken"`
 }
 
+// fnosGatewayActive is set by the fnOS unified gateway once it starts serving.
+var fnosGatewayActive atomic.Bool
+
+// SetFnosGatewayActive records whether fnOS unified-gateway SSO is active.
+func SetFnosGatewayActive(active bool) { fnosGatewayActive.Store(active) }
+
+// FnosGatewayActive reports whether fnOS unified-gateway SSO is active.
+func FnosGatewayActive() bool { return fnosGatewayActive.Load() }
+
 // BootstrapHint returns the packaged default credentials while they still match
-// the admin password (so the console login page can show them). After the
-// operator changes the password the response is empty.
+// the admin password (so the console login page can show them), plus the active
+// auth mode. After the operator changes the password the credential fields are
+// omitted; authMode (when the fnOS gateway is in front) is always reported.
 func (h *SessionHandler) BootstrapHint(w http.ResponseWriter, r *http.Request) {
-	empty := map[string]string{}
+	hint := map[string]string{}
+	if FnosGatewayActive() {
+		hint["authMode"] = "fnos-gateway"
+	}
 	if h.bootstrapPassword == "" {
-		httpx.WriteJSON(w, http.StatusOK, empty)
+		httpx.WriteJSON(w, http.StatusOK, hint)
 		return
 	}
 	admin, err := h.users.GetByUsername(r.Context(), "admin")
 	if err != nil || admin == nil || !CheckPassword(admin.PasswordHash, h.bootstrapPassword) {
-		httpx.WriteJSON(w, http.StatusOK, empty)
+		httpx.WriteJSON(w, http.StatusOK, hint)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]string{
-		"username": "admin",
-		"password": h.bootstrapPassword,
-	})
+	hint["username"] = "admin"
+	hint["password"] = h.bootstrapPassword
+	httpx.WriteJSON(w, http.StatusOK, hint)
 }
 
 func (h *SessionHandler) Login(w http.ResponseWriter, r *http.Request) {

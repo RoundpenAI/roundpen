@@ -81,8 +81,11 @@ echo "building Web UI..."
     if [[ ! -d node_modules ]]; then
         npm_registry="${NPM_REGISTRY:-$(npm config get registry 2>/dev/null || true)}"
         npm_registry="${npm_registry:-https://registry.npmjs.org}"
-        npm ci --registry="${npm_registry}"
+        npm ci --no-audit --registry="${npm_registry}"
     fi
+    # The Web console is reached through the unified gateway at /app/roundpen,
+    # so the SPA must be built for that base path.
+    export VITE_BASE=/app/roundpen/
     npm run build
 )
 mkdir -p "${ROOT}/internal/ui/dist"
@@ -91,8 +94,10 @@ touch "${ROOT}/internal/ui/dist/.gitkeep"
 echo "building roundpend (linux/${GOARCH})..."
 goproxy="${GOPROXY:-$(go env GOPROXY 2>/dev/null || true)}"
 goproxy="${goproxy:-https://proxy.golang.org,direct}"
+# The fnos build tag compiles in the unified-gateway Socket listener +
+# gateway identity middleware; other channels build without it.
 GOPROXY="${goproxy}" CGO_ENABLED=0 GOOS=linux GOARCH="${GOARCH}" \
-    go build -o "${stage}/app/bin/roundpend" "${ROOT}/cmd/roundpend"
+    go build -tags fnos -o "${stage}/app/bin/roundpend" "${ROOT}/cmd/roundpend"
 
 # Keyed by version + asset so a pin bump downloads once, then later `make fpk`
 # copies the cached binary. PG0_CACHE overrides the directory.

@@ -1,94 +1,77 @@
 # Roundpen on 飞牛 fnOS
 
-把 Roundpen 打包成 fnOS 应用（`.fpk`）：**宿主机**运行 `roundpend` 二进制，
-包内捆绑 [pg0](https://github.com/vectorize-io/pg0) 拉起本地 Postgres（含
-pgvector）。应用中心通过 `cmd/main` 启停进程。Agent / Browser 沙箱仍使用宿主
-Docker（挂 `/var/run/docker.sock`），首次使用相关槽位时再拉镜像。
+应用中心展示名是 **AI助手**（`display_name`）；包名 / 数据目录仍是 `roundpen`，升级路径不变。
 
-## 构建
+把 Roundpen 打成 fnOS 应用（`.fpk`）：宿主机跑 `roundpend`，包里带 [pg0](https://github.com/vectorize-io/pg0) 起本地 Postgres（含 pgvector）。Agent / Browser 用宿主 Docker（挂 `/var/run/docker.sock`）。安装与启动时会在后台预拉 `ROUNDPEN_BROWSER_IMAGE` / `ROUNDPEN_AGENT_IMAGE`（默认 browserless/chrome 与 code-agent），避免装完立刻 `browser_navigate` 时才开始下多 GB 镜像；进度见 `var/warm-images.log`。
 
-需要飞牛官方的 `fnpack`（V1.2.3）、本机 `go` 与 `npm`（构建时嵌入 Web UI）：
+## 安装
+
+- 应用中心 → 手动安装 → 选 `.fpk`
+- 或：`appcenter-cli install-fpk roundpen-<version>-fnos-x86.fpk`
+
+首次默认账号 **admin / RoundpenAdmin1**（只写一次，改密后重启不会盖回去；默认密码仍有效时登录页会提示）。
+
+桌面入口走飞牛统一网关（SSO）：飞牛用户映射为 `fnos-<uid>`，飞牛管理员映射为 Roundpen 管理员。也可用浏览器打开设备的 `:9527`，用 admin 密码进控制台（给 API / 移动端 / CLI 用）。
+
+### 模型
+
+装好即可对话，内置免费模型会自动启用，不用先配 Key。额度用尽（或频繁 429）再到 **系统管理 → LLM 网关** 填自己的 OpenAI / Anthropic 兼容上游。实现细节见 [docs/free-llm-token.md](../../docs/free-llm-token.md)。
+
+### 数据目录（`var/`）
+
+| 路径 | 内容 |
+| --- | --- |
+| `var/data` | `ROUNDPEN_DATA_ROOT`：密钥、沙箱、工作区 |
+| `var/roundpend.env` | 运行环境（含 `DATABASE_URL`） |
+| `var/roundpend.log` / `var/roundpend.pid` | 日志与 pid |
+| `var/.pg0` | pg0 数据（默认 `127.0.0.1:15432`） |
+| `var/pg0-install.log` | pg0 安装日志 |
+
+卸载不删这些；清干净需手删 `var/`，必要时再 `pg0 stop/destroy --name roundpen`。
+
+已有 Postgres 时，把 `var/roundpend.env` 里的 `DATABASE_URL` 改成外置库（需 `pgcrypto` / `vector`）并重启即可；非 localhost 的 DSN 不会再起本地 pg0。
+
+### 常见配置
+
+- **预览链接打不开**：把 `ROUNDPEN_PREVIEW_PUBLIC_URL` 改成 NAS 地址（**系统管理 → 通用**），默认是 `http://127.0.0.1:9527`。
+- **Agent 镜像拉不动**：默认 `ghcr.io/roundpenai/code-agent:0.1.0`，在 **系统管理 → 通用** 换成镜像源或本地 tag。
+- **Browser 镜像拉不动**：默认 `ghcr.io/browserless/chrome:v2.56.7`，可在 `var/roundpend.env` 设 `ROUNDPEN_BROWSER_IMAGE`（例如内网镜像或 offline `docker load` 后的本地 tag）。离线包太大，`.fpk` 不内嵌 OCI 层。
+- **国内访问 ghcr.io 失败/很慢**：Docker 的 `registry-mirrors` **不会**加速 ghcr。Roundpen 会按序试 `ghcr.1ms.run` → `ghcr.nju.edu.cn` → DaoCloud；若官方能通但很慢，约 15s 后会与第一个镜像源并行竞速。可用 `ROUNDPEN_IMAGE_MIRRORS` / `ROUNDPEN_IMAGE_MIRROR_RACE_DELAY` 调整（`none` / `0` 分别关闭内置源与竞速）。
+- **Docker 权限**：包用户 `roundpen` 加入 `docker` 组（`config/privilege` → `join-groups`）；组名不同就按设备改。
+
+### 升级与 `secret.key` 权限
+
+生命周期脚本以 root 跑，便于把 `var/` 收归包用户；真正的 `roundpend` 再用 `runuser` 降到 `roundpen`。
+
+若从早期 **Docker 版 fpk** 升上来，以前容器可能把 `var/data/secret.key` 写成 `root:root` 且 `0600`，降权后的进程会报 `permission denied`。新包在 `upgrade_callback` / 启动时会 `chown` 整棵 `var/`。若仍失败，在 NAS 上执行：
+
+```bash
+chown -R roundpen:roundpen /vol1/@appdata/roundpen
+chmod 0600 /vol1/@appdata/roundpen/data/secret.key
+```
+
+（路径以实际 `TRIM_PKGVAR` 为准。）
+
+## 构建 `.fpk`
+
+需要飞牛 `fnpack` 1.2.3、本机 `go` 与 `npm`：
 
 ```bash
 curl -fsSLo /usr/local/bin/fnpack https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64
 echo "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93  /usr/local/bin/fnpack" | sha256sum -c -
 chmod +x /usr/local/bin/fnpack
-```
 
-```bash
-make fpk                     # x86 包（roundpend + pg0）
+make fpk                     # x86
 PLATFORM=arm make fpk        # arm64
 ```
 
-产物在 `dist/fnos/roundpen-<version>-fnos-<platform>.fpk`，同名 `.sha256` 是
-校验值。构建机从 GitHub Releases 拉取已 pin 的 pg0 二进制打进包，并按版本
-缓存在 `~/.cache/roundpen/pg0/`（同一版本再次 `make fpk` 直接复用）；**安装机
-不再访问 GitHub**。
+产物：`dist/fnos/roundpen-<version>-fnos-<platform>.fpk`（附 `.sha256`）。构建机从 GitHub Releases 拉 pin 过的 pg0，缓存在 `~/.cache/roundpen/pg0/`；**装到 NAS 上不再访问 GitHub**。打 `v*` tag 时 [.github/workflows/fnos-fpk.yml](../../.github/workflows/fnos-fpk.yml) 会出两种架构。
 
-`.github/workflows/fnos-fpk.yml` 在打 `v*` tag 时按两种架构出包并挂到 release。
+可用 `NPM_REGISTRY` / `GOPROXY` / `PG0_VERSION` / `PG0_CACHE` 覆盖源与缓存。
 
-本地构建可用 `NPM_REGISTRY` / `GOPROXY` / `PG0_VERSION` / `PG0_CACHE` 覆盖默认源、pg0 版本与缓存目录。
+### 打包注意
 
-## 安装
-
-- 图形界面：应用中心 → 手动安装 → 选择 `.fpk`；
-- SSH：`appcenter-cli install-fpk roundpen-0.1.0-fnos-x86.fpk`。
-
-`install_callback` 会用包内 pg0 创建本地实例，并把 `DATABASE_URL` 写入
-`var/roundpend.env`。首次安装默认账号 **admin / RoundpenAdmin1**（只设一次，
-改密后重启不会被重置）；登录页在默认密码仍有效时也会提示。
-
-若已有 Postgres，可在 `var/roundpend.env` 里把 `DATABASE_URL` 改成外置库
-（需含 `pgcrypto` / `vector`），重启应用即可；本地 pg0 不会对非 localhost
-的 DSN 再起实例。
-
-## 运行与数据
-
-| 位置 | 内容 |
-| --- | --- |
-| `var/data` | `ROUNDPEN_DATA_ROOT`：主密钥 `secret.key`、沙箱状态、日志工作区 |
-| `var/roundpend.env` | 运行时环境（含 `DATABASE_URL`） |
-| `var/roundpend.log` / `var/roundpend.pid` | 进程日志与 pid |
-| `var/.pg0` | pg0 实例数据（默认监听 `127.0.0.1:15432`，避开 NAS 常见的 5432） |
-| `var/pg0-install.log` | pg0 自举详细日志（安装失败时可看） |
-
-**roundpend 用的是宿主 Docker**（需 `docker` 组，见 `config/privilege`），
-Agent / Browser 容器是宿主上的兄弟容器。传给 Docker 的路径必须是宿主真实
-路径（`ROUNDPEN_DATA_ROOT` 下的 sandbox 目录）。
-
-卸载不会删除上面数据，重新安装即可接着用；要彻底清空需手工删掉 `var/` 以及
-（如需要）`pg0 stop/destroy --name roundpen`。
-
-Agent 镜像默认 `ghcr.io/roundpenai/code-agent:0.1.0`，网络不通时可在应用设置里
-改成镜像源或本地 tag。
-
-## 模型：FREE 试用与 BYOK
-
-冷启动（新建助手 / 会话）可二选一：
-
-1. **免费试用**：内置固定云端入口 `https://api.ttz.ac.cn`（无需配置）。
-   管理员点「一键启用 FREE」后，Roundpen 会生成
-   `$ROUNDPEN_DATA_ROOT/install-identity/`（每安装一份 Ed25519 身份），向云端
-   签发短时 `rp1…` token，并按 `install_id` 在云端限频。细节与验签测试向量见
-   [docs/free-llm-token.md](../../docs/free-llm-token.md)。
-   （运维可选覆盖：`ROUNDPEN_FREE_LLM_BASE_URL` / `MODEL` / `TOKEN_TTL`。）
-
-2. **自己的 API Key（BYOK）**：设置 → LLM 网关，添加 OpenAI / Anthropic 兼容
-   上游并绑定默认槽位。生产环境建议用 BYOK；FREE 触发 429 时同样改绑自己的上游。
-
-## 打包时需要留意
-
-- **预览地址**：`ROUNDPEN_PREVIEW_PUBLIC_URL` 默认 `http://127.0.0.1:9527`，
-  在 NAS 上应改成设备地址（系统管理 → 通用），否则预览链接只能本机打开。
-  有通配域名（DNS + 证书覆盖 `*.rp.mk`）时可设 `ROUNDPEN_PREVIEW_DOMAIN=rp.mk`，
-  预览改为每端口一个子域 `{沙箱}-{端口}.rp.mk`；反代需保留 Host、带上
-  `X-Forwarded-Proto`，并把反代网段写进 `ROUNDPEN_TRUSTED_PROXIES`。
-- **端口**：`manifest.service_port` 与桌面入口固定 9527；改端口要同时改
-  `app/ui/config`。桌面入口 `type` 为 `url`（浏览器新标签打开），避免 iframe
-  内嵌带来的 CORS / Cookie 问题。
-- **图标**：由 `web/public/favicon.svg` 渲染，改 logo 后跑
-  `node deploy/fnos/scripts/gen-icons.mjs` 重新生成。
-- **`os_min_version`**：真机测过之后再往 `manifest` 里补兼容范围。
-- **docker 权限**：`config/privilege` 里 `join-groups: ["docker"]` 让 roundpend
-  能访问宿主 Docker socket（创建 Agent / Browser 容器）。若设备上该用户组名
-  不同，按实际调整。
+- 统一网关：`app/ui/config` 的 `gatewayPrefix: "/app/roundpen"` + `gatewaySocket: "app.sock"`；`manifest.service_port`（默认 9527）留给直连端口，网关项里的 `protocol`/`port` 会被忽略。
+- 通配预览域：设 `ROUNDPEN_PREVIEW_DOMAIN`（如 `rp.mk`），反代保留 Host、带 `X-Forwarded-Proto`，网段写进 `ROUNDPEN_TRUSTED_PROXIES`。
+- 图标：改 `web/public/favicon.svg` 后跑 `node deploy/fnos/scripts/gen-icons.mjs`。
+- `os_min_version`：真机验证后再写进 `manifest`。

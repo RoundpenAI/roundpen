@@ -4,6 +4,9 @@
 
 set -u
 
+# shellcheck source=lib.sh
+. "$(dirname "$0")/lib.sh"
+
 fail() {
     echo "$1" > "${TRIM_TEMP_LOGFILE}"
     exit 1
@@ -16,7 +19,7 @@ PORT="${TRIM_SERVICE_PORT:-9527}"
 # Avoid clashing with a NAS-wide Postgres on :5432.
 PG0_PORT="${PG0_PORT:-15432}"
 
-mkdir -p "${TRIM_PKGVAR}/data" "${TRIM_PKGVAR}/.pg0" || fail "无法创建数据目录 ${TRIM_PKGVAR}/data"
+ensure_pkgvar_perms || fail "无法准备数据目录 ${TRIM_PKGVAR}/data"
 
 [ -x "${BIN_DIR}/pg0" ] || fail "包内缺少 pg0 二进制：${BIN_DIR}/pg0"
 [ -x "${BIN_DIR}/roundpend" ] || fail "包内缺少 roundpend 二进制：${BIN_DIR}/roundpend"
@@ -45,17 +48,30 @@ export DATABASE_URL="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/${
     echo "ROUNDPEN_IM_ENABLED=true"
     echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
     echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
+    echo "ROUNDPEN_BROWSER_IMAGE=ghcr.io/browserless/chrome:v2.56.7"
     echo "ROUNDPEN_PREVIEW_PUBLIC_URL=http://127.0.0.1:${PORT}"
+    echo "ROUNDPEN_FNOS_GATEWAY_SOCKET=${TRIM_APPDEST}/app.sock"
+    echo "ROUNDPEN_FNOS_GATEWAY_PREFIX=/app/roundpen"
 } > "${ENVFILE}"
 
 export ROUNDPEN_PG0_BIN="${BIN_DIR}/pg0"
 export ROUNDPEN_ENSURE_PG0_ENV_FILE="${ENVFILE}"
 
 errfile="${TRIM_PKGVAR}/pg0-install.log"
+# Run pg0 as the package user so its data files are not root-owned.
 # shellcheck disable=SC1090
-if ! . "${ENSURE_PG0}" >"${errfile}" 2>&1; then
+if ! run_as_pkg bash -c ". \"${ENSURE_PG0}\"" >"${errfile}" 2>&1; then
     detail="$(tail -c 1500 "${errfile}" 2>/dev/null | tr '\n' ' ')"
     fail "无法启动本地 pg0（或连接 DATABASE_URL）。${detail}"
 fi
+
+ensure_pkgvar_perms || fail "无法校正数据目录权限 ${TRIM_PKGVAR}"
+
+# Pull Browser/Agent images while install finishes so first browser_* is warm.
+# shellcheck disable=SC1090
+set -a
+. "${ENVFILE}"
+set +a
+warm_docker_images "${TRIM_PKGVAR}/warm-images.log"
 
 exit 0

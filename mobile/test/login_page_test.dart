@@ -25,4 +25,34 @@ void main() {
 
     expect(find.text('服务器地址、用户名、密码都要填'), findsOneWidget);
   });
+
+  testWidgets('API Key mode swaps username/password for the key field',
+      (tester) async {
+    final session = SessionController(api: ApiClient(), storage: SessionStorage());
+    await tester.pumpWidget(MaterialApp(home: LoginPage(session: session)));
+
+    expect(find.text('用户名'), findsOneWidget);
+    expect(find.text('密码'), findsOneWidget);
+    expect(find.text('API Key'), findsNothing);
+
+    await tester.tap(find.text('API Key 登录'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('用户名'), findsNothing);
+    expect(find.text('密码'), findsNothing);
+    expect(find.text('API Key'), findsOneWidget);
+  });
+
+  testWidgets('empty API Key submit is rejected without a request',
+      (tester) async {
+    final session = SessionController(api: ApiClient(), storage: SessionStorage());
+    await tester.pumpWidget(MaterialApp(home: LoginPage(session: session)));
+
+    await tester.tap(find.text('API Key 登录'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('登录'));
+    await tester.pump();
+
+    expect(find.text('服务器地址和 API Key 都要填'), findsOneWidget);
+  });
 }

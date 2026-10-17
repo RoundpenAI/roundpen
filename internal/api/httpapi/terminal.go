@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -66,6 +65,18 @@ func (h *Handler) terminal(w http.ResponseWriter, r *http.Request) {
 	defer stdoutW.Close()
 
 	ctx := r.Context()
+	// A resize is authorized against the sandbox owner, so it must carry the
+	// request's actor from the same authenticated WebSocket.
+	handleResize := func(data []byte) {
+		var sz struct {
+			Rows uint16 `json:"rows"`
+			Cols uint16 `json:"cols"`
+		}
+		if json.Unmarshal(data, &sz) != nil || sz.Rows == 0 || sz.Cols == 0 {
+			return
+		}
+		_ = h.Manager.ResizeTerminal(ctx, id, sessionKey, sz.Rows, sz.Cols)
+	}
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- h.Manager.AttachTerminal(ctx, id, sessionKey, sandbox.TerminalOpts{
@@ -89,7 +100,7 @@ func (h *Handler) terminal(w http.ResponseWriter, r *http.Request) {
 
 	if len(first) > 0 {
 		if strings.HasPrefix(string(first), `{"rows"`) {
-			h.handleResize(id, sessionKey, first)
+			handleResize(first)
 		} else {
 			_, _ = stdinW.Write(first)
 		}
@@ -121,7 +132,7 @@ func (h *Handler) terminal(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		if mt == websocket.TextMessage && strings.HasPrefix(string(data), `{"rows"`) {
-			h.handleResize(id, sessionKey, data)
+			handleResize(data)
 			continue
 		}
 		if _, err := stdinW.Write(data); err != nil {
@@ -129,15 +140,4 @@ func (h *Handler) terminal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	<-errCh
-}
-
-func (h *Handler) handleResize(sandboxID, sessionKey string, data []byte) {
-	var sz struct {
-		Rows uint16 `json:"rows"`
-		Cols uint16 `json:"cols"`
-	}
-	if json.Unmarshal(data, &sz) != nil || sz.Rows == 0 || sz.Cols == 0 {
-		return
-	}
-	_ = h.Manager.ResizeTerminal(context.Background(), sandboxID, sessionKey, sz.Rows, sz.Cols)
 }

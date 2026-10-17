@@ -1,13 +1,12 @@
 package auth
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -142,48 +141,56 @@ func TestMiddleware_BearerUnknownTokenRejected(t *testing.T) {
 	}
 }
 
-// Native chat clients authenticate the WebSocket upgrade with a Bearer session
-// token (no cookie jar on device), so the middleware must accept it there too.
-func TestMiddleware_WSUpgradeWithBearerSessionToken(t *testing.T) {
+// Native chat clients authenticate SSE /actions with a Bearer session token
+// (no cookie jar on device), so the middleware must accept it there too.
+func TestMiddleware_SSEEventsWithBearerSessionToken(t *testing.T) {
 	users := storage.NewMemoryUserStore()
 	sessions := storage.NewMemorySessionStore()
 	token := seedSession(t, users, sessions, "bob", time.Now().Add(time.Hour))
 
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/agent-sessions/{id}/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
+	mux.HandleFunc("GET /v1/agent-sessions/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 		user := GetUser(r.Context())
 		if user == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		_ = conn.WriteMessage(websocket.TextMessage, []byte("hello "+user.Username))
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"type\":\"hello\",\"message\":\"ok " + user.Username + "\"}\n\n"))
 	})
 	srv := httptest.NewServer(Middleware(users, sessions)(mux))
 	defer srv.Close()
-	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/agent-sessions/any/ws"
+	eventsURL := srv.URL + "/v1/agent-sessions/any/events"
 
-	if _, resp, err := websocket.DefaultDialer.Dial(wsURL, nil); err == nil {
-		t.Fatal("dial without credentials should fail")
-	} else if resp == nil || resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("no-credential status = %v, want 401", resp)
-	}
-
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, http.Header{"Authorization": []string{"Bearer " + token}})
-	if err != nil {
-		t.Fatalf("dial with bearer session token: %v (status %v)", err, resp)
-	}
-	defer conn.Close()
-	_, msg, err := conn.ReadMessage()
+	req, err := http.NewRequest(http.MethodGet, eventsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(msg) != "hello bob" {
-		t.Fatalf("frame = %q, want %q", msg, "hello bob")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no-credential status = %d, want 401", res.StatusCode)
+	}
+
+	req2, err := http.NewRequest(http.MethodGet, eventsURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2.Header.Set("Authorization", "Bearer "+token)
+	res2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res2.Body.Close()
+	if res2.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d", res2.StatusCode)
+	}
+	body, _ := io.ReadAll(res2.Body)
+	if !strings.Contains(string(body), "ok bob") {
+		t.Fatalf("body=%q", body)
 	}
 }
 

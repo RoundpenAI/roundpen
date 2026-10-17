@@ -11,6 +11,7 @@ import {
 } from '@douyinfe/semi-ui-19'
 import {
   ApiError,
+  appBasePath,
   browserTasks,
   environments,
   slotChoices,
@@ -46,7 +47,9 @@ export function BrowserPage() {
   const [loading, setLoading] = useState(true)
   const [kind, setKind] = useState<'explore' | 'verify'>('explore')
   const [url, setUrl] = useState(() =>
-    typeof window !== 'undefined' ? window.location.origin : '',
+    typeof window !== 'undefined'
+      ? `${window.location.origin}${appBasePath()}`
+      : '',
   )
   const [brief, setBrief] = useState('')
   const [proxyOptions, setProxyOptions] = useState<SlotChoice[]>([])

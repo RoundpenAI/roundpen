@@ -61,7 +61,7 @@ func formatTurnTimeout(d time.Duration) string {
 }
 
 // permWait tracks an outstanding interactive permission request that may outlive
-// any single WebSocket connection.
+// any single stream attachment.
 type permWait struct {
 	ch       chan string
 	title    string
@@ -85,8 +85,8 @@ type pendingItem struct {
 
 // runner owns the ACP turn lifecycle for one agent session: prompt execution,
 // reply/thought buffering, permission handling, message persistence, and event
-// fan-out to all connected WebSocket clients.  Closing a tab or switching tabs
-// no longer interrupts generation; connections simply attach/detach.
+// fan-out to all connected stream clients (SSE). Closing a tab or switching
+// tabs no longer interrupts generation; connections simply attach/detach.
 type runner struct {
 	handler *Handler
 	session *agentsession.Session
@@ -100,7 +100,7 @@ type runner struct {
 	cancel context.CancelFunc
 
 	mu           sync.Mutex
-	clients      map[*wsClient]struct{}
+	clients      map[*streamClient]struct{}
 	busy         bool
 	auto         bool
 	clearPending bool          // /clear arrived mid-turn; reset once the turn ends
@@ -114,26 +114,24 @@ type runner struct {
 	perms map[string]*permWait
 }
 
-// subscribe attaches a WebSocket client to the runner's broadcast.
-func (r *runner) subscribe(c *wsClient) {
+// subscribe attaches a stream client to the runner's broadcast.
+func (r *runner) subscribe(c *streamClient) {
 	r.mu.Lock()
 	r.clients[c] = struct{}{}
 	r.mu.Unlock()
 }
 
-// unsubscribe removes a WebSocket client from the session and marks it closed.
-func (r *runner) unsubscribe(c *wsClient) {
-	c.mu.Lock()
-	c.closed = true
-	c.mu.Unlock()
+// unsubscribe removes a stream client from the session and closes its sink.
+func (r *runner) unsubscribe(c *streamClient) {
 	r.mu.Lock()
 	delete(r.clients, c)
 	r.mu.Unlock()
+	c.close()
 }
 
 func (r *runner) broadcast(v any) {
 	r.mu.Lock()
-	clients := make([]*wsClient, 0, len(r.clients))
+	clients := make([]*streamClient, 0, len(r.clients))
 	for c := range r.clients {
 		clients = append(clients, c)
 	}
@@ -267,7 +265,7 @@ func (r *runner) flushBefore(typ string) {
 
 // onEvent is wired to the ACP bridge exactly once per runtime.
 func (r *runner) onEvent(ev acpclient.Event) {
-	r.broadcast(wsOut{Type: "event", Event: ev})
+	r.broadcast(streamOut{Type: "event", Event: ev})
 	r.flushBefore(ev.Type)
 	switch ev.Type {
 	case "agent_message":
@@ -377,7 +375,7 @@ func (r *runner) steer(text, clientMsgID string) {
 // unqueue pulls a queued message back before it runs. The store call runs
 // under the lock so a message can never be drained into a turn between the
 // queue removal and the cancelled marker.
-func (r *runner) unqueue(messageID string, c *wsClient) {
+func (r *runner) unqueue(messageID string, c *streamClient) {
 	r.mu.Lock()
 	idx := -1
 	for i, it := range r.pending {
@@ -388,12 +386,12 @@ func (r *runner) unqueue(messageID string, c *wsClient) {
 	}
 	if idx < 0 {
 		r.mu.Unlock()
-		c.write(wsOut{Type: "error", Message: "消息已开始执行，无法撤回"})
+		c.write(streamOut{Type: "error", Message: "消息已开始执行，无法撤回"})
 		return
 	}
 	if err := r.handler.Store.CancelMessage(r.ctx, r.session.ID, messageID); err != nil {
 		r.mu.Unlock()
-		c.write(wsOut{Type: "error", Message: "撤回失败，请重试"})
+		c.write(streamOut{Type: "error", Message: "撤回失败，请重试"})
 		return
 	}
 	r.pending = append(r.pending[:idx], r.pending[idx+1:]...)
@@ -423,7 +421,7 @@ func (r *runner) runTurn(text string) {
 		r.cancelTurn()
 		msg := turnErrorMessage(err)
 		r.persist(agentsession.RoleEvent, msg, map[string]string{"type": "error"})
-		r.broadcast(wsOut{Type: "error", Message: msg})
+		r.broadcast(streamOut{Type: "error", Message: msg})
 	} else {
 		r.flushThought()
 		r.mu.Lock()
@@ -436,7 +434,7 @@ func (r *runner) runTurn(text string) {
 			"type":       "assistant",
 			"stopReason": string(stop),
 		})
-		r.broadcast(wsOut{Type: "done", StopReason: string(stop)})
+		r.broadcast(streamOut{Type: "done", StopReason: string(stop)})
 		r.notifyTurnDone()
 	}
 	r.finishTurn()
@@ -644,7 +642,7 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	}
 	nclients := len(r.clients)
 	r.mu.Unlock()
-	r.broadcast(wsOut{
+	r.broadcast(streamOut{
 		Type:      "permission_request",
 		RequestID: reqID,
 		Title:     title,
@@ -684,7 +682,7 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 				Options:   req.Options,
 				ToolID:    reqID,
 			})
-			r.broadcast(wsOut{Type: "permission_resolved", RequestID: reqID})
+			r.broadcast(streamOut{Type: "permission_resolved", RequestID: reqID})
 			r.mu.Lock()
 			resp := r.permResult(reqID, opt, false)
 			r.mu.Unlock()
@@ -718,7 +716,7 @@ func (r *runner) cancelPermission(reqID, title string, options any) {
 		Options:   options,
 		ToolID:    reqID,
 	})
-	r.broadcast(wsOut{Type: "permission_resolved", RequestID: reqID})
+	r.broadcast(streamOut{Type: "permission_resolved", RequestID: reqID})
 	r.mu.Lock()
 	pw := r.perms[reqID]
 	ticketID := ""
@@ -1000,7 +998,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 		actor:   actor,
 		ctx:     ctx,
 		cancel:  cancel,
-		clients: make(map[*wsClient]struct{}),
+		clients: make(map[*streamClient]struct{}),
 		auto:    true,
 		perms:   make(map[string]*permWait),
 	}
@@ -1019,6 +1017,9 @@ func unwrapPromptErr(err error) string {
 	}
 	if errors.Is(err, sysagent.ErrLLMNotConfigured) {
 		return sysagent.ErrLLMNotConfigured.Error()
+	}
+	if errors.Is(err, sysagent.ErrFreeQuotaExceeded) {
+		return sysagent.ErrFreeQuotaExceeded.Error()
 	}
 	var re *acp.RequestError
 	if errors.As(err, &re) && re != nil {

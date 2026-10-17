@@ -17,6 +17,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -187,7 +188,9 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	m.mu.Unlock()
 
 	bridge := acpclient.New(m.log, m.sandboxes, sandboxID, opts.Actor.Authz())
-	runCtx, cancel := context.WithCancel(context.Background())
+	// AttachExec runs through the sandbox manager's authorize(), so the run
+	// context must carry the same actor the session was started with.
+	runCtx, cancel := context.WithCancel(authz.WithActor(context.Background(), opts.Actor.Authz()))
 
 	var conn *acp.ClientSideConnection
 	var runtimeGen uint64

@@ -84,6 +84,12 @@ jobs:
           chmod +x /usr/local/bin/fnpack
           fnpack --help > /dev/null
 
+      - name: Vet and test the fnos build tag
+        run: |
+          set -euo pipefail
+          go vet -tags fnos ./...
+          go test -tags fnos ./internal/fnosgateway/...
+
       - name: Build package
         env:
           VERSION: ${{ needs.version.outputs.version }}

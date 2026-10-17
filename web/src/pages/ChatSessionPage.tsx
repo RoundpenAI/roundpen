@@ -78,6 +78,10 @@ import {
 import { RoutineSuggestions } from './chat/RoutineSuggestions'
 import { clearComposer, composerEditorBridge } from './chat/editorBridge'
 import { connectChatSocket } from './chat/sessionSocket'
+import {
+  STREAM_OPEN,
+  type ChatStreamHandle,
+} from '../lib/sessionStreamConnect'
 
 function looksLikeLLMNotConfigured(msg: string | null | undefined): boolean {
   if (!msg) return false
@@ -88,6 +92,21 @@ function looksLikeLLMNotConfigured(msg: string | null | undefined): boolean {
     msg.includes('尚未配置上游') ||
     m.includes('unsupported protocol scheme') ||
     m.includes('llm gateway')
+  )
+}
+
+/** FREE cloud entry (or any upstream) hit rate limit / quota — cue BYOK. */
+function looksLikeFreeQuotaExceeded(msg: string | null | undefined): boolean {
+  if (!msg) return false
+  const m = msg.toLowerCase()
+  return (
+    msg.includes('免费额度') ||
+    msg.includes('额度已用尽') ||
+    m.includes('too many requests') ||
+    m.includes('rate limit') ||
+    m.includes('quota') ||
+    /\b429\b/.test(m) ||
+    m.includes('llm http 429')
   )
 }
 
@@ -111,7 +130,15 @@ export function ChatSessionPage() {
   const [perm, setPerm] = useState<PermReq | null>(null)
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserSeen, setBrowserSeen] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
+  const wsRef = useRef<ChatStreamHandle | null>(null)
+
+  const sendAction = (body: Record<string, unknown>) => {
+    if (!id) return
+    void agents.sessionAction(id, body).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : '发送失败'
+      setError(msg)
+    })
+  }
   const outboxRef = useRef<string[]>([])
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
@@ -235,16 +262,15 @@ export function ChatSessionPage() {
 
   const handleUnqueue = useCallback(
     (messageId: string) => {
-      const ws = wsRef.current
-      if (!ws || ws.readyState !== WebSocket.OPEN) return
+      if (!wsRef.current || wsRef.current.readyState !== STREAM_OPEN) return
       // Optimistic bubbles carry the client id; the server knows the row id.
       const target = queueItemFor(queueItems, messageId)?.id ?? messageId
-      ws.send(JSON.stringify({ type: 'unqueue', id: target }))
+      sendAction({ type: 'unqueue', id: target })
       // Optimistic: a queue frame (or a refusal error) reconciles it. A refused
       // pull-back keeps the message queued, and queued badges win over cancelled.
       setCancelledIds((prev) => new Set(prev).add(messageId))
     },
-    [queueItems],
+    [queueItems, id],
   )
 
   const applyQueue = useCallback((items: QueueItem[]) => {
@@ -302,7 +328,9 @@ export function ChatSessionPage() {
   }, [id])
 
   const showLlmGuide =
-    (llmStatus != null && !llmStatus.ready) || looksLikeLLMNotConfigured(error)
+    (llmStatus != null && !llmStatus.ready) ||
+    looksLikeLLMNotConfigured(error) ||
+    looksLikeFreeQuotaExceeded(error)
 
   useEffect(() => {
     initialScrollDone.current = false
@@ -412,9 +440,8 @@ export function ChatSessionPage() {
     } catch {
       /* ignore */
     }
-    const ws = wsRef.current
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'auto', enabled: next }))
+    if (wsRef.current && wsRef.current.readyState === STREAM_OPEN) {
+      sendAction({ type: 'auto', enabled: next })
     }
   }
 
@@ -432,33 +459,32 @@ export function ChatSessionPage() {
     ])
   }
 
-  const sendPrompt = (ws: WebSocket, text: string, clientMsgId: string) => {
+  const sendPrompt = (text: string, clientMsgId: string) => {
     setBusy(true)
     setStatusHint('Working…')
     setError(null)
     appendLocalUser(text, clientMsgId)
-    ws.send(JSON.stringify({ type: 'prompt', text, clientMsgId }))
+    sendAction({ type: 'prompt', text, clientMsgId })
   }
 
-  const sendCommand = (ws: WebSocket, name: string, args: string) => {
+  const sendCommand = (name: string, args: string) => {
     setBusy(true)
     setStatusHint('Working…')
     setError(null)
     appendLocalUser(`/${name}${args ? ` ${args}` : ''}`)
-    ws.send(JSON.stringify({ type: 'command', name, args }))
+    sendAction({ type: 'command', name, args })
   }
 
   // Route one composer payload: commands keep their own frames; text goes out
   // as steer, as queue, or as a plain turn when idle. Offline text lands in
   // the outbox and is delivered on reconnect.
   const dispatchOutgoing = (out: SendPayload, mode: 'steer' | 'queue') => {
-    const ws = wsRef.current
-    const open = ws && ws.readyState === WebSocket.OPEN
+    const open = wsRef.current && wsRef.current.readyState === STREAM_OPEN
     if (out.kind === 'command') {
       // Commands are never queued offline: /clear acts on the live runner,
-      // which only makes sense against an open socket.
+      // which only makes sense against an open stream.
       if (open) {
-        sendCommand(ws, out.name, out.args)
+        sendCommand(out.name, out.args)
       } else {
         setError('连接断开，命令未发送：请等待重连后再试')
       }
@@ -466,7 +492,7 @@ export function ChatSessionPage() {
     }
     const clientMsgId = newClientMsgId()
     if (!open) {
-      // WeChat-style: show the bubble immediately; deliver when WS is ready.
+      // WeChat-style: show the bubble immediately; deliver when the stream is ready.
       appendLocalUser(out.text, clientMsgId)
       outboxRef.current = enqueueOutbox(outboxRef.current, out.text)
       setStatusHint(outboxWaitingHint(outboxRef.current.length))
@@ -478,14 +504,14 @@ export function ChatSessionPage() {
       if (mode === 'steer' && steerCap !== false) {
         // The server falls back to the queue when the provider cannot steer;
         // the queue frame then carries the badge.
-        ws.send(JSON.stringify({ type: 'steer', text: out.text, clientMsgId }))
+        sendAction({ type: 'steer', text: out.text, clientMsgId })
         return
       }
-      ws.send(JSON.stringify({ type: 'prompt', text: out.text, clientMsgId }))
+      sendAction({ type: 'prompt', text: out.text, clientMsgId })
       setStatusHint(mode === 'steer' ? '该 agent 不支持插话，已排队' : '已排队')
       return
     }
-    sendPrompt(ws, out.text, clientMsgId)
+    sendPrompt(out.text, clientMsgId)
   }
 
   /** Send whatever is in the composer; the busy-state key routes here. */
@@ -522,14 +548,13 @@ export function ChatSessionPage() {
 
   useEffect(() => {
     const pending = readPendingPrompt(id).trim()
-    const ws = wsRef.current
     if (!pending || sentPending.has(id) || !histReady || busy) {
       return
     }
     sentPending.add(id)
     clearPendingPrompt(id)
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      sendPrompt(ws, pending, newClientMsgId())
+    if (wsRef.current && wsRef.current.readyState === STREAM_OPEN) {
+      sendPrompt(pending, newClientMsgId())
       return
     }
     appendLocalUser(pending, newClientMsgId())
@@ -541,13 +566,11 @@ export function ChatSessionPage() {
     if (!perm || !wsRef.current) return
     const chosen = perm.options.find((o) => o.optionId === optionId)
     const label = (chosen?.name || '').trim() || optionId
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'permission',
-        requestId: perm.requestId,
-        optionId,
-      }),
-    )
+    sendAction({
+      type: 'permission',
+      requestId: perm.requestId,
+      optionId,
+    })
     if (perm.ticketId) {
       const resolution =
         optionId.includes('reject') || optionId === 'reject'
@@ -656,18 +679,32 @@ export function ChatSessionPage() {
           <LlmSetupChooser
             compact
             status={
-              llmStatus ?? {
-                ready: false,
-                mode: 'none',
-                freeAvailable: true,
-                reason:
-                  (looksLikeLLMNotConfigured(error) ? error : null) ||
-                  '尚未配置模型',
-              }
+              llmStatus != null
+                ? {
+                    ...llmStatus,
+                    reason:
+                      (looksLikeFreeQuotaExceeded(error) ||
+                      looksLikeLLMNotConfigured(error)
+                        ? error
+                        : null) ||
+                      llmStatus.reason ||
+                      undefined,
+                  }
+                : {
+                    ready: false,
+                    mode: 'none',
+                    freeAvailable: true,
+                    reason:
+                      (looksLikeLLMNotConfigured(error) ||
+                      looksLikeFreeQuotaExceeded(error)
+                        ? error
+                        : null) || '尚未配置模型',
+                  }
             }
             isAdmin={isAdmin}
             onReady={(res) => {
               setLlmStatus(res)
+              // Clearing only helps cold-start misconfig; FREE quota needs BYOK.
               if (res.ready && looksLikeLLMNotConfigured(error)) {
                 setError(null)
               }
@@ -676,7 +713,9 @@ export function ChatSessionPage() {
         </div>
       )}
 
-      {error && !looksLikeLLMNotConfigured(error) && (
+      {error &&
+        !looksLikeLLMNotConfigured(error) &&
+        !looksLikeFreeQuotaExceeded(error) && (
         <div role="alert" style={{ padding: '0 16px 8px' }}>
           <Banner
             fullMode={false}
@@ -834,9 +873,7 @@ export function ChatSessionPage() {
                   setComposerHasText(contentsHaveSendableText(contents))
                 }}
                 onMessageSend={handleMessageSend}
-                onStopGenerate={() =>
-                  wsRef.current?.send(JSON.stringify({ type: 'cancel' }))
-                }
+                onStopGenerate={() => sendAction({ type: 'cancel' })}
               />
             </div>
           </div>

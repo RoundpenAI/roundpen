@@ -68,5 +68,7 @@ No env is required for cold-start.
 Roundpen sends `Authorization: Bearer <rp1…>` and `X-Roundpen-Install-Pub: <hex>`
 so the cloud entry can TOFU-register the install public key.
 
-Admin cold-start: `POST /v1/setup/llm-free` enables the gateway, upserts item
-`roundpen-free`, and binds `llm.default` / `llm.sysagent`.
+Cold start is zero-config: on boot, `EnsureDefaultFree` enables the gateway and
+seeds item `roundpen-free` (binding `llm.default` / `llm.sysagent`) when those
+slots have no binding yet. Admins can still force-seed via `POST /v1/setup/llm-free`.
+When FREE returns HTTP 429, the UI cues **系统管理 → LLM 网关** (BYOK), not personal settings.

@@ -45,7 +45,7 @@ Agent 可见工具对齐 Claude Code 命名；沙箱 / ensure 是实现细节（
 | `Read` / `Write` / `Edit` | 工作区文件读写与精确替换（根 `/workspace`） |
 | `Glob` / `Grep` | 按路径模式找文件 / 内容搜索（guest `rg`/`find`） |
 | `Bash` | 在 Agent workspace 跑 shell（替换旧 `sandbox_exec`） |
-| `WebFetch` | 抓取 URL 转 Markdown 并按 prompt 提炼（控制面执行，只读） |
+| `WebFetch` | 抓取 URL 转 Markdown 并按 prompt 提炼（控制面执行，只读）。用户未指定浏览器时，读页面优先用它；失败或内容不可用再回退 `browser_*` |
 | `WebSearch` | 联网搜索（Tavily，只读；Settings → Web tools 配置，未配置则不注册） |
 | `ListEnvironments` | agent/browser 槽位状态（返回值剥离 `sandboxId`） |
 | `ClaimPreviewDomain` | 给 Agent workspace 的某个端口申请公共子域（`ROUNDPEN_PREVIEW_DOMAIN` 非空才注册），返回带 token 的可打开链接；同名先到先得，重复申请即改绑到当前端口 |
@@ -90,7 +90,8 @@ LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权用每实�
 | GET | `/v1/agents` | Provider 列表 |
 | GET/POST | `/v1/agent-sessions` | 列出会话 / 创建（sysadmin 跳过 Provisioner） |
 | GET/DELETE | `/v1/agent-sessions/{id}` | 详情 / 结束 |
-| GET | `/v1/agent-sessions/{id}/ws` | prompt / command / cancel / permission ↔ session updates（`command` 是 `/技能` 与 `/clear`、`/help`；出站有 `cleared`） |
+| GET | `/v1/agent-sessions/{id}/events` | SSE：session updates（status / queue / event / done / cleared / permission_*） |
+| POST | `/v1/agent-sessions/{id}/actions` | prompt / steer / command / cancel / permission / auto / unqueue |
 | GET | `/v1/agent-sessions/{id}/commands` | Slash 命令目录：内置技能 + 动作命令恒有，已安装技能仅在 agent 环境 running 时列出 |
 | GET | `/v1/agent-sessions/{id}/browser` | System Agent 浏览器状态（Hub key `sysagent-<id>`） |
 | GET | `/v1/agent-sessions/{id}/browser/screenshot` | viewport PNG（聊天右侧轮询） |

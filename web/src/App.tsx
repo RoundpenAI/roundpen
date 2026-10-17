@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { appBasePath } from './api'
 import { RequireAdminRoute, RequireAuth } from './auth'
 import { AppShell } from './components/AppShell'
 import {
@@ -22,7 +23,7 @@ import { WorkspacePage } from './pages/WorkspacePage'
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={appBasePath() || '/'}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<Navigate to="/a" replace />} />

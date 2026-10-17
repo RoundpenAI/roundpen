@@ -1,4 +1,4 @@
-import { api, apiErrorMessage, ApiError } from './client'
+import { api, apiErrorMessage, apiUrl, ApiError } from './client'
 
 export type AgentProvider = {
   id: string
@@ -100,14 +100,21 @@ export const agents = {
   },
   commands: (id: string) =>
     api<{ commands: AgentCommand[] }>(`/v1/agent-sessions/${id}/commands`),
-  sessionWsUrl: (id: string) => {
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${window.location.host}/v1/agent-sessions/${id}/ws`
-  },
+  /** SSE event stream for one chat session (server → client). */
+  sessionEventsUrl: (id: string) =>
+    apiUrl(`/v1/agent-sessions/${id}/events`),
+  /** Client → server chat control (prompt / steer / cancel / …). */
+  sessionAction: (id: string, body: Record<string, unknown>) =>
+    api<{ ok?: boolean }>(`/v1/agent-sessions/${id}/actions`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   browserStatus: (id: string) =>
     api<AgentBrowserStatus>(`/v1/agent-sessions/${id}/browser`),
   browserScreenshotUrl: (id: string, bust?: number) =>
-    `/v1/agent-sessions/${id}/browser/screenshot${bust != null ? `?t=${bust}` : ''}`,
+    apiUrl(
+      `/v1/agent-sessions/${id}/browser/screenshot${bust != null ? `?t=${bust}` : ''}`,
+    ),
   setBrowserTakeover: (id: string, enabled: boolean) =>
     api<{
       ok: boolean
@@ -121,9 +128,12 @@ export const agents = {
       body: JSON.stringify({ enabled }),
     }),
   browserScreenshotBlob: async (id: string): Promise<Blob> => {
-    const res = await fetch(`/v1/agent-sessions/${id}/browser/screenshot?t=${Date.now()}`, {
-      credentials: 'include',
-    })
+    const res = await fetch(
+      apiUrl(`/v1/agent-sessions/${id}/browser/screenshot?t=${Date.now()}`),
+      {
+        credentials: 'include',
+      },
+    )
     if (!res.ok) {
       let message = res.statusText
       try {

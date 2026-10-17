@@ -163,7 +163,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.llmgw.intro':
     'Roundpen 转发模型调用，使 Agent 不持有真实的 OpenAI / Anthropic 密钥。在下方配置上游凭据；Agent 与对话只拿到调用本控制面 /llmgw 的虚拟密钥。',
   'settings.llmgw.modeHint':
-    '冷启动可选「免费试用」（内置 roundpen-free，按安装身份限频）或「自己的 API Key」。生产环境建议 BYOK；FREE 仅适合体验，触发 429 时请改绑自己的上游。',
+    '默认零配置启用「免费试用」（内置 roundpen-free，按安装身份限频）。生产环境建议在系统管理 → LLM 网关改绑自己的 API Key；FREE 触发 429 时也会提示改绑。',
   'settings.llmgw.enable': '启用中继（Agent 对话与记忆嵌入所需）',
   'settings.llmgw.upstreamTitle': '1 · 上游提供商',
   'settings.llmgw.upstreamHint':
@@ -205,7 +205,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.system.hostChromeMissing': '不在 PATH',
   'settings.system.unavailable': '无法获取系统信息。',
   'settings.system.footer':
-    '数据库与监听地址需通过环境变量配置并重启进程。Agent 与 Browser 固定使用 Docker；Desktop / Mobile 预留 QEMU。Agent 镜像与 Browser 镜像在首次启动时从注册表拉取（或离线加载）。LLM 网关设置在运行时生效。',
+    '数据库与监听地址需通过环境变量配置并重启进程。Agent 和 Browser 用 Docker 跑（手机/桌面虚拟机槽位以后用 QEMU）。镜像首次使用时从注册表拉取，也可离线 load。LLM 网关改完即可用，不用重启。',
 
   'git.title': 'Git 个人令牌',
   'git.desc':

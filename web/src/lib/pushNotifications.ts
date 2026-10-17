@@ -1,5 +1,7 @@
 /** Browser helpers for Web Push subscription against /v1/me/push/*. */
 
+import { apiUrl } from '../api/client'
+
 export type PushStatus = {
   configured: boolean
   subscribed: boolean
@@ -35,7 +37,9 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array {
 }
 
 export async function fetchPushStatus(): Promise<PushStatus> {
-  const res = await fetch('/v1/me/push/status', { credentials: 'include' })
+  const res = await fetch(apiUrl('/v1/me/push/status'), {
+    credentials: 'include',
+  })
   if (!res.ok) {
     throw new Error(`push status ${res.status}`)
   }
@@ -43,7 +47,9 @@ export async function fetchPushStatus(): Promise<PushStatus> {
 }
 
 export async function fetchVapidPublicKey(): Promise<string> {
-  const res = await fetch('/v1/me/push/vapid-key', { credentials: 'include' })
+  const res = await fetch(apiUrl('/v1/me/push/vapid-key'), {
+    credentials: 'include',
+  })
   if (!res.ok) {
     throw new Error(`vapid key ${res.status}`)
   }
@@ -53,7 +59,7 @@ export async function fetchVapidPublicKey(): Promise<string> {
 }
 
 export async function registerServiceWorker(
-  path = '/sw.js',
+  path = apiUrl('/sw.js'),
 ): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null
   return navigator.serviceWorker.register(path)
@@ -77,7 +83,7 @@ export async function enablePushNotifications(): Promise<void> {
     applicationServerKey: urlBase64ToUint8Array(publicKey) as BufferSource,
   })
   const json = sub.toJSON()
-  const res = await fetch('/v1/me/push/subscriptions', {
+  const res = await fetch(apiUrl('/v1/me/push/subscriptions'), {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
@@ -98,7 +104,7 @@ export async function disablePushNotifications(): Promise<void> {
   if (sub) {
     const endpoint = sub.endpoint
     await sub.unsubscribe().catch(() => undefined)
-    await fetch('/v1/me/push/subscriptions', {
+    await fetch(apiUrl('/v1/me/push/subscriptions'), {
       method: 'DELETE',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

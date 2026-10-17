@@ -1,4 +1,4 @@
-import { api, parseError } from './client'
+import { api, apiUrl, parseError } from './client'
 import type { FileList, Sandbox } from './client'
 
 export type PatchSandboxInput = {
@@ -25,7 +25,7 @@ export const files = {
     ),
   readText: async (id: string, path: string) => {
     const res = await fetch(
-      `/v1/sandboxes/${id}/files/content?path=${encodeURIComponent(path)}`,
+      apiUrl(`/v1/sandboxes/${id}/files/content?path=${encodeURIComponent(path)}`),
       { credentials: 'include' },
     )
     if (!res.ok) throw await parseError(res)
@@ -46,13 +46,15 @@ export const meWorkspace = {
     ),
   /** Forces a browser download (attachment) of the file. */
   downloadUrl: (path: string) =>
-    `/v1/me/workspace/files/content?path=${encodeURIComponent(path)}&download=1`,
+    apiUrl(
+      `/v1/me/workspace/files/content?path=${encodeURIComponent(path)}&download=1`,
+    ),
   /** Inline URL for previewing renderable types (images, text, pdf). */
   contentUrl: (path: string) =>
-    `/v1/me/workspace/files/content?path=${encodeURIComponent(path)}`,
+    apiUrl(`/v1/me/workspace/files/content?path=${encodeURIComponent(path)}`),
   upload: async (path: string, body: Blob) => {
     const res = await fetch(
-      `/v1/me/workspace/files?path=${encodeURIComponent(path)}`,
+      apiUrl(`/v1/me/workspace/files?path=${encodeURIComponent(path)}`),
       {
         method: 'POST',
         credentials: 'include',
@@ -119,5 +121,7 @@ export const browser = {
 
 export function terminalWsUrl(id: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${window.location.host}/v1/sandboxes/${id}/terminal`
+  return `${proto}://${window.location.host}${apiUrl(
+    `/v1/sandboxes/${id}/terminal`,
+  )}`
 }

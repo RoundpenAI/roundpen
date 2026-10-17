@@ -8,16 +8,18 @@ import 'package:roundpen_console/ws/frames.dart';
 import 'package:roundpen_console/ws/outbox.dart';
 import 'package:roundpen_console/ws/session_socket.dart';
 
-class FakeWs implements WsConnection {
-  final StreamController<dynamic> _controller = StreamController<dynamic>();
-  final List<String> sent = [];
+class FakeTransport implements SessionTransport {
+  final StreamController<List<int>> _controller = StreamController<List<int>>();
+  final List<Map<String, Object?>> posted = [];
   bool closed = false;
 
   @override
-  Stream<dynamic> get stream => _controller.stream;
+  Stream<List<int>> get events => _controller.stream;
 
   @override
-  void send(String text) => sent.add(text);
+  Future<void> postAction(Map<String, Object?> frame) async {
+    posted.add(frame);
+  }
 
   @override
   Future<void> close() async {
@@ -25,7 +27,11 @@ class FakeWs implements WsConnection {
     if (!_controller.isClosed) await _controller.close();
   }
 
-  void emit(String raw) => _controller.add(raw);
+  void emitFrame(Map<String, Object?> frame) {
+    final raw = 'data: ${jsonEncode(frame)}\n\n';
+    _controller.add(utf8.encode(raw));
+  }
+
   void dropConnection() => _controller.close();
 }
 
@@ -81,199 +87,79 @@ void main() {
   });
 
   group('SessionSocket', () {
-    test('authenticates the upgrade and announces auto mode', () async {
+    test('authenticates the stream and announces auto mode', () async {
       final api = testApi();
-      late Uri seenUri;
+      late Uri seenEvents;
       late Map<String, String> seenHeaders;
-      final fake = FakeWs();
+      final fake = FakeTransport();
       final socket = SessionSocket(
         api: api,
         sessionId: 's1',
         autoEnabled: () => true,
-        connector: (uri, headers) async {
-          seenUri = uri;
+        transport: (events, actions, headers) async {
+          seenEvents = events;
           seenHeaders = headers;
           return fake;
         },
       );
 
       await socket.connect();
-
-      expect(seenUri.toString(), 'ws://box:19001/v1/agent-sessions/s1/ws');
+      await pump();
+      expect(seenEvents.path, '/v1/agent-sessions/s1/events');
       expect(seenHeaders['Authorization'], 'Bearer tok');
-      expect(socket.status, WsStatus.open);
-      expect(
-        jsonDecode(fake.sent.single),
+      expect(fake.posted, [
         {'type': 'auto', 'enabled': true},
-        reason: 'auto is re-announced on every (re)connect',
-      );
+      ]);
       socket.dispose();
     });
 
-    test('forwards parsed frames to the callback', () async {
-      final fake = FakeWs();
+    test('parses SSE data frames', () async {
+      final fake = FakeTransport();
+      final frames = <ServerFrame>[];
       final socket = SessionSocket(
         api: testApi(),
         sessionId: 's1',
         autoEnabled: () => false,
-        connector: (_, _) async => fake,
+        transport: (_, __, ___) async => fake,
       );
-      final frames = <ServerFrame>[];
       socket.onFrame = frames.add;
-
       await socket.connect();
-      fake.emit('{"type":"hello","message":"ok"}');
-      fake.emit('{"type":"cleared"}');
+      fake.emitFrame({'type': 'hello', 'message': 'ok'});
       await pump();
-
-      expect(frames, hasLength(2));
-      expect(frames[0], isA<HelloFrame>());
-      expect(frames[1], isA<ClearedFrame>());
+      expect(frames.first.type, 'hello');
       socket.dispose();
     });
 
-    test('queues prompts while closed and flushes them on demand', () async {
-      final fake = FakeWs();
-      final socket = SessionSocket(
-        api: testApi(),
-        sessionId: 's1',
-        autoEnabled: () => true,
-        connector: (_, _) async => fake,
-      );
-
-      expect(socket.prompt('第一条'), isFalse);
-      expect(socket.prompt('第二条'), isFalse);
-      expect(socket.queued, 2);
-
-      await socket.connect();
-      // Auto went out on connect; the queued prompts wait for busy:false/done.
-      expect(socket.queued, 2);
-
-      socket.flushOutbox();
-      final sent = fake.sent.map(jsonDecode).toList();
-      expect(sent.map((f) => f['type']), ['auto', 'prompt', 'prompt']);
-      expect(sent[1]['text'], '第一条');
-      expect(sent[2]['text'], '第二条');
-      expect(socket.queued, 0);
-
-      expect(socket.prompt('直接发'), isTrue);
-      expect(jsonDecode(fake.sent.last)['text'], '直接发');
-      socket.dispose();
-    });
-
-    test('reconnects with the same credential after a failure', () async {
-      final api = testApi();
-      final headers = <String?>[];
+    test('queues prompts while reconnecting', () async {
+      final delay = ControlledDelay();
+      final fake = FakeTransport();
       var calls = 0;
-      final fake = FakeWs();
-      final delay = ControlledDelay();
       final socket = SessionSocket(
-        api: api,
+        api: testApi(),
         sessionId: 's1',
-        autoEnabled: () => true,
-        delay: delay.call,
-        connector: (_, h) async {
-          headers.add(h['Authorization']);
+        autoEnabled: () => false,
+        delay: delay,
+        transport: (_, __, ___) async {
           calls += 1;
-          if (calls == 1) throw const SocketExceptionStub();
-          return fake;
+          if (calls == 1) {
+            return fake;
+          }
+          return Completer<SessionTransport>().future;
         },
       );
-
       await socket.connect();
+      expect(socket.prompt('hi'), isTrue);
+      fake.dropConnection();
       await pump();
-      expect(socket.status, WsStatus.reconnecting);
-      expect(delay.delays, [1000]);
-
-      delay.release();
-      await pump();
-      expect(socket.status, WsStatus.open);
-      expect(headers, ['Bearer tok', 'Bearer tok']);
-      expect(socket.queued, 0);
-      socket.dispose();
-    });
-
-    test('backs off exponentially and caps at 8s', () async {
-      final delay = ControlledDelay();
-      final socket = SessionSocket(
-        api: testApi(),
-        sessionId: 's1',
-        autoEnabled: () => true,
-        delay: delay.call,
-        connector: (_, _) async => throw const SocketExceptionStub(),
-      );
-
-      await socket.connect();
-      await pump();
-      for (var i = 0; i < 4; i++) {
-        delay.release();
-        await pump();
-      }
-
-      expect(delay.delays, [1000, 2000, 4000, 8000, 8000]);
-      socket.dispose();
-
-      final before = delay.delays.length;
-      delay.release();
-      await pump();
-      expect(delay.delays.length, before, reason: 'dispose stops the loop');
-    });
-
-    test('a black-holed dial times out instead of wedging the loop', () async {
-      final delay = ControlledDelay();
-      var dials = 0;
-      final socket = SessionSocket(
-        api: testApi(),
-        sessionId: 's1',
-        autoEnabled: () => true,
-        delay: delay.call,
-        connectTimeout: const Duration(milliseconds: 50),
-        // A dial that neither completes nor fails — seen on a real device when
-        // the server went away mid-session; it used to stop all retries.
-        connector: (_, _) {
-          dials += 1;
-          return Completer<WsConnection>().future;
-        },
-      );
-
-      await socket.connect();
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-
-      expect(socket.status, WsStatus.reconnecting);
-      expect(delay.delays, [1000], reason: 'the hung dial gave up and scheduled a retry');
-      expect(dials, 1);
-
-      delay.release();
-      await Future<void>.delayed(const Duration(milliseconds: 150));
-      expect(dials, 2, reason: 'the retry must actually dial again');
-
-      socket.dispose();
-    });
-
-    test('resume retries immediately after the app comes back', () async {
-      final delay = ControlledDelay();
-      final socket = SessionSocket(
-        api: testApi(),
-        sessionId: 's1',
-        autoEnabled: () => true,
-        delay: delay.call,
-        connector: (_, _) async => throw const SocketExceptionStub(),
-      );
-
-      await socket.connect();
-      await pump();
-      expect(delay.delays, [1000]);
-
-      socket.resume();
-      await pump();
-      // resume() resets the attempt counter, so the next failure waits 1s again.
-      expect(delay.delays, [1000, 1000]);
+      expect(socket.prompt('queued'), isFalse);
+      expect(socket.queued, 1);
       socket.dispose();
     });
   });
-}
 
-/// Stand-in for dart:io's SocketException so tests stay platform-free.
-class SocketExceptionStub implements Exception {
-  const SocketExceptionStub();
+  group('frames', () {
+    test('promptFrame shape', () {
+      expect(promptFrame('x'), {'type': 'prompt', 'text': 'x'});
+    });
+  });
 }

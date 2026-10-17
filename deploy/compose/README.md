@@ -21,10 +21,13 @@ Services:
 
 Default backend is `docker`: Agent and Browser containers run on the host Docker
 Engine via `/var/run/docker.sock` (mounted by `compose.yaml`). The official Agent
-image `ghcr.io/roundpenai/code-agent:0.1.0` is pulled on first start (override
-with `ROUNDPEN_AGENT_IMAGE`, or `docker load -i code-agent.tar` offline); the
-Browser slot pulls `ghcr.io/browserless/chrome:v2.56.7` (override with
-`ROUNDPEN_BROWSER_IMAGE`) and the Playwright driver installs itself on first use.
+image `ghcr.io/roundpenai/code-agent:0.1.0` and Browser image
+`ghcr.io/browserless/chrome:v2.56.7` are preloaded in the background when
+`roundpend` starts with a working Docker socket (override with
+`ROUNDPEN_AGENT_IMAGE` / `ROUNDPEN_BROWSER_IMAGE`, or `docker load` offline).
+If `ghcr.io` is unreachable (common on some networks), pulls automatically
+retry via built-in mirrors (DaoCloud) or `ROUNDPEN_IMAGE_MIRRORS`, then retag
+to the logical name. The Playwright driver is baked into the roundpend image.
 Desktop / Mobile slots are reserved for QEMU on the host.
 
 Dev without Compose: `make setup && make dev`（pg0 + API + Vite；见 `scripts/dev-up.sh`）。

@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import '../api/client.dart';
 import '../session/session_controller.dart';
 
+/// How the user authenticates. Password is the default and unchanged; API Key is
+/// for fnOS-provisioned accounts, which have no local password.
+enum _LoginMode { password, apiKey }
+
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key, required this.session});
 
@@ -17,6 +21,8 @@ class _LoginPageState extends State<LoginPage> {
       TextEditingController(text: widget.session.api.baseUrl);
   final _username = TextEditingController();
   final _password = TextEditingController();
+  final _apiKey = TextEditingController();
+  _LoginMode _mode = _LoginMode.password;
   bool _busy = false;
   String _error = '';
 
@@ -25,11 +31,17 @@ class _LoginPageState extends State<LoginPage> {
     _server.dispose();
     _username.dispose();
     _password.dispose();
+    _apiKey.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    if (_server.text.trim().isEmpty ||
+    if (_mode == _LoginMode.apiKey) {
+      if (_server.text.trim().isEmpty || _apiKey.text.trim().isEmpty) {
+        setState(() => _error = '服务器地址和 API Key 都要填');
+        return;
+      }
+    } else if (_server.text.trim().isEmpty ||
         _username.text.trim().isEmpty ||
         _password.text.isEmpty) {
       setState(() => _error = '服务器地址、用户名、密码都要填');
@@ -40,11 +52,18 @@ class _LoginPageState extends State<LoginPage> {
       _error = '';
     });
     try {
-      await widget.session.signIn(
-        server: _server.text,
-        username: _username.text.trim(),
-        password: _password.text,
-      );
+      if (_mode == _LoginMode.apiKey) {
+        await widget.session.signInWithApiKey(
+          server: _server.text,
+          apiKey: _apiKey.text.trim(),
+        );
+      } else {
+        await widget.session.signIn(
+          server: _server.text,
+          username: _username.text.trim(),
+          password: _password.text,
+        );
+      }
     } on ApiError catch (e) {
       if (mounted) setState(() => _error = e.message);
     } finally {
@@ -69,6 +88,26 @@ class _LoginPageState extends State<LoginPage> {
                   Text('Roundpen 控制台',
                       textAlign: TextAlign.center, style: theme.textTheme.headlineSmall),
                   const SizedBox(height: 24),
+                  SegmentedButton<_LoginMode>(
+                    segments: const [
+                      ButtonSegment(
+                        value: _LoginMode.password,
+                        label: Text('密码登录'),
+                      ),
+                      ButtonSegment(
+                        value: _LoginMode.apiKey,
+                        label: Text('API Key 登录'),
+                      ),
+                    ],
+                    selected: {_mode},
+                    onSelectionChanged: _busy
+                        ? null
+                        : (selection) => setState(() {
+                              _mode = selection.first;
+                              _error = '';
+                            }),
+                  ),
+                  const SizedBox(height: 16),
                   TextField(
                     controller: _server,
                     autocorrect: false,
@@ -79,26 +118,41 @@ class _LoginPageState extends State<LoginPage> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _username,
-                    autocorrect: false,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: '用户名',
-                      border: OutlineInputBorder(),
+                  if (_mode == _LoginMode.password) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _username,
+                      autocorrect: false,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        labelText: '用户名',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _password,
-                    obscureText: true,
-                    onSubmitted: (_) => _submit(),
-                    decoration: const InputDecoration(
-                      labelText: '密码',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _password,
+                      obscureText: true,
+                      onSubmitted: (_) => _submit(),
+                      decoration: const InputDecoration(
+                        labelText: '密码',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
+                  ] else ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _apiKey,
+                      autocorrect: false,
+                      obscureText: true,
+                      onSubmitted: (_) => _submit(),
+                      decoration: const InputDecoration(
+                        labelText: 'API Key',
+                        hintText: 'rp-...',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
                   if (_error.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Text(_error, style: TextStyle(color: theme.colorScheme.error)),
@@ -115,6 +169,14 @@ class _LoginPageState extends State<LoginPage> {
                         : const Text('登录'),
                   ),
                   const SizedBox(height: 16),
+                  if (_mode == _LoginMode.apiKey) ...[
+                    Text(
+                      'API Key 在 Web 控制台登录后生成（形如 rp-...）；飞牛账号没有本地密码，请用这种方式登录。',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   Text(
                     '局域网自托管直接用 http；公网请用受信任证书的 https（自签证书会被系统拒绝）。',
                     textAlign: TextAlign.center,

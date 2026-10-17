@@ -20,6 +20,12 @@ class SessionController extends ChangeNotifier {
 
   RoundpenApi get endpoints => RoundpenApi(api);
 
+  /// True when the active credential is an API key (`rp-...`) rather than a
+  /// session token. Session tokens are opaque hex, so the prefix is unambiguous.
+  /// API keys are durable account credentials, not sessions, so signing out must
+  /// not try to revoke one server-side.
+  bool get usesApiKey => api.token.startsWith('rp-');
+
   /// Loads the stored address and token and verifies the token against the
   /// server; anything rejected lands on the login screen.
   Future<void> restore() async {
@@ -60,12 +66,37 @@ class SessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> signOut() async {
+  /// Signs in with an API key (`rp-...`) instead of a username/password. Used by
+  /// fnOS-provisioned accounts, which have no local password. The key is stored
+  /// through the same plumbing as a session token: both are just the credential
+  /// the client sends as `Authorization: Bearer`.
+  ///
+  /// Throws [ApiError] with a UI-ready message when the server rejects the key.
+  Future<void> signInWithApiKey({
+    required String server,
+    required String apiKey,
+  }) async {
+    api.configure(baseUrl: server, token: '');
     try {
-      await endpoints.logout();
+      user = await endpoints.loginWithApiKey(apiKey);
     } on ApiError {
-      // Local sign-out must succeed even if the server is unreachable; the
-      // session then expires on its own.
+      api.configure(token: '');
+      rethrow;
+    }
+    await storage.writeBaseUrl(api.baseUrl);
+    await storage.writeToken(apiKey);
+    status = SessionStatus.signedIn;
+    notifyListeners();
+  }
+
+  Future<void> signOut() async {
+    if (!usesApiKey) {
+      try {
+        await endpoints.logout();
+      } on ApiError {
+        // Local sign-out must succeed even if the server is unreachable; the
+        // session then expires on its own.
+      }
     }
     await _clear();
   }
