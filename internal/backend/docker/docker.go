@@ -27,6 +27,7 @@ import (
 	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/pkg/jsonmessage"
 	"github.com/docker/docker/pkg/stdcopy"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/config"
@@ -42,6 +43,19 @@ type Backend struct {
 
 	ptyMu sync.Mutex
 	ptys  map[string]string // sessionKey -> exec ID
+
+	// imagePulls dedupes concurrent pulls of the same ref (fresh install +
+	// first browser_navigate often race the same multi-GB download).
+	imagePulls singleflight.Group
+
+	// Image pull fallbacks when the primary registry is unreachable (e.g. ghcr.io in CN).
+	imageMirrors          []string
+	disableBuiltinMirrors bool
+	// mirrorRaceDelay: after this, race the first mirror while the official
+	// pull is still running (handles "reachable but very slow"). 0 disables
+	// racing (fail-then-fallback only). Unset → defaultMirrorRaceDelay.
+	mirrorRaceDelay    time.Duration
+	mirrorRaceDelaySet bool
 }
 
 // New connects to Docker. host may be empty for the SDK default.
@@ -73,6 +87,28 @@ func New(host, runtime string) (*Backend, error) {
 		return nil, err
 	}
 	return &Backend{cli: cli, runtime: runtime, host: host, ptys: make(map[string]string)}, nil
+}
+
+// SetImageMirrors configures pull fallbacks (ROUNDPEN_IMAGE_MIRRORS).
+func (b *Backend) SetImageMirrors(custom []string, disableBuiltin bool) {
+	if b == nil {
+		return
+	}
+	b.imageMirrors = append([]string(nil), custom...)
+	b.disableBuiltinMirrors = disableBuiltin
+}
+
+// SetMirrorRaceDelay sets how long to wait on the official pull before also
+// trying a mirror in parallel. Pass 0 to disable racing.
+func (b *Backend) SetMirrorRaceDelay(d time.Duration) {
+	if b == nil {
+		return
+	}
+	if d < 0 {
+		d = 0
+	}
+	b.mirrorRaceDelay = d
+	b.mirrorRaceDelaySet = true
 }
 
 // Close releases the Docker client.
@@ -240,18 +276,188 @@ func workspaceMountSource(info types.ContainerJSON) string {
 	return ""
 }
 
+const (
+	imagePullTimeout       = 30 * time.Minute
+	defaultMirrorRaceDelay = 15 * time.Second
+)
+
+// EnsureLocalImage pulls ref when it is not already present locally.
+// Concurrent callers for the same ref share one pull.
+func (b *Backend) EnsureLocalImage(ctx context.Context, ref string) error {
+	return b.ensureImage(ctx, ref)
+}
+
 func (b *Backend) ensureImage(ctx context.Context, ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return fmt.Errorf("image ref is empty")
+	}
 	_, _, err := b.cli.ImageInspectWithRaw(ctx, ref)
 	if err == nil {
 		return nil
 	}
+	ch := b.imagePulls.DoChan(ref, func() (any, error) {
+		// Detach from the caller's cancel so one timed-out tool call cannot
+		// abort a shared pull that other waiters still need.
+		pullCtx, cancel := context.WithTimeout(context.Background(), imagePullTimeout)
+		defer cancel()
+		return nil, b.pullImage(pullCtx, ref)
+	})
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("image pull %s: %w", ref, ctx.Err())
+	case res := <-ch:
+		return res.Err
+	}
+}
+
+func (b *Backend) pullImage(ctx context.Context, ref string) error {
+	_, _, err := b.cli.ImageInspectWithRaw(ctx, ref)
+	if err == nil {
+		return nil
+	}
+	return b.pullImageWithMirrors(ctx, ref)
+}
+
+func (b *Backend) effectiveMirrorRaceDelay() time.Duration {
+	if b != nil && b.mirrorRaceDelaySet {
+		return b.mirrorRaceDelay
+	}
+	return defaultMirrorRaceDelay
+}
+
+// pullImageWithMirrors contacts the official registry, then mirrors.
+// When mirrors exist and racing is enabled, the first mirror is started in
+// parallel after a short delay so a reachable-but-very-slow ghcr.io does not
+// block install for the full pull budget.
+func (b *Backend) pullImageWithMirrors(ctx context.Context, ref string) error {
+	candidates := pullCandidates(ref, b.imageMirrors, b.disableBuiltinMirrors)
+	if len(candidates) == 0 {
+		return fmt.Errorf("image pull %s: no candidates", ref)
+	}
+
+	preferredMu.Lock()
+	pref := preferredPull[ref]
+	preferredMu.Unlock()
+	if pref != "" && pref != ref {
+		if err := b.pullOneImage(ctx, pref); err == nil {
+			return b.acceptPulledImage(ctx, ref, pref)
+		}
+		preferredMu.Lock()
+		delete(preferredPull, ref)
+		preferredMu.Unlock()
+	}
+
+	var mirrors []string
+	for _, c := range candidates {
+		if c == ref || c == pref {
+			continue
+		}
+		mirrors = append(mirrors, c)
+	}
+	delay := b.effectiveMirrorRaceDelay()
+	if delay == 0 || len(mirrors) == 0 {
+		return b.pullSequential(ctx, ref, append([]string{ref}, mirrors...))
+	}
+	return b.pullPrimaryWithMirrorRace(ctx, ref, mirrors, delay)
+}
+
+func (b *Backend) pullSequential(ctx context.Context, logical string, candidates []string) error {
+	var errs []string
+	for _, candidate := range candidates {
+		if err := b.pullOneImage(ctx, candidate); err != nil {
+			errs = append(errs, candidate+": "+err.Error())
+			continue
+		}
+		return b.acceptPulledImage(ctx, logical, candidate)
+	}
+	if len(errs) == 0 {
+		return fmt.Errorf("image pull %s: no candidates", logical)
+	}
+	return fmt.Errorf("image pull %s: all sources failed: %s", logical, strings.Join(errs, "; "))
+}
+
+func (b *Backend) pullPrimaryWithMirrorRace(ctx context.Context, primary string, mirrors []string, delay time.Duration) error {
+	raceCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	type outcome struct {
+		ref string
+		err error
+	}
+	results := make(chan outcome, 2)
+
+	go func() {
+		results <- outcome{primary, b.pullOneImage(raceCtx, primary)}
+	}()
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	var (
+		errs          []string
+		pending       = 1
+		mirrorStarted bool
+		firstMirror   = mirrors[0]
+		rest          = mirrors[1:]
+	)
+
+	for pending > 0 {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("image pull %s: %w", primary, ctx.Err())
+		case <-timer.C:
+			if mirrorStarted {
+				continue
+			}
+			mirrorStarted = true
+			pending++
+			go func() {
+				results <- outcome{firstMirror, b.pullOneImage(raceCtx, firstMirror)}
+			}()
+		case out := <-results:
+			pending--
+			if out.err == nil {
+				cancel()
+				return b.acceptPulledImage(ctx, primary, out.ref)
+			}
+			errs = append(errs, out.ref+": "+out.err.Error())
+		}
+	}
+
+	seq := mirrors
+	if mirrorStarted {
+		seq = rest
+	}
+	for _, m := range seq {
+		if err := b.pullOneImage(ctx, m); err != nil {
+			errs = append(errs, m+": "+err.Error())
+			continue
+		}
+		return b.acceptPulledImage(ctx, primary, m)
+	}
+	return fmt.Errorf("image pull %s: all sources failed: %s", primary, strings.Join(errs, "; "))
+}
+
+func (b *Backend) acceptPulledImage(ctx context.Context, logical, pulled string) error {
+	if pulled == logical {
+		return nil
+	}
+	if err := b.cli.ImageTag(ctx, pulled, logical); err != nil {
+		return fmt.Errorf("image tag %s -> %s: %w", pulled, logical, err)
+	}
+	rememberPreferredPull(logical, pulled)
+	return nil
+}
+
+func (b *Backend) pullOneImage(ctx context.Context, ref string) error {
 	rc, err := b.cli.ImagePull(ctx, ref, types.ImagePullOptions{})
 	if err != nil {
-		return fmt.Errorf("image pull %s: %w", ref, err)
+		return err
 	}
 	defer rc.Close()
-	_, _ = io.Copy(io.Discard, rc)
-	return nil
+	// Mid-stream failures arrive as JSON messages with HTTP 200.
+	return jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil)
 }
 
 // HasImage reports whether ref is present in the local image store.
@@ -314,22 +520,11 @@ func (b *Backend) RefreshImage(ctx context.Context, ref string) (bool, string, e
 		return false, "", fmt.Errorf("image ref is empty")
 	}
 	local, hadLocal := b.imageDigest(ctx, ref)
-	pullFailed := func(err error) (bool, string, error) {
+	if err := b.pullImageWithMirrors(ctx, ref); err != nil {
 		if hadLocal {
 			return false, local, nil
 		}
-		return false, "", fmt.Errorf("image pull %s: %w", ref, err)
-	}
-	rc, err := b.cli.ImagePull(ctx, ref, types.ImagePullOptions{})
-	if err != nil {
-		return pullFailed(err)
-	}
-	defer rc.Close()
-	// pull failures mid-stream (failed layer download/registration, auth
-	// errors) arrive as JSON messages with HTTP 200, so the drain must
-	// surface them instead of discarding the stream.
-	if err := jsonmessage.DisplayJSONMessagesStream(rc, io.Discard, 0, false, nil); err != nil {
-		return pullFailed(err)
+		return false, "", err
 	}
 	pulled, _ := b.imageDigest(ctx, ref)
 	return refreshChanged(local, pulled, hadLocal), pulled, nil

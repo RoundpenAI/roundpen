@@ -26,3 +26,20 @@ func TestWrapBrowserEnsure_stableAndNonRetryable(t *testing.T) {
 		t.Fatalf("page errors should pass through: %v", WrapBrowserEnsure(errors.New("unknown ref")))
 	}
 }
+
+func TestWrapBrowserEnsure_imagePull(t *testing.T) {
+	err := WrapBrowserEnsure(errors.New(
+		`ensure browser environment: backend create: image pull ghcr.io/browserless/chrome:v2.56.7: context deadline exceeded`,
+	))
+	var infra *InfraError
+	if !errors.As(err, &infra) || infra.Kind != "browser_image_pulling" {
+		t.Fatalf("got %#v", err)
+	}
+	out := FormatToolError(err)
+	if InfraKind(out) != "browser_image_pulling" {
+		t.Fatalf("kind from formatted: %q", InfraKind(out))
+	}
+	if !strings.Contains(out, "Docker image is not ready") {
+		t.Fatalf("expected ready hint, got %s", out)
+	}
+}

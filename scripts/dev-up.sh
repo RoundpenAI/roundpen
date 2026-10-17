@@ -226,7 +226,7 @@ touch internal/ui/dist/.gitkeep
 
 if [[ ! -d web/node_modules ]]; then
 	echo "Installing web npm dependencies..."
-	(cd web && npm install)
+	(cd web && npm install --no-audit)
 fi
 
 API_PID=""
