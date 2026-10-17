@@ -1,11 +1,56 @@
+.PHONY: help setup fpk
+
+help:
+	@echo "用法: make <目标>"
+	@echo ""
+	@echo "开发"
+	@echo "  setup              首次：.env、go mod、npm install"
+	@echo "  dev                pg0 + roundpend :19001 + Vite :19000"
+	@echo "  stop               停掉 make dev 留下的进程"
+	@echo "  dev-check          只检查本机工具是否齐全"
+	@echo ""
+	@echo "构建"
+	@echo "  build              Web UI + 本机 roundpend / roundpen"
+	@echo "  build-ui           只构建并嵌入 Web UI"
+	@echo "  build-go           只编 Go（internal/ui/dist 已有产物时）"
+	@echo "  build-linux        带 UI 的 Linux amd64 二进制"
+	@echo "  fpk                fnOS 包（依赖 setup；VERSION= PLATFORM=x86|arm）"
+	@echo ""
+	@echo "测试"
+	@echo "  test               go test ./..."
+	@echo "  test-template      模板 / 平台 / sandbox 覆盖"
+	@echo "  test-integration   集成测试"
+	@echo "  test-e2e           Coding agent 工作流"
+	@echo "  test-ui            Playwright 控制台冒烟"
+	@echo "  e2e-live           对已运行的 roundpend 做冒烟"
+	@echo "  vet                go vet ./..."
+	@echo "  fmt                gofmt -w ."
+	@echo "  tidy               go mod tidy"
+	@echo ""
+	@echo "运行与镜像"
+	@echo "  run-daemon         构建并运行 bin/roundpend"
+	@echo "  browser-driver     安装 Playwright driver"
+	@echo "  code-agent-image   构建本地 Agent 镜像"
+	@echo "  compose-up         docker compose up -d --build"
+	@echo "  compose-down       docker compose down"
+	@echo ""
+	@echo "移动端（需要 Flutter）"
+	@echo "  mobile-setup       flutter pub get"
+	@echo "  mobile-dev         flutter run"
+	@echo "  mobile-test        flutter test"
+	@echo "  mobile-analyze     flutter analyze"
+
 setup:
-	@echo "Initializing development environment..."
-	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example"; fi
-	@go mod download
-	@cd web && npm install
-	@mkdir -p bin internal/ui/dist data
-	@touch internal/ui/dist/.gitkeep
-	@echo "Setup complete. Next: make dev"
+	@echo "==> 检查 .env"
+	@if [ ! -f .env ]; then cp .env.example .env; echo "已从 .env.example 创建 .env"; else echo ".env 已存在"; fi
+	@echo "==> 下载 Go 模块"
+	go mod download
+	@echo "==> 安装 Web 依赖 (web/)"
+	cd web && npm install --progress=true --no-audit
+	@echo "==> 准备目录 bin、internal/ui/dist、data"
+	mkdir -p bin internal/ui/dist data
+	touch internal/ui/dist/.gitkeep
+	@echo "Setup 完成。下一步: make dev"
 
 # One-shot local preview: tool check → pg0 → roundpend + Vite (see scripts/dev-up.sh).
 dev:
@@ -112,5 +157,5 @@ compose-down:
 VERSION ?= 0.1.0
 PLATFORM ?= x86
 
-fpk:
+fpk: setup
 	@VERSION=$(VERSION) PLATFORM=$(PLATFORM) ./scripts/build-fnos-fpk.sh

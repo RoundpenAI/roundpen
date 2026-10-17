@@ -81,7 +81,7 @@ echo "building Web UI..."
     if [[ ! -d node_modules ]]; then
         npm_registry="${NPM_REGISTRY:-$(npm config get registry 2>/dev/null || true)}"
         npm_registry="${npm_registry:-https://registry.npmjs.org}"
-        npm ci --registry="${npm_registry}"
+        npm ci --no-audit --registry="${npm_registry}"
     fi
     # The Web console is reached through the unified gateway at /app/roundpen,
     # so the SPA must be built for that base path.
