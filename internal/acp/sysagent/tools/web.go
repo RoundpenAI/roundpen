@@ -43,8 +43,9 @@ func RegisterWebFetch(r *Registry, b *WebBinder) {
 	r.Register(Tool{
 		Name: "WebFetch",
 		Description: "Fetch a URL and answer a question about its content. " +
-			"Use for web pages and online docs. The fetch has no browser session or cookies, " +
-			"so pages behind a login fail — use browser_* for those.",
+			"Prefer this over browser_* when the user did not ask for a browser. " +
+			"The fetch has no browser session or cookies, so pages behind a login fail — " +
+			"only then (or after this tool fails / returns unusable content) use browser_*.",
 		Parameters: objectSchema(map[string]any{
 			"url":    map[string]any{"type": "string", "description": "Absolute http(s) URL to fetch"},
 			"prompt": map[string]any{"type": "string", "description": "What to extract from the page (optional; without it the page text is returned)"},
