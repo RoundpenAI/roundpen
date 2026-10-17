@@ -105,22 +105,14 @@ func (g *Gateway) SetLogBodyMaxBytes(n int) {
 	g.mu.Unlock()
 }
 
-// ApplyConfig hot-applies the gateway switches and virtual keys. Providers
-// themselves arrive through SetUpstreams (they live as setting items).
+// ApplyConfig hot-applies the gateway switches. Providers arrive through
+// SetUpstreams. Operator virtual keys are ignored: the relay only accepts
+// the instance key and per-user keys injected into Docker agents.
 func (g *Gateway) ApplyConfig(ctx context.Context, cfg config.LLMGWConfig) error {
 	g.SetEnabled(cfg.Enabled)
 	g.SetPublicURL(cfg.PublicURL)
 	g.SetLogBodyMaxBytes(cfg.LogBodyMaxBytes)
 
-	for _, vk := range cfg.VirtualKeys {
-		name := vk.Name
-		if name == "" {
-			name = vk.Key
-		}
-		if err := g.store.UpsertVirtualKey(VirtualKey{Key: vk.Key, Name: name, Enabled: true}); err != nil {
-			return err
-		}
-	}
 	if cfg.Enabled {
 		return g.EnsureInternal(ctx)
 	}

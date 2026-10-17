@@ -22,11 +22,16 @@ const (
 	webSearchUserAgent       = "Roundpen-WebSearch/0.1"
 )
 
-// WebSearchBinder calls a Tavily-compatible search API.
+// WebSearchBinder calls a search API. Vendor selects a built-in platform's
+// native search; otherwise Endpoint is a Tavily-compatible API (empty uses
+// https://api.tavily.com when a key is set).
 type WebSearchBinder struct {
 	Endpoint string       // 空 → https://api.tavily.com
 	APIKey   string       // 空 → 不带 Authorization 头
 	HTTP     *http.Client // 生产用 NewWebHTTPClient 构造
+	Vendor   string       // deepseek | kimi | glm | openrouter
+	BaseURL  string       // vendor search host
+	Model    string       // chat model for adapters that search through a completion
 }
 
 type tavilyHit struct {
@@ -35,9 +40,10 @@ type tavilyHit struct {
 	Content string `json:"content"`
 }
 
-// RegisterWebSearch adds the WebSearch tool. endpoint 与 key 都为空时不注册。
+// RegisterWebSearch adds the WebSearch tool. A built-in vendor needs its API
+// key; a Tavily backend needs an endpoint or a key. Neither means no tool.
 func RegisterWebSearch(r *Registry, b *WebSearchBinder) {
-	if r == nil || b == nil || (strings.TrimSpace(b.Endpoint) == "" && strings.TrimSpace(b.APIKey) == "") {
+	if r == nil || b == nil || !b.configured() {
 		return
 	}
 	r.Register(Tool{
@@ -76,9 +82,19 @@ func RegisterWebSearch(r *Registry, b *WebSearchBinder) {
 	})
 }
 
+func (b *WebSearchBinder) configured() bool {
+	if strings.TrimSpace(b.Vendor) != "" {
+		return strings.TrimSpace(b.APIKey) != ""
+	}
+	return strings.TrimSpace(b.Endpoint) != "" || strings.TrimSpace(b.APIKey) != ""
+}
+
 func (b *WebSearchBinder) search(ctx context.Context, query string, allowed, blocked []string, numResults int) (string, error) {
 	if b.HTTP == nil {
 		return "", fmt.Errorf("web search is not configured")
+	}
+	if strings.TrimSpace(b.Vendor) != "" {
+		return b.searchVendor(ctx, query, allowed, blocked, numResults)
 	}
 	if numResults <= 0 {
 		numResults = webSearchDefaultResults

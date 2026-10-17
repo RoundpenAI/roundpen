@@ -171,6 +171,28 @@ func TestGatewayNewUsesDefaultLogLimit(t *testing.T) {
 	}
 }
 
+func TestRelayRejectsExternalVirtualKey(t *testing.T) {
+	gw := seedGateway(t)
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-outside", Name: "laptop", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	gw.Mount(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/llmgw/openai/v1/chat/completions", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer vk-outside")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("external key status=%s", resp.Status)
+	}
+}
+
 func TestRelayOpenAIForward(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer sk-openai" {
@@ -203,7 +225,7 @@ func TestRelayOpenAIForward(t *testing.T) {
 		APIKey:   "sk-openai",
 		ModelMap: map[string]string{"gpt-alias": "gpt-real"},
 	})
-	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-relay", Name: "relay", Enabled: true}); err != nil {
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-relay", Name: "agent-relay", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -362,7 +384,7 @@ func TestRelayWithoutBodyLogging(t *testing.T) {
 	seedUpstream(t, gw, llmgw.Upstream{
 		Provider: "openai", Protocol: llmgw.ProtocolOpenAI, BaseURL: upstream.URL, APIKey: "sk-x",
 	})
-	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-nolog", Name: "nolog", Enabled: true}); err != nil {
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-nolog", Name: "agent-nolog", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
@@ -499,7 +521,7 @@ func TestRelayRoutesEachProviderByID(t *testing.T) {
 		llmgw.Upstream{Provider: "openai", Protocol: llmgw.ProtocolOpenAI, BaseURL: "https://up.example", APIKey: "sk-openai"},
 		llmgw.Upstream{Provider: "deepseek", Protocol: llmgw.ProtocolOpenAI, BaseURL: upstream.URL, APIKey: "sk-deepseek"},
 	)
-	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-two", Name: "two", Enabled: true}); err != nil {
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-two", Name: "agent-two", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 

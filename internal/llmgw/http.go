@@ -19,7 +19,7 @@ import (
 //
 // Admin (control-plane API key):
 //
-//	GET /v1/llmgw/virtual-keys
+//	GET /v1/llmgw/vendors
 //	GET /v1/llmgw/logs
 //	GET /v1/llmgw/logs/{id}
 //	GET /v1/llmgw/stats
@@ -27,6 +27,7 @@ import (
 func (g *Gateway) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("/llmgw/", g.serveRelay)
 
+	mux.HandleFunc("GET /v1/llmgw/vendors", g.handleVendors)
 	mux.HandleFunc("GET /v1/llmgw/virtual-keys", auth.RequireAdmin(g.handleVirtualKeys))
 	mux.HandleFunc("GET /v1/llmgw/logs", auth.RequireAdmin(g.handleLogs))
 	mux.HandleFunc("GET /v1/llmgw/logs/{id}", auth.RequireAdmin(g.handleLogDetail))
@@ -34,22 +35,14 @@ func (g *Gateway) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/llmgw/setup", auth.RequireAdmin(g.handleSetup))
 }
 
-func (g *Gateway) handleVirtualKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := g.store.ListVirtualKeys(r.Context())
-	if err != nil {
-		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-	type keyInfo struct {
-		Key     string `json:"key"`
-		Name    string `json:"name"`
-		Enabled bool   `json:"enabled"`
-	}
-	out := make([]keyInfo, 0, len(keys))
-	for _, vk := range keys {
-		out = append(out, keyInfo{Key: maskVirtualKey(vk.Key), Name: vk.Name, Enabled: vk.Enabled})
-	}
-	httpx.WriteJSON(w, http.StatusOK, out)
+func (g *Gateway) handleVendors(w http.ResponseWriter, _ *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, Vendors())
+}
+
+func (g *Gateway) handleVirtualKeys(w http.ResponseWriter, _ *http.Request) {
+	// External client keys are no longer issued. Docker agents receive a
+	// per-user key in their environment; it is not listed here.
+	httpx.WriteJSON(w, http.StatusOK, []struct{}{})
 }
 
 func (g *Gateway) handleLogs(w http.ResponseWriter, r *http.Request) {
@@ -130,28 +123,15 @@ type setupModel struct {
 type setupResponse struct {
 	BaseURL          string                   `json:"base_url"`
 	Providers        map[string]setupProvider `json:"providers"`
-	VirtualKeys      []VirtualKey             `json:"virtual_keys"`
 	DownstreamModels map[string][]setupModel  `json:"downstream_models"`
 }
 
 func (g *Gateway) handleSetup(w http.ResponseWriter, r *http.Request) {
 	upstreams := g.Upstreams()
-	keys, err := g.store.ListVirtualKeys(r.Context())
-	if err != nil {
-		httpx.WriteErr(w, http.StatusInternalServerError, "internal error")
-		return
-	}
-
-	masked := make([]VirtualKey, 0, len(keys))
-	for _, vk := range keys {
-		vk.Key = maskVirtualKey(vk.Key)
-		masked = append(masked, vk)
-	}
 	out := setupResponse{
 		BaseURL:          publicBaseURL(r, g.publicBase()),
 		Providers:        map[string]setupProvider{},
 		DownstreamModels: map[string][]setupModel{},
-		VirtualKeys:      masked,
 	}
 
 	for _, u := range upstreams {

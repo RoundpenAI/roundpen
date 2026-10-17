@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/secretbox"
@@ -35,16 +34,6 @@ func looksHashedKey(key string) bool {
 		}
 	}
 	return true
-}
-
-func maskVirtualKey(key string) string {
-	if key == "" {
-		return ""
-	}
-	if !strings.HasPrefix(key, "vk-") || len(key) < 8 {
-		return "vk-****"
-	}
-	return key[:4] + "..." + key[len(key)-4:]
 }
 
 // Store persists llmgw vault rows and transaction logs in PostgreSQL.
