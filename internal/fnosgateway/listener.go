@@ -93,9 +93,10 @@ func Serve(socket, prefix string, users storage.UserStore, sessions storage.Sess
 	srv := &http.Server{
 		Handler:           Handler(prefix, users, sessions, mux),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       60 * time.Second,
-		WriteTimeout:      0, // terminal WS streams past a write deadline
-		IdleTimeout:       120 * time.Second,
+		// No ReadTimeout: hijacked WebSocket connections reuse the accepted
+		// conn; a global read deadline would tear down long-lived chat sockets.
+		WriteTimeout: 0, // terminal WS streams past a write deadline
+		IdleTimeout:  120 * time.Second,
 	}
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {

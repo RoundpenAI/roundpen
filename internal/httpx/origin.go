@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,20 +12,24 @@ import (
 // clients) are allowed. publicURL, when set, is accepted as an alternative
 // trusted origin (deployments behind a reverse proxy with a public hostname).
 //
-// When the request carries fnOS gateway identity headers (X-Trim-Userid), the
-// browser Origin is also matched against X-Forwarded-Host. Those headers are
-// only present on the Unix-socket gateway chain (the TCP listener strips them),
-// so a cross-site page cannot forge them to bypass this check.
+// When the request carries fnOS gateway identity (X-Trim-Userid), any Origin is
+// accepted: the unified gateway already authenticated the NAS session before
+// forwarding to the Unix socket, and the TCP listener strips those headers so
+// they cannot be forged from outside. Matching Host / X-Forwarded-Host alone is
+// brittle — desktop embeds often omit the port on one side (e.g. Origin
+// host:5666 vs forwarded Host without a port).
 func CheckSameOrigin(r *http.Request, publicURL string) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
-	// Sandboxed / opaque iframe documents send Origin: null. The fnOS desktop
-	// embeds the console that way; gateway identity (X-Trim-*) is only present
-	// on the Unix-socket chain, so this is not forgeable from the TCP listener.
+	// Gateway-authenticated hop: allow sandboxed (Origin: null) and any browser
+	// Origin the desktop / iframe may send.
+	if strings.TrimSpace(r.Header.Get("X-Trim-Userid")) != "" {
+		return true
+	}
 	if strings.EqualFold(origin, "null") {
-		return r.Header.Get("X-Trim-Userid") != ""
+		return false
 	}
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
@@ -70,10 +75,33 @@ func firstForwardedHost(r *http.Request) string {
 }
 
 func hostAllowed(originHost string, candidates ...string) bool {
+	oh, _ := splitHostPortLoose(originHost)
 	for _, c := range candidates {
-		if c != "" && strings.EqualFold(originHost, c) {
+		if c == "" {
+			continue
+		}
+		if strings.EqualFold(originHost, c) {
+			return true
+		}
+		ch, _ := splitHostPortLoose(c)
+		// Compare hostname only. NAS UIs often expose a mapped port (e.g. :5666)
+		// while the app or proxy rewrites Host to an internal port (:9527).
+		if strings.EqualFold(oh, ch) {
 			return true
 		}
 	}
 	return false
+}
+
+func splitHostPortLoose(hostport string) (host, port string) {
+	hostport = strings.TrimSpace(hostport)
+	if hostport == "" {
+		return "", ""
+	}
+	h, p, err := net.SplitHostPort(hostport)
+	if err != nil {
+		// Bare hostname / IPv4 without port.
+		return hostport, ""
+	}
+	return h, p
 }

@@ -12,4 +12,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = true
-changelog             = 应用中心展示名改为「AI助手」，简介改为直白能力说明；包名仍为 roundpen，升级不受影响。
+changelog             = 修复飞牛桌面内嵌打开时 WebSocket 无法连接；带网关身份时放宽 Origin 校验。展示名「AI助手」。

@@ -65,6 +65,29 @@ func TestCheckSameOrigin_FnosSandboxedIframeNullOrigin(t *testing.T) {
 	}
 }
 
+func TestCheckSameOrigin_FnosGatewayAnyOriginWithTrim(t *testing.T) {
+	// Desktop iframe Origin host:port often disagrees with the Host the
+	// gateway forwards; X-Trim is enough to trust the hop.
+	r, _ := http.NewRequest(http.MethodGet, "http://backend/ws", nil)
+	r.Host = "backend"
+	r.RemoteAddr = "@"
+	r.Header.Set("Origin", "http://10.10.1.144:5666")
+	r.Header.Set("X-Trim-Userid", "1000")
+	if !httpx.CheckSameOrigin(r, "") {
+		t.Fatal("any Origin with X-Trim-Userid should be allowed")
+	}
+}
+
+func TestCheckSameOrigin_HostPortMismatchWithoutTrim(t *testing.T) {
+	r, _ := http.NewRequest(http.MethodGet, "http://10.10.1.144:9527/ws", nil)
+	r.Host = "10.10.1.144:9527"
+	r.RemoteAddr = "127.0.0.1:9"
+	r.Header.Set("Origin", "http://10.10.1.144:5666")
+	if !httpx.CheckSameOrigin(r, "") {
+		t.Fatal("same hostname with differing port should be allowed")
+	}
+}
+
 func TestCheckSameOrigin_ForwardedHostForgedOnTCPRejected(t *testing.T) {
 	// TCP client forging X-Forwarded-Host without X-Trim (stripped on TCP)
 	// must not pass when Host differs.
