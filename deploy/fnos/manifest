@@ -12,4 +12,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = true
-changelog             = 修复 Docker sock 附加组未生效；网关侧记录 WebSocket Upgrade 以便判断是否被飞牛转发。展示名「AI助手」。
+changelog             = 桌面入口改为新窗口（type=url）打开，避免内嵌 iframe 下 WebSocket 被桌面代理阻断。
