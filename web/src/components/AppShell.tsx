@@ -200,13 +200,19 @@ export function AppShell() {
           </Typography.Text>
         </div>
         <Content
+          className="rp-app-content"
           style={{
             minHeight: 0,
             minWidth: 0,
-            overflow: 'hidden',
+            // Document pages (files / issues) scroll here; chat fills height
+            // and keeps its own .chat-pane-scroll so it does not grow this box.
+            overflowX: 'hidden',
+            overflowY: 'auto',
             display: 'flex',
             flexDirection: 'column',
             flex: 1,
+            WebkitOverflowScrolling: 'touch',
+            overscrollBehavior: 'contain',
           }}
         >
           <Outlet />
