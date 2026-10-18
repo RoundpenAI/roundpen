@@ -103,7 +103,8 @@ test('admin can add GitHub with only client id and secret', async ({ page }) => 
 
   await expect(page.getByRole('button', { name: '一键在 GitHub 创建应用' })).toBeVisible()
 
-  await page.getByRole('combobox', { name: '类型' }).click()
+  // Semi Select does not forward aria-label; the kind control shows the current value.
+  await page.getByRole('combobox').filter({ hasText: /^Gitea$/ }).click()
   await page.getByRole('option', { name: 'GitHub' }).click()
   await expect(page.getByLabel('主机')).toBeHidden()
   await page.getByLabel('Client ID').fill('gh-client')
@@ -128,4 +129,4 @@ test('admin one-click GitHub App starts the remote form', async ({ page }) => {
   })
   await page.getByRole('button', { name: '一键在 GitHub 创建应用' }).click()
   await expect(page.locator('#oauth-authorize-stub')).toBeVisible()
-}))
+})
