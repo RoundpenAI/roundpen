@@ -34,7 +34,7 @@ describe('settings sections', () => {
   it('personal sections keep their grouped order', () => {
     assert.deepEqual(
       PERSONAL_SETTINGS_SECTIONS.map((s) => s.key),
-      ['accounts', 'password', 'notifications', 'git', 'agent', 'slots'],
+      ['accounts', 'connectors', 'mcp', 'password', 'notifications', 'git', 'agent', 'slots'],
     )
   })
 
@@ -44,6 +44,7 @@ describe('settings sections', () => {
       [
         'general',
         'oauth',
+        'plugins',
         'llmgw',
         'webtools',
         'browser',

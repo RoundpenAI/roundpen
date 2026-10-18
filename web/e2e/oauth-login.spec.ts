@@ -80,14 +80,22 @@ test('linked accounts keeps an entry when no account can be bound yet', async ({
   await expect(page).toHaveURL(/\/admin\/settings\/oauth$/)
 })
 
-test('admin can add an oauth provider', async ({ page }) => {
+test('admin can add an oauth provider after enabling the plugin', async ({
+  page,
+}) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
-  await page.goto('/admin/settings/oauth')
+  await resetSmoke(page)
+  await page.goto('/admin/settings/plugins')
+  await page.getByRole('button', { name: '启用' }).click()
+  await expect(page.getByRole('button', { name: '停用' })).toBeVisible()
 
+  await page.goto('/admin/settings/oauth')
   await expect(page.getByText('smoke-client')).toBeVisible()
   await expect(page.getByText('/v1/auth/oauth/gitea-git-eaxi-com/callback')).toBeVisible()
 
+  await page.getByRole('combobox').filter({ hasText: /^GitHub$/ }).click()
+  await page.getByRole('option', { name: 'Gitea' }).click()
   await page.getByLabel('主机').fill('git2.example.test')
   await page.getByLabel('Client ID').fill('new-client')
   await page.getByLabel('Client secret').fill('new-secret')
@@ -99,13 +107,11 @@ test('admin can add an oauth provider', async ({ page }) => {
 test('admin can add GitHub with only client id and secret', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
+  await resetSmoke(page)
   await page.goto('/admin/settings/oauth')
 
   await expect(page.getByRole('button', { name: '一键在 GitHub 创建应用' })).toBeVisible()
-
-  // Semi Select does not forward aria-label; the kind control shows the current value.
-  await page.getByRole('combobox').filter({ hasText: /^Gitea$/ }).click()
-  await page.getByRole('option', { name: 'GitHub' }).click()
+  await expect(page.getByRole('button', { name: '打开插件' })).toBeVisible()
   await expect(page.getByLabel('主机')).toBeHidden()
   await page.getByLabel('Client ID').fill('gh-client')
   await page.getByLabel('Client secret').fill('gh-secret')

@@ -85,6 +85,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.section.agent': 'Agent 环境',
   'settings.section.general': '通用',
   'settings.section.oauth': 'OAuth 登录',
+  'settings.section.plugins': '插件',
   'settings.section.browser': '浏览器',
   'settings.section.llmgw': 'LLM 网关',
   'settings.section.webtools': 'Web 工具',
@@ -329,7 +330,7 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'oauthAdmin.title': 'OAuth 登录',
   'oauthAdmin.desc':
-    'GitHub.com 不用填 host、端点和 scope。一键创建应用，或只粘贴 Client ID 和 secret。Gitea 仍需填写实例地址。',
+    '在这里连接 GitHub.com。一键创建应用，或只粘贴 Client ID 和 secret。',
   'oauthAdmin.loadFailed': '加载 provider 失败',
   'oauthAdmin.saveFailed': '保存失败',
   'oauthAdmin.deleteFailed': '删除失败',
@@ -371,6 +372,23 @@ export const zh_CN: Record<MessageKey, string> = {
   'oauthAdmin.githubCallbackHint': '若你自己创建经典 OAuth App，回调地址用这个：',
   'oauthAdmin.githubCreateOauthApp': '打开 GitHub OAuth Apps',
   'oauthAdmin.enterprise': 'GitHub 企业版 / 自定义主机',
+  'oauthAdmin.selfHostedHint':
+    'Gitea、GitLab、GitHub 企业版做成了可选插件，需要时再打开，避免打扰只接 GitHub.com 的人。',
+  'oauthAdmin.openPlugins': '打开插件',
+
+  'plugins.title': '插件',
+  'plugins.desc':
+    '可选能力默认关闭。GitHub.com 登录是内置的，不走插件。',
+  'plugins.loadFailed': '加载插件失败',
+  'plugins.saveFailed': '更新插件失败',
+  'plugins.enabled': '已启用',
+  'plugins.disabled': '未启用',
+  'plugins.enable': '启用',
+  'plugins.disable': '停用',
+  'plugins.empty': '还没有可选插件。',
+  'plugins.selfHostedGit.name': '自建 Git',
+  'plugins.selfHostedGit.desc':
+    '为 Gitea、GitLab、GitHub 企业版提供 OAuth 登录。只有这台实例要连私有 Git 主机时才打开。',
 
 
   'agentEnv.title': 'Agent 环境',

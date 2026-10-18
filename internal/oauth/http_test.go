@@ -246,12 +246,13 @@ func TestHTTPAdminProviderCRUD(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d", rr.Code)
 	}
-	var list struct {
-		Providers []adminProviderView `json:"providers"`
-	}
+	var list adminListView
 	decode(t, rr, &list)
 	if len(list.Providers) != 1 {
 		t.Fatalf("providers = %+v", list.Providers)
+	}
+	if !list.Features.SelfHostedGit {
+		t.Error("nil gate should allow self-hosted Git (tests)")
 	}
 	if list.Providers[0].ClientSecret != settings.SecretMask {
 		t.Errorf("client secret not masked: %q", list.Providers[0].ClientSecret)
@@ -285,7 +286,7 @@ func TestHTTPAdminProviderCRUD(t *testing.T) {
 		t.Errorf("scopes = %q, want the default filled in", saved.Scopes)
 	}
 
-	bad := httptest.NewRequest(http.MethodPut, "/v1/admin/oauth/providers", strings.NewReader(`{"id":"x","kind":"gitlab","host":"gitlab.com"}`))
+	bad := httptest.NewRequest(http.MethodPut, "/v1/admin/oauth/providers", strings.NewReader(`{"id":"x","kind":"bitbucket","host":"bitbucket.org"}`))
 	bad = bad.WithContext(auth.WithUser(bad.Context(), admin))
 	rr = httptest.NewRecorder()
 	f.mux.ServeHTTP(rr, bad)
@@ -298,5 +299,37 @@ func TestHTTPAdminProviderCRUD(t *testing.T) {
 	}
 	if rr := f.do(t, http.MethodDelete, "/v1/admin/oauth/providers/"+f.prov.ID, admin); rr.Code != http.StatusNotFound {
 		t.Errorf("second delete status = %d", rr.Code)
+	}
+}
+
+func TestHTTPRejectsNewSelfHostedWithoutPlugin(t *testing.T) {
+	f := newHTTPFixture(t, &fakeRemote{t: t})
+	f.svc.SelfHostedGitEnabled = func() bool { return false }
+	admin := f.user(t, "root")
+
+	rr := f.do(t, http.MethodGet, "/v1/admin/oauth/providers", admin)
+	var list adminListView
+	decode(t, rr, &list)
+	if list.Features.SelfHostedGit {
+		t.Fatal("feature should be off")
+	}
+
+	body := `{"kind":"gitea","host":"git.new.test","clientId":"n","clientSecret":"s","enabled":true}`
+	req := httptest.NewRequest(http.MethodPut, "/v1/admin/oauth/providers", strings.NewReader(body))
+	req = req.WithContext(auth.WithUser(req.Context(), admin))
+	rr = httptest.NewRecorder()
+	f.mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("new gitea status = %d body %s", rr.Code, rr.Body)
+	}
+
+	// github.com stays writable without the plugin.
+	gh := `{"kind":"github","host":"github.com","clientId":"gh","clientSecret":"s","enabled":true}`
+	req = httptest.NewRequest(http.MethodPut, "/v1/admin/oauth/providers", strings.NewReader(gh))
+	req = req.WithContext(auth.WithUser(req.Context(), admin))
+	rr = httptest.NewRecorder()
+	f.mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("github.com status = %d body %s", rr.Code, rr.Body)
 	}
 }

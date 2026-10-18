@@ -11,10 +11,12 @@ import (
 const (
 	KindGitHub = "github"
 	KindGitea  = "gitea"
+	KindGitLab = "gitlab"
 
 	// DefaultScopes covers login (read:user), a verified email (user:email) and
-	// repository read/write for git over HTTPS.
-	DefaultScopes = "read:user user:email repo"
+	// repository read/write for git over HTTPS. GitLab uses its own default.
+	DefaultScopes       = "read:user user:email repo"
+	DefaultGitLabScopes = "read_user api"
 )
 
 // Provider is one remote OAuth application. A Gitea instance is one provider.
@@ -38,7 +40,7 @@ type Provider struct {
 func Normalize(p Provider) (Provider, error) {
 	p.Kind = strings.ToLower(strings.TrimSpace(p.Kind))
 	switch p.Kind {
-	case KindGitHub, KindGitea:
+	case KindGitHub, KindGitea, KindGitLab:
 	default:
 		return Provider{}, fmt.Errorf("unsupported provider kind %q", p.Kind)
 	}
@@ -70,15 +72,15 @@ func Normalize(p Provider) (Provider, error) {
 		p.Label = defaultLabel(p.Kind)
 	}
 	if p.Scopes == "" {
-		p.Scopes = DefaultScopes
+		p.Scopes = defaultScopes(p.Kind)
 	}
 
 	base := p.Scheme + "://" + p.Host
 	if p.AuthURL == "" {
-		p.AuthURL = base + "/login/oauth/authorize"
+		p.AuthURL = defaultAuthURL(p.Kind, base)
 	}
 	if p.TokenURL == "" {
-		p.TokenURL = base + "/login/oauth/access_token"
+		p.TokenURL = defaultTokenURL(p.Kind, base)
 	}
 	if p.APIURL == "" {
 		p.APIURL = defaultAPIURL(p.Kind, p.Scheme, p.Host)
@@ -128,20 +130,59 @@ func defaultLabel(kind string) string {
 	switch kind {
 	case KindGitHub:
 		return "GitHub"
+	case KindGitLab:
+		return "GitLab"
 	default:
 		return "Gitea"
 	}
 }
 
+func defaultScopes(kind string) string {
+	if kind == KindGitLab {
+		return DefaultGitLabScopes
+	}
+	return DefaultScopes
+}
+
+func defaultAuthURL(kind, base string) string {
+	if kind == KindGitLab {
+		return base + "/oauth/authorize"
+	}
+	return base + "/login/oauth/authorize"
+}
+
+func defaultTokenURL(kind, base string) string {
+	if kind == KindGitLab {
+		return base + "/oauth/token"
+	}
+	return base + "/login/oauth/access_token"
+}
+
 func defaultAPIURL(kind, scheme, host string) string {
-	if kind == KindGitHub {
+	switch kind {
+	case KindGitHub:
 		if host == "github.com" {
 			return "https://api.github.com"
 		}
-		// GitHub Enterprise Server
 		return scheme + "://" + host + "/api/v3"
+	case KindGitLab:
+		return scheme + "://" + host + "/api/v4"
+	default:
+		return scheme + "://" + host + "/api/v1"
 	}
-	return scheme + "://" + host + "/api/v1"
+}
+
+// RequiresSelfHostedPlugin is true for Gitea, GitLab and GitHub Enterprise.
+// github.com is the built-in path and does not need the plugin.
+func RequiresSelfHostedPlugin(p Provider) bool {
+	switch p.Kind {
+	case KindGitea, KindGitLab:
+		return true
+	case KindGitHub:
+		return p.Host != "" && p.Host != "github.com"
+	default:
+		return false
+	}
 }
 
 // SlugID derives a stable provider id from kind + host.

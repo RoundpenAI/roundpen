@@ -28,6 +28,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
+	"github.com/RoundpenAI/roundpen/internal/plugins"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/routine"
@@ -181,6 +182,9 @@ func main() {
 
 	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
+	pluginSvc := &plugins.Service{Settings: settingsSvc}
+	oauthSvc.SelfHostedGitEnabled = func() bool { return pluginSvc.IsEnabled(plugins.SelfHostedGit) }
+	(&plugins.Handler{Svc: pluginSvc}).Mount(mux)
 
 	setupHandler.EnableLLMGW = func(ctx context.Context) error {
 		cur := settingsSvc.Current()

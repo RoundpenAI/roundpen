@@ -87,6 +87,7 @@ export const en = {
   'settings.section.agent': 'Agent environment',
   'settings.section.general': 'General',
   'settings.section.oauth': 'OAuth login',
+  'settings.section.plugins': 'Plugins',
   'settings.section.browser': 'Browser',
   'settings.section.llmgw': 'LLM gateway',
   'settings.section.webtools': 'Web tools',
@@ -332,7 +333,7 @@ export const en = {
 
   'oauthAdmin.title': 'OAuth login',
   'oauthAdmin.desc':
-    'GitHub.com does not need host, endpoints or scopes. Create the app in one click, or paste only the Client ID and secret. Gitea still needs the instance address.',
+    'Connect GitHub.com here. Create the app in one click, or paste only the Client ID and secret.',
   'oauthAdmin.loadFailed': 'failed to load providers',
   'oauthAdmin.saveFailed': 'save failed',
   'oauthAdmin.deleteFailed': 'delete failed',
@@ -375,6 +376,23 @@ export const en = {
     'If you create a classic OAuth App yourself, use this callback URL:',
   'oauthAdmin.githubCreateOauthApp': 'Open GitHub OAuth Apps',
   'oauthAdmin.enterprise': 'GitHub Enterprise / custom host',
+  'oauthAdmin.selfHostedHint':
+    'Gitea, GitLab and GitHub Enterprise are an optional plugin so they do not clutter this page.',
+  'oauthAdmin.openPlugins': 'Open plugins',
+
+  'plugins.title': 'Plugins',
+  'plugins.desc':
+    'Optional capabilities that stay off until you need them. Built-in GitHub.com login is not a plugin.',
+  'plugins.loadFailed': 'failed to load plugins',
+  'plugins.saveFailed': 'failed to update plugin',
+  'plugins.enabled': 'Enabled',
+  'plugins.disabled': 'Disabled',
+  'plugins.enable': 'Enable',
+  'plugins.disable': 'Disable',
+  'plugins.empty': 'No optional plugins yet.',
+  'plugins.selfHostedGit.name': 'Self-hosted Git',
+  'plugins.selfHostedGit.desc':
+    'OAuth login for Gitea, GitLab and GitHub Enterprise. Enable only if this instance talks to a private Git host.',
 
 
   'agentEnv.title': 'Agent environment',

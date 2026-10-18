@@ -33,6 +33,7 @@ export type SettingsSectionKey =
   | 'notifications'
   | 'general'
   | 'oauth'
+  | 'plugins'
   | 'llmgw'
   | 'webtools'
   | 'browser'
@@ -86,6 +87,7 @@ export const ADMIN_SETTINGS_GROUPS: SettingsGroup[] = [
 export const ADMIN_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'general', labelKey: 'settings.section.general', group: 'access' },
   { key: 'oauth', labelKey: 'settings.section.oauth', group: 'access' },
+  { key: 'plugins', labelKey: 'settings.section.plugins', group: 'access' },
   { key: 'llmgw', labelKey: 'settings.section.llmgw', group: 'integrations' },
   { key: 'webtools', labelKey: 'settings.section.webtools', group: 'integrations' },
   { key: 'browser', labelKey: 'settings.section.browser', group: 'integrations' },

@@ -8,6 +8,7 @@ import {
   Switch,
   Typography,
 } from '@douyinfe/semi-ui-19'
+import { useNavigate } from 'react-router-dom'
 import { oauthAdmin, type OAuthProvider } from '../api'
 import { useT } from '../i18n'
 
@@ -50,9 +51,9 @@ type FormState = {
 
 const blank: FormState = {
   id: '',
-  kind: 'gitea',
+  kind: 'github',
   scheme: 'https',
-  host: '',
+  host: 'github.com',
   label: '',
   clientId: '',
   clientSecret: '',
@@ -80,7 +81,9 @@ function githubCallbackURL(): string {
 
 export function OAuthProvidersPanel() {
   const t = useT()
+  const navigate = useNavigate()
   const [list, setList] = useState<OAuthProvider[]>([])
+  const [selfHostedGit, setSelfHostedGit] = useState(false)
   const [form, setForm] = useState<FormState>(blank)
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -88,19 +91,23 @@ export function OAuthProvidersPanel() {
   const [saving, setSaving] = useState(false)
   const [creatingApp, setCreatingApp] = useState(false)
 
-  const kindOptions = useMemo(
-    () => [
-      { value: 'github', label: t('git.provider.github') },
-      { value: 'gitea', label: t('git.provider.gitea') },
-    ],
-    [t],
-  )
+  const kindOptions = useMemo(() => {
+    const out = [{ value: 'github', label: t('git.provider.github') }]
+    if (selfHostedGit) {
+      out.push(
+        { value: 'gitea', label: t('git.provider.gitea') },
+        { value: 'gitlab', label: t('git.provider.gitlab') },
+      )
+    }
+    return out
+  }, [selfHostedGit, t])
 
   const load = useCallback(async () => {
     setError(null)
     try {
       const res = await oauthAdmin.list()
       setList(res.providers ?? [])
+      setSelfHostedGit(Boolean(res.features?.selfHostedGit))
     } catch (e) {
       setError(e instanceof Error ? e.message : t('oauthAdmin.loadFailed'))
     }
@@ -139,14 +146,14 @@ export function OAuthProvidersPanel() {
         kind,
         scheme: 'https',
         host: 'github.com',
-        label: form.label.trim() === '' || form.label === 'Gitea' ? 'GitHub' : form.label,
+        label: form.label.trim() === '' || form.label === 'Gitea' || form.label === 'GitLab' ? 'GitHub' : form.label,
       })
       return
     }
     patch({
       kind,
       host: form.host === 'github.com' ? '' : form.host,
-      label: form.label === 'GitHub' ? '' : form.label,
+      label: kind === 'gitlab' ? 'GitLab' : kind === 'gitea' ? 'Gitea' : form.label,
     })
   }
 
@@ -257,6 +264,16 @@ export function OAuthProvidersPanel() {
       <Typography.Text type="tertiary" size="small">
         {t('oauthAdmin.desc')}
       </Typography.Text>
+      {!selfHostedGit ? (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <Typography.Text type="tertiary" size="small">
+            {t('oauthAdmin.selfHostedHint')}
+          </Typography.Text>
+          <Button size="small" onClick={() => navigate('/admin/settings/plugins')}>
+            {t('oauthAdmin.openPlugins')}
+          </Button>
+        </div>
+      ) : null}
       {error ? (
         <div role="alert">
           <Banner
@@ -374,6 +391,7 @@ export function OAuthProvidersPanel() {
           gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
         }}
       >
+        {selfHostedGit ? (
         <div>
           <Typography.Text size="small" type="tertiary" style={fieldLabel}>
             {t('oauthAdmin.kind')}
@@ -386,7 +404,8 @@ export function OAuthProvidersPanel() {
             style={{ width: '100%' }}
           />
         </div>
-        {form.kind !== 'github' ? (
+        ) : null}
+        {selfHostedGit && form.kind !== 'github' ? (
           <>
             <div>
               <Typography.Text size="small" type="tertiary" style={fieldLabel}>
@@ -449,7 +468,7 @@ export function OAuthProvidersPanel() {
             placeholder={editing ? t('oauthAdmin.secretHint') : ''}
           />
         </div>
-        {form.kind !== 'github' ? (
+        {selfHostedGit && form.kind !== 'github' ? (
           <div>
             <Typography.Text size="small" type="tertiary" style={fieldLabel}>
               {t('oauthAdmin.scopes')}
@@ -499,7 +518,7 @@ export function OAuthProvidersPanel() {
         </div>
       ) : null}
 
-      {form.kind === 'github' ? (
+      {selfHostedGit && form.kind === 'github' ? (
         <details>
           <summary style={{ cursor: 'pointer' }}>
             <Typography.Text type="tertiary" size="small">

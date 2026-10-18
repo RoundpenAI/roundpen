@@ -72,8 +72,15 @@ export type GitHubManifestStart = {
   callbackUrl: string
 }
 
+export type OAuthAdminFeatures = {
+  selfHostedGit: boolean
+}
+
 export const oauthAdmin = {
-  list: () => api<{ providers: OAuthProvider[] }>('/v1/admin/oauth/providers'),
+  list: () =>
+    api<{ providers: OAuthProvider[]; features?: OAuthAdminFeatures }>(
+      '/v1/admin/oauth/providers',
+    ),
   save: (body: Partial<OAuthProvider> & { kind: string }) =>
     api<{ provider: OAuthProvider }>('/v1/admin/oauth/providers', {
       method: 'PUT',

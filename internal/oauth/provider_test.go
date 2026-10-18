@@ -43,6 +43,12 @@ func TestNormalizeProviderDefaults(t *testing.T) {
 			wantID:  "gitea-git-eaxi-com",
 			wantURL: [3]string{"https://sso.test/authorize", "https://git.eaxi.com/login/oauth/access_token", "https://git.eaxi.com/api/v1"},
 		},
+		{
+			name:    "gitlab self-hosted",
+			in:      Provider{Kind: "gitlab", Host: "gitlab.corp.test", ClientID: "cid", ClientSecret: "sec", Enabled: true},
+			wantID:  "gitlab-gitlab-corp-test",
+			wantURL: [3]string{"https://gitlab.corp.test/oauth/authorize", "https://gitlab.corp.test/oauth/token", "https://gitlab.corp.test/api/v4"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -57,8 +63,12 @@ func TestNormalizeProviderDefaults(t *testing.T) {
 				t.Errorf("urls = %q / %q / %q, want %q / %q / %q",
 					got.AuthURL, got.TokenURL, got.APIURL, tc.wantURL[0], tc.wantURL[1], tc.wantURL[2])
 			}
-			if got.Scopes != DefaultScopes {
-				t.Errorf("scopes = %q, want default %q", got.Scopes, DefaultScopes)
+			wantScopes := DefaultScopes
+			if tc.in.Kind == "gitlab" {
+				wantScopes = DefaultGitLabScopes
+			}
+			if got.Scopes != wantScopes {
+				t.Errorf("scopes = %q, want default %q", got.Scopes, wantScopes)
 			}
 			if got.Label == "" {
 				t.Error("label should default to a display name")
@@ -73,7 +83,7 @@ func TestNormalizeProviderRejects(t *testing.T) {
 		in   Provider
 		want string
 	}{
-		{"unknown kind", Provider{Kind: "gitlab", Host: "gitlab.com"}, "kind"},
+		{"unknown kind", Provider{Kind: "bitbucket", Host: "bitbucket.org"}, "kind"},
 		{"empty host", Provider{Kind: "gitea", Host: "  "}, "host"},
 		{"bad scheme", Provider{Kind: "gitea", Host: "git.test", Scheme: "ftp"}, "scheme"},
 		{"enabled without client id", Provider{Kind: "gitea", Host: "git.test", Enabled: true}, "client id"},
@@ -122,5 +132,29 @@ func TestProviderCallbackAndAuthorizeURL(t *testing.T) {
 		if q.Get(key) != want {
 			t.Errorf("authorize %s = %q, want %q", key, q.Get(key), want)
 		}
+	}
+}
+
+func TestRequiresSelfHostedPlugin(t *testing.T) {
+	gh, err := Normalize(Provider{Kind: "github", ClientID: "c", ClientSecret: "s", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if RequiresSelfHostedPlugin(gh) {
+		t.Fatal("github.com should be built-in")
+	}
+	ghe, err := Normalize(Provider{Kind: "github", Host: "ghe.corp.test", ClientID: "c", ClientSecret: "s", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !RequiresSelfHostedPlugin(ghe) {
+		t.Fatal("GitHub Enterprise should need the plugin")
+	}
+	gt, err := Normalize(Provider{Kind: "gitea", Host: "git.test", ClientID: "c", ClientSecret: "s", Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !RequiresSelfHostedPlugin(gt) {
+		t.Fatal("gitea should need the plugin")
 	}
 }

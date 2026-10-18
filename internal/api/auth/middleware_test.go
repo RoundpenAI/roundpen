@@ -42,6 +42,8 @@ func TestIsPublicPath(t *testing.T) {
 		{http.MethodDelete, "/v1/me/identities/id-1"},
 		{http.MethodGet, "/v1/admin/oauth/github/manifest"},
 		{http.MethodGet, "/v1/admin/oauth/providers"},
+		{http.MethodGet, "/v1/admin/plugins"},
+		{http.MethodPut, "/v1/admin/plugins/self-hosted-git"},
 		{http.MethodPut, "/v1/admin/oauth/providers"},
 		{http.MethodDelete, "/v1/admin/oauth/providers/gitea-git-eaxi-com"},
 	}

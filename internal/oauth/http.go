@@ -57,6 +57,15 @@ type adminProviderView struct {
 	CallbackURL  string `json:"callbackUrl"`
 }
 
+type adminListView struct {
+	Providers []adminProviderView `json:"providers"`
+	Features  adminFeatures       `json:"features"`
+}
+
+type adminFeatures struct {
+	SelfHostedGit bool `json:"selfHostedGit"`
+}
+
 func (h *Handler) listEnabled(w http.ResponseWriter, r *http.Request) {
 	providers, err := h.Svc.ListEnabledProviders(r.Context())
 	if err != nil {
@@ -205,7 +214,10 @@ func (h *Handler) adminList(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"providers": h.adminViews(r, providers)})
+	httpx.WriteJSON(w, http.StatusOK, adminListView{
+		Providers: h.adminViews(r, providers),
+		Features:  adminFeatures{SelfHostedGit: h.Svc.selfHostedAllowed()},
+	})
 }
 
 func (h *Handler) adminSave(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +239,10 @@ func (h *Handler) adminSave(w http.ResponseWriter, r *http.Request) {
 	}
 	saved, err := h.Svc.SaveProvider(r.Context(), payload)
 	if err != nil {
+		if errors.Is(err, ErrSelfHostedPluginDisabled) {
+			httpx.WriteErr(w, http.StatusConflict, err.Error())
+			return
+		}
 		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
