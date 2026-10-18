@@ -20,6 +20,12 @@ func TestNormalizeProviderDefaults(t *testing.T) {
 			wantURL: [3]string{"https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", "https://api.github.com"},
 		},
 		{
+			name:    "github.com implied host",
+			in:      Provider{Kind: "github", ClientID: "cid", ClientSecret: "sec", Enabled: true},
+			wantID:  "github",
+			wantURL: [3]string{"https://github.com/login/oauth/authorize", "https://github.com/login/oauth/access_token", "https://api.github.com"},
+		},
+		{
 			name:    "gitea instance with port",
 			in:      Provider{Kind: "gitea", Scheme: "http", Host: "git.eaxi.com:3000", ClientID: "cid", ClientSecret: "sec", Enabled: true},
 			wantID:  "gitea-git-eaxi-com-3000",

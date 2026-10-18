@@ -95,3 +95,37 @@ test('admin can add an oauth provider', async ({ page }) => {
 
   await expect(page.getByText('已保存。')).toBeVisible()
 })
+
+test('admin can add GitHub with only client id and secret', async ({ page }) => {
+  skipIfNoLivePassword()
+  await loginViaApi(page)
+  await page.goto('/admin/settings/oauth')
+
+  await expect(page.getByRole('button', { name: '一键在 GitHub 创建应用' })).toBeVisible()
+
+  await page.getByRole('combobox', { name: '类型' }).click()
+  await page.getByRole('option', { name: 'GitHub' }).click()
+  await expect(page.getByLabel('主机')).toBeHidden()
+  await page.getByLabel('Client ID').fill('gh-client')
+  await page.getByLabel('Client secret').fill('gh-secret')
+  await page.getByRole('button', { name: '新增 provider' }).click()
+  await expect(page.getByText('已保存。')).toBeVisible()
+})
+
+test('admin one-click GitHub App starts the remote form', async ({ page }) => {
+  skipIfNoLivePassword()
+  await loginViaApi(page)
+  await page.goto('/admin/settings/oauth')
+
+  // Smoke's authorize stub is a GET route; the real GitHub handshake is POST.
+  // Intercept so the button's form submit still lands on the local marker.
+  await page.route('**/v1/auth/oauth/dev/authorize**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body: '<!doctype html><meta charset="utf-8"><title>authorize stub</title><div id="oauth-authorize-stub">authorize stub</div>',
+    })
+  })
+  await page.getByRole('button', { name: '一键在 GitHub 创建应用' }).click()
+  await expect(page.locator('#oauth-authorize-stub')).toBeVisible()
+}))

@@ -31,6 +31,8 @@ Roundpen 支持三种验证方式（对齐 ai-sandbox）：
 | DELETE | `/v1/me/git-credentials/{id}` | session 或 API key | 删除一条 git token |
 | GET/PUT | `/v1/admin/oauth/providers` | admin | OAuth 应用配置（secret 脱敏；PUT 按 id upsert） |
 | DELETE | `/v1/admin/oauth/providers/{id}` | admin | 删除 provider 并级联解绑其身份 |
+| GET | `/v1/admin/oauth/github/manifest` | admin | 一键创建 GitHub App：返回要 POST 到 GitHub 的 manifest |
+| GET | `/v1/auth/oauth/github/manifest/callback` | public（state + 管理员会话绑定） | GitHub App Manifest 回调，写回 client id/secret |
 | POST | `/v1/auth/password` | session | `{ current_password, new_password }` |
 | POST | `/v1/auth/apikey/rotate` | session | 返回新明文 key 一次 |
 | GET | `/v1/admin/users` | admin | 用户列表 |
@@ -41,7 +43,7 @@ Roundpen 支持三种验证方式（对齐 ai-sandbox）：
 | POST | `/v1/admin/users/{username}/apikey` | admin | 返回新明文 API key 一次 |
 
 公开路径（无需登录）：`GET /health`、`GET /v1/ready`、登录/注册、`GET /v1/auth/oauth/`（联合登录的
-发现与回调）、以及 LLM 网关 `/llmgw/`（使用 virtual key）。
+发现与回调，含 GitHub App Manifest 回调）、以及 LLM 网关 `/llmgw/`（使用 virtual key）。
 
 登录按 IP 限流（15 分钟内 10 次失败）；`returnSessionToken` 在口令校验之后才生效，无法绕过限流。
 OAuth 回调不经过该限流器（不涉及凭据猜测，state 单次使用且 10 分钟过期）。
@@ -64,9 +66,12 @@ OAuth 回调不经过该限流器（不涉及凭据猜测，state 单次使用�
 
 ## 联合登录（GitHub / Gitea）
 
-- provider（client id/secret、Gitea 实例地址、scope）在 **设置 → OAuth 登录**（admin）里配置，
-  存 `oauth_providers` 表；多个 Gitea 实例 = 多行。界面展示的回调地址由当前请求推导，复制到
-  远端平台登记：`{scheme}://{host}/v1/auth/oauth/{id}/callback`。
+- provider 在 **设置 → OAuth 登录**（admin）里配置，存 `oauth_providers` 表；多个 Gitea 实例 = 多行。
+- **GitHub.com**：不用填 host / 端点 / scope。管理员点「一键在 GitHub 创建应用」，在 GitHub 确认后
+  client id/secret 自动写回（GitHub App Manifest）。也可以只粘贴已有 OAuth App 或 GitHub App 的
+  Client ID 与 secret。用户随后安装该应用，再用「使用 GitHub 登录」。
+- **Gitea / GitHub 企业版**：仍需填写实例地址，并把回调地址登记到远端：
+  `{scheme}://{host}/v1/auth/oauth/{id}/callback`（由当前请求推导，不落库）。
 - 首次登录的账号映射：已绑定 → 直接登录；远端**已验证邮箱**命中本地用户 → 自动关联；否则仅当
   `ROUNDPEN_ALLOW_PUBLIC_REGISTRATION=true` 时新建账号（无密码，`auth_provider` 记 provider 类型）；
   都不满足则回登录页提示"先本地登录再到设置里绑定"。

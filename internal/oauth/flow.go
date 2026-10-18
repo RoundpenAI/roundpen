@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -65,6 +66,12 @@ type Service struct {
 	OnIdentityChange func(ctx context.Context, userID string)
 	// Now is overridable in tests.
 	Now func() time.Time
+	// HTTP is used for outbound calls that are not provider-token exchanges
+	// (GitHub App Manifest conversion). Tests inject a client.
+	HTTP *http.Client
+	// GitHubConvertURL, when set, builds the manifest conversion URL for a
+	// temporary code. Production uses api.github.com.
+	GitHubConvertURL func(code string) string
 }
 
 // StartInput describes one authorization (login or link) request.

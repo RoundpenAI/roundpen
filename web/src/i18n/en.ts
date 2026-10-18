@@ -332,7 +332,7 @@ export const en = {
 
   'oauthAdmin.title': 'OAuth login',
   'oauthAdmin.desc':
-    'Register an OAuth application on GitHub or your Gitea instance, then paste its client id and secret here. Users can sign in with it and operate remote repositories as that identity.',
+    'GitHub.com does not need host, endpoints or scopes. Create the app in one click, or paste only the Client ID and secret. Gitea still needs the instance address.',
   'oauthAdmin.loadFailed': 'failed to load providers',
   'oauthAdmin.saveFailed': 'save failed',
   'oauthAdmin.deleteFailed': 'delete failed',
@@ -361,6 +361,20 @@ export const en = {
   'oauthAdmin.new': 'Add provider',
   'oauthAdmin.saveEdit': 'Save changes',
   'oauthAdmin.cancel': 'Cancel',
+  'oauthAdmin.githubOneClick': 'Create GitHub App',
+  'oauthAdmin.githubOneClickHint':
+    'GitHub shows a prefilled app. Confirm it and the Client ID and secret are written back here. Other users install that app, then sign in with GitHub.',
+  'oauthAdmin.githubOneClickFailed': 'could not start GitHub App setup',
+  'oauthAdmin.githubCreated': 'GitHub App saved. Users can sign in with GitHub.',
+  'oauthAdmin.githubDenied': 'GitHub App creation was cancelled.',
+  'oauthAdmin.githubState': 'GitHub App setup expired. Try again.',
+  'oauthAdmin.githubSession': 'Sign in as an administrator and try again.',
+  'oauthAdmin.githubFailed': 'GitHub App setup failed. Try again or paste Client ID and secret.',
+  'oauthAdmin.githubManual': 'Or paste an existing Client ID and secret',
+  'oauthAdmin.githubCallbackHint':
+    'If you create a classic OAuth App yourself, use this callback URL:',
+  'oauthAdmin.githubCreateOauthApp': 'Open GitHub OAuth Apps',
+  'oauthAdmin.enterprise': 'GitHub Enterprise / custom host',
 
 
   'agentEnv.title': 'Agent environment',

@@ -43,6 +43,9 @@ func Normalize(p Provider) (Provider, error) {
 		return Provider{}, fmt.Errorf("unsupported provider kind %q", p.Kind)
 	}
 
+	if strings.TrimSpace(p.Host) == "" && p.Kind == KindGitHub {
+		p.Host = "github.com"
+	}
 	host, embedded, err := splitHost(p.Host)
 	if err != nil {
 		return Provider{}, err

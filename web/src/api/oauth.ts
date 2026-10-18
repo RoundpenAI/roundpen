@@ -65,9 +65,16 @@ export type OAuthProvider = {
   callbackUrl: string
 }
 
+export type GitHubManifestStart = {
+  actionUrl: string
+  manifest: string
+  state: string
+  callbackUrl: string
+}
+
 export const oauthAdmin = {
   list: () => api<{ providers: OAuthProvider[] }>('/v1/admin/oauth/providers'),
-  save: (body: Partial<OAuthProvider> & { id: string; kind: string; host: string }) =>
+  save: (body: Partial<OAuthProvider> & { kind: string }) =>
     api<{ provider: OAuthProvider }>('/v1/admin/oauth/providers', {
       method: 'PUT',
       body: JSON.stringify(body),
@@ -76,4 +83,6 @@ export const oauthAdmin = {
     api<void>(`/v1/admin/oauth/providers/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }),
+  githubManifest: () =>
+    api<GitHubManifestStart>('/v1/admin/oauth/github/manifest'),
 }

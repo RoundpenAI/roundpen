@@ -27,6 +27,10 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/auth/oauth/providers", h.listEnabled)
 	mux.HandleFunc("GET /v1/auth/oauth/{provider}/start", h.start)
 	mux.HandleFunc("GET /v1/auth/oauth/{provider}/callback", h.callback)
+	// GitHub App Manifest: GitHub redirects the admin's browser here after
+	// they create the app. Public like other OAuth callbacks; the state row
+	// and the admin session bind the handshake.
+	mux.HandleFunc("GET /v1/auth/oauth/github/manifest/callback", h.githubManifestCallback)
 
 	mux.HandleFunc("GET /v1/me/identities", h.listIdentities)
 	mux.HandleFunc("POST /v1/me/identities/link/{provider}", h.link)
@@ -35,6 +39,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/admin/oauth/providers", auth.RequireAdmin(h.adminList))
 	mux.HandleFunc("PUT /v1/admin/oauth/providers", auth.RequireAdmin(h.adminSave))
 	mux.HandleFunc("DELETE /v1/admin/oauth/providers/{id}", auth.RequireAdmin(h.adminDelete))
+	mux.HandleFunc("GET /v1/admin/oauth/github/manifest", auth.RequireAdmin(h.githubManifestStart))
 }
 
 type providerView struct {
@@ -227,6 +232,60 @@ func (h *Handler) adminSave(w http.ResponseWriter, r *http.Request) {
 	}
 	views := h.adminViews(r, []Provider{*saved})
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"provider": views[0]})
+}
+
+func (h *Handler) githubManifestStart(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	out, err := h.Svc.StartGitHubManifest(r.Context(), user.Username,
+		httpx.DefaultTrust.Scheme(r), httpx.DefaultTrust.Host(r))
+	if err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *Handler) githubManifestCallback(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	sessionUser := ""
+	if user != nil {
+		sessionUser = user.Username
+	}
+	if e := r.URL.Query().Get("error"); e != "" {
+		http.Redirect(w, r, githubSettingsError("denied"), http.StatusFound)
+		return
+	}
+	if user == nil || user.Role != storage.RoleAdmin {
+		http.Redirect(w, r, githubSettingsError("session"), http.StatusFound)
+		return
+	}
+	_, err := h.Svc.CompleteGitHubManifest(r.Context(),
+		r.URL.Query().Get("code"), r.URL.Query().Get("state"), sessionUser)
+	if err != nil {
+		slog.Warn("github manifest callback", "err", err)
+		http.Redirect(w, r, githubSettingsError(githubManifestErrorCode(err)), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, githubSettingsPath+"?github_app=1", http.StatusFound)
+}
+
+func githubManifestErrorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrStateInvalid):
+		return "state"
+	case errors.Is(err, ErrStateUserMismatch):
+		return "session"
+	default:
+		return "failed"
+	}
+}
+
+func githubSettingsError(code string) string {
+	return withQuery(githubSettingsPath, "github_app_error", code)
 }
 
 func (h *Handler) adminDelete(w http.ResponseWriter, r *http.Request) {

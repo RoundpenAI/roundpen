@@ -329,7 +329,7 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'oauthAdmin.title': 'OAuth 登录',
   'oauthAdmin.desc':
-    '在 GitHub 或你的 Gitea 实例上注册 OAuth 应用，把 client id / secret 填在这里。用户即可用它登录，并以该身份操作远程仓库。',
+    'GitHub.com 不用填 host、端点和 scope。一键创建应用，或只粘贴 Client ID 和 secret。Gitea 仍需填写实例地址。',
   'oauthAdmin.loadFailed': '加载 provider 失败',
   'oauthAdmin.saveFailed': '保存失败',
   'oauthAdmin.deleteFailed': '删除失败',
@@ -358,6 +358,19 @@ export const zh_CN: Record<MessageKey, string> = {
   'oauthAdmin.new': '新增 provider',
   'oauthAdmin.saveEdit': '保存修改',
   'oauthAdmin.cancel': '取消',
+  'oauthAdmin.githubOneClick': '一键在 GitHub 创建应用',
+  'oauthAdmin.githubOneClickHint':
+    'GitHub 会打开一张预填好的应用表。确认后 Client ID 和 secret 自动写回这里。其他用户安装该应用后即可「使用 GitHub 登录」。',
+  'oauthAdmin.githubOneClickFailed': '无法开始 GitHub 应用创建',
+  'oauthAdmin.githubCreated': 'GitHub 应用已保存，用户可以用 GitHub 登录了。',
+  'oauthAdmin.githubDenied': '已取消创建 GitHub 应用。',
+  'oauthAdmin.githubState': '创建链接已过期，请重试。',
+  'oauthAdmin.githubSession': '请用管理员账号重新登录后再试。',
+  'oauthAdmin.githubFailed': '创建 GitHub 应用失败。请重试，或改为粘贴 Client ID 和 secret。',
+  'oauthAdmin.githubManual': '或者粘贴已有的 Client ID 和 secret',
+  'oauthAdmin.githubCallbackHint': '若你自己创建经典 OAuth App，回调地址用这个：',
+  'oauthAdmin.githubCreateOauthApp': '打开 GitHub OAuth Apps',
+  'oauthAdmin.enterprise': 'GitHub 企业版 / 自定义主机',
 
 
   'agentEnv.title': 'Agent 环境',
