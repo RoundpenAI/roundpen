@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -26,6 +27,9 @@ var (
 	ErrRegistrationDisabled = errors.New("no local account matches; sign in with your password and link from settings")
 	// ErrProviderUnavailable covers unknown and disabled providers.
 	ErrProviderUnavailable = errors.New("provider is not available")
+	// ErrSelfHostedPluginDisabled is returned when adding a Gitea / GitLab /
+	// GitHub Enterprise provider while the self-hosted Git plugin is off.
+	ErrSelfHostedPluginDisabled = errors.New("enable the self-hosted Git plugin to add this provider")
 )
 
 const (
@@ -65,6 +69,15 @@ type Service struct {
 	OnIdentityChange func(ctx context.Context, userID string)
 	// Now is overridable in tests.
 	Now func() time.Time
+	// HTTP is used for outbound calls that are not provider-token exchanges
+	// (GitHub App Manifest conversion). Tests inject a client.
+	HTTP *http.Client
+	// GitHubConvertURL, when set, builds the manifest conversion URL for a
+	// temporary code. Production uses api.github.com.
+	GitHubConvertURL func(code string) string
+	// SelfHostedGitEnabled, when set, gates new Gitea / GitLab / GitHub
+	// Enterprise providers. nil allows them (tests and pre-plugin stores).
+	SelfHostedGitEnabled func() bool
 }
 
 // StartInput describes one authorization (login or link) request.
@@ -113,7 +126,19 @@ func (s *Service) SaveProvider(ctx context.Context, p Provider) (*Provider, erro
 	if err != nil {
 		return nil, err
 	}
+	if RequiresSelfHostedPlugin(norm) && !s.selfHostedAllowed() {
+		if _, err := s.Store.GetProvider(ctx, norm.ID); err != nil {
+			return nil, ErrSelfHostedPluginDisabled
+		}
+	}
 	return s.Store.SaveProvider(ctx, norm)
+}
+
+func (s *Service) selfHostedAllowed() bool {
+	if s == nil || s.SelfHostedGitEnabled == nil {
+		return true
+	}
+	return s.SelfHostedGitEnabled()
 }
 
 // DeleteProvider removes a provider and (by cascade) its identities.

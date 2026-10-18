@@ -25,13 +25,16 @@ type AppSettings struct {
 	// AgentImage pins the Agent sandbox image, overriding the agent template's
 	// own image while the template still supplies its resources. Empty keeps
 	// the template in charge.
-	AgentImage string `json:"agentImage"`
-	LlmgwEnabled            bool   `json:"llmgwEnabled"`
-	LlmgwPublicURL          string `json:"llmgwPublicUrl"`
-	LlmgwLogBodyMaxBytes    int    `json:"llmgwLogBodyMaxBytes"`
-	LlmgwVirtualKeys        string `json:"llmgwVirtualKeys"`
+	AgentImage           string `json:"agentImage"`
+	LlmgwEnabled         bool   `json:"llmgwEnabled"`
+	LlmgwPublicURL       string `json:"llmgwPublicUrl"`
+	LlmgwLogBodyMaxBytes int    `json:"llmgwLogBodyMaxBytes"`
+	LlmgwVirtualKeys     string `json:"llmgwVirtualKeys"`
 	// AutoMode configures the policy classifier behind the chat Auto toggle.
 	AutoMode AutoModeSettings `json:"autoMode"`
+	// EnabledPlugins lists optional instance capabilities (see internal/plugins).
+	// Omitted from a settings PUT keeps the stored set.
+	EnabledPlugins []string `json:"enabledPlugins,omitempty"`
 }
 
 // AutoModeSettings holds the admin-configured auto-mode policy. Lists carry

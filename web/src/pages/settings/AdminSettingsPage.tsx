@@ -14,6 +14,7 @@ import {
 import { useAuth } from '../../auth'
 import { useT } from '../../i18n'
 import { OAuthProvidersPanel } from '../../components/OAuthProvidersPanel'
+import { PluginsPanel } from '../../components/PluginsPanel'
 import { SETTINGS_AREAS } from '../../lib/appNav'
 import {
   AUTOMODE_DEFAULTS_TOKEN,
@@ -212,6 +213,8 @@ export function AdminSettingsPage() {
 
       {section === 'oauth' && <OAuthProvidersPanel />}
 
+      {section === 'plugins' && <PluginsPanel />}
+
       {section === 'general' && (
         <GeneralSection
           isAdmin={isAdmin}
@@ -278,7 +281,7 @@ export function AdminSettingsPage() {
         <SystemSection isAdmin={isAdmin} loading={loading} t={t} sys={sys} />
       )}
 
-      {!loading && (
+      {!loading && section !== 'oauth' && section !== 'plugins' && (
         <div
           style={{
             marginTop: 24,

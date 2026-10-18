@@ -50,6 +50,24 @@ func TestDecodeAppSettingsIgnoresRetiredKeys(t *testing.T) {
 	}
 }
 
+func TestDecodeAppSettingsKeepsEnabledPlugins(t *testing.T) {
+	fallback := settings.AppSettings{
+		DefaultImage:      "host",
+		DefaultTtlSeconds: 1800,
+		EnabledPlugins:    []string{"self-hosted-git"},
+	}
+	got, err := settings.DecodeAppSettings([]byte(`{
+		"defaultImage": "python",
+		"defaultTtlSeconds": 1200
+	}`), fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.EnabledPlugins) != 1 || got.EnabledPlugins[0] != "self-hosted-git" {
+		t.Fatalf("enabledPlugins fallback lost: %+v", got.EnabledPlugins)
+	}
+}
+
 func TestDecodeAppSettingsHonorsExplicitLLMGW(t *testing.T) {
 	fallback := settings.AppSettings{LlmgwEnabled: true, LlmgwVirtualKeys: "vk-env"}
 	got, err := settings.DecodeAppSettings([]byte(`{

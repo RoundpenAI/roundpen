@@ -129,6 +129,7 @@ func (c *Client) Profile(ctx context.Context, accessToken string) (Profile, erro
 	var me struct {
 		ID       any    `json:"id"`
 		Login    string `json:"login"`
+		Username string `json:"username"`
 		Name     string `json:"name"`
 		FullName string `json:"full_name"`
 		Email    string `json:"email"`
@@ -140,9 +141,13 @@ func (c *Client) Profile(ctx context.Context, accessToken string) (Profile, erro
 	if name == "" {
 		name = me.FullName
 	}
+	login := me.Login
+	if login == "" {
+		login = me.Username
+	}
 	p := Profile{
 		Subject: subjectOf(me.ID),
-		Login:   me.Login,
+		Login:   login,
 		Name:    name,
 		Email:   me.Email,
 	}
@@ -156,16 +161,21 @@ func (c *Client) Profile(ctx context.Context, accessToken string) (Profile, erro
 // primaryVerifiedEmail asks the provider's emails API; failures are non-fatal.
 func (c *Client) primaryVerifiedEmail(ctx context.Context, accessToken string) string {
 	var emails []struct {
-		Email    string `json:"email"`
-		Primary  bool   `json:"primary"`
-		Verified bool   `json:"verified"`
+		Email       string `json:"email"`
+		Primary     bool   `json:"primary"`
+		Verified    bool   `json:"verified"`
+		ConfirmedAt string `json:"confirmed_at"`
 	}
 	if err := c.apiGet(ctx, c.Provider.APIURL+"/user/emails", accessToken, &emails); err != nil {
 		return ""
 	}
 	fallback := ""
 	for _, e := range emails {
-		if !e.Verified || e.Email == "" {
+		verified := e.Verified || e.ConfirmedAt != ""
+		if !verified && c.Provider.Kind != KindGitLab {
+			continue
+		}
+		if e.Email == "" {
 			continue
 		}
 		if e.Primary {

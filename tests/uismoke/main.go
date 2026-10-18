@@ -90,6 +90,8 @@ func main() {
 		"id": "gitea-git-eaxi-com", "kind": "gitea", "host": "git.eaxi.com", "label": "Gitea",
 	}}}
 	providers.reset()
+	var pluginMu sync.Mutex
+	selfHostedGit := false
 	mux := http.NewServeMux()
 	auth.Mount(mux, users, sessions, func() bool { return false }, "")
 	(&envapi.Handler{
@@ -421,6 +423,9 @@ func main() {
 		identities.reset()
 		providers.reset()
 		mcpFixture.reset()
+		pluginMu.Lock()
+		selfHostedGit = false
+		pluginMu.Unlock()
 		writeJSON(w, map[string]any{"ok": true})
 	})
 	// Test hook: replace the enabled provider list, so a spec can reach the
@@ -463,21 +468,55 @@ func main() {
 	})
 	// Stays under /v1/auth/oauth/ because only that prefix is public to the
 	// middleware, exactly like the real remote authorization page.
-	mux.HandleFunc("GET /v1/auth/oauth/dev/authorize", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/v1/auth/oauth/dev/authorize", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(w, `<!doctype html><meta charset="utf-8"><title>authorize stub</title><div id="oauth-authorize-stub">authorize stub</div>`)
 	})
 	mux.HandleFunc("GET /v1/admin/oauth/providers", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"providers": []map[string]any{{
-			"id": "gitea-git-eaxi-com", "kind": "gitea", "scheme": "https", "host": "git.eaxi.com",
-			"label": "Gitea", "clientId": "smoke-client", "clientSecret": "●●●●●●●●",
-			"scopes":   "read:user user:email repo",
-			"authUrl":  "https://git.eaxi.com/login/oauth/authorize",
-			"tokenUrl": "https://git.eaxi.com/login/oauth/access_token",
-			"apiUrl":   "https://git.eaxi.com/api/v1", "enabled": true,
-			"displayLabel": "Gitea",
-			"callbackUrl":  "http://" + r.Host + "/v1/auth/oauth/gitea-git-eaxi-com/callback",
+		pluginMu.Lock()
+		enabled := selfHostedGit
+		pluginMu.Unlock()
+		writeJSON(w, map[string]any{
+			"providers": []map[string]any{{
+				"id": "gitea-git-eaxi-com", "kind": "gitea", "scheme": "https", "host": "git.eaxi.com",
+				"label": "Gitea", "clientId": "smoke-client", "clientSecret": "●●●●●●●●",
+				"scopes":   "read:user user:email repo",
+				"authUrl":  "https://git.eaxi.com/login/oauth/authorize",
+				"tokenUrl": "https://git.eaxi.com/login/oauth/access_token",
+				"apiUrl":   "https://git.eaxi.com/api/v1", "enabled": true,
+				"displayLabel": "Gitea",
+				"callbackUrl":  "http://" + r.Host + "/v1/auth/oauth/gitea-git-eaxi-com/callback",
+			}},
+			"features": map[string]any{"selfHostedGit": enabled},
+		})
+	})
+	mux.HandleFunc("GET /v1/admin/plugins", func(w http.ResponseWriter, _ *http.Request) {
+		pluginMu.Lock()
+		enabled := selfHostedGit
+		pluginMu.Unlock()
+		writeJSON(w, map[string]any{"plugins": []map[string]any{{
+			"id": "self-hosted-git", "name": "Self-hosted Git", "group": "access",
+			"description": "Gitea, GitLab and GitHub Enterprise OAuth login.",
+			"enabled": enabled,
 		}}})
+	})
+	mux.HandleFunc("PUT /v1/admin/plugins/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("id") != "self-hosted-git" {
+			writeJSONStatus(w, http.StatusNotFound, map[string]any{"message": "plugin not found"})
+			return
+		}
+		var body struct {
+			Enabled bool `json:"enabled"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		pluginMu.Lock()
+		selfHostedGit = body.Enabled
+		pluginMu.Unlock()
+		writeJSON(w, map[string]any{"plugin": map[string]any{
+			"id": "self-hosted-git", "name": "Self-hosted Git", "group": "access",
+			"description": "Gitea, GitLab and GitHub Enterprise OAuth login.",
+			"enabled": body.Enabled,
+		}})
 	})
 	mux.HandleFunc("PUT /v1/admin/oauth/providers", func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -488,6 +527,14 @@ func main() {
 	})
 	mux.HandleFunc("DELETE /v1/admin/oauth/providers/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("GET /v1/admin/oauth/github/manifest", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{
+			"actionUrl":    "/v1/auth/oauth/dev/authorize?provider=github-manifest",
+			"manifest":     `{"name":"Roundpen","url":"http://` + r.Host + `"}`,
+			"state":        "smoke-manifest",
+			"callbackUrl":  "http://" + r.Host + "/v1/auth/oauth/github/callback",
+		})
 	})
 
 	log.Printf("uismoke-api %s live=%s", *listen, liveUpstream.URL)

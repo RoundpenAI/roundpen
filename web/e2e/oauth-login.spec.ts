@@ -80,18 +80,59 @@ test('linked accounts keeps an entry when no account can be bound yet', async ({
   await expect(page).toHaveURL(/\/admin\/settings\/oauth$/)
 })
 
-test('admin can add an oauth provider', async ({ page }) => {
+test('admin can add an oauth provider after enabling the plugin', async ({
+  page,
+}) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
-  await page.goto('/admin/settings/oauth')
+  await resetSmoke(page)
+  await page.goto('/admin/settings/plugins')
+  await page.getByRole('button', { name: '启用' }).click()
+  await expect(page.getByRole('button', { name: '停用' })).toBeVisible()
 
+  await page.goto('/admin/settings/oauth')
   await expect(page.getByText('smoke-client')).toBeVisible()
   await expect(page.getByText('/v1/auth/oauth/gitea-git-eaxi-com/callback')).toBeVisible()
 
+  await page.getByRole('combobox').filter({ hasText: /^GitHub$/ }).click()
+  await page.getByRole('option', { name: 'Gitea' }).click()
   await page.getByLabel('主机').fill('git2.example.test')
   await page.getByLabel('Client ID').fill('new-client')
   await page.getByLabel('Client secret').fill('new-secret')
   await page.getByRole('button', { name: '新增 provider' }).click()
 
   await expect(page.getByText('已保存。')).toBeVisible()
+})
+
+test('admin can add GitHub with only client id and secret', async ({ page }) => {
+  skipIfNoLivePassword()
+  await loginViaApi(page)
+  await resetSmoke(page)
+  await page.goto('/admin/settings/oauth')
+
+  await expect(page.getByRole('button', { name: '一键在 GitHub 创建应用' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '打开插件' })).toBeVisible()
+  await expect(page.getByLabel('主机')).toBeHidden()
+  await page.getByLabel('Client ID').fill('gh-client')
+  await page.getByLabel('Client secret').fill('gh-secret')
+  await page.getByRole('button', { name: '新增 provider' }).click()
+  await expect(page.getByText('已保存。')).toBeVisible()
+})
+
+test('admin one-click GitHub App starts the remote form', async ({ page }) => {
+  skipIfNoLivePassword()
+  await loginViaApi(page)
+  await page.goto('/admin/settings/oauth')
+
+  // Smoke's authorize stub is a GET route; the real GitHub handshake is POST.
+  // Intercept so the button's form submit still lands on the local marker.
+  await page.route('**/v1/auth/oauth/dev/authorize**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      body: '<!doctype html><meta charset="utf-8"><title>authorize stub</title><div id="oauth-authorize-stub">authorize stub</div>',
+    })
+  })
+  await page.getByRole('button', { name: '一键在 GitHub 创建应用' }).click()
+  await expect(page.locator('#oauth-authorize-stub')).toBeVisible()
 })

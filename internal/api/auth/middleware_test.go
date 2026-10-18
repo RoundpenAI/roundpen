@@ -21,6 +21,7 @@ func TestIsPublicPath(t *testing.T) {
 		{http.MethodGet, "/v1/auth/oauth/providers"},
 		{http.MethodGet, "/v1/auth/oauth/gitea-git-eaxi-com/start"},
 		{http.MethodGet, "/v1/auth/oauth/gitea-git-eaxi-com/callback"},
+		{http.MethodGet, "/v1/auth/oauth/github/manifest/callback"},
 		{http.MethodGet, "/v1/connectors/google/callback"},
 		{http.MethodGet, "/v1/connectors/mcp/callback"},
 		{http.MethodGet, "/settings/accounts"},
@@ -39,7 +40,10 @@ func TestIsPublicPath(t *testing.T) {
 		{http.MethodGet, "/v1/me/identities"},
 		{http.MethodPost, "/v1/me/identities/link/gitea-git-eaxi-com"},
 		{http.MethodDelete, "/v1/me/identities/id-1"},
+		{http.MethodGet, "/v1/admin/oauth/github/manifest"},
 		{http.MethodGet, "/v1/admin/oauth/providers"},
+		{http.MethodGet, "/v1/admin/plugins"},
+		{http.MethodPut, "/v1/admin/plugins/self-hosted-git"},
 		{http.MethodPut, "/v1/admin/oauth/providers"},
 		{http.MethodDelete, "/v1/admin/oauth/providers/gitea-git-eaxi-com"},
 	}
