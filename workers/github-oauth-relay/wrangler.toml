@@ -1,0 +1,26 @@
+name = "roundpen-github-oauth"
+main = "src/index.ts"
+compatibility_date = "2026-10-18"
+
+# Custom domain in the dashboard (or `routes` below):
+#   auth.roundpen.ai/*
+# Register that same origin + /github/callback on the official GitHub App.
+
+[vars]
+# Public origin of THIS worker. Must match the GitHub App callback origin.
+PUBLIC_BASE = "https://auth.roundpen.ai"
+# Login-only. Do not request repo write on a shared official app.
+GITHUB_SCOPES = "read:user user:email"
+TICKET_TTL_SECONDS = "60"
+
+[[durable_objects.bindings]]
+name = "TICKETS"
+class_name = "TicketDO"
+
+[[durable_objects.bindings]]
+name = "INSTALLS"
+class_name = "InstallDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TicketDO", "InstallDO"]
