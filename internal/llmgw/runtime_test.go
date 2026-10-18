@@ -33,8 +33,11 @@ func TestApplyConfigUpdatesRuntimeFields(t *testing.T) {
 	if gw.Enabled() {
 		t.Fatal("expected disabled")
 	}
-	vk, err := gw.Store().GetVirtualKey(context.Background(), "vk-a")
-	if err != nil || vk.Name != "a" {
-		t.Fatalf("virtual key: %+v err=%v", vk, err)
+	if _, err := gw.Store().GetVirtualKey(context.Background(), "vk-a"); err == nil {
+		t.Fatal("operator virtual keys must not be seeded")
+	}
+	vk, err := gw.Store().GetVirtualKey(context.Background(), gw.InternalKey())
+	if err != nil || vk.Name != llmgw.InternalVirtualName {
+		t.Fatalf("internal key: %+v err=%v", vk, err)
 	}
 }

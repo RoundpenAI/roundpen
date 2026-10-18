@@ -1,5 +1,5 @@
 import { Input, InputNumber, Select, Switch, TextArea, Typography } from '@douyinfe/semi-ui-19'
-import type { ItemField, ItemKind, SettingItem } from '../../../api'
+import type { ItemField, ItemKind, LlmgwVendor, SettingItem } from '../../../api'
 import { Field } from '../parts'
 import { fieldHint, fieldLabel, optionDescription, optionLabel } from '../../../lib/settingItemLabels'
 import type { Translate } from '../helpers'
@@ -9,8 +9,14 @@ type Props = {
   fields: ItemField[]
   config: Record<string, unknown>
   refs?: Record<string, SettingItem[]>
+  vendors?: LlmgwVendor[]
   t: Translate
   onChange: (key: string, value: unknown) => void
+}
+
+function vendorOf(config: Record<string, unknown>, vendors?: LlmgwVendor[]): LlmgwVendor | undefined {
+  const id = typeof config.vendor === 'string' && config.vendor !== '' ? config.vendor : 'custom'
+  return vendors?.find((v) => v.id === id)
 }
 
 /** Renders one item config value from its backend-declared field type. */
@@ -113,22 +119,38 @@ function parseJSONField(raw: string): unknown {
   }
 }
 
-export function ItemFields({ kind, fields, config, refs, t, onChange }: Props) {
-  const visible = fields.filter((f) => !f.advanced)
-  const advanced = fields.filter((f) => f.advanced)
+export function ItemFields({ kind, fields, config, refs, vendors, t, onChange }: Props) {
+  const preset = vendorOf(config, vendors)
+  const builtin = Boolean(preset && preset.id !== 'custom' && preset.models.length > 0)
+  // A built-in platform fills protocol and base URL itself; the model is a dropdown.
+  const hidden = new Set(builtin ? ['protocol', 'baseUrl', 'defaultModel'] : [])
+  const visible = fields.filter((f) => !f.advanced && !hidden.has(f.key))
+  const advanced = fields.filter((f) => f.advanced && !hidden.has(f.key))
   return (
     <>
       {visible.map((field) => (
-        <ItemFieldInput
-          key={field.key}
-          kind={kind}
-          field={field}
-          fields={fields}
-          config={config}
-          refs={refs}
-          t={t}
-          onChange={onChange}
-        />
+        <span key={field.key} style={{ display: 'contents' }}>
+          <ItemFieldInput
+            kind={kind}
+            field={field}
+            fields={fields}
+            config={config}
+            refs={refs}
+            vendors={vendors}
+            t={t}
+            onChange={onChange}
+          />
+          {builtin && field.key === 'vendor' && preset && (
+            <Field label={t('settings.llmgw.model')} hint={t('settings.llmgw.modelHint')}>
+              <Select
+                value={typeof config.defaultModel === 'string' ? config.defaultModel : undefined}
+                onChange={(v) => onChange('defaultModel', v)}
+                optionList={preset.models.map((m) => ({ value: m.id, label: m.label }))}
+                style={{ width: '100%' }}
+              />
+            </Field>
+          )}
+        </span>
       ))}
       {advanced.length > 0 && (
         <details>
@@ -146,6 +168,7 @@ export function ItemFields({ kind, fields, config, refs, t, onChange }: Props) {
                 fields={fields}
                 config={config}
                 refs={refs}
+                vendors={vendors}
                 t={t}
                 onChange={onChange}
               />

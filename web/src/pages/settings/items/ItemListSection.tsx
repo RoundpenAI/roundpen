@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Banner, Button, Modal, Tag, Typography } from '@douyinfe/semi-ui-19'
 import {
+  llmgwVendors,
   settingItems,
   type ItemKind,
   type KindDef,
+  type LlmgwVendor,
   type SettingItem,
 } from '../../../api'
 import type { MessageKey } from '../../../i18n'
@@ -44,6 +46,7 @@ export function ItemListSection({ kind, introKey, noteKey, t, renderItemAction }
   const [def, setDef] = useState<KindDef | null>(null)
   const [items, setItems] = useState<SettingItem[]>([])
   const [refs, setRefs] = useState<Record<string, SettingItem[]>>({})
+  const [vendors, setVendors] = useState<LlmgwVendor[]>([])
   const [editing, setEditing] = useState<SettingItem | null>(null)
   const [creating, setCreating] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -54,10 +57,12 @@ export function ItemListSection({ kind, introKey, noteKey, t, renderItemAction }
   const load = useCallback(async () => {
     setError(null)
     try {
-      const [schema, listed] = await Promise.all([
+      const [schema, listed, vendorList] = await Promise.all([
         settingItems.schema(),
         settingItems.list(kind),
+        kind === 'llm' ? llmgwVendors().catch(() => [] as LlmgwVendor[]) : Promise.resolve([]),
       ])
+      setVendors(vendorList ?? [])
       const kindDef = schema.kinds.find((k) => k.kind === kind) ?? null
       setDef(kindDef)
       setItems(listed.items ?? [])
@@ -173,6 +178,13 @@ export function ItemListSection({ kind, introKey, noteKey, t, renderItemAction }
                 </Tag>
               )}
             </div>
+            {kind === 'llm' && typeof item.config.defaultModel === 'string' && item.config.defaultModel && (
+              <Typography.Text type="tertiary" size="small">
+                {item.config.vendor && item.config.vendor !== 'custom'
+                  ? `${String(item.config.vendor)} · ${item.config.defaultModel}`
+                  : item.config.defaultModel}
+              </Typography.Text>
+            )}
             {item.description && (
               <Typography.Text type="tertiary" size="small">
                 {item.description}
@@ -210,6 +222,7 @@ export function ItemListSection({ kind, introKey, noteKey, t, renderItemAction }
         kind={kind}
         def={def}
         refs={refs}
+        vendors={vendors}
         t={t}
         item={editing ?? (creating ? blank() : null)}
         onSave={save}

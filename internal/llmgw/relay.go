@@ -274,7 +274,19 @@ func (g *Gateway) authenticate(r *http.Request) (VirtualKey, string) {
 		g.logger.Error("llmgw get virtual key", "err", err)
 		return VirtualKey{}, "virtual key lookup failed"
 	}
+	if !internalUseKey(*vk) {
+		return VirtualKey{}, "external virtual keys are disabled"
+	}
 	return *vk, ""
+}
+
+// internalUseKey is a credential injected into this process or a Docker
+// agent. Operator-configured client keys are not accepted on the relay.
+func internalUseKey(vk VirtualKey) bool {
+	if vk.Name == InternalVirtualName {
+		return true
+	}
+	return strings.HasPrefix(vk.Name, "agent-")
 }
 
 func extractVirtualKey(r *http.Request) string {

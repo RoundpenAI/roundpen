@@ -164,24 +164,26 @@ export const en = {
     'NAS and compose should use Docker Chrome or a remote/cloud CDP — do not install Chrome on the NAS OS. Host Chrome is for laptop debugging only.',
 
   'settings.llmgw.intro':
-    'Roundpen relays model calls so Agents never hold your real OpenAI / Anthropic keys. Configure upstream credentials below; Agents and Chats only receive a virtual key that calls /llmgw on this control plane.',
+    'Roundpen relays model calls so Agents never hold your upstream keys. Add DeepSeek, Kimi, GLM or OpenRouter with an API key and a model, or a custom endpoint. The relay credential is injected into Docker agents only and is not issued for external clients.',
   'settings.llmgw.modeHint':
     'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → LLM gateway for production; on 429 the UI cues the same path.',
   'settings.llmgw.enable':
     'Enable relay (required for Agent Chats & memory embeddings)',
   'settings.llmgw.upstreamTitle': '1 · Upstream providers',
   'settings.llmgw.upstreamHint':
-    'One item per provider; every usage point below (agents, chats, classifier, embeddings) picks one. Providers are relayed at /llmgw/<id> and hold the real upstream key.',
+    'Built-in platforms need an API key and a model. A custom provider also needs a protocol and base URL. Per-usage-point choices appear only after a second provider is added; until then every usage point inherits the one you configured.',
   'settings.llmgw.keepSecret': 'Leave masked to keep the stored secret.',
   'settings.llmgw.agentsTitle': '2 · What Agents use',
   'settings.llmgw.agentsHint':
-    'Sandboxes get OPENAI_BASE_URL / ANTHROPIC_BASE_URL pointing at this Roundpen, plus a virtual key as OPENAI_API_KEY.',
+    'Docker agents receive OPENAI_BASE_URL / ANTHROPIC_BASE_URL pointing at this Roundpen. The relay key is injected into the container and is not available as an external client credential.',
   'settings.llmgw.publicUrl': 'Control-plane public URL',
   'settings.llmgw.publicUrlHint':
     'URL Agents inside sandboxes can reach (e.g. http://host.docker.internal:9527 or your LAN IP). Not the upstream OpenAI URL.',
+  'settings.llmgw.model': 'Model',
+  'settings.llmgw.modelHint': 'Models this platform serves. The gateway sends this id upstream.',
   'settings.llmgw.virtualKeys': 'Virtual keys',
   'settings.llmgw.virtualKeysHint':
-    'Client credentials for /llmgw. Format: vk-name:label or vk-name (comma-separated). Example: vk-dev:dev,vk-prod:prod. Agents pick a non-internal key automatically.',
+    'External virtual keys are no longer issued. Docker agents receive an injected relay key.',
   'settings.llmgw.advanced': 'Advanced',
   'settings.llmgw.logBody': 'Request body logging',
   'settings.llmgw.logBodyHint':
@@ -190,7 +192,7 @@ export const en = {
     'Secrets are stored in PostgreSQL and shown masked. Leave a masked field unchanged to keep the existing value. Saves apply immediately — no restart.',
 
   'settings.webtools.intro':
-    'Web tools let Agents fetch pages and search the web from the control plane. Add one item per search backend; pick the default below. WebFetch needs no configuration.',
+    'Web tools let Agents fetch pages and search the web from the control plane. DeepSeek, Kimi, GLM and OpenRouter supply WebSearch from the key you already saved. Add a search backend here only when you want a different one. WebFetch needs no configuration.',
   'settings.webtools.note':
     'Applies to new Agent sessions — reopen a session to see the WebSearch tool. With no endpoint and no key the tool stays unregistered.',
 
@@ -442,6 +444,10 @@ export const en = {
 
   'settings.slots.intro':
     'Default backend for each usage point. Items are picked from the list above; "Inherit" leaves the built-in default.',
+  'settings.slots.singleProvider':
+    'With one LLM provider, agents, chat and embeddings all use it. Add another provider to choose one per usage point.',
+  'settings.slots.multiIntro':
+    'Each usage point inherits the first enabled provider. Change a point only when it should use a different one.',
   'settings.slots.inherit': 'Inherit',
   'settings.slots.loadFailed': 'Failed to load the slot defaults.',
   'settings.slots.saveFailed': 'Failed to save the slot default.',
@@ -517,6 +523,24 @@ export const en = {
     'Attaches to a self-hosted browserless on your LAN (browserless/chrome, chromium, …).\nEndpoint is required: http(s)://host:port or ws(s)://…; without a path the platform tries /chrome, /chromium, then /. Token is optional and is appended as ?token=.\nEvery user bound to this endpoint shares it — isolate sessions on that host yourself.',
   'settings.itemOptionHint.browser.provider.cloud':
     'Attaches to a commercial cloud browser (Browserbase, Steel, Browserless cloud, …).\nEndpoint is required: paste the CDP/session URL the provider gives you (wss://…, query allowed, e.g. connect.browserbase.com/?signingKey=…). Token is optional and is appended as ?token=.\nSession lifetime and billing are the provider’s; the endpoint is shared by every user bound to it.',
+  'settings.itemField.llm.vendor': 'Platform',
+  'settings.itemFieldHint.llm.vendor':
+    'Built-in platforms need only an API key and a model. Custom keeps the protocol and base URL.',
+  'settings.itemOption.llm.vendor.custom': 'Custom (OpenAI / Anthropic compatible)',
+  'settings.itemOption.llm.vendor.deepseek': 'DeepSeek',
+  'settings.itemOption.llm.vendor.kimi': 'Kimi',
+  'settings.itemOption.llm.vendor.glm': 'GLM (Zhipu)',
+  'settings.itemOption.llm.vendor.openrouter': 'OpenRouter',
+  'settings.itemOptionHint.llm.vendor.custom':
+    'Fill in the protocol, base URL and API key yourself.',
+  'settings.itemOptionHint.llm.vendor.deepseek':
+    'API key and model only. Web search uses DeepSeek’s own search.',
+  'settings.itemOptionHint.llm.vendor.kimi':
+    'API key and model only. Web search uses Kimi’s search API.',
+  'settings.itemOptionHint.llm.vendor.glm':
+    'API key and model only. Web search uses GLM’s web search API.',
+  'settings.itemOptionHint.llm.vendor.openrouter':
+    'API key and model only. Web search uses OpenRouter’s web plugin.',
   'settings.itemFieldHint.llm.protocol':
     'Wire format of the upstream. Anthropic keeps x-api-key auth, OpenAI uses a bearer token.',
   'settings.itemFieldHint.llm.baseUrl': 'Upstream address, including any path prefix.',

@@ -170,17 +170,18 @@ func (a *Agent) pickVirtualKey(ctx context.Context) string {
 	if a.LLMGW == nil {
 		return ""
 	}
+	// Only keys injected for Docker agents. Operator-facing virtual keys are
+	// not issued; the instance key is the fallback when this user has none yet.
 	keys, err := a.LLMGW.Store().ListVirtualKeys(ctx)
-	if err != nil {
-		return ""
-	}
-	for _, k := range keys {
-		if k.Key == a.LLMGW.InternalKey() || !k.Enabled {
-			continue
+	if err == nil {
+		want := "agent-" + a.userID()
+		for _, k := range keys {
+			if k.Enabled && k.Name == want {
+				return k.Key
+			}
 		}
-		return k.Key
 	}
-	return ""
+	return a.LLMGW.InternalKey()
 }
 
 // ListSessions lists Roundpen agent sessions for this assistant (or user).

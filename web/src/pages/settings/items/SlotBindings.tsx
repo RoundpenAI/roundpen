@@ -16,6 +16,8 @@ import type { Translate } from '../helpers'
 type Props = {
   kind: ItemKind
   t: Translate
+  /** Hide the pickers until at least this many items are enabled. */
+  revealAt?: number
 }
 
 /**
@@ -23,7 +25,7 @@ type Props = {
  * "inherit" to leave it unset (resolution then falls through to the slot's
  * default). Saved immediately, like the item list beside it.
  */
-export function SlotBindings({ kind, t }: Props) {
+export function SlotBindings({ kind, t, revealAt = 0 }: Props) {
   const [slots, setSlots] = useState<SlotDef[]>([])
   const [chosen, setChosen] = useState<Record<string, string>>({})
   const [items, setItems] = useState<SettingItem[]>([])
@@ -81,9 +83,21 @@ export function SlotBindings({ kind, t }: Props) {
   if (loading) return <Loading tip={t('settings.loadingSystem')} />
   if (slots.length === 0) return null
 
+  const enabledCount = items.filter((i) => i.enabled).length
+  if (revealAt > 0 && enabledCount < revealAt) {
+    if (enabledCount === 0) return null
+    return (
+      <Typography.Text type="tertiary" size="small">
+        {t('settings.slots.singleProvider')}
+      </Typography.Text>
+    )
+  }
+
   return (
     <div style={sectionGap}>
-      <Typography.Text type="tertiary">{t('settings.slots.intro')}</Typography.Text>
+      <Typography.Text type="tertiary">
+        {revealAt > 0 ? t('settings.slots.multiIntro') : t('settings.slots.intro')}
+      </Typography.Text>
       {error && <Banner type="danger" description={error} />}
       {slots.map((slot) => (
         <Field

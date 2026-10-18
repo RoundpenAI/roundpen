@@ -46,7 +46,7 @@ func seedGateway(t *testing.T) *llmgw.Gateway {
 		BaseURL:  "https://anthropic.test",
 		APIKey:   "sk-ant",
 	})
-	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-test", Name: "test", Enabled: true}); err != nil {
+	if err := gw.Store().UpsertVirtualKey(llmgw.VirtualKey{Key: "vk-test", Name: "agent-test", Enabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := gw.EnsureInternal(ctx); err != nil {

@@ -12,6 +12,9 @@ func TestJoinUpstreamURL(t *testing.T) {
 		{"https://api.anthropic.com", "/v1/messages", "https://api.anthropic.com/v1/messages"},
 		{"https://api.openai.com/v1", "/v1", "https://api.openai.com/v1/"},
 		{"http://127.0.0.1:8080", "/v1/messages", "http://127.0.0.1:8080/v1/messages"},
+		{"https://open.bigmodel.cn/api/paas/v4", "/v1/chat/completions", "https://open.bigmodel.cn/api/paas/v4/chat/completions"},
+		{"https://open.bigmodel.cn/api/paas/v4", "/chat/completions", "https://open.bigmodel.cn/api/paas/v4/chat/completions"},
+		{"https://api.deepseek.com", "/v1/chat/completions", "https://api.deepseek.com/v1/chat/completions"},
 	}
 	for _, tc := range cases {
 		got := joinUpstreamURL(tc.base, tc.path)

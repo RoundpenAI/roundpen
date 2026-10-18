@@ -77,6 +77,18 @@ export type SetBindingResult = {
   rebuildError?: string
 }
 
+/** A built-in LLM platform: key + model is enough to connect. */
+export type LlmgwVendor = {
+  id: string
+  name: string
+  protocol: string
+  baseUrl: string
+  models: { id: string; label: string }[]
+  search: boolean
+}
+
+export const llmgwVendors = () => api<LlmgwVendor[]>('/v1/llmgw/vendors')
+
 export const settingItems = {
   schema: () => api<{ kinds: KindDef[]; slots: SlotDef[] }>('/v1/setting-schema'),
 

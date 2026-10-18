@@ -162,23 +162,25 @@ export const zh_CN: Record<MessageKey, string> = {
     '浏览器工具通过 DevTools WebSocket 连接。NAS 与 compose 应使用 Docker Chrome 或远程/云 CDP — 不要在 NAS 系统上安装 Chrome。本机 Chrome 仅用于笔记本调试。',
 
   'settings.llmgw.intro':
-    'Roundpen 转发模型调用，使 Agent 不持有真实的 OpenAI / Anthropic 密钥。在下方配置上游凭据；Agent 与对话只拿到调用本控制面 /llmgw 的虚拟密钥。',
+    'Roundpen 转发模型调用，Agent 不持有上游密钥。DeepSeek、Kimi、GLM、OpenRouter 只需填写 API Key 并选择模型，也可以自定义接口。中继密钥只注入到 Docker 里的 Agent，不再对外发放。',
   'settings.llmgw.modeHint':
     '默认零配置启用「免费试用」（内置 roundpen-free，按安装身份限频）。生产环境建议在系统管理 → LLM 网关改绑自己的 API Key；FREE 触发 429 时也会提示改绑。',
   'settings.llmgw.enable': '启用中继（Agent 对话与记忆嵌入所需）',
   'settings.llmgw.upstreamTitle': '1 · 上游提供商',
   'settings.llmgw.upstreamHint':
-    '每个 provider 一条；下面的每个使用点（Agent、对话、分类器、embedding）各选一个。provider 通过 /llmgw/<id> 转发并持有真实上游密钥。',
+    '内置平台只需 API Key 和模型。自定义供应商再填写协议和接口地址。只有配置了第二个供应商后，才会按使用点分别选择；在那之前所有使用点都继承这一个。',
   'settings.llmgw.keepSecret': '保持掩码以保留已存储的密钥。',
   'settings.llmgw.agentsTitle': '2 · Agent 使用的配置',
   'settings.llmgw.agentsHint':
-    '沙箱会得到指向本 Roundpen 的 OPENAI_BASE_URL / ANTHROPIC_BASE_URL，以及作为 OPENAI_API_KEY 的虚拟密钥。',
+    'Docker 里的 Agent 会得到指向本控制面的 OPENAI_BASE_URL / ANTHROPIC_BASE_URL。中继密钥只注入容器，不能当作外部客户端凭据使用。',
   'settings.llmgw.publicUrl': '控制面公网 URL',
   'settings.llmgw.publicUrlHint':
     '沙箱内 Agent 可访问的地址（如 http://host.docker.internal:9527 或局域网 IP）。不是上游 OpenAI URL。',
+  'settings.llmgw.model': '模型',
+  'settings.llmgw.modelHint': '该平台提供的模型。网关会把这个 id 发给上游。',
   'settings.llmgw.virtualKeys': '虚拟密钥',
   'settings.llmgw.virtualKeysHint':
-    '/llmgw 的客户端凭据。格式：vk-name:label 或 vk-name（逗号分隔）。例如：vk-dev:dev,vk-prod:prod。Agent 会自动选取非内部密钥。',
+    '不再对外发放虚拟密钥。Docker 里的 Agent 会在环境变量中拿到中继密钥。',
   'settings.llmgw.advanced': '高级',
   'settings.llmgw.logBody': '请求体日志',
   'settings.llmgw.logBodyHint':
@@ -187,7 +189,7 @@ export const zh_CN: Record<MessageKey, string> = {
     '密钥存于 PostgreSQL 并以掩码显示。掩码字段不改则保留原值。保存立即生效，无需重启。',
 
   'settings.webtools.intro':
-    'Web 工具让 Agent 从控制面抓取网页并联网搜索。每个搜索后端一条；在下方选择默认后端。WebFetch 无需配置。',
+    'Web 工具让 Agent 从控制面抓取网页并联网搜索。选择了 DeepSeek、Kimi、GLM 或 OpenRouter 后，WebSearch 直接使用该平台自己的联网搜索，不必再填一把搜索密钥。只有想换别的搜索后端时才在这里添加。WebFetch 无需配置。',
   'settings.webtools.note':
     '对新开的 Agent 会话生效——重开会话即可看到 WebSearch 工具。endpoint 与 key 都为空时该工具不注册。',
 
@@ -434,6 +436,10 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'settings.slots.intro':
     '每个使用点的默认后端。条目从上方列表里选；选择「继承」则沿用内置默认。',
+  'settings.slots.singleProvider':
+    '只有一个 LLM 供应商时，Agent、对话和 Embedding 都使用它。再添加一个后，可以按使用点分别指定。',
+  'settings.slots.multiIntro':
+    '每个使用点默认继承第一个已启用的供应商。只有某个使用点需要不同供应商时再改。',
   'settings.slots.inherit': '继承',
   'settings.slots.loadFailed': '加载槽位默认值失败。',
   'settings.slots.saveFailed': '保存槽位默认值失败。',
@@ -507,6 +513,23 @@ export const zh_CN: Record<MessageKey, string> = {
     '连接局域网里自建的 browserless（browserless/chrome、chromium 等）。\nendpoint 必填：http(s)://主机:端口 或 ws(s)://…；不带路径时平台依次尝试 /chrome、/chromium、/。token 可选，会作为 ?token= 附加到 CDP 地址。\n注意：该端点被所有选到它的用户共用，会话隔离要由那台机器自己做。',
   'settings.itemOptionHint.browser.provider.cloud':
     '连接商业云浏览器（Browserbase、Steel、Browserless 云等）。\nendpoint 必填：粘贴服务商给的 CDP / 会话地址（wss://…，可带 query，如 connect.browserbase.com/?signingKey=…）。token 可选，会追加为 ?token=。\n会话的创建、超时与计费由服务商管；该端点同样为所有选到它的用户共用。',
+  'settings.itemField.llm.vendor': '平台',
+  'settings.itemFieldHint.llm.vendor':
+    '内置平台只需 API Key 和模型。自定义则继续填写协议和接口地址。',
+  'settings.itemOption.llm.vendor.custom': '自定义（兼容 OpenAI / Anthropic）',
+  'settings.itemOption.llm.vendor.deepseek': 'DeepSeek',
+  'settings.itemOption.llm.vendor.kimi': 'Kimi',
+  'settings.itemOption.llm.vendor.glm': 'GLM（智谱）',
+  'settings.itemOption.llm.vendor.openrouter': 'OpenRouter',
+  'settings.itemOptionHint.llm.vendor.custom': '自行填写协议、接口地址和 API Key。',
+  'settings.itemOptionHint.llm.vendor.deepseek':
+    '只需 API Key 和模型。联网搜索使用 DeepSeek 自己的搜索。',
+  'settings.itemOptionHint.llm.vendor.kimi':
+    '只需 API Key 和模型。联网搜索使用 Kimi 的搜索接口。',
+  'settings.itemOptionHint.llm.vendor.glm':
+    '只需 API Key 和模型。联网搜索使用 GLM 的网络搜索接口。',
+  'settings.itemOptionHint.llm.vendor.openrouter':
+    '只需 API Key 和模型。联网搜索使用 OpenRouter 的网页插件。',
   'settings.itemFieldHint.llm.protocol':
     '上游的线路格式：anthropic 用 x-api-key，openai 用 Bearer 令牌。',
   'settings.itemFieldHint.llm.baseUrl': '上游地址，含路径前缀（如 /v1）。',

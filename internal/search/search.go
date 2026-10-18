@@ -16,6 +16,13 @@ type Config struct {
 	// ProxyURL is the egress proxy of the search call; the web tools reuse it
 	// for WebFetch and skill installs.
 	ProxyURL string
+	// Vendor selects a built-in LLM platform's native search (deepseek, kimi,
+	// glm, openrouter). Empty keeps the Tavily-compatible endpoint above.
+	Vendor string
+	// BaseURL is that platform's search host. Model is the chat model some
+	// adapters need (DeepSeek, OpenRouter).
+	BaseURL string
+	Model   string
 }
 
 // Kind returns the search kind definition.
