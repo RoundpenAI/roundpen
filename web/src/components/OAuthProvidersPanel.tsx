@@ -146,6 +146,7 @@ export function OAuthProvidersPanel() {
         kind,
         scheme: 'https',
         host: 'github.com',
+        scopes: '',
         label: form.label.trim() === '' || form.label === 'Gitea' || form.label === 'GitLab' ? 'GitHub' : form.label,
       })
       return
@@ -153,6 +154,7 @@ export function OAuthProvidersPanel() {
     patch({
       kind,
       host: form.host === 'github.com' ? '' : form.host,
+      scopes: '',
       label: kind === 'gitlab' ? 'GitLab' : kind === 'gitea' ? 'Gitea' : form.label,
     })
   }
@@ -477,7 +479,7 @@ export function OAuthProvidersPanel() {
               aria-label={t('oauthAdmin.scopes')}
               value={form.scopes}
               onChange={(v) => patch({ scopes: v })}
-              placeholder="read:user user:email repo"
+              placeholder={form.kind === 'gitlab' ? 'read_user api' : 'read:user user:email repo'}
             />
           </div>
         ) : null}
