@@ -22,8 +22,8 @@ type Store struct {
 
 // issueCols, taskCols and docCols keep select lists and the write paths'
 // RETURNING clauses in one place, in scan order.
-const issueCols = `id, key, user_id, COALESCE(assistant_id, ''), session_id, title, summary,
-	status, origin, created_at, updated_at, closed_at`
+const issueCols = `id, key, user_id, COALESCE(assistant_id, ''), session_id, COALESCE(project_id, ''),
+	title, summary, status, origin, created_at, updated_at, closed_at`
 
 const taskCols = `id, key, issue_id, COALESCE(plan_doc_id, ''), position, title, detail,
 	status, session_id, COALESCE(assistant_id, ''), created_at, updated_at, done_at`
@@ -49,6 +49,7 @@ type CreateInput struct {
 	Summary     string
 	AssistantID string
 	SessionID   string
+	ProjectID   string
 	Origin      string
 }
 
@@ -66,14 +67,15 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Iss
 	it := &Issue{
 		ID: uuid.NewString(), UserID: userID,
 		AssistantID: in.AssistantID, SessionID: in.SessionID,
-		Title: strings.TrimSpace(in.Title), Summary: strings.TrimSpace(in.Summary),
+		ProjectID: strings.TrimSpace(in.ProjectID),
+		Title:     strings.TrimSpace(in.Title), Summary: strings.TrimSpace(in.Summary),
 		Status: StatusDrafting, Origin: origin, CreatedAt: now, UpdatedAt: now,
 	}
 	err := s.DB.QueryRowContext(ctx, `
-		INSERT INTO issues (id, key, user_id, assistant_id, session_id, title, summary, status, origin, created_at, updated_at)
-		VALUES ($1, 'ISS-' || nextval('issue_key_seq'), $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $9)
+		INSERT INTO issues (id, key, user_id, assistant_id, session_id, project_id, title, summary, status, origin, created_at, updated_at)
+		VALUES ($1, 'ISS-' || nextval('issue_key_seq'), $2, NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, $10, $10)
 		RETURNING key`,
-		it.ID, userID, it.AssistantID, it.SessionID, it.Title, it.Summary, it.Status, it.Origin, now,
+		it.ID, userID, it.AssistantID, it.SessionID, it.ProjectID, it.Title, it.Summary, it.Status, it.Origin, now,
 	).Scan(&it.Key)
 	if err != nil {
 		return nil, err
@@ -147,8 +149,9 @@ func (s *Store) lookupIssueID(ctx context.Context, userID, keyOrID string) (stri
 }
 
 type ListFilter struct {
-	Status string
-	Limit  int
+	Status    string
+	ProjectID string
+	Limit     int
 }
 
 func (s *Store) List(ctx context.Context, userID string, f ListFilter) ([]Issue, error) {
@@ -158,8 +161,8 @@ func (s *Store) List(ctx context.Context, userID string, f ListFilter) ([]Issue,
 	}
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT `+issueCols+` FROM issues
-		WHERE user_id = $1 AND ($2 = '' OR status = $2)
-		ORDER BY updated_at DESC LIMIT $3`, userID, f.Status, limit)
+		WHERE user_id = $1 AND ($2 = '' OR status = $2) AND ($3 = '' OR project_id = $3)
+		ORDER BY updated_at DESC LIMIT $4`, userID, f.Status, f.ProjectID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -584,9 +587,14 @@ func listTasks(ctx context.Context, q queryer, issueID string) ([]Task, error) {
 
 // scanIssue reads an issueCols row. closed_at is nullable and lands on the
 // *time.Time field, which scans as nil for NULL.
+// ResolveID returns the issue uuid for a key or id owned by userID.
+func (s *Store) ResolveID(ctx context.Context, userID, keyOrID string) (string, error) {
+	return s.lookupIssueID(ctx, userID, keyOrID)
+}
+
 func scanIssue(row rowScanner) (*Issue, error) {
 	var it Issue
-	err := row.Scan(&it.ID, &it.Key, &it.UserID, &it.AssistantID, &it.SessionID,
+	err := row.Scan(&it.ID, &it.Key, &it.UserID, &it.AssistantID, &it.SessionID, &it.ProjectID,
 		&it.Title, &it.Summary, &it.Status, &it.Origin,
 		&it.CreatedAt, &it.UpdatedAt, &it.ClosedAt)
 	if errors.Is(err, sql.ErrNoRows) {

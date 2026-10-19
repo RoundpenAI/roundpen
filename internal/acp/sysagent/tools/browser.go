@@ -93,11 +93,11 @@ func RegisterBrowser(r *Registry, binder *BrowserBinder) {
 		},
 	})
 	r.Register(Tool{
-		Name:        "browser_navigate",
+		Name: "browser_navigate",
 		Description: "Navigate the System Agent browser to a URL. " +
 			"For read-only page content, prefer WebFetch first unless the user asked for the browser; " +
 			"use this after WebFetch fails or when interaction / login / JS rendering is required.",
-		Mutating:    true,
+		Mutating: true,
 		Parameters: objectSchema(map[string]any{
 			"url": map[string]any{"type": "string"},
 		}, "url"),

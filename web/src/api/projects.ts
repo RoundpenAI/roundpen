@@ -16,6 +16,23 @@ export type Project = {
   updatedAt: string
 }
 
+export type ProjectWorker = {
+  id: string
+  key: string
+  projectId: string
+  userId: string
+  sessionId?: string
+  issueId?: string
+  title: string
+  brief: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  error?: string
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  finishedAt?: string
+}
+
 export const projects = {
   list: (status?: string) =>
     api<{ projects: Project[] }>(
@@ -51,4 +68,14 @@ export const projects = {
       `/v1/projects/${key}/ensure-session`,
       { method: 'POST' },
     ),
+  listWorkers: (key: string) =>
+    api<{ workers: ProjectWorker[] }>(`/v1/projects/${key}/workers`),
+  delegate: (
+    key: string,
+    body: { title: string; brief?: string; issueKey?: string },
+  ) =>
+    api<{ worker: ProjectWorker }>(`/v1/projects/${key}/workers`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 }

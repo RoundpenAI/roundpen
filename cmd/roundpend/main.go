@@ -264,13 +264,26 @@ func main() {
 
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}
-	(&issue.Handler{Store: issueStore}).Mount(mux)
 	projectStore := &project.Store{DB: db.SQL}
+	projectRunner := &project.Runner{
+		Store:   projectStore,
+		Users:   userStore,
+		Starter: projectWorkerStarter{H: agentHandler},
+		ACP:     acpMgr,
+		Log:     logger,
+	}
+	(&issue.Handler{
+		Store:    issueStore,
+		Projects: projectSessionBinder{Store: projectStore},
+	}).Mount(mux)
 	(&project.Handler{
 		Store:      projectStore,
 		Assistants: assistantStore,
 		Sessions:   agentStore,
 		Starter:    agentHandler,
+		Workers:    agentHandler,
+		Issues:     issueIDResolver{Store: issueStore},
+		Runner:     projectRunner,
 		Dirs:       projectDirSeeder{Envs: envSvc, Paths: sbSvc},
 		Log:        logger,
 	}).Mount(mux)

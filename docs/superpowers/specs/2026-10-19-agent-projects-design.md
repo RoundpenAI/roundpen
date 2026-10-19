@@ -1,7 +1,7 @@
 # Agent 项目（Projects）设计与缺口分析
 
 日期：2026-10-19  
-状态：Phase A 实现中（决策已拍板；P0 落地中）  
+状态：Phase A 已落地；P1 最小派活进行中  
 参考：[Cursor Projects](https://cursor.com/docs/agent/projects)
 
 范围：一级菜单「项目」、新建 Project、关联仓库、Coordinator 协调多个 Agent 完成较大事项。  

@@ -23,14 +23,16 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 			"not for a one-off question or a single trivial edit; if it is ambiguous whether they want an issue, ask. " +
 			"Clarify scope, direction and decisions with AskUserQuestion before writing any document.",
 		Parameters: objectSchema(map[string]any{
-			"title":   map[string]any{"type": "string", "description": "Short imperative title"},
-			"summary": map[string]any{"type": "string", "description": "One-line summary of the intended outcome"},
+			"title":     map[string]any{"type": "string", "description": "Short imperative title"},
+			"summary":   map[string]any{"type": "string", "description": "One-line summary of the intended outcome"},
+			"projectId": map[string]any{"type": "string", "description": "Optional project uuid to scope this issue"},
 		}, "title"),
 		Mutating: true,
 		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
 			var a struct {
-				Title   string `json:"title"`
-				Summary string `json:"summary"`
+				Title     string `json:"title"`
+				Summary   string `json:"summary"`
+				ProjectID string `json:"projectId"`
 			}
 			if err := json.Unmarshal(raw, &a); err != nil {
 				return "", err
@@ -38,6 +40,9 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 			body := map[string]any{"title": a.Title}
 			if strings.TrimSpace(a.Summary) != "" {
 				body["summary"] = a.Summary
+			}
+			if strings.TrimSpace(a.ProjectID) != "" {
+				body["projectId"] = a.ProjectID
 			}
 			if sessionID != "" {
 				body["sessionId"] = sessionID
@@ -48,21 +53,31 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 	r.Register(Tool{
 		Name: "ListIssues",
 		Description: "List the user's issues, most recently updated first, with their status; pass status to " +
-			"filter (drafting, specced, planned, in_progress, done, cancelled). Check this before starting new work " +
-			"so you continue issues that are already in flight instead of duplicating them.",
+			"filter (drafting, specced, planned, in_progress, done, cancelled). Optionally pass projectId to " +
+			"list only issues for one project. Check this before starting new work so you continue issues that " +
+			"are already in flight instead of duplicating them.",
 		Parameters: objectSchema(map[string]any{
-			"status": map[string]any{"type": "string", "description": "Optional status filter"},
+			"status":    map[string]any{"type": "string", "description": "Optional status filter"},
+			"projectId": map[string]any{"type": "string", "description": "Optional project uuid filter"},
 		}),
 		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
 			var a struct {
-				Status string `json:"status"`
+				Status    string `json:"status"`
+				ProjectID string `json:"projectId"`
 			}
 			if err := json.Unmarshal(raw, &a); err != nil {
 				return "", err
 			}
-			path := "/v1/issues"
+			q := url.Values{}
 			if s := strings.TrimSpace(a.Status); s != "" {
-				path += "?status=" + url.QueryEscape(s)
+				q.Set("status", s)
+			}
+			if p := strings.TrimSpace(a.ProjectID); p != "" {
+				q.Set("projectId", p)
+			}
+			path := "/v1/issues"
+			if enc := q.Encode(); enc != "" {
+				path += "?" + enc
 			}
 			return api.do(ctx, actor, http.MethodGet, path, nil)
 		},

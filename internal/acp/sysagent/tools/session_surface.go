@@ -33,6 +33,9 @@ func RegisterSession(reg *Registry, s SessionSurface) {
 	if s.API != nil {
 		RegisterIssues(reg, s.API, s.SessionID)
 		RegisterRoutines(reg, s.API, s.SessionID)
+		if !routine {
+			RegisterProjects(reg, s.API, s.SessionID)
+		}
 		if routine {
 			RegisterRunTools(reg, s.API, s.SessionID, s.RunKey)
 		}

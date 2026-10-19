@@ -1,19 +1,46 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Banner,
   Button,
   Spin,
+  Table,
   Tag,
   Toast,
   Typography,
 } from '@douyinfe/semi-ui-19'
-import { IconArrowLeft } from '@douyinfe/semi-icons'
-import { projects, type Project } from '../api'
+import { IconArrowLeft, IconRefresh } from '@douyinfe/semi-icons'
+import type { ColumnProps } from '@douyinfe/semi-ui-19/lib/es/table'
+import {
+  projects,
+  type Project,
+  type ProjectWorker,
+} from '../api'
 import { useT, type MessageKey } from '../i18n'
 
 function statusKey(status: Project['status']): MessageKey {
   return `projects.status.${status}`
+}
+
+function workerStatusKey(status: ProjectWorker['status']): MessageKey {
+  return `projects.worker.status.${status}`
+}
+
+function workerTagColor(
+  status: ProjectWorker['status'],
+): 'grey' | 'blue' | 'orange' | 'green' | 'red' {
+  switch (status) {
+    case 'queued':
+      return 'grey'
+    case 'running':
+      return 'orange'
+    case 'succeeded':
+      return 'green'
+    case 'failed':
+      return 'red'
+    default:
+      return 'blue'
+  }
 }
 
 export function ProjectDetailPage() {
@@ -21,20 +48,35 @@ export function ProjectDetailPage() {
   const navigate = useNavigate()
   const { key = '' } = useParams()
   const [project, setProject] = useState<Project | null>(null)
+  const [workers, setWorkers] = useState<ProjectWorker[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [opening, setOpening] = useState(false)
   const [archiving, setArchiving] = useState(false)
+  const [workersLoading, setWorkersLoading] = useState(false)
+
+  const loadWorkers = useCallback(async (projectKey: string) => {
+    setWorkersLoading(true)
+    try {
+      const res = await projects.listWorkers(projectKey)
+      setWorkers(res.workers ?? [])
+    } catch {
+      /* list is best-effort on the detail page */
+    } finally {
+      setWorkersLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     projects
       .get(key)
-      .then((res) => {
+      .then(async (res) => {
         if (cancelled) return
         setProject(res.project)
         setError(null)
+        await loadWorkers(res.project.key)
       })
       .catch((e: unknown) => {
         if (cancelled) return
@@ -47,7 +89,7 @@ export function ProjectDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [key, t])
+  }, [key, t, loadWorkers])
 
   async function openCoordinator() {
     if (!project || opening) return
@@ -69,6 +111,11 @@ export function ProjectDetailPage() {
     }
   }
 
+  async function openWorker(w: ProjectWorker) {
+    if (!project?.coordinatorAssistantId || !w.sessionId) return
+    navigate(`/a/${project.coordinatorAssistantId}/s/${w.sessionId}`)
+  }
+
   async function toggleArchive() {
     if (!project || archiving) return
     setArchiving(true)
@@ -88,6 +135,36 @@ export function ProjectDetailPage() {
     }
   }
 
+  const workerColumns: ColumnProps<ProjectWorker>[] = [
+    {
+      title: t('projects.worker.column.key'),
+      dataIndex: 'key',
+      width: 100,
+      render: (_: unknown, row: ProjectWorker) => (
+        <Typography.Text
+          size="small"
+          style={{ fontFamily: 'var(--semi-font-family-code)' }}
+        >
+          {row.key}
+        </Typography.Text>
+      ),
+    },
+    {
+      title: t('projects.worker.column.title'),
+      dataIndex: 'title',
+    },
+    {
+      title: t('projects.worker.column.status'),
+      dataIndex: 'status',
+      width: 120,
+      render: (_: unknown, row: ProjectWorker) => (
+        <Tag color={workerTagColor(row.status)} size="small">
+          {t(workerStatusKey(row.status))}
+        </Tag>
+      ),
+    },
+  ]
+
   if (loading) {
     return (
       <div style={{ padding: 48, textAlign: 'center' }}>
@@ -98,7 +175,7 @@ export function ProjectDetailPage() {
 
   if (error || !project) {
     return (
-      <div style={{ padding: 24, maxWidth: 800, margin: '0 auto' }}>
+      <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
         <Link to="/projects">{t('projects.back')}</Link>
         <Banner
           type="danger"
@@ -111,7 +188,7 @@ export function ProjectDetailPage() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 800, margin: '0 auto', width: '100%' }}>
+    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', width: '100%' }}>
       <Button
         theme="borderless"
         icon={<IconArrowLeft />}
@@ -176,7 +253,7 @@ export function ProjectDetailPage() {
         />
       </div>
 
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28 }}>
         <Button
           theme="solid"
           type="primary"
@@ -198,6 +275,42 @@ export function ProjectDetailPage() {
             : t('projects.restore')}
         </Button>
       </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginBottom: 12,
+        }}
+      >
+        <Typography.Title heading={5} style={{ margin: 0, flex: 1 }}>
+          {t('projects.workers.title')}
+        </Typography.Title>
+        <Button
+          icon={<IconRefresh />}
+          loading={workersLoading}
+          onClick={() => void loadWorkers(project.key)}
+          aria-label={t('projects.refresh')}
+        />
+      </div>
+      <Typography.Paragraph type="tertiary" style={{ marginBottom: 12 }}>
+        {t('projects.workers.guide')}
+      </Typography.Paragraph>
+      <Table
+        rowKey="id"
+        columns={workerColumns}
+        dataSource={workers}
+        pagination={false}
+        loading={workersLoading}
+        empty={t('projects.workers.empty')}
+        onRow={(record) => ({
+          style: { cursor: record?.sessionId ? 'pointer' : 'default' },
+          onClick: () => {
+            if (record?.sessionId) void openWorker(record)
+          },
+        })}
+      />
     </div>
   )
 }

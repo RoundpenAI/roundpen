@@ -37,6 +37,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/project"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
@@ -590,4 +591,54 @@ func (s projectDirSeeder) EnsureProjectTree(ctx context.Context, userID, slug st
 		return err
 	}
 	return workspace.SeedProject(host, slug)
+}
+
+// projectWorkerStarter adapts agentapi.Handler to project.WorkerStarter.
+type projectWorkerStarter struct {
+	H interface {
+		CreateWorkerSession(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error)
+		StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID string) error
+	}
+}
+
+func (a projectWorkerStarter) CreateWorkerSession(ctx context.Context, user *storage.User, assistantID, title string) (string, error) {
+	sess, err := a.H.CreateWorkerSession(ctx, user, assistantID, title)
+	if err != nil {
+		return "", err
+	}
+	return sess.ID, nil
+}
+
+func (a projectWorkerStarter) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID string) error {
+	return a.H.StartWorkerRuntime(ctx, user, sessionID)
+}
+
+// projectSessionBinder lets issue create auto-attach a project from the coordinator session.
+type projectSessionBinder struct {
+	Store interface {
+		GetByCoordinatorSession(ctx context.Context, userID, sessionID string) (*project.Project, error)
+		GetByCoordinatorAssistant(ctx context.Context, userID, assistantID string) (*project.Project, error)
+	}
+}
+
+func (b projectSessionBinder) ProjectIDForSession(ctx context.Context, userID, sessionID string) (string, error) {
+	if b.Store == nil {
+		return "", project.ErrNotFound
+	}
+	p, err := b.Store.GetByCoordinatorSession(ctx, userID, sessionID)
+	if err == nil {
+		return p.ID, nil
+	}
+	return "", err
+}
+
+// issueIDResolver adapts issue.Store for project.Handler.Issues.
+type issueIDResolver struct {
+	Store interface {
+		ResolveID(ctx context.Context, userID, keyOrID string) (string, error)
+	}
+}
+
+func (r issueIDResolver) LookupID(ctx context.Context, userID, keyOrID string) (string, error) {
+	return r.Store.ResolveID(ctx, userID, keyOrID)
 }

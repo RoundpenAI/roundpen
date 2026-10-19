@@ -55,16 +55,16 @@ func RegisterGoogle(r *Registry, b *GoogleBinder) {
 			"timeMin/timeMax are RFC3339 timestamps. Default calendar is primary. " +
 			"If Google is not connected, tell the user to open Settings → Connectors.",
 		Parameters: objectSchema(map[string]any{
-			"timeMin":     map[string]any{"type": "string", "description": "RFC3339 start (default: now)"},
-			"timeMax":     map[string]any{"type": "string", "description": "RFC3339 end (optional)"},
-			"calendarId":  map[string]any{"type": "string", "description": "Calendar id (default primary)"},
-			"maxResults":  map[string]any{"type": "integer", "description": "Max events (default 10, max 50)"},
+			"timeMin":    map[string]any{"type": "string", "description": "RFC3339 start (default: now)"},
+			"timeMax":    map[string]any{"type": "string", "description": "RFC3339 end (optional)"},
+			"calendarId": map[string]any{"type": "string", "description": "Calendar id (default primary)"},
+			"maxResults": map[string]any{"type": "integer", "description": "Max events (default 10, max 50)"},
 		}),
 		Mutating: false,
 		Call:     b.calendarList,
 	})
 	r.Register(Tool{
-		Name: "CalendarGetEvent",
+		Name:        "CalendarGetEvent",
 		Description: "Get one Google Calendar event by id (read-only).",
 		Parameters: objectSchema(map[string]any{
 			"id":         map[string]any{"type": "string", "description": "Event id"},

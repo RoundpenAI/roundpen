@@ -177,6 +177,31 @@ func (h *Handler) StartRoutine(ctx context.Context, user *storage.User, assistan
 	return sess.ID, nil
 }
 
+// CreateWorkerSession inserts a kind=worker session without starting the runtime.
+// Used by the project delegate queue so queued workers have a session id to open.
+func (h *Handler) CreateWorkerSession(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error) {
+	if title == "" {
+		title = "Worker"
+	}
+	return h.Store.CreateKind(ctx, user.Username, title, DefaultAssistantProvider, "", assistantID, "worker")
+}
+
+// StartWorkerRuntime starts (or no-ops if already live) the System Agent for a
+// worker session with the full tool surface.
+func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID string) error {
+	if _, ok := h.ACP.Get(sessionID); ok {
+		return nil
+	}
+	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
+		Actor: manager.Actor{
+			Username: user.Username,
+			Role:     string(user.Role),
+			APIKey:   user.APIKey,
+		},
+	})
+	return err
+}
+
 // ResumeRoutine starts the runtime again for an existing run session.
 func (h *Handler) ResumeRoutine(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string) error {
 	if _, ok := h.ACP.Get(sessionID); ok {

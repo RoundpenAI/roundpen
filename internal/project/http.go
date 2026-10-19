@@ -30,6 +30,16 @@ type SessionStarter interface {
 	StartForAssistant(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error)
 }
 
+// WorkerSessions creates kind=worker sessions for the delegate queue.
+type WorkerSessions interface {
+	CreateWorkerSession(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error)
+}
+
+// IssueResolver looks up an issue key owned by the user (for optional linking).
+type IssueResolver interface {
+	LookupID(ctx context.Context, userID, keyOrID string) (string, error)
+}
+
 // DirSeeder best-effort creates projects/<slug>/ and Shared Context on disk.
 type DirSeeder interface {
 	EnsureProjectTree(ctx context.Context, userID, slug string) error
@@ -41,6 +51,9 @@ type Handler struct {
 	Assistants Assistants
 	Sessions   *agentsession.Store
 	Starter    SessionStarter
+	Workers    WorkerSessions
+	Issues     IssueResolver
+	Runner     *Runner
 	Dirs       DirSeeder
 	Log        *slog.Logger
 }
@@ -52,6 +65,9 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/projects/{key}", h.get)
 	mux.HandleFunc("PATCH /v1/projects/{key}", h.patch)
 	mux.HandleFunc("POST /v1/projects/{key}/ensure-session", h.ensureSession)
+	mux.HandleFunc("GET /v1/projects/{key}/workers", h.listWorkers)
+	mux.HandleFunc("POST /v1/projects/{key}/workers", h.delegate)
+	mux.HandleFunc("GET /v1/projects/{key}/workers/{workerKey}", h.getWorker)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -247,6 +263,116 @@ func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 		"sessionId": sess.ID,
 		"project":   p,
 	})
+}
+
+func (h *Handler) listWorkers(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	p, err := h.Store.Get(r.Context(), user.Username, r.PathValue("key"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	items, err := h.Store.ListWorkers(r.Context(), user.Username, p.ID, 100)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"workers": items})
+}
+
+func (h *Handler) getWorker(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	p, err := h.Store.Get(r.Context(), user.Username, r.PathValue("key"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	wk, err := h.Store.GetWorker(r.Context(), user.Username, r.PathValue("workerKey"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if wk.ProjectID != p.ID {
+		httpx.WriteErr(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"worker": wk})
+}
+
+func (h *Handler) delegate(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	p, err := h.Store.Get(r.Context(), user.Username, r.PathValue("key"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if p.Status != StatusActive {
+		httpx.WriteErr(w, http.StatusConflict, "project is archived")
+		return
+	}
+	if p.CoordinatorAssistantID == "" {
+		httpx.WriteErr(w, http.StatusConflict, "project has no coordinator")
+		return
+	}
+	var body struct {
+		Title    string `json:"title"`
+		Brief    string `json:"brief"`
+		IssueKey string `json:"issueKey"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	if err := ValidateWorkerTitle(body.Title); err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	in := DelegateInput{Title: body.Title, Brief: body.Brief}
+	if body.IssueKey != "" {
+		if h.Issues == nil {
+			httpx.WriteErr(w, http.StatusBadRequest, "issue linking unavailable")
+			return
+		}
+		issueID, err := h.Issues.LookupID(r.Context(), user.Username, body.IssueKey)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusBadRequest, "issue not found")
+			return
+		}
+		in.IssueID = issueID
+	}
+	if h.Workers == nil {
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "worker sessions unavailable")
+		return
+	}
+	sess, err := h.Workers.CreateWorkerSession(r.Context(), user, p.CoordinatorAssistantID, body.Title)
+	if err != nil {
+		httpx.WriteErrOrInternal(w, r, err, nil)
+		return
+	}
+	wk, err := h.Store.CreateWorker(r.Context(), user.Username, p.ID, in, sess.ID)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if h.Runner != nil {
+		h.Runner.Kick(r.Context(), user.Username)
+		// Re-read so the response reflects queued→running when the slot was free.
+		if fresh, err := h.Store.GetWorker(r.Context(), user.Username, wk.Key); err == nil {
+			wk = fresh
+		}
+	}
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"worker": wk})
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {
