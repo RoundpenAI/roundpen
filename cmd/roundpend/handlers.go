@@ -24,11 +24,13 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/workspaceapi"
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/connectors"
+	"github.com/RoundpenAI/roundpen/internal/fnosfile"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/hostaccess"
 	"github.com/RoundpenAI/roundpen/internal/hostsetup"
@@ -46,6 +48,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
+	"github.com/RoundpenAI/roundpen/internal/userworkspace"
 	"github.com/RoundpenAI/roundpen/internal/webpush"
 )
 
@@ -123,12 +126,40 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 			AgentTemplate:   cfg.DefaultAgentTemplate,
 		},
 	}
+	roots := &userworkspace.Store{DB: db.SQL}
+	files := fnosfile.FromEnv()
+	envSvc.WorkspaceRoot = roots.Get
+	envSvc.CheckWorkspace = func(ctx context.Context, userID, root string) error {
+		return checkBoundFolder(ctx, userStore, files, userID, root, true)
+	}
+	if sbSvc != nil {
+		sbSvc.SetFileACL(func(ctx context.Context, workspacePath string, write bool) error {
+			actor, ok := authz.From(ctx)
+			if !ok || strings.TrimSpace(actor.Username) == "" {
+				return fmt.Errorf("unauthorized")
+			}
+			bound, err := roots.Get(ctx, actor.Username)
+			if err != nil {
+				return err
+			}
+			if bound == "" || filepath.Clean(workspacePath) != filepath.Join(filepath.Clean(bound), "workspace") {
+				return fmt.Errorf("workspace is not bound to this user")
+			}
+			return checkBoundFolder(ctx, userStore, files, actor.Username, bound, write)
+		})
+	}
 	envHandler := &envapi.Handler{
 		Envs:  envSvc,
 		Users: userStore,
 		Cfg:   cfg,
 		Dial:  sbSvc,
 	}
+	(&userworkspace.Handler{
+		Store:    roots,
+		Files:    files,
+		Envs:     envSvc,
+		DataRoot: cfg.DataRoot,
+	}).Mount(mux)
 	// Credential edits must reach a sandbox that is already running: a token
 	// that never expires would otherwise only land there after a rebuild. The
 	// request context is detached because the browser is already redirecting.
@@ -563,4 +594,29 @@ func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentS
 	ticketStore := &assistticket.Store{DB: db.SQL}
 	agentHandler.Tickets = ticketStore
 	return agentHandler, ticketStore, provisioner
+}
+
+func checkBoundFolder(ctx context.Context, users storage.UserStore, files *fnosfile.Client, userID, root string, write bool) error {
+	if files == nil || !files.Enabled() {
+		return fmt.Errorf("fnOS file API is not available")
+	}
+	user, err := users.GetByUsername(ctx, userID)
+	if err != nil || user == nil {
+		return fmt.Errorf("user not found")
+	}
+	uid, ok := userworkspace.FnosUID(user.AuthProvider, user.Username)
+	if !ok {
+		return fmt.Errorf("not an fnOS user")
+	}
+	acl, err := files.CheckACL(ctx, uid, root)
+	if err != nil {
+		return err
+	}
+	if write && !acl.Writable {
+		return fmt.Errorf("folder is not writable")
+	}
+	if !write && !acl.Readable {
+		return fmt.Errorf("folder is not readable")
+	}
+	return nil
 }

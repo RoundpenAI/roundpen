@@ -175,6 +175,13 @@ func (b *Backend) containerConfigs(opts backend.CreateOpts) (*container.Config, 
 			Target: "/workspace",
 		})
 	}
+	if opts.HomeMount != "" {
+		hostCfg.Mounts = append(hostCfg.Mounts, mount.Mount{
+			Type:   mount.TypeBind,
+			Source: opts.HomeMount,
+			Target: "/home/roundpen",
+		})
+	}
 	if b.runtime != "" {
 		hostCfg.Runtime = b.runtime
 	}
@@ -246,14 +253,17 @@ func canReuseContainer(info types.ContainerJSON, opts backend.CreateOpts) bool {
 	if opts.Image != "" && image != "" && image != opts.Image {
 		return false
 	}
-	if opts.MountDir == "" {
+	if opts.MountDir != "" {
+		got := workspaceMountSource(info)
+		if got != "" && filepath.Clean(got) != filepath.Clean(opts.MountDir) {
+			return false
+		}
+	}
+	gotHome := homeMountSource(info)
+	if opts.HomeMount == "" && gotHome == "" {
 		return true
 	}
-	got := workspaceMountSource(info)
-	if got == "" {
-		return true
-	}
-	return filepath.Clean(got) == filepath.Clean(opts.MountDir)
+	return filepath.Clean(gotHome) == filepath.Clean(opts.HomeMount)
 }
 
 func isNameConflict(err error) bool {
@@ -268,8 +278,16 @@ func isNameConflict(err error) bool {
 }
 
 func workspaceMountSource(info types.ContainerJSON) string {
+	return mountSource(info, "/workspace")
+}
+
+func homeMountSource(info types.ContainerJSON) string {
+	return mountSource(info, "/home/roundpen")
+}
+
+func mountSource(info types.ContainerJSON, dest string) string {
 	for _, m := range info.Mounts {
-		if m.Destination == "/workspace" {
+		if m.Destination == dest {
 			return m.Source
 		}
 	}

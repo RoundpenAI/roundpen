@@ -15,6 +15,7 @@
     "@douyinfe/semi-ui-19": "^2.103.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@tiptap/core": "^3.31.3",
+    "@trimjs/web-app": "^0.5.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "qrcode": "^1.5.4",

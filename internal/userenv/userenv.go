@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -235,6 +236,13 @@ type Service struct {
 	// default). nil falls back to the process config, which is what an install
 	// with no browser items should do.
 	BrowserProfile func(userID string) browser.Profile
+
+	// WorkspaceRoot returns the absolute directory the user authorized in
+	// their own files. Empty means the private data-root workspace.
+	WorkspaceRoot func(ctx context.Context, userID string) (string, error)
+	// CheckWorkspace confirms the user may still read and write root.
+	// Nil skips the check (non-fnOS).
+	CheckWorkspace func(ctx context.Context, userID, root string) error
 
 	upgradeMu    sync.Mutex // serializes agent upgrades per service
 	agentImageMu sync.RWMutex
@@ -631,8 +639,33 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 		// The admin image override swaps the image while the template keeps
 		// providing the resource limits.
 		create.Image = s.agentImageOverride()
+		ws, home, err := s.agentHostDirs(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		create.WorkspaceHost = ws
+		create.HomeHost = home
 	}
 	return s.Sandboxes.Create(ctx, create)
+}
+
+// agentHostDirs returns the user-owned workspace and home directories when
+// one is bound. Both are empty when the private data root should be used.
+func (s *Service) agentHostDirs(ctx context.Context, userID string) (workspaceDir, homeDir string, err error) {
+	if s == nil || s.WorkspaceRoot == nil {
+		return "", "", nil
+	}
+	root, err := s.WorkspaceRoot(ctx, userID)
+	if err != nil || strings.TrimSpace(root) == "" {
+		return "", "", err
+	}
+	root = filepath.Clean(root)
+	if s.CheckWorkspace != nil {
+		if err := s.CheckWorkspace(ctx, userID, root); err != nil {
+			return "", "", err
+		}
+	}
+	return filepath.Join(root, "workspace"), filepath.Join(root, "home"), nil
 }
 
 // UpgradeResult reports what a manual agent upgrade did.

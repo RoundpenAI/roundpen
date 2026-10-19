@@ -22,6 +22,139 @@ const fieldLabel: CSSProperties = {
   marginBottom: 4,
 }
 
+type HelpLink = { label: string; href: string }
+
+type ChannelHelp = {
+  summary: string
+  tips?: string[]
+  links: HelpLink[]
+}
+
+/** 各渠道配置提示；凭证获取以官方控制台为准。 */
+const CHANNEL_HELP: Record<string, ChannelHelp> = {
+  telegram: {
+    summary:
+      '在 Telegram 里找 @BotFather，用 /newbot 创建机器人后复制 Bot Token。默认长轮询，无需公网回调。',
+    tips: [
+      'Allow from 可填 Telegram 用户 ID（逗号分隔），限制谁能对话。',
+      '国内网络访问 Telegram API 时可能需要 Proxy。',
+    ],
+    links: [
+      { label: 'BotFather', href: 'https://t.me/BotFather' },
+      { label: 'Bot 文档', href: 'https://core.telegram.org/bots#botfather' },
+    ],
+  },
+  discord: {
+    summary:
+      '在 Discord Developer Portal 创建应用并添加 Bot，复制 Token。请开启 Message Content Intent。使用 Gateway，无需公网回调。',
+    links: [
+      {
+        label: 'Developer Portal',
+        href: 'https://discord.com/developers/applications',
+      },
+    ],
+  },
+  slack: {
+    summary:
+      '在 Slack API 创建 App，开启 Socket Mode。需要 Bot Token（xoxb-…）和 App-Level Token（xapp-…）。无需公网回调。',
+    tips: [
+      'App Token 在 Basic Information → App-Level Tokens 创建，需 connections:write。',
+      'Bot Token 在 OAuth & Permissions 安装到 Workspace 后获得。',
+    ],
+    links: [
+      { label: 'Slack Apps', href: 'https://api.slack.com/apps' },
+      {
+        label: 'Socket Mode',
+        href: 'https://api.slack.com/apis/connections/socket',
+      },
+    ],
+  },
+  feishu: {
+    summary:
+      '在飞书开放平台创建企业自建应用，启用机器人能力，从「凭据与基础信息」复制 App ID / App Secret。使用长连接，无需公网回调。',
+    tips: [
+      '事件订阅请选「使用长连接接收事件」，并订阅接收消息相关事件。',
+      '配置权限后需发布版本，并确认可用范围。',
+    ],
+    links: [
+      { label: '飞书开放平台', href: 'https://open.feishu.cn/' },
+      {
+        label: '机器人指南',
+        href: 'https://open.feishu.cn/document/ukTMukTMukTM/uYjNwUjL2YDM14iN2ATN',
+      },
+    ],
+  },
+  dingtalk: {
+    summary:
+      '在钉钉开放平台创建企业内部应用，从基础信息复制 Client ID（AppKey）与 Client Secret（AppSecret）。使用 Stream 模式，无需公网回调。',
+    tips: ['需开通机器人能力，并配置消息接收为 Stream 模式。'],
+    links: [
+      { label: '钉钉开放平台', href: 'https://open.dingtalk.com/' },
+    ],
+  },
+  wecom: {
+    summary:
+      '在企业微信管理后台创建「智能机器人」，复制 Bot ID 与 Secret。本产品使用 WebSocket 长连接，无需公网回调 URL。',
+    links: [
+      {
+        label: '企业微信管理后台',
+        href: 'https://work.weixin.qq.com/wework_admin/frame',
+      },
+      {
+        label: '开发文档',
+        href: 'https://developer.work.weixin.qq.com/document/',
+      },
+    ],
+  },
+  weixin: {
+    summary:
+      '个人微信通道（ilink）。推荐点「扫码连接」，用手机微信扫码确认；也可粘贴已有 Bearer Token。',
+    tips: ['扫码后请先从微信给机器人发一条消息，完成会话关联。'],
+    links: [],
+  },
+}
+
+function ChannelHelpBlock({ type }: { type: string }) {
+  const help = CHANNEL_HELP[type]
+  if (!help) return null
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        padding: '8px 10px',
+        borderRadius: 6,
+        background: 'var(--semi-color-fill-0)',
+      }}
+    >
+      <Typography.Text type="tertiary" size="small">
+        {help.summary}
+      </Typography.Text>
+      {help.tips?.map((tip) => (
+        <Typography.Text key={tip} type="tertiary" size="small">
+          · {tip}
+        </Typography.Text>
+      ))}
+      {help.links.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 12px' }}>
+          {help.links.map((l) => (
+            <a
+              key={l.href}
+              href={l.href}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 12 }}
+            >
+              {l.label}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 type Props = {
   assistantId: string
   channels: ImChannels
@@ -121,7 +254,7 @@ export function ImChannelsSection({
         即时通讯渠道
       </Typography.Title>
       <Typography.Text type="tertiary" size="small">
-        每个助手可绑定自己的机器人。消息会进入该助手的对话。
+        每个助手可绑定自己的机器人；消息会进入该助手的对话。多数渠道走长连接 / 长轮询，一般无需公网回调。添加后点「编辑」填写凭证，页面内有各平台获取方式与链接。
       </Typography.Text>
 
       {bound.length === 0 ? (
@@ -186,25 +319,28 @@ export function ImChannelsSection({
       )}
 
       {unbound.length > 0 && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Select
-            placeholder="添加渠道"
-            value={addType || undefined}
-            onChange={(v) => setAddType(String(v))}
-            style={{ minWidth: 160 }}
-            optionList={unbound.map((m) => ({
-              value: m.type,
-              label: m.label,
-            }))}
-          />
-          <Button
-            theme="solid"
-            type="primary"
-            disabled={!addType || saving}
-            onClick={addChannel}
-          >
-            添加
-          </Button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <Select
+              placeholder="添加渠道"
+              value={addType || undefined}
+              onChange={(v) => setAddType(String(v))}
+              style={{ minWidth: 160 }}
+              optionList={unbound.map((m) => ({
+                value: m.type,
+                label: m.label,
+              }))}
+            />
+            <Button
+              theme="solid"
+              type="primary"
+              disabled={!addType || saving}
+              onClick={addChannel}
+            >
+              添加
+            </Button>
+          </div>
+          {addType && <ChannelHelpBlock type={addType} />}
         </div>
       )}
 
@@ -256,6 +392,7 @@ function ChannelForm({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <ChannelHelpBlock type={type} />
       <div
         style={{
           display: 'flex',
@@ -271,7 +408,7 @@ function ChannelForm({
       </div>
       <div>
         <Typography.Text type="tertiary" size="small" style={fieldLabel}>
-          Allow from（可选，逗号分隔）
+          Allow from（可选，逗号分隔用户/会话 ID）
         </Typography.Text>
         <Input
           value={value.allowFrom ?? ''}
@@ -375,9 +512,6 @@ function ChannelForm({
 
       {m?.family === 'wecomWS' && (
         <>
-          <Typography.Text type="tertiary" size="small">
-            使用 WebSocket 模式，无需配置公网回调 URL。
-          </Typography.Text>
           <div>
             <Typography.Text type="tertiary" size="small" style={fieldLabel}>
               Bot ID
@@ -397,9 +531,6 @@ function ChannelForm({
 
       {m?.family === 'weixinQR' && (
         <>
-          <Typography.Text type="tertiary" size="small">
-            推荐使用「扫码连接」。也可粘贴已有 ilink Bearer Token。
-          </Typography.Text>
           <SecretField
             label="Token"
             value={value.token}
@@ -565,8 +696,8 @@ function WeixinQRModal({
             {error}
           </Typography.Text>
         )}
-        <Typography.Text type="tertiary" size="small">
-          扫码后首次请从微信给机器人发一条消息以完成会话关联。
+        <Typography.Text type="tertiary" size="small" style={{ textAlign: 'center' }}>
+          个人微信（ilink）通道。扫码确认后，请先从微信给机器人发一条消息以完成会话关联。
         </Typography.Text>
       </div>
     </Modal>
