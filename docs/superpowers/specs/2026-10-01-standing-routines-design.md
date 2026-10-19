@@ -133,7 +133,7 @@
 2. 按 §3.3 确保环境。
 3. 为这次运行**新建**一条 `agent_sessions`，`assistant_id` = 负责人。不占用、不撑爆助手的主会话。
 4. 注入固定提示，内容只有：`RTN` / `RUN` 编号、`brief`、自主级别与主机列表、当前 state、上一份成功运行的摘要、本次截止时间。模型用常规模具执行。
-5. 运行超过 `max_duration`（默认 15 分钟，创建时可改，上限 60 分钟）仍未结束：取消会话，运行记 `failed`。
+5. 运行超过 `max_duration`（默认 15 分钟，创建时可改，上限 **120 分钟/段**）仍未结束：取消会话，运行记 `failed`。更长的工作用 `FinishRun(continue=true)` 链式分段，见 `2026-10-19-long-running-tasks-design.md`。
 
 ### 5.4 一次运行怎么结束
 
@@ -210,7 +210,7 @@
 | `hosts` | 文本数组。`browse` 必填；`read` 为空 |
 | `cron` / `timezone` | 五段 cron / IANA 时区 |
 | `deliver_im` | 是否推到负责人的已启用 IM |
-| `max_duration_sec` | 默认 900，最大 3600 |
+| `max_duration_sec` | 默认 900，最大 7200（一段）；超长用 continue 链 |
 | `state` | jsonb，默认 `{}` |
 | `status` | `active` / `paused` / `archived` |
 | `next_run_at` | 下次触发（UTC）。`paused` / `archived` 时为空 |

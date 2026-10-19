@@ -311,6 +311,7 @@ func main() {
 		Sessions:   agentStore,
 		Issues:     issueStore,
 		Tickets:    ticketStore,
+		OnContinue: routineRunner.StartContinue,
 	}).Mount(mux)
 	denialStore := &policy.DenialStore{DB: db.SQL}
 

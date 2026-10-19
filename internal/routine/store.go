@@ -22,7 +22,8 @@ const routineCols = `id, key, user_id, COALESCE(assignee_assistant_id, ''), COAL
 
 const runCols = `id, key, routine_id, user_id, COALESCE(assistant_id, ''), session_id, status,
 	scheduled_at, started_at, finished_at, wait_started_at, summary, artifacts, error,
-	deliver_error, assist_ticket_id, budget_left_sec, created_at`
+	deliver_error, assist_ticket_id, budget_left_sec, created_at,
+	COALESCE(segment_index, 1), COALESCE(continue_from, '')`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -333,25 +334,56 @@ func (s *Store) GetRun(ctx context.Context, userID, routineKey, runKey string) (
 }
 
 // FinishRun marks a running run succeeded when the caller is its session.
-func (s *Store) FinishRun(ctx context.Context, userID, runKey, sessionID, summary string, artifacts []Artifact) (*Run, error) {
+// When wantContinue is true and the segment chain is under MaxContinueChain,
+// it also enqueues the next segment (returned as next) for immediate pickup.
+func (s *Store) FinishRun(ctx context.Context, userID, runKey, sessionID, summary string, artifacts []Artifact, wantContinue bool) (*Run, *Claim, error) {
 	raw, err := json.Marshal(artifacts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if artifacts == nil {
 		raw = []byte(`[]`)
 	}
 	now := time.Now().UTC()
-	row := s.DB.QueryRowContext(ctx, `
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	row := tx.QueryRowContext(ctx, `
 		UPDATE routine_runs SET status=$4, summary=$5, artifacts=$6, finished_at=$7
 		WHERE user_id=$1 AND (id=$2 OR key=$2) AND session_id=$3 AND status=$8
 		RETURNING `+runCols,
 		userID, runKey, sessionID, RunSucceeded, summary, raw, now, RunRunning)
 	rn, err := scanRun(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrForbidden
+		return nil, nil, ErrForbidden
 	}
-	return rn, err
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var next *Claim
+	if wantContinue && rn.SegmentIndex < MaxContinueChain {
+		rtRow := tx.QueryRowContext(ctx, `SELECT `+routineCols+` FROM routines WHERE id=$1 AND user_id=$2`, rn.RoutineID, userID)
+		rt, err := scanRoutine(rtRow)
+		if err != nil {
+			return nil, nil, err
+		}
+		if rt.Status == StatusActive {
+			seg := rn.SegmentIndex + 1
+			run, err := insertContinueRun(ctx, tx, rt, rn.ID, seg, now)
+			if err != nil {
+				return nil, nil, err
+			}
+			next = &Claim{Routine: *rt, Run: *run}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, err
+	}
+	return rn, next, nil
 }
 
 // RequestConfirm parks a running run on an assist ticket and records leftover budget.
@@ -508,17 +540,31 @@ func claimOne(ctx context.Context, tx *sql.Tx, id string, now time.Time) (*Claim
 }
 
 func insertRun(ctx context.Context, tx *sql.Tx, rt *Routine, status string, scheduled, now time.Time) (*Run, error) {
+	return insertRunSeg(ctx, tx, rt, status, scheduled, now, 1, "")
+}
+
+func insertContinueRun(ctx context.Context, tx *sql.Tx, rt *Routine, fromRunID string, segment int, now time.Time) (*Run, error) {
+	return insertRunSeg(ctx, tx, rt, RunQueued, now, now, segment, fromRunID)
+}
+
+func insertRunSeg(ctx context.Context, tx *sql.Tx, rt *Routine, status string, scheduled, now time.Time, segment int, continueFrom string) (*Run, error) {
 	finished := any(nil)
 	if status == RunSkippedOverlap || status == RunSkippedStale {
 		finished = now
 	}
+	if segment < 1 {
+		segment = 1
+	}
 	row := tx.QueryRowContext(ctx, `
 		INSERT INTO routine_runs (
-			id, key, routine_id, user_id, assistant_id, status, scheduled_at, finished_at, created_at
+			id, key, routine_id, user_id, assistant_id, status, scheduled_at, finished_at,
+			segment_index, continue_from, created_at
 		) VALUES (
-			$1, 'RUN-' || nextval('routine_run_key_seq'), $2, $3, NULLIF($4,''), $5, $6, $7, $8
+			$1, 'RUN-' || nextval('routine_run_key_seq'), $2, $3, NULLIF($4,''), $5, $6, $7,
+			$8, $9, $10
 		) RETURNING `+runCols,
-		uuid.NewString(), rt.ID, rt.UserID, rt.AssigneeAssistantID, status, scheduled, finished, now)
+		uuid.NewString(), rt.ID, rt.UserID, rt.AssigneeAssistantID, status, scheduled, finished,
+		segment, continueFrom, now)
 	return scanRun(row)
 }
 
@@ -673,6 +719,7 @@ func scanRun(row rowScanner) (*Run, error) {
 		&rn.ID, &rn.Key, &rn.RoutineID, &rn.UserID, &rn.AssistantID, &rn.SessionID, &rn.Status,
 		&rn.ScheduledAt, &started, &finished, &waited, &rn.Summary, &artifacts, &rn.Error,
 		&rn.DeliverError, &rn.AssistTicketID, &budget, &rn.CreatedAt,
+		&rn.SegmentIndex, &rn.ContinueFrom,
 	); err != nil {
 		return nil, err
 	}
@@ -695,6 +742,9 @@ func scanRun(row rowScanner) (*Run, error) {
 	if budget.Valid {
 		n := int(budget.Int64)
 		rn.BudgetLeftSec = &n
+	}
+	if rn.SegmentIndex < 1 {
+		rn.SegmentIndex = 1
 	}
 	rn.ScheduledAt = rn.ScheduledAt.UTC()
 	return &rn, nil

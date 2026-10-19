@@ -175,7 +175,11 @@ func (r *Runner) prompt(ctx context.Context, c Claim, sessionID, text string, bu
 	}
 	switch rn.Status {
 	case RunSucceeded, RunFailed, RunCancelled:
-		r.deliver(ctx, c, rn.Status, rn.Summary)
+		summary := rn.Summary
+		if rn.Status == RunSucceeded && r.hasQueuedContinue(ctx, rn.RoutineID) {
+			summary = summary + "（下一段继续）"
+		}
+		r.deliver(ctx, c, rn.Status, summary)
 		return
 	case RunWaitingUser:
 		return
@@ -223,6 +227,26 @@ func (r *Runner) watch(ctx context.Context, runID, sessionID string, budget time
 func (r *Runner) runStatus(ctx context.Context, runID string) (*Run, error) {
 	row := r.Store.DB.QueryRowContext(ctx, `SELECT `+runCols+` FROM routine_runs WHERE id=$1`, runID)
 	return scanRun(row)
+}
+
+// StartContinue kicks a FinishRun(continue=true) segment without waiting for the poller.
+func (r *Runner) StartContinue(ctx context.Context, claim Claim) {
+	if r == nil {
+		return
+	}
+	go r.execute(ctx, claim)
+}
+
+func (r *Runner) hasQueuedContinue(ctx context.Context, routineID string) bool {
+	if r.Store == nil {
+		return false
+	}
+	var n int
+	err := r.Store.DB.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM routine_runs
+		WHERE routine_id=$1 AND status=$2 AND continue_from <> ''`,
+		routineID, RunQueued).Scan(&n)
+	return err == nil && n > 0
 }
 
 func (r *Runner) budget(sec int) time.Duration {

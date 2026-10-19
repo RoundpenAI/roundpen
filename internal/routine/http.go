@@ -28,6 +28,8 @@ type Handler struct {
 	Tickets    *assistticket.Store
 	// OnFinished runs after FinishRun commits, so delivery stays next to the write.
 	OnFinished func(ctx context.Context, run *Run)
+	// OnContinue starts the next segment immediately when FinishRun(continue=true).
+	OnContinue func(ctx context.Context, claim Claim)
 }
 
 // Mount registers routine routes.
@@ -359,11 +361,12 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request) {
 		SessionID string     `json:"sessionId"`
 		Summary   string     `json:"summary"`
 		Artifacts []Artifact `json:"artifacts"`
+		Continue  bool       `json:"continue"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	rn, err := h.Store.FinishRun(r.Context(), user.Username, r.PathValue("runKey"), body.SessionID, body.Summary, body.Artifacts)
+	rn, next, err := h.Store.FinishRun(r.Context(), user.Username, r.PathValue("runKey"), body.SessionID, body.Summary, body.Artifacts, body.Continue)
 	if err != nil {
 		writeErr(w, err)
 		return
@@ -371,7 +374,18 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request) {
 	if h.OnFinished != nil {
 		h.OnFinished(r.Context(), rn)
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"run": rn})
+	if next != nil && h.OnContinue != nil {
+		h.OnContinue(r.Context(), *next)
+	}
+	out := map[string]any{"run": rn}
+	if next != nil {
+		out["continued"] = true
+		out["nextRun"] = next.Run
+	} else if body.Continue {
+		out["continued"] = false
+		out["continueNote"] = "segment chain limit reached or routine inactive; treated as final finish"
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) confirm(w http.ResponseWriter, r *http.Request) {
