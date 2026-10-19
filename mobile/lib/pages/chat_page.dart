@@ -35,7 +35,7 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
       widget.session.endpoints.getSession(widget.sessionId);
   final ScrollController _scroll = ScrollController();
 
-  bool _auto = true;
+  bool _auto = false;
   String? _shownPermissionId;
 
   @override

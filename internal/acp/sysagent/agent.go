@@ -26,9 +26,13 @@ const keepLastToolResults = 6
 // PermissionMetaKindKey marks permission requests that present a question or
 // plan approval to the user. The client treats those as dialogs and skips the
 // auto-mode classifier, which only judges tool actions.
+//
+// PermissionMetaAskHumanKey marks SoftDeny / L2 escalations from the in-process
+// agent so the runner does not re-classify and auto-allow the same call.
 const (
-	PermissionMetaKindKey  = "roundpen.kind"
-	PermissionKindQuestion = "question"
+	PermissionMetaKindKey     = "roundpen.kind"
+	PermissionKindQuestion    = "question"
+	PermissionMetaAskHumanKey = "roundpen.ask_human"
 )
 
 // maxSkillInvocationsPerTurn bounds Skill nesting within one reply.
@@ -362,56 +366,62 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 			if !blockedByPlanMode && mutating {
 				if decided, ok := a.toolPermCached(sid, name); ok {
 					allowed = decided
-				} else if a.permMode(sid) == automode.ModeAll ||
-					(a.permMode(sid) == automode.ModeEdit && automode.IsWorkspaceEdit(name, "")) {
-					allowed = true
-				} else if a.permMode(sid) == automode.ModeDecide && a.deps.Evaluator != nil {
-					// Classifier: failures block the call, so a broken model
-					// can never silently widen what may run.
-					verdict, evalErr := a.deps.Evaluator.Evaluate(ctx, automode.Request{
+				} else {
+					mode := a.permMode(sid)
+					req := automode.Request{
 						Name:       name,
 						Title:      title,
 						Args:       string(args),
 						UserDigest: turnDigest(messages),
-					})
-					if evalErr != nil {
-						slog.Default().Warn("auto mode classifier failed",
-							slog.String("session", sid), slog.String("tool", name), slog.Any("err", evalErr))
 					}
-					allowed = verdict.Allowed()
-					autoDenied = !allowed
-					if autoDenied {
-						autoDenyReason = strings.TrimSpace(verdict.Rule)
-						if r := strings.TrimSpace(verdict.Reason); r != "" {
-							autoDenyReason += " — " + r
+					switch {
+					case mode == automode.ModeAll ||
+						(mode == automode.ModeEdit && automode.IsWorkspaceEdit(name, "")):
+						// Still enforce L3 HardDeny even when the mode would
+						// otherwise silent-allow.
+						if v, ok := automode.PreCheck(req); ok {
+							allowed = false
+							autoDenied = true
+							autoDenyReason = formatAutoReason(v)
+						} else {
+							allowed = true
+						}
+					case mode == automode.ModeDecide:
+						// L3 HardDeny → L2 confirm / SoftDeny→人审 → classifier Allow.
+						res := automode.Resolve(ctx, a.deps.Evaluator, req)
+						if res.EvalErr != nil {
+							slog.Default().Warn("auto mode classifier failed",
+								slog.String("session", sid), slog.String("tool", name), slog.Any("err", res.EvalErr))
+						}
+						switch {
+						case res.Verdict.Decision == automode.HardDeny:
+							allowed = false
+							autoDenied = true
+							autoDenyReason = formatAutoReason(res.Verdict)
+						case res.AskHuman:
+							askTitle := annotatePermissionTitle(title, res.Verdict)
+							var err error
+							allowed, err = a.askToolPermission(ctx, sid, tc.ID, name, askTitle, res.Verdict)
+							if err != nil {
+								_ = a.finishToolCall(ctx, sid, tc.ID, acp.ToolCallStatusFailed, "Tool call cancelled.")
+								return err
+							}
+						case res.Allowed():
+							allowed = true
+							_ = a.annotateAutoApproved(ctx, sid, tc.ID, title, res.Verdict)
+						default:
+							allowed = false
+							autoDenied = true
+							autoDenyReason = formatAutoReason(res.Verdict)
+						}
+					default:
+						var err error
+						allowed, err = a.askToolPermission(ctx, sid, tc.ID, name, title, automode.Verdict{})
+						if err != nil {
+							_ = a.finishToolCall(ctx, sid, tc.ID, acp.ToolCallStatusFailed, "Tool call cancelled.")
+							return err
 						}
 					}
-				} else {
-					opts := []acp.PermissionOption{
-						{OptionId: acp.PermissionOptionId("allow"), Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
-						{OptionId: acp.PermissionOptionId("allow_tool"), Name: "Allow this tool (session)", Kind: acp.PermissionOptionKindAllowAlways},
-						{OptionId: acp.PermissionOptionId("allow_all"), Name: "Allow all tools (session)", Kind: acp.PermissionOptionKindAllowAlways},
-						{OptionId: acp.PermissionOptionId("reject"), Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
-						{OptionId: acp.PermissionOptionId("reject_tool"), Name: "Reject this tool (session)", Kind: acp.PermissionOptionKindRejectAlways},
-					}
-					resp, err := a.conn.RequestPermission(ctx, acp.RequestPermissionRequest{
-						SessionId: acp.SessionId(sid),
-						ToolCall: acp.ToolCallUpdate{
-							ToolCallId: acp.ToolCallId(tc.ID),
-							Title:      &title,
-						},
-						Options: opts,
-					})
-					if err != nil {
-						// Cancelled while waiting on the dialog: still resolve the call.
-						_ = a.finishToolCall(ctx, sid, tc.ID, acp.ToolCallStatusFailed, "Tool call cancelled.")
-						return err
-					}
-					opt := ""
-					if resp.Outcome.Selected != nil {
-						opt = string(resp.Outcome.Selected.OptionId)
-					}
-					allowed = a.applyToolPerm(sid, name, opt)
 				}
 			}
 
@@ -583,6 +593,89 @@ func (a *Agent) toolPermCached(sid, toolName string) (allowed bool, ok bool) {
 		return true, true
 	}
 	return false, false
+}
+
+func formatAutoReason(v automode.Verdict) string {
+	reason := strings.TrimSpace(v.Rule)
+	if r := strings.TrimSpace(v.Reason); r != "" {
+		if reason != "" {
+			reason += " — "
+		}
+		reason += r
+	}
+	return reason
+}
+
+func annotatePermissionTitle(title string, v automode.Verdict) string {
+	rule := strings.TrimSpace(v.Rule)
+	if rule == "" {
+		return title
+	}
+	out := title + " · " + rule
+	if r := strings.TrimSpace(v.Reason); r != "" {
+		out += " — " + r
+	}
+	return out
+}
+
+// askToolPermission presents the standard tool permission dialog.
+func (a *Agent) askToolPermission(ctx context.Context, sid, callID, toolName, title string, v automode.Verdict) (bool, error) {
+	opts := []acp.PermissionOption{
+		{OptionId: acp.PermissionOptionId("allow"), Name: "Allow once", Kind: acp.PermissionOptionKindAllowOnce},
+		{OptionId: acp.PermissionOptionId("allow_tool"), Name: "Allow this tool (session)", Kind: acp.PermissionOptionKindAllowAlways},
+		{OptionId: acp.PermissionOptionId("allow_all"), Name: "Allow all tools (session)", Kind: acp.PermissionOptionKindAllowAlways},
+		{OptionId: acp.PermissionOptionId("reject"), Name: "Reject", Kind: acp.PermissionOptionKindRejectOnce},
+		{OptionId: acp.PermissionOptionId("reject_tool"), Name: "Reject this tool (session)", Kind: acp.PermissionOptionKindRejectAlways},
+	}
+	meta := map[string]any{}
+	if rule := strings.TrimSpace(v.Rule); rule != "" {
+		meta["roundpen.auto_rule"] = rule
+		meta[PermissionMetaAskHumanKey] = true
+	}
+	if reason := strings.TrimSpace(v.Reason); reason != "" {
+		meta["roundpen.auto_reason"] = reason
+		meta[PermissionMetaAskHumanKey] = true
+	}
+	var metaArg map[string]any
+	if len(meta) > 0 {
+		metaArg = meta
+	}
+	resp, err := a.conn.RequestPermission(ctx, acp.RequestPermissionRequest{
+		SessionId: acp.SessionId(sid),
+		Meta:      metaArg,
+		ToolCall: acp.ToolCallUpdate{
+			ToolCallId: acp.ToolCallId(callID),
+			Title:      &title,
+		},
+		Options: opts,
+	})
+	if err != nil {
+		return false, err
+	}
+	opt := ""
+	if resp.Outcome.Selected != nil {
+		opt = string(resp.Outcome.Selected.OptionId)
+	}
+	return a.applyToolPerm(sid, toolName, opt), nil
+}
+
+// annotateAutoApproved updates the tool-call title so the UI can show the
+// classifier rule that auto-approved the call.
+func (a *Agent) annotateAutoApproved(ctx context.Context, sid, callID, title string, v automode.Verdict) error {
+	rule := strings.TrimSpace(v.Rule)
+	if rule == "" || a.conn == nil {
+		return nil
+	}
+	annotated := title + " · 自动审核通过 · " + rule
+	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return a.conn.SessionUpdate(updateCtx, acp.SessionNotification{
+		SessionId: acp.SessionId(sid),
+		Update: acp.UpdateToolCall(
+			acp.ToolCallId(callID),
+			acp.WithUpdateTitle(annotated),
+		),
+	})
 }
 
 // applyToolPerm records the user's choice and returns whether the call may proceed.

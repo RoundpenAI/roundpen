@@ -166,11 +166,11 @@ func TestAgent_AutoModeAllowsWithoutPrompt(t *testing.T) {
 	_ = bodies()
 }
 
-func TestAgent_AutoModeBlocksWithReason(t *testing.T) {
+func TestAgent_AutoModeHardDenyBlocksWithoutPrompt(t *testing.T) {
 	llm, bodies := autoModeLLM(t)
 	defer llm.Close()
 	eval := &stubEvaluator{verdict: automode.Verdict{
-		Decision: automode.SoftDeny,
+		Decision: automode.HardDeny,
 		Rule:     "Outside Workspace",
 		Reason:   "target is not inside the workspace",
 	}}
@@ -182,7 +182,7 @@ func TestAgent_AutoModeBlocksWithReason(t *testing.T) {
 		t.Fatal("blocked tool must not run")
 	}
 	if n := client.permissionRequests(); n != 0 {
-		t.Fatalf("auto mode must not open a permission dialog, got %d", n)
+		t.Fatalf("hard deny must not open a permission dialog, got %d", n)
 	}
 	updates := client.toolStatuses()
 	if len(updates) == 0 || updates[len(updates)-1].status != string(acp.ToolCallStatusFailed) {
@@ -197,6 +197,27 @@ func TestAgent_AutoModeBlocksWithReason(t *testing.T) {
 		!strings.Contains(second, "Outside Workspace") ||
 		!strings.Contains(second, "target is not inside the workspace") {
 		t.Fatalf("tool result must carry rule and reason, got %s", second)
+	}
+}
+
+func TestAgent_AutoModeSoftDenyAsksHuman(t *testing.T) {
+	llm, _ := autoModeLLM(t)
+	defer llm.Close()
+	eval := &stubEvaluator{verdict: automode.Verdict{
+		Decision: automode.SoftDeny,
+		Rule:     "Outside Workspace",
+		Reason:   "target is not inside the workspace",
+	}}
+	agent, client, ran := newAutoModeAgent(t, llm.URL, eval)
+
+	runOneTurn(t, agent, client, true)
+
+	if n := client.permissionRequests(); n != 1 {
+		t.Fatalf("soft deny should ask the user once, got %d", n)
+	}
+	// captureClient auto-selects allow_once → tool runs after human path.
+	if !ran.Load() {
+		t.Fatal("approved soft-deny escalation should have run")
 	}
 }
 
@@ -289,8 +310,8 @@ func TestAgent_AskUserQuestionCarriesQuestionMeta(t *testing.T) {
 	}
 }
 
-func TestAgent_AutoModeFailClosedOnEvaluatorError(t *testing.T) {
-	llm, bodies := autoModeLLM(t)
+func TestAgent_AutoModeEvaluatorErrorAsksHuman(t *testing.T) {
+	llm, _ := autoModeLLM(t)
 	defer llm.Close()
 	eval := &stubEvaluator{
 		verdict: automode.Verdict{Decision: automode.SoftDeny, Rule: "classifier_unavailable", Reason: "boom"},
@@ -300,14 +321,11 @@ func TestAgent_AutoModeFailClosedOnEvaluatorError(t *testing.T) {
 
 	runOneTurn(t, agent, client, true)
 
-	if ran.Load() {
-		t.Fatal("evaluator failure must block the call")
+	if n := client.permissionRequests(); n != 1 {
+		t.Fatalf("classifier failure should escalate to human, got %d prompts", n)
 	}
-	reqs := bodies()
-	if len(reqs) < 2 || !strings.Contains(reqs[len(reqs)-1], "classifier_unavailable") {
-		t.Fatalf("failure reason must reach the model, got %v", reqs)
-	}
-	if n := client.permissionRequests(); n != 0 {
-		t.Fatalf("failed classification must not fall back to a dialog, got %d", n)
+	// captureClient allows once → tool proceeds after the human path.
+	if !ran.Load() {
+		t.Fatal("human allow after classifier failure should run the tool")
 	}
 }
