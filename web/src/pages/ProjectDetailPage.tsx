@@ -3,9 +3,12 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Banner,
   Button,
+  Input,
+  Select,
   Spin,
   Table,
   Tag,
+  TextArea,
   Toast,
   Typography,
 } from '@douyinfe/semi-ui-19'
@@ -15,8 +18,15 @@ import {
   projects,
   type Project,
   type ProjectWorker,
+  type ProjectWorkerRole,
 } from '../api'
 import { useT, type MessageKey } from '../i18n'
+
+const WORKER_ROLES: ProjectWorkerRole[] = [
+  'implementer',
+  'reviewer',
+  'tester',
+]
 
 function statusKey(status: Project['status']): MessageKey {
   return `projects.status.${status}`
@@ -58,6 +68,11 @@ export function ProjectDetailPage() {
   const [opening, setOpening] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [workersLoading, setWorkersLoading] = useState(false)
+  const [delegateTitle, setDelegateTitle] = useState('')
+  const [delegateBrief, setDelegateBrief] = useState('')
+  const [delegateRole, setDelegateRole] =
+    useState<ProjectWorkerRole>('implementer')
+  const [delegating, setDelegating] = useState(false)
 
   const loadWorkers = useCallback(async (projectKey: string) => {
     setWorkersLoading(true)
@@ -118,6 +133,33 @@ export function ProjectDetailPage() {
   async function openWorker(w: ProjectWorker) {
     if (!project?.coordinatorAssistantId || !w.sessionId) return
     navigate(`/a/${project.coordinatorAssistantId}/s/${w.sessionId}`)
+  }
+
+  async function delegateManual() {
+    if (!project || delegating) return
+    const title = delegateTitle.trim()
+    if (!title) {
+      Toast.error(t('projects.delegate.taskTitle'))
+      return
+    }
+    setDelegating(true)
+    try {
+      await projects.delegate(project.key, {
+        title,
+        brief: delegateBrief.trim() || undefined,
+        role: delegateRole,
+      })
+      Toast.success(t('projects.delegate.success'))
+      setDelegateTitle('')
+      setDelegateBrief('')
+      await loadWorkers(project.key)
+    } catch (e) {
+      Toast.error(
+        e instanceof Error ? e.message : t('projects.delegate.failed'),
+      )
+    } finally {
+      setDelegating(false)
+    }
   }
 
   async function toggleArchive() {
@@ -325,6 +367,67 @@ export function ProjectDetailPage() {
           },
         })}
       />
+
+      {project.status === 'active' ? (
+        <div style={{ marginTop: 28 }}>
+          <Typography.Title heading={5} style={{ marginBottom: 8 }}>
+            {t('projects.delegate.title')}
+          </Typography.Title>
+          <Typography.Paragraph type="tertiary" style={{ marginBottom: 16 }}>
+            {t('projects.delegate.guide')}
+          </Typography.Paragraph>
+          <div style={{ display: 'grid', gap: 12, maxWidth: 560 }}>
+            <div>
+              <Typography.Text size="small" type="tertiary">
+                {t('projects.delegate.taskTitle')}
+              </Typography.Text>
+              <Input
+                value={delegateTitle}
+                onChange={setDelegateTitle}
+                placeholder={t('projects.delegate.taskTitlePlaceholder')}
+                disabled={delegating}
+              />
+            </div>
+            <div>
+              <Typography.Text size="small" type="tertiary">
+                {t('projects.delegate.role')}
+              </Typography.Text>
+              <Select
+                value={delegateRole}
+                onChange={(v) => setDelegateRole(v as ProjectWorkerRole)}
+                style={{ width: '100%' }}
+                disabled={delegating}
+                optionList={WORKER_ROLES.map((role) => ({
+                  value: role,
+                  label: t(workerRoleKey(role)),
+                }))}
+              />
+            </div>
+            <div>
+              <Typography.Text size="small" type="tertiary">
+                {t('projects.delegate.brief')}
+              </Typography.Text>
+              <TextArea
+                value={delegateBrief}
+                onChange={setDelegateBrief}
+                placeholder={t('projects.delegate.briefPlaceholder')}
+                rows={4}
+                disabled={delegating}
+              />
+            </div>
+            <div>
+              <Button
+                theme="solid"
+                type="secondary"
+                loading={delegating}
+                onClick={() => void delegateManual()}
+              >
+                {t('projects.delegate.submit')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

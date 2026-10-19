@@ -1,7 +1,7 @@
 # Agent 项目（Projects）设计与缺口分析
 
 日期：2026-10-19  
-状态：Phase A + P1 已落地；代码开发角色流程（coordinator / implementer / reviewer / tester）进行中  
+状态：Phase A + P1 已落地；代码开发角色流程（coordinator / implementer / reviewer / tester）已接通  
 参考：[Cursor Projects](https://cursor.com/docs/agent/projects)
 
 范围：一级菜单「项目」、新建 Project、关联仓库、Coordinator 协调多个 Agent 完成较大事项。  
@@ -103,7 +103,7 @@
 | P1-3 | **并行执行与槽位** | 今日 **每用户一个 Agent 环境槽**；并行 worker 需要：排队、多槽、或同槽多会话串行策略 | `user_environments` / automode 策略决策（产品必须先定） |
 | P1-4 | **项目 ↔ 事项** | `issues.project_id`；Coordinator 用现有 issue/task 工具但默认 scoped 到本项目 | migration + issue store 过滤 |
 | P1-5 | **Worker 列表 UI** | 项目详情侧栏：Coordinator + 进行中/已完成 workers | Project 详情布局 |
-| P1-6 | **结果汇总** | Worker 完成后摘要回 Coordinator；用户在 Coordinator 处验收 | session 事件 / assist ticket 模式复用 |
+| P1-6 | **结果汇总** | Worker 完成后摘要回 Coordinator；用户在 Coordinator 处验收 | ✅ `worker_done` 事件写入 coordinator 会话并进入模型历史 |
 
 ### P2 — Shared Context / Subscriptions / 互通（对齐 Cursor 完整面）
 

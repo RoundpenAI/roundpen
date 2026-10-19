@@ -7,6 +7,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
+	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -26,12 +27,18 @@ type UserLookup interface {
 	GetByUsername(ctx context.Context, username string) (*storage.User, error)
 }
 
+// Transcript appends rows to a chat session (coordinator notify).
+type Transcript interface {
+	AddMessage(ctx context.Context, sessionID, role, content string, meta any) (*agentsession.Message, error)
+}
+
 // Runner drains the per-user serial worker queue.
 type Runner struct {
 	Store   *Store
 	Users   UserLookup
 	Starter WorkerStarter
 	ACP     Prompter
+	Notes   Transcript
 	Log     *slog.Logger
 }
 
@@ -78,12 +85,32 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Minute)
 	defer cancel()
 	_, err = r.ACP.Prompt(runCtx, w.SessionID, RenderWorkerPrompt(p, w))
+	status := WorkerSucceeded
+	errMsg := ""
 	if err != nil {
-		_ = r.Store.FinishWorker(ctx, w.ID, WorkerFailed, err.Error())
-	} else {
-		_ = r.Store.FinishWorker(ctx, w.ID, WorkerSucceeded, "")
+		status = WorkerFailed
+		errMsg = err.Error()
 	}
+	_ = r.Store.FinishWorker(ctx, w.ID, status, errMsg)
+	if fresh, getErr := r.Store.GetWorker(ctx, w.UserID, w.ID); getErr == nil {
+		w = fresh
+	} else {
+		w.Status = status
+		w.Error = errMsg
+	}
+	r.notifyCoordinator(ctx, p, w, status)
 	r.Kick(ctx, w.UserID)
+}
+
+func (r *Runner) notifyCoordinator(ctx context.Context, p *Project, w *Worker, status string) {
+	if r.Notes == nil || p == nil || p.CoordinatorSessionID == "" || w == nil {
+		return
+	}
+	_, err := r.Notes.AddMessage(ctx, p.CoordinatorSessionID, agentsession.RoleEvent,
+		RenderWorkerDoneNotice(w, status), map[string]string{"type": "worker_done"})
+	if err != nil {
+		r.log().Warn("coordinator worker_done note", "worker", w.Key, "err", err)
+	}
 }
 
 func (r *Runner) log() *slog.Logger {

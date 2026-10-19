@@ -265,11 +265,16 @@ func main() {
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}
 	projectStore := &project.Store{DB: db.SQL}
+	agentHandler.Profiles = projectSessionProfiler{
+		Projects:   projectStore,
+		Assistants: assistantStore,
+	}
 	projectRunner := &project.Runner{
 		Store:   projectStore,
 		Users:   userStore,
 		Starter: projectWorkerStarter{H: agentHandler},
 		ACP:     acpMgr,
+		Notes:   agentStore,
 		Log:     logger,
 	}
 	(&issue.Handler{

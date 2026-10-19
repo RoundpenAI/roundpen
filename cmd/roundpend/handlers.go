@@ -593,6 +593,37 @@ func (s projectDirSeeder) EnsureProjectTree(ctx context.Context, userID, slug st
 	return workspace.SeedProject(host, slug)
 }
 
+// projectSessionProfiler restores coordinator / worker personas on reconnect.
+type projectSessionProfiler struct {
+	Projects interface {
+		GetWorkerBySession(ctx context.Context, userID, sessionID string) (*project.Worker, error)
+	}
+	Assistants interface {
+		Get(ctx context.Context, id string) (*assistant.Assistant, error)
+	}
+}
+
+func (p projectSessionProfiler) ProfileFor(ctx context.Context, userID string, sess *agentsession.Session) string {
+	if sess == nil {
+		return ""
+	}
+	if sess.Kind == "worker" {
+		if p.Projects != nil {
+			if w, err := p.Projects.GetWorkerBySession(ctx, userID, sess.ID); err == nil && w != nil {
+				role, _ := project.NormalizeWorkerRole(w.Role)
+				return role
+			}
+		}
+		return project.RoleImplementer
+	}
+	if sess.Kind == "chat" && sess.AssistantID != "" && p.Assistants != nil {
+		if a, err := p.Assistants.Get(ctx, sess.AssistantID); err == nil && a != nil && a.Kind == assistant.KindCoordinator {
+			return "coordinator"
+		}
+	}
+	return ""
+}
+
 // projectWorkerStarter adapts agentapi.Handler to project.WorkerStarter.
 type projectWorkerStarter struct {
 	H interface {

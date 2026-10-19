@@ -95,6 +95,9 @@ type runner struct {
 	// actor is the identity the runtime was started with; /clear reuses it to
 	// restart the runtime.
 	actor manager.Actor
+	// profile is the ACP persona (coordinator / worker role / ""); kept so
+	// /clear and reconnects restore the same tool surface.
+	profile string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -950,15 +953,22 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 		h.runners = make(map[string]*runner)
 	}
 
+	profile := h.profileFor(context.Background(), user, sess)
+
 	if r, ok := h.runners[sess.ID]; ok {
-		if _, ok := h.ACP.Get(sess.ID); ok {
+		if rt, ok := h.ACP.Get(sess.ID); ok && rt.Profile == profile {
 			return r, nil
 		}
-		// Runtime gone (stdio exec died / backend restart); tear down.
+		// Runtime gone or wrong persona; tear down and recreate.
 		if r.cancel != nil {
 			r.cancel()
 		}
 		delete(h.runners, sess.ID)
+		if _, ok := h.ACP.Get(sess.ID); ok {
+			h.ACP.Stop(sess.ID)
+		}
+	} else if rt, ok := h.ACP.Get(sess.ID); ok && rt.Profile != profile {
+		h.ACP.Stop(sess.ID)
 	}
 
 	provMeta, found := providers.ByID(h.ACP.Providers(), sess.ProviderID)
@@ -976,11 +986,13 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	}
 
 	rt, startErr := h.ACP.Start(context.Background(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{
-		Actor: actor,
+		Actor:   actor,
+		Project: manager.ProjectStart{Profile: profile},
 	})
 	if startErr != nil {
 		if existing, ok := h.ACP.Get(sess.ID); ok {
 			rt = existing
+			profile = existing.Profile
 		} else {
 			return nil, fmt.Errorf("start agent: %w", startErr)
 		}
@@ -996,6 +1008,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 		acp:     h.ACP,
 		rt:      rt,
 		actor:   actor,
+		profile: profile,
 		ctx:     ctx,
 		cancel:  cancel,
 		clients: make(map[*streamClient]struct{}),

@@ -122,6 +122,8 @@ func RenderWorkerPrompt(p *Project, w *Worker) string {
 		b.WriteString(strings.TrimSpace(w.Brief))
 		b.WriteString("\n")
 	}
+	b.WriteString("\nBefore you start, skim Shared context (README.md and any *.md notes) for conventions and how to test.\n")
+	b.WriteString("If you learn durable facts (build/test commands, style prefs), append a short note there for later workers.\n")
 	switch role {
 	case RoleReviewer:
 		b.WriteString("\nInspect the relevant diffs and paths. Return severity-ordered findings and a verdict.\n")
@@ -130,5 +132,31 @@ func RenderWorkerPrompt(p *Project, w *Worker) string {
 	default:
 		b.WriteString("\nWork in the repo path. When done, summarize what changed and how to verify it.\n")
 	}
+	return b.String()
+}
+
+// RenderWorkerDoneNotice is written into the coordinator transcript when a worker finishes.
+func RenderWorkerDoneNotice(w *Worker, status string) string {
+	if w == nil {
+		return "[System] A project worker finished."
+	}
+	role := w.Role
+	if role == "" {
+		role = RoleImplementer
+	}
+	var b strings.Builder
+	b.WriteString("[System] Worker ")
+	b.WriteString(w.Key)
+	b.WriteString(" (")
+	b.WriteString(role)
+	b.WriteString(") finished with status ")
+	b.WriteString(status)
+	b.WriteString(".\nTask: ")
+	b.WriteString(w.Title)
+	if strings.TrimSpace(w.Error) != "" {
+		b.WriteString("\nError: ")
+		b.WriteString(strings.TrimSpace(w.Error))
+	}
+	b.WriteString("\nSummarize for the user, or ListProjectWorkers / open the worker session for details. Delegate follow-ups if needed.")
 	return b.String()
 }

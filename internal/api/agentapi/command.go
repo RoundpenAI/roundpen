@@ -259,7 +259,10 @@ func (r *runner) reset() {
 // per-runtime handlers the runner owns.
 func (r *runner) restartRuntime() (*manager.Runtime, error) {
 	r.acp.Stop(r.session.ID)
-	rt, err := r.acp.Start(r.ctx, r.session.ID, r.session.SandboxID, r.session.ProviderID, manager.StartOpts{Actor: r.actor})
+	rt, err := r.acp.Start(r.ctx, r.session.ID, r.session.SandboxID, r.session.ProviderID, manager.StartOpts{
+		Actor:   r.actor,
+		Project: manager.ProjectStart{Profile: r.profile},
+	})
 	if err != nil {
 		return nil, err
 	}

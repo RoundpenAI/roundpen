@@ -648,6 +648,17 @@ export const zh_CN: Record<MessageKey, string> = {
   'projects.workers.guide':
     '本项目按角色派发的执行会话。排队中的 Worker 会等当前任务结束后再跑（串行队列）。',
   'projects.workers.empty': '还没有 Worker。让协调者派活即可。',
+  'projects.delegate.title': '手动派活',
+  'projects.delegate.guide':
+    '测试用快捷入口。正式流程仍建议让协调者澄清需求并拆任务。',
+  'projects.delegate.taskTitle': '任务标题',
+  'projects.delegate.taskTitlePlaceholder': '例如：实现登录表单',
+  'projects.delegate.brief': '说明',
+  'projects.delegate.briefPlaceholder': '具体步骤、路径与验收标准',
+  'projects.delegate.role': '角色',
+  'projects.delegate.submit': '加入队列',
+  'projects.delegate.success': '已加入 Worker 队列',
+  'projects.delegate.failed': '派活失败',
   'projects.worker.column.key': '编号',
   'projects.worker.column.role': '角色',
   'projects.worker.column.title': '标题',

@@ -59,6 +59,18 @@ func (s *Store) GetWorker(ctx context.Context, userID, keyOrID string) (*Worker,
 	return scanWorker(row)
 }
 
+// GetWorkerBySession finds the worker row tied to an agent session id.
+func (s *Store) GetWorkerBySession(ctx context.Context, userID, sessionID string) (*Worker, error) {
+	if sessionID == "" {
+		return nil, ErrNotFound
+	}
+	row := s.DB.QueryRowContext(ctx, `
+		SELECT `+workerCols+` FROM project_workers
+		WHERE user_id = $1 AND session_id = $2
+		ORDER BY created_at DESC LIMIT 1`, userID, sessionID)
+	return scanWorker(row)
+}
+
 func (s *Store) ListWorkers(ctx context.Context, userID, projectID string, limit int) ([]*Worker, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50

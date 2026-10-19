@@ -63,8 +63,17 @@ type Handler struct {
 	// newly provisioned agent sandboxes.
 	UserVirtualKey func(ctx context.Context, username string) string
 
+	// Profiles resolves coordinator / code-dev worker personas when restarting
+	// an existing session (nil = default System Agent surface).
+	Profiles SessionProfiler
+
 	runnersMu sync.RWMutex
 	runners   map[string]*runner
+}
+
+// SessionProfiler maps a persisted agent session to an ACP Start profile.
+type SessionProfiler interface {
+	ProfileFor(ctx context.Context, userID string, sess *agentsession.Session) string
 }
 
 // Mount registers routes.
@@ -171,10 +180,15 @@ func (h *Handler) StartCoordinator(ctx context.Context, user *storage.User, assi
 }
 
 // EnsureCoordinatorRuntime starts the coordinator persona on an existing chat
-// session when the in-process runtime is missing (e.g. after process restart).
+// session when the in-process runtime is missing or was started without that
+// profile (e.g. after process restart or a bare stream reconnect).
 func (h *Handler) EnsureCoordinatorRuntime(ctx context.Context, user *storage.User, sessionID string) error {
-	if _, ok := h.ACP.Get(sessionID); ok {
+	if rt, ok := h.ACP.Get(sessionID); ok && rt.Profile == "coordinator" {
 		return nil
+	}
+	if _, ok := h.ACP.Get(sessionID); ok {
+		h.deleteRunner(sessionID)
+		h.ACP.Stop(sessionID)
 	}
 	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
@@ -212,17 +226,21 @@ func (h *Handler) CreateWorkerSession(ctx context.Context, user *storage.User, a
 	return h.Store.CreateKind(ctx, user.Username, title, DefaultAssistantProvider, "", assistantID, "worker")
 }
 
-// StartWorkerRuntime starts (or no-ops if already live) the System Agent for a
-// worker session with a code-dev role profile (implementer|reviewer|tester).
+// StartWorkerRuntime starts (or restarts) the System Agent for a worker session
+// with a code-dev role profile (implementer|reviewer|tester).
 func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error {
-	if _, ok := h.ACP.Get(sessionID); ok {
-		return nil
-	}
 	profile := role
 	switch profile {
 	case "implementer", "reviewer", "tester":
 	default:
 		profile = "implementer"
+	}
+	if rt, ok := h.ACP.Get(sessionID); ok && rt.Profile == profile {
+		return nil
+	}
+	if _, ok := h.ACP.Get(sessionID); ok {
+		h.deleteRunner(sessionID)
+		h.ACP.Stop(sessionID)
 	}
 	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
@@ -233,6 +251,13 @@ func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, se
 		Project: manager.ProjectStart{Profile: profile},
 	})
 	return err
+}
+
+func (h *Handler) profileFor(ctx context.Context, user *storage.User, sess *agentsession.Session) string {
+	if h.Profiles == nil || user == nil || sess == nil {
+		return ""
+	}
+	return h.Profiles.ProfileFor(ctx, user.Username, sess)
 }
 
 // ResumeRoutine starts the runtime again for an existing run session.

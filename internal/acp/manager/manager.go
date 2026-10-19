@@ -78,6 +78,8 @@ type Runtime struct {
 	SessionID string
 	SandboxID string
 	Provider  providers.Provider
+	// Profile is the session persona used at Start (coordinator / worker role / "").
+	Profile string
 
 	bridge *acpclient.Bridge
 	conn   *acp.ClientSideConnection
@@ -343,6 +345,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		SessionID:   sessionID,
 		SandboxID:   sandboxID,
 		Provider:    p,
+		Profile:     opts.Project.Profile,
 		bridge:      bridge,
 		conn:        conn,
 		acpSID:      sess.SessionId,

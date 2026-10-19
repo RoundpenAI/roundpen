@@ -667,6 +667,17 @@ export const en = {
   'projects.workers.guide':
     'Role-specific agents for this project. Queued workers wait until the current one finishes (serial queue).',
   'projects.workers.empty': 'No workers yet. Ask the coordinator to delegate a task.',
+  'projects.delegate.title': 'Delegate manually',
+  'projects.delegate.guide':
+    'Optional shortcut for testing. Prefer asking the coordinator to clarify and split work.',
+  'projects.delegate.taskTitle': 'Task title',
+  'projects.delegate.taskTitlePlaceholder': 'e.g. Implement login form',
+  'projects.delegate.brief': 'Brief',
+  'projects.delegate.briefPlaceholder': 'Concrete steps, paths, and acceptance checks',
+  'projects.delegate.role': 'Role',
+  'projects.delegate.submit': 'Queue worker',
+  'projects.delegate.success': 'Worker queued',
+  'projects.delegate.failed': 'failed to delegate',
   'projects.worker.column.key': 'Key',
   'projects.worker.column.role': 'Role',
   'projects.worker.column.title': 'Title',

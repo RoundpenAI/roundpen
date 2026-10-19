@@ -229,6 +229,22 @@ func TestSystemPromptOmitsWebSearchWhenUnconfigured(t *testing.T) {
 	}
 }
 
+func TestProjectHistoryProjectsWorkerDone(t *testing.T) {
+	meta, _ := json.Marshal(map[string]string{"type": "worker_done"})
+	rows := []*agentsession.Message{
+		{Role: agentsession.RoleUser, Content: "ship login"},
+		{Role: agentsession.RoleAssistant, Content: "delegating"},
+		{Role: agentsession.RoleEvent, Content: "[System] Worker WRK-1 finished", Meta: meta},
+	}
+	got := projectHistory(rows)
+	if formatRoles(got) != "user,assistant,user" {
+		t.Fatalf("roles: %s", formatRoles(got))
+	}
+	if !strings.Contains(got[2].Content, "WRK-1") {
+		t.Fatalf("worker_done not projected: %+v", got)
+	}
+}
+
 func TestProjectHistorySkipsCancelledRows(t *testing.T) {
 	cancelled, _ := json.Marshal(map[string]string{"type": "user", "state": "cancelled"})
 	normal, _ := json.Marshal(map[string]string{"type": "user"})

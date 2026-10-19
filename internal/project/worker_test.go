@@ -29,3 +29,20 @@ func TestNormalizeWorkerRole(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestRenderWorkerDoneNotice(t *testing.T) {
+	w := &Worker{Key: "WRK-3", Title: "Add login", Role: RoleImplementer, Status: WorkerSucceeded}
+	got := RenderWorkerDoneNotice(w, WorkerSucceeded)
+	for _, want := range []string{"WRK-3", "implementer", "succeeded", "Add login", "ListProjectWorkers"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderWorkerPromptSharedContext(t *testing.T) {
+	got := RenderWorkerPrompt(&Project{RepoPath: "projects/x"}, &Worker{Title: "t", Role: RoleTester})
+	if !strings.Contains(got, "Shared context") || !strings.Contains(got, "append a short note") {
+		t.Fatalf("expected shared-context guidance:\n%s", got)
+	}
+}

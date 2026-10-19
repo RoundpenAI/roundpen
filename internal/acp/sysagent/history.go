@@ -126,11 +126,18 @@ func projectHistory(rows []*agentsession.Message) []chatMessage {
 			pending = append(pending, m)
 		case agentsession.RoleEvent:
 			flushTools()
-			if metaType(m) == "error" && strings.TrimSpace(m.Content) != "" {
-				out = append(out, chatMessage{
-					Role:    "user",
-					Content: "Previous turn error: " + strings.TrimSpace(m.Content),
-				})
+			switch metaType(m) {
+			case "error":
+				if strings.TrimSpace(m.Content) != "" {
+					out = append(out, chatMessage{
+						Role:    "user",
+						Content: "Previous turn error: " + strings.TrimSpace(m.Content),
+					})
+				}
+			case "worker_done":
+				if text := strings.TrimSpace(m.Content); text != "" {
+					out = append(out, chatMessage{Role: "user", Content: text})
+				}
 			}
 		default:
 			// thought / permission: UI + audit only (Claude Code does not replay old thinking).
