@@ -60,6 +60,8 @@ Git 鉴权：**用户在 Settings → Git 填写 token** → 控制面存 Postgr
 
 LLM：loopback `POST {HTTP}/llmgw/openai/v1/chat/completions`，鉴权用每实例随机生成的内部 Virtual Key（`Gateway.InternalKey()`，持久化于 `data/llmgw-internal.key`）；model 回落 settings Default Model。
 
+工具批次：模型一轮可发出多个 `tool_calls`。连续的只读、已放行工具（Read / Glob / Grep / WebFetch / WebSearch 等）**并行执行**，完成即回传 UI；写操作、`browser_*`、`Skill` 仍串行。鼓励模型在工具前先流式一句意图，再批量调用。
+
 写操作权限（`Mutating`）：只读不询问。写操作弹出选项：
 
 - Allow once

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -334,166 +333,12 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 			return a.emitText(ctx, sid, text)
 		}
 
+		// Use = not := so we reassign the outer messages (tool results must
+		// survive into the next LLM round; := would shadow and drop them).
 		var recs []toolCallRec
-		for _, tc := range msg.ToolCalls {
-			name := tc.Function.Name
-			args := json.RawMessage(tc.Function.Arguments)
-			if len(args) == 0 {
-				args = json.RawMessage(`{}`)
-			}
-			var argsObj any
-			if err := json.Unmarshal(args, &argsObj); err != nil {
-				argsObj = map[string]any{"raw": string(args)}
-			}
-			tool, ok := a.deps.Tools.Get(name)
-			title := name
-			if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
-				SessionId: acp.SessionId(sid),
-				Update: acp.StartToolCall(
-					acp.ToolCallId(tc.ID),
-					title,
-					acp.WithStartKind(acp.ToolKindOther),
-					acp.WithStartStatus(acp.ToolCallStatusPending),
-					acp.WithStartRawInput(argsObj),
-				),
-			}); err != nil {
-				return err
-			}
-
-			// Skill mutates only on install/remove; invoke and list are read-only,
-			// so the mutating gates below are decided per action rather than by
-			// the tool's blanket Mutating flag.
-			mutating := ok && tool.Mutating
-			if name == "Skill" {
-				mutating = skillMutates(args)
-			}
-			// Plan mode blocks side-effecting tool calls until the plan is approved.
-			blockedByPlanMode := mutating && a.inPlanMode(sid)
-			skillBlocked := name == "Skill" && skillInvocations >= maxSkillInvocationsPerTurn
-
-			allowed := true
-			autoDenied := false
-			autoDenyReason := ""
-			autoVerdict := automode.Verdict{Decision: automode.Allow}
-			if !blockedByPlanMode && mutating {
-				if decided, ok := a.toolPermCached(sid, name); ok {
-					allowed = decided
-				} else {
-					mode := a.permMode(sid)
-					req := automode.Request{
-						Name:       name,
-						Title:      title,
-						Args:       string(args),
-						UserDigest: turnDigest(messages),
-					}
-					switch {
-					case mode == automode.ModeAll ||
-						(mode == automode.ModeEdit && automode.IsWorkspaceEdit(name, "")):
-						// Still enforce L3 HardDeny even when the mode would
-						// otherwise silent-allow.
-						if v, ok := automode.PreCheck(req); ok {
-							allowed = false
-							autoDenied = true
-							autoDenyReason = formatAutoReason(v)
-							autoVerdict = v
-						} else {
-							allowed = true
-						}
-					case mode == automode.ModeDecide:
-						// L3 HardDeny → L2 confirm / SoftDeny→人审 → classifier Allow.
-						res := automode.Resolve(ctx, a.deps.Evaluator, req)
-						autoVerdict = res.Verdict
-						if res.EvalErr != nil {
-							slog.Default().Warn("auto mode classifier failed",
-								slog.String("session", sid), slog.String("tool", name), slog.Any("err", res.EvalErr))
-						}
-						switch {
-						case res.Verdict.Decision == automode.HardDeny:
-							allowed = false
-							autoDenied = true
-							autoDenyReason = formatAutoReason(res.Verdict)
-						case res.AskHuman:
-							askTitle := annotatePermissionTitle(title, res.Verdict)
-							var err error
-							allowed, err = a.askToolPermission(ctx, sid, tc.ID, name, askTitle, res.Verdict)
-							if err != nil {
-								_ = a.finishToolCall(ctx, sid, tc.ID, acp.ToolCallStatusFailed, "Tool call cancelled.")
-								return err
-							}
-						case res.Allowed():
-							allowed = true
-							_ = a.annotateAutoApproved(ctx, sid, tc.ID, title, res.Verdict)
-						default:
-							allowed = false
-							autoDenied = true
-							autoDenyReason = formatAutoReason(res.Verdict)
-						}
-					default:
-						var err error
-						allowed, err = a.askToolPermission(ctx, sid, tc.ID, name, title, automode.Verdict{})
-						if err != nil {
-							_ = a.finishToolCall(ctx, sid, tc.ID, acp.ToolCallStatusFailed, "Tool call cancelled.")
-							return err
-						}
-					}
-				}
-			}
-
-			var result string
-			var callErr error
-			status := acp.ToolCallStatusCompleted
-			if blockedByPlanMode {
-				result = fmt.Sprintf("Blocked: %s is unavailable while in plan mode. "+
-					"You must only explore and design; call ExitPlanMode to present the plan for approval and start implementing.", name)
-				status = acp.ToolCallStatusFailed
-			} else if skillBlocked {
-				result = fmt.Sprintf("Blocked: Skill was invoked %d times in this reply (nesting limit). "+
-					"Finish the current skill's steps with the tools already available; "+
-					"if more skills are genuinely needed, end this reply so the user can send a follow-up message.", maxSkillInvocationsPerTurn)
-				status = acp.ToolCallStatusFailed
-			} else if autoDenied {
-				result = fmt.Sprintf("Blocked by auto mode: %s. Do not retry this action or route around it "+
-					"with another tool; choose a safer approach that stays inside the workspace.", autoDenyReason)
-				status = acp.ToolCallStatusFailed
-			} else if !allowed {
-				result = "Permission rejected by user."
-				status = acp.ToolCallStatusFailed
-			} else {
-				toolCtx := tools.WithInteractor(ctx, a.interactor(sid))
-				inv := a.deps.Gateway.Invoke(toolCtx, toolgw.Call{
-					Actor:       a.deps.Actor,
-					SessionID:   a.deps.SessionID,
-					AssistantID: a.deps.AssistantID,
-					Name:        name,
-					Args:        args,
-					AutoVerdict: autoVerdict,
-					Policy:      a.deps.Policy,
-				})
-				result = inv.Content
-				callErr = inv.Err
-				if inv.Decision == toolgw.DecisionDeny {
-					status = acp.ToolCallStatusFailed
-					callErr = nil // content already explains the deny to the model
-				} else if callErr != nil {
-					status = acp.ToolCallStatusFailed
-					if strings.TrimSpace(result) == "" {
-						result = tools.FormatToolError(callErr)
-					}
-				}
-				if name == "Skill" && inv.Decision == toolgw.DecisionAllow {
-					skillInvocations++
-				}
-			}
-			if err := a.finishToolCall(ctx, sid, tc.ID, status, result); err != nil {
-				return err
-			}
-			messages = append(messages, chatMessage{
-				Role:       "tool",
-				ToolCallID: tc.ID,
-				Name:       name,
-				Content:    result,
-			})
-			recs = append(recs, toolCallRec{name: name, args: string(args), result: result})
+		recs, messages, err = a.runToolBatch(ctx, sid, msg.ToolCalls, messages, &skillInvocations)
+		if err != nil {
+			return err
 		}
 		_ = finish
 		nudge, stop := watch.observe(recs)

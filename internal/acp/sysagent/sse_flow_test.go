@@ -114,7 +114,13 @@ func TestAgent_SSEStreamWithReasoningAndToolCalls(t *testing.T) {
 		t.Fatalf("expected final text, got %q", texts)
 	}
 	statuses := client.toolStatuses()
-	if len(statuses) != 1 || statuses[0].status != "completed" {
+	var completed int
+	for _, s := range statuses {
+		if s.id == "call_1" && s.status == "completed" {
+			completed++
+		}
+	}
+	if completed != 1 {
 		t.Fatalf("expected one completed ping call, got %+v", statuses)
 	}
 }
