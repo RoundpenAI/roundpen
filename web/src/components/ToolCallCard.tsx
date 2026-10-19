@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Spin } from '@douyinfe/semi-ui-19'
-import { formatGroupStats } from '../lib/toolStats'
+import { formatGroupStats, parallelRunningLabel } from '../lib/toolStats'
 
 export type ToolCallData = {
   toolId: string
@@ -135,13 +135,24 @@ type GroupProps = {
 }
 
 export function ToolCallGroup({ calls, alwaysStats = false }: GroupProps) {
+  const { running, failed } = tally(calls)
+  // Parallel waves: keep the group expanded while several tools run so the
+  // user sees each spinner finish live (ChatGPT-style progress), not a single
+  // collapsed summary that only updates at the end.
   const [open, setOpen] = useState(false)
+  const [userToggled, setUserToggled] = useState(false)
+  useEffect(() => {
+    if (userToggled) return
+    if (running > 1) setOpen(true)
+  }, [running, userToggled])
+
   if (calls.length === 1 && !alwaysStats) {
     return <ToolCallCard call={calls[0]} />
   }
 
-  const { running, failed } = tally(calls)
   const stats = formatGroupStats(calls)
+  const parallelHint = parallelRunningLabel(running)
+  const title = parallelHint || stats.label
 
   return (
     <div className="chat-tool-group">
@@ -149,7 +160,10 @@ export function ToolCallGroup({ calls, alwaysStats = false }: GroupProps) {
         type="button"
         className="chat-tool-group-summary"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          setUserToggled(true)
+          setOpen((v) => !v)
+        }}
       >
         <span className={`chat-tool-chevron ${open ? 'open' : ''}`} aria-hidden>
           ▸
@@ -163,11 +177,11 @@ export function ToolCallGroup({ calls, alwaysStats = false }: GroupProps) {
           />
         )}
         <span className="chat-tool-title">
-          {stats.label}
-          {stats.plus > 0 ? (
+          {title}
+          {!parallelHint && stats.plus > 0 ? (
             <span className="chat-tool-plus"> +{stats.plus}</span>
           ) : null}
-          {stats.minus > 0 ? (
+          {!parallelHint && stats.minus > 0 ? (
             <span className="chat-tool-minus"> -{stats.minus}</span>
           ) : null}
         </span>

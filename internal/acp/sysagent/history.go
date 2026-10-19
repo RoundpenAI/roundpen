@@ -30,7 +30,7 @@ func (a *Agent) buildPromptMessages(ctx context.Context, userText string) []chat
 
 	if a.deps.Profile == ProfileDefault || a.deps.Profile == "" {
 		if _, ok := a.deps.Tools.Get("WebSearch"); ok {
-			system += "\nWebSearch looks up current information; cite the URLs you used."
+			system += "\nWebSearch looks up current information; cite the URLs you used. Batch independent searches with other read-only tools in one reply."
 		}
 		if _, ok := a.deps.Tools.Get("GmailSearch"); ok {
 			system += "\nGmail and Calendar tools (GmailSearch, GmailGet, CalendarListEvents, CalendarGetEvent) are read-only. Use them when the user asks about mail or schedule. If they return a not-connected error, tell the user to connect Google under Settings → Connectors (they must provide their own Google OAuth Client ID and Secret)."

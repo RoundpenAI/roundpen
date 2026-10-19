@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { classifyTool, formatGroupStats } from './toolStats.ts'
+import { classifyTool, formatGroupStats, parallelRunningLabel } from './toolStats.ts'
 
 describe('classifyTool', () => {
   it('prefers ACP kind over the title', () => {
@@ -118,5 +118,13 @@ describe('formatGroupStats', () => {
       { title: 'Bash', status: 'failed', kind: 'execute', input: { command: 'make' } },
     ])
     assert.equal(stats.label, 'Read a.ts, ran make, 1 failed')
+  })
+})
+
+describe('parallelRunningLabel', () => {
+  it('names multi-tool waves', () => {
+    assert.equal(parallelRunningLabel(0), '')
+    assert.equal(parallelRunningLabel(1), '')
+    assert.equal(parallelRunningLabel(3), 'Running 3 in parallel')
   })
 })

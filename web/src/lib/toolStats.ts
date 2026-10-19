@@ -158,6 +158,12 @@ function phraseBucket(bucket: ToolBucket, acc: BucketAcc): string[] {
   }
 }
 
+/** Parallel-friendly summary when several tools share one activity group. */
+export function parallelRunningLabel(running: number): string {
+  if (running <= 1) return ''
+  return `Running ${running} in parallel`
+}
+
 function phraseExplore(acc: BucketAcc): string[] {
   const all = [...acc.done, ...acc.running]
   if (all.length > 0 && all.every((c) => toolName(c).startsWith('browser_'))) {
