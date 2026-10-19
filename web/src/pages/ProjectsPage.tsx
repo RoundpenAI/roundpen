@@ -16,6 +16,7 @@ import { IconRefresh } from '@douyinfe/semi-icons'
 import type { ColumnProps } from '@douyinfe/semi-ui-19/lib/es/table'
 import { projects, type Project } from '../api'
 import { useT, type MessageKey } from '../i18n'
+import { useMatchMedia } from '../lib/useMatchMedia'
 
 const ALL = 'all'
 
@@ -50,6 +51,7 @@ type Snapshot = {
 export function ProjectsPage() {
   const t = useT()
   const navigate = useNavigate()
+  const narrow = useMatchMedia('(max-width: 767px)')
 
   const [filter, setFilter] = useState<string>(ALL)
   const [reloadToken, setReloadToken] = useState(0)
@@ -132,8 +134,37 @@ export function ProjectsPage() {
     }
   }
 
-  const columns: ColumnProps<Project>[] = useMemo(
-    () => [
+  const columns: ColumnProps<Project>[] = useMemo(() => {
+    const nameCol: ColumnProps<Project> = {
+      title: t('projects.column.name'),
+      dataIndex: 'name',
+      render: (_: unknown, row: Project) => {
+        if (!narrow) {
+          return <Typography.Text strong>{row.name}</Typography.Text>
+        }
+        return (
+          <div className="rp-projects-cell">
+            <div className="rp-projects-cell-title">
+              <Typography.Text strong>{row.name}</Typography.Text>
+              <Tag
+                color={row.status === 'active' ? 'green' : 'grey'}
+                size="small"
+              >
+                {t(statusKey(row.status))}
+              </Tag>
+            </div>
+            <div className="rp-projects-cell-meta">
+              {row.key}
+              {' · '}
+              {formatWhen(row.updatedAt)}
+            </div>
+            <div className="rp-projects-cell-path">{row.repoPath}</div>
+          </div>
+        )
+      },
+    }
+    if (narrow) return [nameCol]
+    return [
       {
         title: t('projects.column.key'),
         dataIndex: 'key',
@@ -147,13 +178,7 @@ export function ProjectsPage() {
           </Typography.Text>
         ),
       },
-      {
-        title: t('projects.column.name'),
-        dataIndex: 'name',
-        render: (_: unknown, row: Project) => (
-          <Typography.Text strong>{row.name}</Typography.Text>
-        ),
-      },
+      nameCol,
       {
         title: t('projects.column.path'),
         dataIndex: 'repoPath',
@@ -187,38 +212,31 @@ export function ProjectsPage() {
           </Typography.Text>
         ),
       },
-    ],
-    [t],
-  )
+    ]
+  }, [narrow, t])
 
   return (
-    <div style={{ padding: 24, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          marginBottom: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Typography.Title heading={3} style={{ margin: 0, flex: 1 }}>
+    <div className="rp-projects">
+      <div className="rp-projects-head rp-projects-head-stack">
+        <Typography.Title heading={3} className="rp-projects-title">
           {t('projects.title')}
         </Typography.Title>
-        <Select
-          value={filter}
-          onChange={(v) => setFilter(String(v))}
-          optionList={filterOptions}
-          style={{ width: 160 }}
-        />
-        <Button
-          icon={<IconRefresh />}
-          onClick={() => setReloadToken((n) => n + 1)}
-          aria-label={t('projects.refresh')}
-        />
-        <Button theme="solid" type="primary" onClick={openCreate}>
-          {t('projects.create')}
-        </Button>
+        <div className="rp-projects-head-actions">
+          <Select
+            value={filter}
+            onChange={(v) => setFilter(String(v))}
+            optionList={filterOptions}
+            style={{ width: 160 }}
+          />
+          <Button
+            icon={<IconRefresh />}
+            onClick={() => setReloadToken((n) => n + 1)}
+            aria-label={t('projects.refresh')}
+          />
+          <Button theme="solid" type="primary" onClick={openCreate}>
+            {t('projects.create')}
+          </Button>
+        </div>
       </div>
 
       <Typography.Paragraph type="tertiary" style={{ marginBottom: 16 }}>
@@ -240,6 +258,11 @@ export function ProjectsPage() {
         </div>
       ) : (
         <Table
+          className={
+            narrow
+              ? 'rp-projects-table rp-projects-table-narrow'
+              : 'rp-projects-table'
+          }
           rowKey="id"
           columns={columns}
           dataSource={list}
