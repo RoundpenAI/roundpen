@@ -47,6 +47,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 	"github.com/RoundpenAI/roundpen/internal/webpush"
+	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
 // newPushService loads or generates VAPID keys and returns a push Service.
@@ -563,4 +564,30 @@ func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentS
 	ticketStore := &assistticket.Store{DB: db.SQL}
 	agentHandler.Tickets = ticketStore
 	return agentHandler, ticketStore, provisioner
+}
+
+// projectDirSeeder creates projects/<slug>/ and Shared Context on the host
+// workspace after EnsureAgent. Failures are non-fatal at the API layer.
+type projectDirSeeder struct {
+	Envs interface {
+		EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error)
+	}
+	Paths interface {
+		WorkspaceHostPath(ctx context.Context, id string) (string, error)
+	}
+}
+
+func (s projectDirSeeder) EnsureProjectTree(ctx context.Context, userID, slug string) error {
+	if s.Envs == nil || s.Paths == nil {
+		return fmt.Errorf("workspace seeder not configured")
+	}
+	sb, err := s.Envs.EnsureAgent(ctx, userID)
+	if err != nil {
+		return err
+	}
+	host, err := s.Paths.WorkspaceHostPath(ctx, sb.ID)
+	if err != nil {
+		return err
+	}
+	return workspace.SeedProject(host, slug)
 }

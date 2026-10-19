@@ -1,7 +1,7 @@
 # Agent 项目（Projects）设计与缺口分析
 
 日期：2026-10-19  
-状态：设计中（本文是对照 Cursor Agent Projects 的缺口清单 + Roundpen 落地模型）  
+状态：Phase A 实现中（决策已拍板；P0 落地中）  
 参考：[Cursor Projects](https://cursor.com/docs/agent/projects)
 
 范围：一级菜单「项目」、新建 Project、关联仓库、Coordinator 协调多个 Agent 完成较大事项。  
@@ -153,37 +153,22 @@ Phase C (P2)  Shared Context → Subscriptions → Agent 互通
 
 ---
 
-## 7. 开放决策（实现前需拍板）
+## 7. 已拍板决策
 
-1. **Coordinator 是什么？**  
-   - A：专用 `kind=coordinator` 助手（每项目一个）  
-   - B：复用 system 助手 + project-scoped 会话  
-   - C：普通用户助手被标为该项目的 coordinator  
-   建议：**A**（边界清晰，和「派活」叙事一致）。
-
-2. **并行 worker 与单槽冲突怎么解？**  
-   - 先串行队列（改动小）  
-   - 或允许同用户多 Agent 容器（资源与 NAS 友好性需评估）
-
-3. **仓库关联最小集？**  
-   - 仅 path（用户已 clone）  
-   - path + remote URL  
-   - 创建时一键 clone（依赖 gitcred）
-
-4. **Shared Context 放哪？**  
-   - 仓库内 `.roundpen/context/`（跟 git 走，易分享）  
-   - 账号工作区旁路（不污染 repo）  
-   建议：默认旁路 `projects/<slug>/.roundpen/context/`，可配置是否进 git。
+1. **Coordinator** → 每项目一个专用 `kind=coordinator` 助手（不出现在「助手」列表；打开项目即进其会话）。  
+2. **并行 worker** → 先串行队列（P1）；UI 可展示多个 worker，同时只有一个在跑。  
+3. **仓库关联** → `repo_path`（`projects/<slug>`）必有；`repo_url` 可选。创建不强制 clone。GitHub 未配好时，直接在本地目录 / 已有 git 仓库上工作。  
+4. **Shared Context** → 默认旁路 `projects/<slug>/.roundpen/context/`，不进 git。
 
 ---
 
-## 8. 结论
+## 8. 结论与 Phase A 范围
 
-Roundpen **今天没有** Cursor 意义上的 Project 实体；只有目录约定、多助手、事项、常驻任务等半成品。  
-要对齐「一级菜单 + 新建 + 绑仓库 + 多 Agent 协同」，至少需要：
+Roundpen 原先没有一等公民 Project。P0（Phase A）落地：
 
-- **立刻补**：领域表/API、导航与创建流、仓库绑定、Coordinator 会话（P0）  
-- **核心补**：派活、worker 生命周期、槽位/并行策略、项目 scoped 事项（P1）  
-- **体验补**：Shared Context、Subscriptions、Agent 互通（P2）
+- 表 / API / 一级菜单「项目」
+- 新建（名称、slug、可选 remote）
+- 绑定本地 `projects/<slug>`，尽力播种目录与 context
+- 创建专用 coordinator 助手；详情页打开其聊天
 
-在拍板 §7 的四个决策后，可拆 `docs/superpowers/plans/2026-10-19-agent-projects.md` 做 Phase A 实现计划。
+P1/P2 见上文缺口表（派活、槽位、Subscriptions 等）。

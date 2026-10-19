@@ -105,13 +105,14 @@ func (s *Store) Get(ctx context.Context, id string) (*Assistant, error) {
 }
 
 // ListByUser returns assistants for a user (system first, then newest).
+// Coordinator assistants belong to Projects and are omitted from this list.
 func (s *Store) ListByUser(ctx context.Context, userID string) ([]*Assistant, error) {
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT `+assistantSelectCols+`
 		FROM assistants
-		WHERE user_id=$1 AND status <> $2
-		ORDER BY CASE WHEN kind = $3 THEN 0 ELSE 1 END, updated_at DESC`,
-		userID, StatusDisabled, KindSystem)
+		WHERE user_id=$1 AND status <> $2 AND kind <> $3
+		ORDER BY CASE WHEN kind = $4 THEN 0 ELSE 1 END, updated_at DESC`,
+		userID, StatusDisabled, KindCoordinator, KindSystem)
 	if err != nil {
 		return nil, err
 	}

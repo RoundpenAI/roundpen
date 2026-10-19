@@ -19,11 +19,14 @@ const (
 	StatusActive   = "active"
 	StatusDisabled = "disabled"
 
-	KindUser   = "user"
-	KindSystem = "system"
+	KindUser        = "user"
+	KindSystem      = "system"
+	KindCoordinator = "coordinator"
 
 	DefaultSystemName = "系统助手"
 	DefaultSystemBio  = "常驻入口。可协调其他助手（派活能力后续上线）。"
+
+	DefaultCoordinatorBio = "项目协调者：规划与拆解工作，派给执行助手完成，自己不直接改代码。"
 )
 
 type Capabilities struct {
@@ -89,11 +92,26 @@ func ValidateCreate(in CreateInput) error {
 		return fmt.Errorf("identityMode must be proxy_user or independent")
 	}
 	switch strings.TrimSpace(in.Kind) {
-	case "", KindUser, KindSystem:
+	case "", KindUser, KindSystem, KindCoordinator:
 	default:
-		return fmt.Errorf("kind must be user or system")
+		return fmt.Errorf("kind must be user, system, or coordinator")
 	}
 	return nil
+}
+
+// DefaultCoordinatorCreateInput seeds the undeletable-from-UI coordinator for a Project.
+func DefaultCoordinatorCreateInput(projectName string) CreateInput {
+	name := strings.TrimSpace(projectName)
+	if name == "" {
+		name = "Project"
+	}
+	return CreateInput{
+		Name:         name + " · 协调者",
+		Bio:          DefaultCoordinatorBio,
+		IdentityMode: IdentityProxyUser,
+		Preset:       "code",
+		Kind:         KindCoordinator,
+	}
 }
 
 // DefaultSystemCreateInput is the seed for each user's undeletable system assistant.

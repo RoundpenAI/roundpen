@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Banner, Button, Modal, Toast, Typography } from '@douyinfe/semi-ui-19'
 import { IconChevronDown, IconRefresh, IconUpload } from '@douyinfe/semi-icons'
 import { ApiError, meWorkspace, type DirEntry } from '../api'
@@ -27,7 +28,13 @@ type Clipboard = { mode: 'cut' | 'copy'; paths: string[] } | null
 
 export function WorkspacePage() {
   const t = useT()
-  const [path, setPath] = useState('.')
+  const [searchParams] = useSearchParams()
+  const initialPath = (() => {
+    const raw = (searchParams.get('path') ?? '').trim()
+    if (!raw || raw === '/' || raw.includes('..')) return '.'
+    return raw.replace(/^\/+/, '').replace(/\/+$/, '') || '.'
+  })()
+  const [path, setPath] = useState(initialPath)
   const [entries, setEntries] = useState<DirEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -38,6 +45,10 @@ export function WorkspacePage() {
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
   const anchorRef = useRef<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setPath(initialPath)
+  }, [initialPath])
 
   const load = useCallback(async () => {
     setLoading(true)

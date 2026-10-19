@@ -21,7 +21,8 @@
 | 路径 | 用途 | 示例 |
 |------|------|------|
 | `uploads/` | 用户提供的输入材料 | `uploads/brief.pdf` |
-| `projects/<name>/` | 代码仓库与多文件工程 | `projects/pokemon/`（`git clone` 到这里） |
+| `projects/<name>/` | 代码仓库与多文件工程；产品「项目」默认绑定此路径 | `projects/pokemon/`（本地 git 或之后再 clone） |
+| `projects/<name>/.roundpen/context/` | 项目 Shared Context（不进 git） | 协调者与后续 Agent 共用的笔记 / playbook |
 | `notes/` | 持久笔记 | `notes/rss-harvest-playbook.md` |
 | `outputs/` | Agent 交付物 | `outputs/ISS-7-plan.md`、`outputs/weekly-report.md` |
 | `tmp/` | 临时文件 | `tmp/scrape.json` |

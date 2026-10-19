@@ -3,7 +3,10 @@ package workspace
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
+	"strings"
 )
 
 // Canonical top-level directories under the account workspace (/workspace).
@@ -50,6 +53,79 @@ This account workspace is shared by every assistant. Keep the root tidy.
 
 When unsure where a file belongs, put it in tmp/ and move it once the destination is clear.
 `
+
+// ProjectSlugPattern is the allowed name for projects/<slug>/.
+var ProjectSlugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+
+// ValidProjectSlug reports whether slug may be used under projects/.
+func ValidProjectSlug(slug string) bool {
+	return ProjectSlugPattern.MatchString(slug)
+}
+
+// ProjectRelPath is the guest-relative path for a project tree (projects/<slug>).
+func ProjectRelPath(slug string) string {
+	return path.Join(DirProjects, slug)
+}
+
+// ProjectContextRelPath is the Shared Context directory for a product Project.
+// It lives beside the repo tree and is not meant to be committed.
+func ProjectContextRelPath(slug string) string {
+	return path.Join(DirProjects, slug, ".roundpen", "context")
+}
+
+// SeedProject creates projects/<slug>/ and its Shared Context directory under
+// the host workspace root. Existing files are left untouched.
+func SeedProject(hostPath, slug string) error {
+	if !ValidProjectSlug(slug) {
+		return fmt.Errorf("invalid project slug %q", slug)
+	}
+	hostPath = filepath.Clean(hostPath)
+	if hostPath == "" || hostPath == "." {
+		return fmt.Errorf("workspace host path is empty")
+	}
+	dirs := []string{
+		filepath.Join(hostPath, filepath.FromSlash(ProjectRelPath(slug))),
+		filepath.Join(hostPath, filepath.FromSlash(ProjectContextRelPath(slug))),
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", d, err)
+		}
+	}
+	readme := filepath.Join(dirs[1], "README.md")
+	if _, err := os.Stat(readme); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	body := "# Project context\n\nShared notes for agents working on this project.\n" +
+		"Prefer adding playbooks and learnings here so future agents can reuse them.\n"
+	return os.WriteFile(readme, []byte(body), 0o644)
+}
+
+// SlugifyProjectName turns a display name into a projects/ directory slug.
+// Empty or invalid results yield "".
+func SlugifyProjectName(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	s = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
+			return r
+		case r == ' ' || r == '-':
+			return '-'
+		default:
+			return -1
+		}
+	}, s)
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
+	s = strings.Trim(s, "-")
+	if !ValidProjectSlug(s) {
+		return ""
+	}
+	return s
+}
 
 // SeedLayout creates the canonical directories under hostPath and writes
 // AGENTS.md when it is missing. Existing files are left untouched so users
