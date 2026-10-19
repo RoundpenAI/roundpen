@@ -21,6 +21,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/imconnect"
 	"github.com/RoundpenAI/roundpen/internal/installid"
@@ -294,6 +295,7 @@ func main() {
 		Issues:     issueIDResolver{Store: issueStore},
 		Runner:     projectRunner,
 		Dirs:       projectDirSeeder{Envs: envSvc, Paths: sbSvc},
+		GitCreds:   &gitcred.Store{DB: db.SQL},
 		Log:        logger,
 	}).Mount(mux)
 	routineRunner := &routine.Runner{

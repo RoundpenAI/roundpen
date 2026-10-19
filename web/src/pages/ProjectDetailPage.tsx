@@ -17,6 +17,9 @@ import type { ColumnProps } from '@douyinfe/semi-ui-19/lib/es/table'
 import {
   projects,
   type Project,
+  type ProjectCIStatus,
+  type ProjectSubscription,
+  type ProjectSubscriptionKind,
   type ProjectWorker,
   type ProjectWorkerRole,
 } from '../api'
@@ -79,6 +82,16 @@ export function ProjectDetailPage() {
   const [selectedReviewer, setSelectedReviewer] =
     useState<ProjectWorker | null>(null)
   const [deciding, setDeciding] = useState(false)
+  const [subscriptions, setSubscriptions] = useState<ProjectSubscription[]>(
+    [],
+  )
+  const [subsLoading, setSubsLoading] = useState(false)
+  const [subKind, setSubKind] = useState<ProjectSubscriptionKind>('github_pr')
+  const [subRepo, setSubRepo] = useState('')
+  const [creatingSub, setCreatingSub] = useState(false)
+  const [newSecret, setNewSecret] = useState<string | null>(null)
+  const [ci, setCi] = useState<ProjectCIStatus | null>(null)
+  const [ciLoading, setCiLoading] = useState(false)
 
   const loadWorkers = useCallback(async (projectKey: string) => {
     setWorkersLoading(true)
@@ -103,6 +116,29 @@ export function ProjectDetailPage() {
       /* list is best-effort on the detail page */
     } finally {
       setWorkersLoading(false)
+    }
+  }, [])
+
+  const loadSubscriptions = useCallback(async (projectKey: string) => {
+    setSubsLoading(true)
+    try {
+      const res = await projects.listSubscriptions(projectKey)
+      setSubscriptions(res.subscriptions ?? [])
+    } catch {
+      setSubscriptions([])
+    } finally {
+      setSubsLoading(false)
+    }
+  }, [])
+
+  const loadCI = useCallback(async (projectKey: string, refresh = false) => {
+    setCiLoading(true)
+    try {
+      setCi(await projects.ciStatus(projectKey, refresh))
+    } catch {
+      setCi(null)
+    } finally {
+      setCiLoading(false)
     }
   }, [])
 
@@ -140,7 +176,12 @@ export function ProjectDetailPage() {
         if (cancelled) return
         setProject(res.project)
         setError(null)
-        await loadWorkers(res.project.key)
+        setSubRepo(res.project.repoUrl || '')
+        await Promise.all([
+          loadWorkers(res.project.key),
+          loadSubscriptions(res.project.key),
+          loadCI(res.project.key),
+        ])
       })
       .catch((e: unknown) => {
         if (cancelled) return
@@ -153,7 +194,7 @@ export function ProjectDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [key, t, loadWorkers])
+  }, [key, t, loadWorkers, loadSubscriptions, loadCI])
 
   async function openCoordinator() {
     if (!project || opening) return
@@ -204,6 +245,60 @@ export function ProjectDetailPage() {
       )
     } finally {
       setDelegating(false)
+    }
+  }
+
+  async function createSubscription() {
+    if (!project || creatingSub) return
+    setCreatingSub(true)
+    setNewSecret(null)
+    try {
+      const res = await projects.createSubscription(project.key, {
+        kind: subKind,
+        repo: subRepo.trim() || undefined,
+      })
+      if (res.subscription.secret) {
+        setNewSecret(res.subscription.secret)
+      }
+      Toast.success(t('projects.subs.created'))
+      await loadSubscriptions(project.key)
+      if (subKind === 'github_ci') {
+        await loadCI(project.key)
+      }
+    } catch (e) {
+      Toast.error(
+        e instanceof Error ? e.message : t('projects.subs.createFailed'),
+      )
+    } finally {
+      setCreatingSub(false)
+    }
+  }
+
+  async function toggleSub(sub: ProjectSubscription) {
+    if (!project) return
+    try {
+      await projects.updateSubscription(project.key, sub.key, {
+        enabled: !sub.enabled,
+      })
+      await loadSubscriptions(project.key)
+    } catch (e) {
+      Toast.error(
+        e instanceof Error ? e.message : t('projects.subs.updateFailed'),
+      )
+    }
+  }
+
+  async function removeSub(sub: ProjectSubscription) {
+    if (!project) return
+    try {
+      await projects.deleteSubscription(project.key, sub.key)
+      Toast.success(t('projects.subs.deleted'))
+      await loadSubscriptions(project.key)
+      await loadCI(project.key)
+    } catch (e) {
+      Toast.error(
+        e instanceof Error ? e.message : t('projects.subs.deleteFailed'),
+      )
     }
   }
 
@@ -383,6 +478,129 @@ export function ProjectDetailPage() {
             ? t('projects.archive')
             : t('projects.restore')}
         </Button>
+        <Tag color={ciTagColor(ci?.status)} size="large">
+          {t('projects.ci.label')}: {t(ciStatusKey(ci?.status))}
+        </Tag>
+        <Button
+          icon={<IconRefresh />}
+          loading={ciLoading}
+          onClick={() => void loadCI(project.key, true)}
+          aria-label={t('projects.ci.refresh')}
+        />
+      </div>
+
+      <div style={{ marginBottom: 28 }}>
+        <Typography.Title heading={5} style={{ marginBottom: 8 }}>
+          {t('projects.subs.title')}
+        </Typography.Title>
+        <Typography.Paragraph type="tertiary" style={{ marginBottom: 12 }}>
+          {t('projects.subs.guide')}
+        </Typography.Paragraph>
+        {newSecret ? (
+          <Banner
+            type="warning"
+            description={`${t('projects.subs.secretOnce')}: ${newSecret}`}
+            closeIcon={null}
+            style={{ marginBottom: 12 }}
+          />
+        ) : null}
+        {subscriptions.length === 0 && !subsLoading ? (
+          <Typography.Paragraph type="tertiary" size="small">
+            {t('projects.subs.empty')}
+          </Typography.Paragraph>
+        ) : (
+          <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+            {subscriptions.map((sub) => (
+              <div
+                key={sub.id}
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  alignItems: 'center',
+                }}
+              >
+                <Tag color={sub.enabled ? 'blue' : 'grey'} size="small">
+                  {sub.kind === 'github_pr'
+                    ? t('projects.subs.kind.pr')
+                    : t('projects.subs.kind.ci')}
+                </Tag>
+                <Typography.Text
+                  size="small"
+                  style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                >
+                  {sub.repo || '—'}
+                </Typography.Text>
+                <Typography.Text
+                  size="small"
+                  type="tertiary"
+                  style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                >
+                  {sub.hookPath}
+                </Typography.Text>
+                <Button size="small" onClick={() => void toggleSub(sub)}>
+                  {sub.enabled
+                    ? t('projects.subs.disable')
+                    : t('projects.subs.enable')}
+                </Button>
+                <Button
+                  size="small"
+                  type="danger"
+                  theme="borderless"
+                  onClick={() => void removeSub(sub)}
+                >
+                  {t('projects.subs.delete')}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        {project.status === 'active' ? (
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              alignItems: 'flex-end',
+              maxWidth: 640,
+            }}
+          >
+            <div style={{ minWidth: 140 }}>
+              <Typography.Text size="small" type="tertiary">
+                {t('projects.subs.kind')}
+              </Typography.Text>
+              <Select
+                value={subKind}
+                onChange={(v) => setSubKind(v as ProjectSubscriptionKind)}
+                style={{ width: '100%' }}
+                disabled={creatingSub}
+                optionList={[
+                  { value: 'github_pr', label: t('projects.subs.kind.pr') },
+                  { value: 'github_ci', label: t('projects.subs.kind.ci') },
+                ]}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <Typography.Text size="small" type="tertiary">
+                {t('projects.subs.repo')}
+              </Typography.Text>
+              <Input
+                value={subRepo}
+                onChange={setSubRepo}
+                placeholder={t('projects.subs.repoPlaceholder')}
+                disabled={creatingSub}
+              />
+            </div>
+            <Button
+              theme="solid"
+              type="secondary"
+              loading={creatingSub}
+              onClick={() => void createSubscription()}
+            >
+              {t('projects.subs.add')}
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <div className="rp-projects-head">
@@ -608,6 +826,36 @@ export function ProjectDetailPage() {
       ) : null}
     </div>
   )
+}
+
+function ciStatusKey(status?: string): MessageKey {
+  switch (status) {
+    case 'success':
+      return 'projects.ci.status.success'
+    case 'failure':
+      return 'projects.ci.status.failure'
+    case 'pending':
+      return 'projects.ci.status.pending'
+    case 'cancelled':
+      return 'projects.ci.status.cancelled'
+    default:
+      return 'projects.ci.status.unknown'
+  }
+}
+
+function ciTagColor(
+  status?: string,
+): 'grey' | 'blue' | 'orange' | 'green' | 'red' {
+  switch (status) {
+    case 'success':
+      return 'green'
+    case 'failure':
+      return 'red'
+    case 'pending':
+      return 'orange'
+    default:
+      return 'grey'
+  }
 }
 
 function MetaRow({

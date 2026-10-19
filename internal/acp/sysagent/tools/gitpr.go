@@ -131,6 +131,51 @@ func RegisterGitPR(r *Registry, binder *AgentBinder) {
 			})
 		},
 	})
+	r.Register(Tool{
+		Name: "PostPullRequestReview",
+		Description: "Post Roundpen reviewer findings to a GitHub pull request as a review (COMMENT / REQUEST_CHANGES / APPROVE). " +
+			"Optional; local Pass / Request changes stays in Roundpen. SoftDeny. GitHub only.",
+		Mutating: true,
+		Parameters: objectSchema(map[string]any{
+			"repo_path": map[string]any{"type": "string", "description": "Repo root under /workspace"},
+			"number":    map[string]any{"type": "integer", "description": "PR number"},
+			"body":      map[string]any{"type": "string", "description": "Review summary markdown"},
+			"event": map[string]any{
+				"type":        "string",
+				"description": "COMMENT (default) | REQUEST_CHANGES | APPROVE",
+				"enum":        []any{"COMMENT", "REQUEST_CHANGES", "APPROVE"},
+			},
+			"comments": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{"type": "string"},
+						"line": map[string]any{"type": "integer"},
+						"body": map[string]any{"type": "string"},
+					},
+				},
+				"description": "Optional line comments (path + line + body)",
+			},
+		}, "repo_path", "number", "body"),
+		Call: func(ctx context.Context, actor Actor, args json.RawMessage) (string, error) {
+			var in struct {
+				RepoPath string `json:"repo_path"`
+				Number   int    `json:"number"`
+				Body     string `json:"body"`
+				Event    string `json:"event"`
+				Comments []struct {
+					Path string `json:"path"`
+					Line int    `json:"line"`
+					Body string `json:"body"`
+				} `json:"comments"`
+			}
+			if err := json.Unmarshal(args, &in); err != nil {
+				return "", fmt.Errorf("invalid args")
+			}
+			return binder.postPullRequestReview(ctx, actor, in.RepoPath, in.Number, in.Body, in.Event, in.Comments)
+		},
+	})
 }
 
 func (b *AgentBinder) gitCommit(ctx context.Context, actor Actor, repoPath, message string, paths []string) (string, error) {
@@ -277,6 +322,77 @@ func (b *AgentBinder) mergePullRequest(ctx context.Context, actor Actor, repoPat
 	}, wd, gitPRTimeout)
 	if err != nil {
 		return out, fmt.Errorf("gh pr merge failed: %w", err)
+	}
+	return out, nil
+}
+
+func (b *AgentBinder) postPullRequestReview(ctx context.Context, actor Actor, repoPath string, number int, body, event string, comments []struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Body string `json:"body"`
+}) (string, error) {
+	wd, err := resolveRepoWorkdir(repoPath)
+	if err != nil {
+		return "", err
+	}
+	if number <= 0 {
+		return "", fmt.Errorf("number is required")
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", fmt.Errorf("body is required")
+	}
+	event = strings.ToUpper(strings.TrimSpace(event))
+	if event == "" {
+		event = "COMMENT"
+	}
+	flag := "--comment"
+	switch event {
+	case "COMMENT":
+		flag = "--comment"
+	case "REQUEST_CHANGES":
+		flag = "--request-changes"
+	case "APPROVE":
+		flag = "--approve"
+	default:
+		return "", fmt.Errorf("event must be COMMENT, REQUEST_CHANGES, or APPROVE")
+	}
+	if len(comments) > 0 {
+		var bld strings.Builder
+		bld.WriteString(body)
+		bld.WriteString("\n\n### Findings\n")
+		for _, c := range comments {
+			path := strings.TrimSpace(c.Path)
+			note := strings.TrimSpace(c.Body)
+			if note == "" {
+				continue
+			}
+			bld.WriteString("- ")
+			if path != "" {
+				bld.WriteString("`")
+				bld.WriteString(path)
+				if c.Line > 0 {
+					bld.WriteString(fmt.Sprintf(":%d", c.Line))
+				}
+				bld.WriteString("` — ")
+			}
+			bld.WriteString(note)
+			bld.WriteString("\n")
+		}
+		body = strings.TrimSpace(bld.String())
+	}
+	id, err := b.ensureID(ctx, actor)
+	if err != nil {
+		return "", err
+	}
+	if err := b.requireGitHubCLI(ctx, id, wd); err != nil {
+		return "", err
+	}
+	out, err := b.exec(ctx, id, []string{
+		"gh", "pr", "review", fmt.Sprintf("%d", number), flag, "--body", body,
+	}, wd, gitPRTimeout)
+	if err != nil {
+		return out, fmt.Errorf("post PR review failed: %w", err)
 	}
 	return out, nil
 }

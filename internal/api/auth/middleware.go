@@ -65,6 +65,10 @@ func isPublicPath(r *http.Request) bool {
 		case "/v1/auth/register", "/v1/auth/login":
 			return true
 		}
+		// GitHub project subscription webhooks (HMAC-verified in handler).
+		if strings.HasPrefix(path, "/v1/hooks/github/") {
+			return true
+		}
 	}
 	if r.Method == http.MethodGet && path == "/v1/auth/bootstrap-hint" {
 		return true

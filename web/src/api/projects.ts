@@ -51,6 +51,34 @@ export type ProjectWorker = {
   finishedAt?: string
 }
 
+export type ProjectSubscriptionKind = 'github_pr' | 'github_ci'
+
+export type ProjectSubscription = {
+  id: string
+  key: string
+  projectId: string
+  userId: string
+  kind: ProjectSubscriptionKind
+  repo: string
+  enabled: boolean
+  lastEventAt?: string
+  lastStatus?: string
+  lastSummary?: string
+  hookPath?: string
+  secret?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type ProjectCIStatus = {
+  status: string
+  summary?: string
+  source?: string
+  repo?: string
+  subscriptionKey?: string
+  lastEventAt?: string
+}
+
 export const projects = {
   list: (status?: string) =>
     api<{ projects: Project[] }>(
@@ -116,5 +144,35 @@ export const projects = {
         method: 'POST',
         body: JSON.stringify({ decision }),
       },
+    ),
+  listSubscriptions: (key: string) =>
+    api<{ subscriptions: ProjectSubscription[] }>(
+      `/v1/projects/${key}/subscriptions`,
+    ),
+  createSubscription: (
+    key: string,
+    body: { kind: ProjectSubscriptionKind; repo?: string },
+  ) =>
+    api<{ subscription: ProjectSubscription }>(
+      `/v1/projects/${key}/subscriptions`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  updateSubscription: (
+    key: string,
+    subKey: string,
+    body: { enabled: boolean },
+  ) =>
+    api<{ subscription: ProjectSubscription }>(
+      `/v1/projects/${key}/subscriptions/${encodeURIComponent(subKey)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  deleteSubscription: (key: string, subKey: string) =>
+    api<void>(
+      `/v1/projects/${key}/subscriptions/${encodeURIComponent(subKey)}`,
+      { method: 'DELETE' },
+    ),
+  ciStatus: (key: string, refresh?: boolean) =>
+    api<ProjectCIStatus>(
+      `/v1/projects/${key}/ci-status${refresh ? '?refresh=1' : ''}`,
     ),
 }
