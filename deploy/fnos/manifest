@@ -22,6 +22,7 @@ source                = thirdparty
 maintainer            = Roundpen
 maintainer_url        = https://github.com/RoundpenAI/roundpen
 desktop_uidir         = ui
+micro_app             = true
 desktop_applaunchname = roundpen.main
 service_port          = 9527
 checkport             = true

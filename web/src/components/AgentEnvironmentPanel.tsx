@@ -4,11 +4,14 @@ import {
   environments,
   modelSource,
   slotChoices,
+  workspaceRoot,
   type EnvironmentView,
   type ModelSource,
   type SlotChoice,
+  type WorkspaceRoot,
 } from '../api'
 import { useT, type MessageKey } from '../i18n'
+import { pickUserDirectory } from '../lib/fnosPickFolder'
 
 const sectionGap: CSSProperties = {
   display: 'flex',
@@ -32,15 +35,18 @@ export function AgentEnvironmentPanel() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [files, setFiles] = useState<WorkspaceRoot | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const [envRes, srcRes, proxyChoices, proxyCurrent] = await Promise.all([
+      const [envRes, srcRes, proxyChoices, proxyCurrent, root] = await Promise.all([
         environments.list(),
         modelSource.get(),
         slotChoices.options('proxy'),
         slotChoices.current('proxy.agent'),
+        workspaceRoot.get().catch(() => null),
       ])
+      setFiles(root)
       setView((envRes.environments ?? []).find((v) => v.slot === 'agent') ?? null)
       setSource(srcRes.modelSource ?? 'gateway')
       setProxyOptions(proxyChoices)
@@ -155,6 +161,52 @@ export function AgentEnvironmentPanel() {
     [t, upgrade],
   )
 
+  const chooseFolder = useCallback(async () => {
+    setBusy(true)
+    setNotice(null)
+    setError(null)
+    try {
+      const path = await pickUserDirectory(t('agentEnv.files.choose'))
+      if (!path) {
+        setNotice(t('agentEnv.files.cancelled'))
+        return
+      }
+      const res = await workspaceRoot.set(path)
+      setFiles(res)
+      if (res.rebuildError) {
+        setError(`${t('agentEnv.files.failed')} ${res.rebuildError}`)
+      } else {
+        setNotice(t('agentEnv.files.saved'))
+      }
+      await load()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : ''
+      setError(msg === 'standalone' ? t('agentEnv.files.standalone') : msg || t('agentEnv.files.failed'))
+    } finally {
+      setBusy(false)
+    }
+  }, [t, load])
+
+  const clearFolder = useCallback(async () => {
+    setBusy(true)
+    setNotice(null)
+    setError(null)
+    try {
+      const res = await workspaceRoot.clear()
+      setFiles(res)
+      if (res.rebuildError) {
+        setError(`${t('agentEnv.files.failed')} ${res.rebuildError}`)
+      } else {
+        setNotice(t('agentEnv.files.cleared'))
+      }
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('agentEnv.files.failed'))
+    } finally {
+      setBusy(false)
+    }
+  }, [t, load])
+
   return (
     <div style={sectionGap}>
       <Typography.Title heading={5}>{t('agentEnv.title')}</Typography.Title>
@@ -211,6 +263,27 @@ export function AgentEnvironmentPanel() {
           ]}
         />
       </div>
+      {files?.enabled && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Typography.Text strong>{t('agentEnv.files.title')}</Typography.Text>
+          <Typography.Text type="tertiary">{t('agentEnv.files.hint')}</Typography.Text>
+          <Typography.Text>
+            {files.bound && files.displayPath
+              ? t('agentEnv.files.bound', { path: files.displayPath })
+              : t('agentEnv.files.unbound')}
+          </Typography.Text>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Button theme="solid" loading={busy} onClick={() => void chooseFolder()}>
+              {files.bound ? t('agentEnv.files.change') : t('agentEnv.files.choose')}
+            </Button>
+            {files.bound && (
+              <Button loading={busy} onClick={() => void clearFolder()}>
+                {t('agentEnv.files.unbind')}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 12 }}>
         <Button theme="solid" loading={busy} onClick={() => confirmUpgrade(false)}>
           {t('agentEnv.upgrade')}

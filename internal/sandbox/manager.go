@@ -20,6 +20,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
+	"github.com/RoundpenAI/roundpen/internal/workspace/local"
 )
 
 // ErrUnauthorized is returned when a Manager method is called without an actor.
@@ -44,6 +45,10 @@ type Service struct {
 	// creating holds the ids of sandboxes whose engine this process is still
 	// allocating; reconcile must not declare those dead mid-create.
 	creating sync.Map
+
+	// fileACL, when set, gates host-side IO on a user-owned workspace.
+	// write is true for create/update/delete.
+	fileACL func(ctx context.Context, workspacePath string, write bool) error
 }
 
 // NewService constructs a sandbox manager.
@@ -76,6 +81,15 @@ func WithTemplates(t *template.Service) ServiceOption {
 // WithBrowser attaches a host-side browser sidecar closer.
 func WithBrowser(b BrowserCloser) ServiceOption {
 	return func(s *Service) { s.browser = b }
+}
+
+// SetFileACL installs the check used before host-side IO on a user-owned
+// workspace. Nil disables the check.
+func (s *Service) SetFileACL(fn func(ctx context.Context, workspacePath string, write bool) error) {
+	if s == nil {
+		return
+	}
+	s.fileACL = fn
 }
 
 // SetDefaults updates default image and TTL for new sandboxes.
@@ -591,7 +605,41 @@ func (s *Service) mountPath(ctx context.Context, sb *Sandbox) (string, error) {
 	return mount, nil
 }
 
+func (s *Service) externalTree(ctx context.Context, id string, write bool) (local.Tree, bool, error) {
+	sb, err := s.load(ctx, id)
+	if err != nil {
+		return local.Tree{}, false, err
+	}
+	if sb.Metadata["externalWorkspace"] != "1" || strings.TrimSpace(sb.WorkspacePath) == "" {
+		return local.Tree{}, false, nil
+	}
+	if s.fileACL != nil {
+		if err := s.fileACL(ctx, sb.WorkspacePath, write); err != nil {
+			return local.Tree{}, false, err
+		}
+	}
+	return local.Tree{Base: sb.WorkspacePath}, true, nil
+}
+
 func (s *Service) ListFiles(ctx context.Context, id, relPath string) ([]workspace.DirEntry, error) {
+	if tree, ok, err := s.externalTree(ctx, id, false); err != nil {
+		return nil, err
+	} else if ok {
+		entries, err := tree.ReadDir(relPath)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]workspace.DirEntry, 0, len(entries))
+		for _, e := range entries {
+			de := workspace.DirEntry{Name: e.Name(), IsDir: e.IsDir()}
+			if fi, err := e.Info(); err == nil {
+				de.Size = fi.Size()
+				de.ModTime = fi.ModTime().UTC()
+			}
+			out = append(out, de)
+		}
+		return out, nil
+	}
 	wsID, err := s.workspaceID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -600,6 +648,17 @@ func (s *Service) ListFiles(ctx context.Context, id, relPath string) ([]workspac
 }
 
 func (s *Service) StatFile(ctx context.Context, id, relPath string) (*workspace.FileStat, error) {
+	if tree, ok, err := s.externalTree(ctx, id, false); err != nil {
+		return nil, err
+	} else if ok {
+		fi, err := tree.Stat(relPath)
+		if err != nil {
+			return nil, err
+		}
+		return &workspace.FileStat{
+			Name: fi.Name(), IsDir: fi.IsDir(), Size: fi.Size(), ModTime: fi.ModTime().UTC(),
+		}, nil
+	}
 	wsID, err := s.workspaceID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -617,6 +676,11 @@ func (s *Service) StatFile(ctx context.Context, id, relPath string) (*workspace.
 }
 
 func (s *Service) ReadFile(ctx context.Context, id, relPath string) (io.ReadCloser, error) {
+	if tree, ok, err := s.externalTree(ctx, id, false); err != nil {
+		return nil, err
+	} else if ok {
+		return tree.Open(relPath)
+	}
 	wsID, err := s.workspaceID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -625,6 +689,11 @@ func (s *Service) ReadFile(ctx context.Context, id, relPath string) (io.ReadClos
 }
 
 func (s *Service) WriteFile(ctx context.Context, id, relPath string, r io.Reader) error {
+	if tree, ok, err := s.externalTree(ctx, id, true); err != nil {
+		return err
+	} else if ok {
+		return tree.Write(relPath, r)
+	}
 	wsID, err := s.workspaceID(ctx, id)
 	if err != nil {
 		return err
@@ -633,6 +702,11 @@ func (s *Service) WriteFile(ctx context.Context, id, relPath string, r io.Reader
 }
 
 func (s *Service) RemoveFile(ctx context.Context, id, relPath string) error {
+	if tree, ok, err := s.externalTree(ctx, id, true); err != nil {
+		return err
+	} else if ok {
+		return tree.RemovePath(relPath)
+	}
 	wsID, err := s.workspaceID(ctx, id)
 	if err != nil {
 		return err

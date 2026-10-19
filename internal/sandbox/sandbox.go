@@ -62,9 +62,13 @@ type CreateRequest struct {
 	Image       string
 	TemplateID  string // template alias; maps to Image when Image empty
 	WorkspaceID string // empty => ephemeral workspace = sandbox id
-	TTL         time.Duration
-	Env         map[string]string
-	Metadata    map[string]string
+	// WorkspaceHost, when set, is the absolute directory mounted at /workspace
+	// (a folder the user owns). HomeHost is mounted at /home/roundpen.
+	WorkspaceHost string
+	HomeHost      string
+	TTL           time.Duration
+	Env           map[string]string
+	Metadata      map[string]string
 }
 
 // UpdateRequest patches mutable labels / classification.
