@@ -69,10 +69,10 @@ func Load() (*Config, error) {
 		Backend:                   getenv("ROUNDPEN_BACKEND", "docker"),
 		DockerHost:                getenv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		DockerRuntime:             os.Getenv("ROUNDPEN_DOCKER_RUNTIME"),
-		DefaultImage:              getenv("ROUNDPEN_DEFAULT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
+		DefaultImage:              getenv("ROUNDPEN_DEFAULT_IMAGE", defaultAgentImage),
 		DefaultBrowserTemplate:    getenv("ROUNDPEN_DEFAULT_BROWSER_TEMPLATE", "browser"),
 		DefaultAgentTemplate:      getenv("ROUNDPEN_DEFAULT_AGENT_TEMPLATE", "code-agent"),
-		AgentImage:                getenv("ROUNDPEN_AGENT_IMAGE", "ghcr.io/roundpenai/code-agent:0.1.0"),
+		AgentImage:                getenv("ROUNDPEN_AGENT_IMAGE", defaultAgentImage),
 		BrowserImage:              getenv("ROUNDPEN_BROWSER_IMAGE", "ghcr.io/browserless/chrome:v2.56.7"),
 		ImageMirrors:              strings.TrimSpace(os.Getenv("ROUNDPEN_IMAGE_MIRRORS")),
 		DefaultTTL:                30 * time.Minute,
@@ -139,12 +139,7 @@ func Load() (*Config, error) {
 	if cfg.DefaultAgentTemplate == "" || cfg.DefaultAgentTemplate == "agent-claude" || cfg.DefaultAgentTemplate == "host" {
 		cfg.DefaultAgentTemplate = "code-agent"
 	}
-	if cfg.DefaultImage == "" || cfg.DefaultImage == "host" || strings.HasSuffix(cfg.DefaultImage, ".qcow2") {
-		cfg.DefaultImage = cfg.AgentImage
-		if cfg.DefaultImage == "" {
-			cfg.DefaultImage = "ghcr.io/roundpenai/code-agent:0.1.0"
-		}
-	}
+	cfg.DefaultImage = CoerceDefaultImage(cfg.DefaultImage, cfg.AgentImage)
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL is required")
 	}
@@ -160,6 +155,30 @@ func Load() (*Config, error) {
 	}
 	cfg.CDP = cdpCfg
 	return cfg, nil
+}
+
+const defaultAgentImage = "ghcr.io/roundpenai/code-agent:0.1.0"
+
+// PullableImage reports whether ref names an OCI image. The legacy default
+// "host" and QEMU disk paths are not images, and pulling them fails.
+func PullableImage(ref string) bool {
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.EqualFold(ref, "host") {
+		return false
+	}
+	return !strings.HasSuffix(strings.ToLower(ref), ".qcow2")
+}
+
+// CoerceDefaultImage maps a stored or env default onto an image the daemon
+// can pull. Empty, "host", and *.qcow2 fall back to the Agent image.
+func CoerceDefaultImage(image, agentImage string) string {
+	if PullableImage(image) {
+		return strings.TrimSpace(image)
+	}
+	if PullableImage(agentImage) {
+		return strings.TrimSpace(agentImage)
+	}
+	return defaultAgentImage
 }
 
 // parsePreviewDomain reads ROUNDPEN_PREVIEW_DOMAIN, which names the zone that

@@ -157,7 +157,7 @@ func (s *AppSettings) MergeSecrets(previous AppSettings) {
 // they live as items and reach their subsystems through the catalog.
 func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.AllowPublicRegistration = s.AllowPublicRegistration
-	cfg.DefaultImage = strings.TrimSpace(s.DefaultImage)
+	cfg.DefaultImage = config.CoerceDefaultImage(s.DefaultImage, cfg.AgentImage)
 	cfg.DefaultTTL = time.Duration(s.DefaultTtlSeconds) * time.Second
 	cfg.LLMGW.Enabled = s.LlmgwEnabled
 	cfg.LLMGW.PublicURL = strings.TrimSpace(s.LlmgwPublicURL)
