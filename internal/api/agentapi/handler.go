@@ -125,7 +125,7 @@ func (h *Handler) createSession(w http.ResponseWriter, r *http.Request) {
 		req.Title = "New chat"
 	}
 
-	sess, err := h.startSession(r.Context(), user, req.Title, req.ProviderID, req.AssistantID)
+	sess, err := h.startSession(r.Context(), user, req.Title, req.ProviderID, req.AssistantID, "")
 	if err != nil {
 		writeSessionStartErr(w, err)
 		return
@@ -158,7 +158,33 @@ func (h *Handler) StartForAssistant(ctx context.Context, user *storage.User, ass
 	if title == "" {
 		title = "Chat"
 	}
-	return h.startSession(ctx, user, title, DefaultAssistantProvider, assistantID)
+	return h.startSession(ctx, user, title, DefaultAssistantProvider, assistantID, "")
+}
+
+// StartCoordinator opens a chat session with the project-coordinator persona
+// (plan/delegate tools, no Write/Edit).
+func (h *Handler) StartCoordinator(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error) {
+	if title == "" {
+		title = "Project"
+	}
+	return h.startSession(ctx, user, title, DefaultAssistantProvider, assistantID, "coordinator")
+}
+
+// EnsureCoordinatorRuntime starts the coordinator persona on an existing chat
+// session when the in-process runtime is missing (e.g. after process restart).
+func (h *Handler) EnsureCoordinatorRuntime(ctx context.Context, user *storage.User, sessionID string) error {
+	if _, ok := h.ACP.Get(sessionID); ok {
+		return nil
+	}
+	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
+		Actor: manager.Actor{
+			Username: user.Username,
+			Role:     string(user.Role),
+			APIKey:   user.APIKey,
+		},
+		Project: manager.ProjectStart{Profile: "coordinator"},
+	})
+	return err
 }
 
 // StartRoutine opens a kind=routine session and starts its System Agent with the
@@ -187,10 +213,16 @@ func (h *Handler) CreateWorkerSession(ctx context.Context, user *storage.User, a
 }
 
 // StartWorkerRuntime starts (or no-ops if already live) the System Agent for a
-// worker session with the full tool surface.
-func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID string) error {
+// worker session with a code-dev role profile (implementer|reviewer|tester).
+func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error {
 	if _, ok := h.ACP.Get(sessionID); ok {
 		return nil
+	}
+	profile := role
+	switch profile {
+	case "implementer", "reviewer", "tester":
+	default:
+		profile = "implementer"
 	}
 	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
@@ -198,6 +230,7 @@ func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, se
 			Role:     string(user.Role),
 			APIKey:   user.APIKey,
 		},
+		Project: manager.ProjectStart{Profile: profile},
 	})
 	return err
 }
@@ -222,7 +255,7 @@ func (h *Handler) startRoutineRuntime(ctx context.Context, user *storage.User, s
 	return err
 }
 
-func (h *Handler) startSession(ctx context.Context, user *storage.User, title, providerID, assistantID string) (*agentsession.Session, error) {
+func (h *Handler) startSession(ctx context.Context, user *storage.User, title, providerID, assistantID, profile string) (*agentsession.Session, error) {
 	provMeta, ok := providers.ByID(h.ACP.Providers(), providerID)
 	if !ok || !provMeta.Enabled {
 		return nil, &sessionStartError{Code: http.StatusBadRequest, Msg: "unknown provider"}
@@ -270,7 +303,8 @@ func (h *Handler) startSession(ctx context.Context, user *storage.User, title, p
 		APIKey:   user.APIKey,
 	}
 	if _, err := h.ACP.Start(ctx, sess.ID, sandboxID, providerID, manager.StartOpts{
-		Actor: actor,
+		Actor:   actor,
+		Project: manager.ProjectStart{Profile: profile},
 	}); err != nil {
 		return nil, &sessionStartError{Code: http.StatusBadGateway, Msg: "start agent: " + err.Error()}
 	}

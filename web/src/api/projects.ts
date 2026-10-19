@@ -16,6 +16,8 @@ export type Project = {
   updatedAt: string
 }
 
+export type ProjectWorkerRole = 'implementer' | 'reviewer' | 'tester'
+
 export type ProjectWorker = {
   id: string
   key: string
@@ -25,6 +27,7 @@ export type ProjectWorker = {
   issueId?: string
   title: string
   brief: string
+  role: ProjectWorkerRole
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   error?: string
   createdAt: string
@@ -72,7 +75,12 @@ export const projects = {
     api<{ workers: ProjectWorker[] }>(`/v1/projects/${key}/workers`),
   delegate: (
     key: string,
-    body: { title: string; brief?: string; issueKey?: string },
+    body: {
+      title: string
+      brief?: string
+      role?: ProjectWorkerRole
+      issueKey?: string
+    },
   ) =>
     api<{ worker: ProjectWorker }>(`/v1/projects/${key}/workers`, {
       method: 'POST',

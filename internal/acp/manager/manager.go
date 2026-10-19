@@ -147,10 +147,17 @@ type RoutineStart struct {
 	Autonomy string // read | browse
 }
 
+// ProjectStart selects a project coordinator / code-dev worker persona.
+// Empty Profile keeps the default System Agent surface.
+type ProjectStart struct {
+	Profile string // coordinator | implementer | reviewer | tester | ""
+}
+
 // StartOpts configures Start.
 type StartOpts struct {
 	Actor   Actor
 	Routine RoutineStart
+	Project ProjectStart
 }
 
 // mcpBinder loads the user's MCP tool snapshots for one session. Scheduled
@@ -232,6 +239,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			SessionID:   sessionID,
 			RunKey:      opts.Routine.RunKey,
 			Autonomy:    opts.Routine.Autonomy,
+			Profile:     opts.Project.Profile,
 			Browser:     &tools.BrowserBinder{Hub: m.sys.BrowserHub, Slots: m.sys.BrowserSlots, SessionID: sessionID},
 			Agent:       binder,
 			PreviewZone: m.sys.PreviewZone,
@@ -255,6 +263,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			History:   m.sys.History,
 			SessionID: sessionID,
 			Evaluator: m.sys.AutoMode,
+			Profile:   opts.Project.Profile,
 		})
 		sysAgent = agent
 		asc := acp.NewAgentSideConnection(agent, a2cW, c2aR)

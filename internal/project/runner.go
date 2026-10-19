@@ -13,7 +13,7 @@ import (
 // WorkerStarter creates and starts worker sessions.
 type WorkerStarter interface {
 	CreateWorkerSession(ctx context.Context, user *storage.User, assistantID, title string) (sessionID string, err error)
-	StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID string) error
+	StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error
 }
 
 // Prompter sends a turn to a live session.
@@ -70,7 +70,7 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 		r.Kick(ctx, w.UserID)
 		return
 	}
-	if err := r.Starter.StartWorkerRuntime(ctx, user, w.SessionID); err != nil {
+	if err := r.Starter.StartWorkerRuntime(ctx, user, w.SessionID, w.Role); err != nil {
 		_ = r.Store.FinishWorker(ctx, w.ID, WorkerFailed, err.Error())
 		r.Kick(ctx, w.UserID)
 		return

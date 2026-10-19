@@ -11,11 +11,15 @@ import (
 )
 
 const workerCols = `id, key, project_id, user_id, session_id, COALESCE(issue_id, ''),
-	title, brief, status, error, created_at, updated_at, started_at, finished_at`
+	title, brief, role, status, error, created_at, updated_at, started_at, finished_at`
 
 // CreateWorker inserts a queued worker row.
 func (s *Store) CreateWorker(ctx context.Context, userID, projectID string, in DelegateInput, sessionID string) (*Worker, error) {
 	if err := ValidateWorkerTitle(in.Title); err != nil {
+		return nil, err
+	}
+	role, err := NormalizeWorkerRole(in.Role)
+	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
@@ -27,19 +31,20 @@ func (s *Store) CreateWorker(ctx context.Context, userID, projectID string, in D
 		IssueID:   strings.TrimSpace(in.IssueID),
 		Title:     strings.TrimSpace(in.Title),
 		Brief:     strings.TrimSpace(in.Brief),
+		Role:      role,
 		Status:    WorkerQueued,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	err := s.DB.QueryRowContext(ctx, `
+	err = s.DB.QueryRowContext(ctx, `
 		INSERT INTO project_workers (
 			id, key, project_id, user_id, session_id, issue_id,
-			title, brief, status, error, created_at, updated_at
+			title, brief, role, status, error, created_at, updated_at
 		) VALUES (
 			$1, 'WRK-' || nextval('project_worker_key_seq'), $2, $3, $4, NULLIF($5, ''),
-			$6, $7, $8, '', $9, $9
+			$6, $7, $8, $9, '', $10, $10
 		) RETURNING key`,
-		w.ID, projectID, userID, sessionID, w.IssueID, w.Title, w.Brief, w.Status, now,
+		w.ID, projectID, userID, sessionID, w.IssueID, w.Title, w.Brief, w.Role, w.Status, now,
 	).Scan(&w.Key)
 	if err != nil {
 		return nil, err
@@ -188,7 +193,7 @@ func scanWorker(row rowScanner) (*Worker, error) {
 	var w Worker
 	err := row.Scan(
 		&w.ID, &w.Key, &w.ProjectID, &w.UserID, &w.SessionID, &w.IssueID,
-		&w.Title, &w.Brief, &w.Status, &w.Error,
+		&w.Title, &w.Brief, &w.Role, &w.Status, &w.Error,
 		&w.CreatedAt, &w.UpdatedAt, &w.StartedAt, &w.FinishedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {

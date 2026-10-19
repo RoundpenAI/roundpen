@@ -12,6 +12,10 @@ const (
 	WorkerSucceeded = "succeeded"
 	WorkerFailed    = "failed"
 	WorkerCancelled = "cancelled"
+
+	RoleImplementer = "implementer"
+	RoleReviewer    = "reviewer"
+	RoleTester      = "tester"
 )
 
 // Worker is one delegated execution unit inside a Project.
@@ -24,6 +28,7 @@ type Worker struct {
 	IssueID    string     `json:"issueId,omitempty"`
 	Title      string     `json:"title"`
 	Brief      string     `json:"brief"`
+	Role       string     `json:"role"`
 	Status     string     `json:"status"`
 	Error      string     `json:"error,omitempty"`
 	CreatedAt  time.Time  `json:"createdAt"`
@@ -35,7 +40,22 @@ type Worker struct {
 type DelegateInput struct {
 	Title   string
 	Brief   string
+	Role    string
 	IssueID string // optional resolved issue id
+}
+
+// NormalizeWorkerRole returns a valid code-dev role (default implementer).
+func NormalizeWorkerRole(role string) (string, error) {
+	switch strings.TrimSpace(strings.ToLower(role)) {
+	case "", RoleImplementer:
+		return RoleImplementer, nil
+	case RoleReviewer:
+		return RoleReviewer, nil
+	case RoleTester:
+		return RoleTester, nil
+	default:
+		return "", fmt.Errorf("role must be implementer, reviewer, or tester")
+	}
 }
 
 func ValidateWorkerTitle(title string) error {
@@ -60,13 +80,27 @@ func ValidateWorkerStatus(status string) error {
 // RenderWorkerPrompt is the first user turn for a delegated worker.
 func RenderWorkerPrompt(p *Project, w *Worker) string {
 	var b strings.Builder
-	b.WriteString("You are a project worker agent. Implement the task below; do not replan the whole project.\n\n")
+	role := w.Role
+	if role == "" {
+		role = RoleImplementer
+	}
+	switch role {
+	case RoleReviewer:
+		b.WriteString("Review assignment — do not implement the feature.\n\n")
+	case RoleTester:
+		b.WriteString("Verification assignment — reproduce / run tests / report pass-fail.\n\n")
+	default:
+		b.WriteString("Implementation assignment — make the code change described below.\n\n")
+	}
 	if p != nil {
 		b.WriteString("Project: ")
 		b.WriteString(p.Name)
 		b.WriteString(" (")
 		b.WriteString(p.Key)
 		b.WriteString(")\n")
+		b.WriteString("Role: ")
+		b.WriteString(role)
+		b.WriteString("\n")
 		b.WriteString("Repo path (under /workspace): ")
 		b.WriteString(p.RepoPath)
 		b.WriteString("\n")
@@ -88,6 +122,13 @@ func RenderWorkerPrompt(p *Project, w *Worker) string {
 		b.WriteString(strings.TrimSpace(w.Brief))
 		b.WriteString("\n")
 	}
-	b.WriteString("\nWork in the repo path. When done, summarize what changed and how to verify it.\n")
+	switch role {
+	case RoleReviewer:
+		b.WriteString("\nInspect the relevant diffs and paths. Return severity-ordered findings and a verdict.\n")
+	case RoleTester:
+		b.WriteString("\nRun the verification steps. Report commands, expected vs actual, and pass/fail.\n")
+	default:
+		b.WriteString("\nWork in the repo path. When done, summarize what changed and how to verify it.\n")
+	}
 	return b.String()
 }

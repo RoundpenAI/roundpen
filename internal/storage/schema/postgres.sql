@@ -828,6 +828,8 @@ CREATE TABLE IF NOT EXISTS project_workers (
     issue_id     TEXT REFERENCES issues (id) ON DELETE SET NULL,
     title        TEXT NOT NULL,
     brief        TEXT NOT NULL DEFAULT '',
+    role         TEXT NOT NULL DEFAULT 'implementer'
+        CHECK (role IN ('implementer', 'reviewer', 'tester')),
     status       TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
     error        TEXT NOT NULL DEFAULT '',
@@ -843,3 +845,19 @@ CREATE INDEX IF NOT EXISTS project_workers_user_queue_idx
 CREATE UNIQUE INDEX IF NOT EXISTS project_workers_one_running_per_user_idx
     ON project_workers (user_id)
     WHERE status = 'running';
+
+
+-- Code-dev worker roles
+ALTER TABLE project_workers
+    ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'implementer';
+DO $$
+BEGIN
+    ALTER TABLE project_workers DROP CONSTRAINT IF EXISTS project_workers_role_ck;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'project_workers_role_ck'
+    ) THEN
+        ALTER TABLE project_workers
+            ADD CONSTRAINT project_workers_role_ck
+            CHECK (role IN ('implementer', 'reviewer', 'tester'));
+    END IF;
+END $$;

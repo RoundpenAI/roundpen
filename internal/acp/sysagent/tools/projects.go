@@ -15,15 +15,21 @@ func RegisterProjects(r *Registry, api *RoundpenHTTP, sessionID string) {
 	}
 	r.Register(Tool{
 		Name: "DelegateProjectWork",
-		Description: "Delegate an implementation task to a project worker agent. Use this when you are the " +
-			"project coordinator and need code or investigation done in the project repo. Workers run one at a " +
-			"time (serial queue). Pass projectKey (PRJ-n). Returns a worker key (WRK-n) and sessionId you can " +
-			"point the user at. Do not implement large coding tasks yourself — delegate them.",
+		Description: "Delegate a software-dev task to a role-specific project worker. Use this when you are the " +
+			"project coordinator. Workers run one at a time (serial queue). Pass projectKey (PRJ-n) and role: " +
+			"implementer (write code), reviewer (review diffs, no edits), or tester (run/verify tests). " +
+			"Split large requirements into several focused workers. Returns WRK-n and sessionId. " +
+			"Do not implement large coding tasks yourself — delegate them.",
 		Parameters: objectSchema(map[string]any{
 			"projectKey": map[string]any{"type": "string", "description": "Project key, e.g. PRJ-1"},
 			"title":      map[string]any{"type": "string", "description": "Short imperative worker title"},
 			"brief":      map[string]any{"type": "string", "description": "Detailed instructions for the worker"},
-			"issueKey":   map[string]any{"type": "string", "description": "Optional related issue key ISS-n"},
+			"role": map[string]any{
+				"type":        "string",
+				"description": "implementer | reviewer | tester (default implementer)",
+				"enum":        []any{"implementer", "reviewer", "tester"},
+			},
+			"issueKey": map[string]any{"type": "string", "description": "Optional related issue key ISS-n"},
 		}, "projectKey", "title"),
 		Mutating: true,
 		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
@@ -31,6 +37,7 @@ func RegisterProjects(r *Registry, api *RoundpenHTTP, sessionID string) {
 				ProjectKey string `json:"projectKey"`
 				Title      string `json:"title"`
 				Brief      string `json:"brief"`
+				Role       string `json:"role"`
 				IssueKey   string `json:"issueKey"`
 			}
 			if err := json.Unmarshal(raw, &a); err != nil {
@@ -39,6 +46,9 @@ func RegisterProjects(r *Registry, api *RoundpenHTTP, sessionID string) {
 			body := map[string]any{"title": a.Title}
 			if strings.TrimSpace(a.Brief) != "" {
 				body["brief"] = a.Brief
+			}
+			if strings.TrimSpace(a.Role) != "" {
+				body["role"] = a.Role
 			}
 			if strings.TrimSpace(a.IssueKey) != "" {
 				body["issueKey"] = a.IssueKey

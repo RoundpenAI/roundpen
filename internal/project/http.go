@@ -27,7 +27,8 @@ type Assistants interface {
 
 // SessionStarter starts an ACP session bound to the coordinator assistant.
 type SessionStarter interface {
-	StartForAssistant(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error)
+	StartCoordinator(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error)
+	EnsureCoordinatorRuntime(ctx context.Context, user *storage.User, sessionID string) error
 }
 
 // WorkerSessions creates kind=worker sessions for the delegate queue.
@@ -230,7 +231,11 @@ func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reuse the newest in-process chat session when present (same idea as assistants).
+	if h.Starter == nil {
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "session starter unavailable")
+		return
+	}
+	// Reuse the newest chat session when present; ensure coordinator persona runtime.
 	if h.Sessions != nil {
 		list, err := h.Sessions.ListByAssistant(r.Context(), user.Username, p.CoordinatorAssistantID, 1)
 		if err != nil {
@@ -240,6 +245,10 @@ func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 		if len(list) > 0 {
 			existing := list[0]
 			if meta, ok := providers.ByID(providers.Default(), existing.ProviderID); ok && !providers.NeedsSandbox(meta) {
+				if err := h.Starter.EnsureCoordinatorRuntime(r.Context(), user, existing.ID); err != nil {
+					httpx.WriteErrOrInternal(w, r, err, nil)
+					return
+				}
 				p, _ = h.Store.SetCoordinatorSession(r.Context(), user.Username, p.Key, existing.ID)
 				httpx.WriteJSON(w, http.StatusOK, map[string]any{
 					"sessionId": existing.ID,
@@ -249,11 +258,7 @@ func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if h.Starter == nil {
-		httpx.WriteErr(w, http.StatusServiceUnavailable, "session starter unavailable")
-		return
-	}
-	sess, err := h.Starter.StartForAssistant(r.Context(), user, p.CoordinatorAssistantID, p.Name)
+	sess, err := h.Starter.StartCoordinator(r.Context(), user, p.CoordinatorAssistantID, p.Name)
 	if err != nil {
 		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
@@ -329,6 +334,7 @@ func (h *Handler) delegate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title    string `json:"title"`
 		Brief    string `json:"brief"`
+		Role     string `json:"role"`
 		IssueKey string `json:"issueKey"`
 	}
 	if !decodeBody(w, r, &body) {
@@ -338,7 +344,12 @@ func (h *Handler) delegate(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	in := DelegateInput{Title: body.Title, Brief: body.Brief}
+	role, err := NormalizeWorkerRole(body.Role)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	in := DelegateInput{Title: body.Title, Brief: body.Brief, Role: role}
 	if body.IssueKey != "" {
 		if h.Issues == nil {
 			httpx.WriteErr(w, http.StatusBadRequest, "issue linking unavailable")

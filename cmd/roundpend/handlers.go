@@ -597,7 +597,7 @@ func (s projectDirSeeder) EnsureProjectTree(ctx context.Context, userID, slug st
 type projectWorkerStarter struct {
 	H interface {
 		CreateWorkerSession(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error)
-		StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID string) error
+		StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error
 	}
 }
 
@@ -609,8 +609,8 @@ func (a projectWorkerStarter) CreateWorkerSession(ctx context.Context, user *sto
 	return sess.ID, nil
 }
 
-func (a projectWorkerStarter) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID string) error {
-	return a.H.StartWorkerRuntime(ctx, user, sessionID)
+func (a projectWorkerStarter) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error {
+	return a.H.StartWorkerRuntime(ctx, user, sessionID, role)
 }
 
 // projectSessionBinder lets issue create auto-attach a project from the coordinator session.

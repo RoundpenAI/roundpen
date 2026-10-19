@@ -26,6 +26,10 @@ function workerStatusKey(status: ProjectWorker['status']): MessageKey {
   return `projects.worker.status.${status}`
 }
 
+function workerRoleKey(role: ProjectWorker['role']): MessageKey {
+  return `projects.worker.role.${role}`
+}
+
 function workerTagColor(
   status: ProjectWorker['status'],
 ): 'grey' | 'blue' | 'orange' | 'green' | 'red' {
@@ -147,6 +151,16 @@ export function ProjectDetailPage() {
         >
           {row.key}
         </Typography.Text>
+      ),
+    },
+    {
+      title: t('projects.worker.column.role'),
+      dataIndex: 'role',
+      width: 110,
+      render: (_: unknown, row: ProjectWorker) => (
+        <Tag size="small" color="blue">
+          {t(workerRoleKey(row.role || 'implementer'))}
+        </Tag>
       ),
     },
     {
