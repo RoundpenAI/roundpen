@@ -16,6 +16,24 @@ export type LiveLink = {
   hint?: string
 }
 
+export type WorkspaceRoot = {
+  enabled: boolean
+  bound: boolean
+  displayPath?: string
+  rebuildError?: string
+}
+
+export const workspaceRoot = {
+  get: () => api<WorkspaceRoot>('/v1/me/workspace-root'),
+  set: (path: string) =>
+    api<WorkspaceRoot>('/v1/me/workspace-root', {
+      method: 'PUT',
+      body: JSON.stringify({ path }),
+    }),
+  clear: () =>
+    api<WorkspaceRoot>('/v1/me/workspace-root', { method: 'DELETE' }),
+}
+
 export const environments = {
   list: () =>
     api<{ environments: EnvironmentView[] }>('/v1/me/environments'),

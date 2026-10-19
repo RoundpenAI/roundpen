@@ -106,22 +106,7 @@ func (f *FS) Remove(ctx context.Context, id string) error {
 }
 
 func (f *FS) resolve(id, relPath string) (string, error) {
-	base := f.base(id)
-	cleaned := filepath.Clean(strings.TrimSpace(relPath))
-	if cleaned == "." || cleaned == "" || cleaned == string(filepath.Separator) {
-		return confineExisting(base, base)
-	}
-	// Never pass an absolute cleaned path to Join — it would discard base.
-	cleaned = strings.TrimPrefix(cleaned, string(filepath.Separator))
-	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes workspace")
-	}
-	full := filepath.Join(base, cleaned)
-	rel, err := filepath.Rel(base, full)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path escapes workspace")
-	}
-	return confinePath(base, full)
+	return resolveUnder(f.base(id), relPath)
 }
 
 func stayUnder(base, path string) error {

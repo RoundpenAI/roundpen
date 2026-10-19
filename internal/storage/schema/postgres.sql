@@ -756,3 +756,10 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
 );
 CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx
     ON push_subscriptions (user_id);
+
+-- Per-user directory in the fnOS user's own files (not @appshare).
+CREATE TABLE IF NOT EXISTS user_workspace_roots (
+    user_id    TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
+    path       TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

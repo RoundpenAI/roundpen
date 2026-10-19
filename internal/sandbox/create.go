@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -37,6 +38,15 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 	id, wsID, ephemeral, hostPath, err := s.createWorkspace(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(req.WorkspaceHost) != "" {
+		if req.Metadata == nil {
+			req.Metadata = map[string]string{}
+		}
+		req.Metadata["externalWorkspace"] = "1"
+		if home := strings.TrimSpace(req.HomeHost); home != "" {
+			req.Metadata["homeHost"] = filepath.Clean(home)
+		}
 	}
 
 	sb, err := s.insertSandboxRecord(ctx, req, spec, id, wsID, hostPath, ephemeral)
@@ -133,6 +143,27 @@ func (s *Service) createWorkspace(ctx context.Context, req CreateRequest) (id, w
 	id = strings.TrimSpace(req.ID)
 	if id == "" {
 		id = uuid.NewString()
+	}
+	if host := strings.TrimSpace(req.WorkspaceHost); host != "" {
+		host = filepath.Clean(host)
+		if !filepath.IsAbs(host) {
+			return "", "", false, "", fmt.Errorf("workspace host path must be absolute")
+		}
+		if err = os.MkdirAll(host, 0o755); err != nil {
+			return "", "", false, "", err
+		}
+		if home := strings.TrimSpace(req.HomeHost); home != "" {
+			if err = os.MkdirAll(filepath.Clean(home), 0o755); err != nil {
+				return "", "", false, "", err
+			}
+		}
+		wsID = req.WorkspaceID
+		if wsID == "" {
+			wsID = id
+		}
+		// Persistent and outside the data root: never treat it as ephemeral,
+		// or a failed insert would delete the user's files.
+		return id, wsID, false, host, nil
 	}
 	wsID = req.WorkspaceID
 	ephemeral = wsID == ""
@@ -231,6 +262,7 @@ func (s *Service) createEngine(ctx context.Context, sb *Sandbox, spec createSpec
 		Name:        sb.Name,
 		Image:       sb.Image,
 		MountDir:    sb.WorkspacePath,
+		HomeMount:   sb.Metadata["homeHost"],
 		Env:         createEnv,
 		CPULimit:    float64(spec.cpuCount),
 		MemoryLimit: int64(spec.memoryMB) * 1024 * 1024,

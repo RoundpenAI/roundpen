@@ -119,7 +119,12 @@ do_start() {
     # One-line credential dump so Docker sock permission issues are obvious
     # (expect groups=…,docker,… when join-groups applied).
     run_as_pkg id >> "${LOGFILE}" 2>&1 || true
-    run_as_pkg bash -c "nohup \"${ROUNDPEND}\" >> \"${LOGFILE}\" 2>&1 & echo \$! > \"${PIDFILE}\""
+    # TRIM_API_TOKEN is injected into this script and must reach roundpend.
+    # Do not write it into roundpend.env — fnOS rotates it.
+    run_as_pkg env \
+        TRIM_API_TOKEN="${TRIM_API_TOKEN:-}" \
+        TRIM_APPNAME="${TRIM_APPNAME:-roundpen}" \
+        bash -c "nohup \"${ROUNDPEND}\" >> \"${LOGFILE}\" 2>&1 & echo \$! > \"${PIDFILE}\""
     if is_root; then
         chown "$(pkg_user):$(pkg_group)" "${PIDFILE}" "${LOGFILE}" 2>/dev/null || true
     fi

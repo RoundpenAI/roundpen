@@ -14,6 +14,7 @@ type CreateOpts struct {
 	Name        string // optional display name (sandbox hostname)
 	Image       string
 	MountDir    string // host path mounted at /workspace
+	HomeMount   string // host path mounted at /home/roundpen; empty = image home
 	Env         map[string]string
 	MemoryLimit int64 // bytes; 0 = default
 	CPULimit    float64

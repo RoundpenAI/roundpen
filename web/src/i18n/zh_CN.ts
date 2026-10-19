@@ -394,6 +394,19 @@ export const zh_CN: Record<MessageKey, string> = {
 
 
   'agentEnv.title': 'Agent 环境',
+  'agentEnv.files.title': '我的文件',
+  'agentEnv.files.hint':
+    '在飞牛上选择「我的文件」里的一个目录。助手直接读写这个目录（workspace 放代码和产物，home 放 skills）。其他用户在文件管理里看不到。未选择前，文件留在应用私有目录里。',
+  'agentEnv.files.choose': '选择目录',
+  'agentEnv.files.change': '更换目录',
+  'agentEnv.files.unbind': '改回私有存储',
+  'agentEnv.files.bound': '当前目录：{path}',
+  'agentEnv.files.unbound': '尚未连接到你的文件。',
+  'agentEnv.files.saved': '已连接该目录，Agent 环境已重建。',
+  'agentEnv.files.cleared': '已改回私有存储。',
+  'agentEnv.files.failed': '更新目录失败。',
+  'agentEnv.files.cancelled': '未选择目录。',
+  'agentEnv.files.standalone': '请从飞牛桌面打开 AI助手 后再选择目录。',
   'agentEnv.hint': '升级会用当前模板镜像重建 Agent 容器；工作区保留，运行中的命令会中断。',
   'agentEnv.status': '状态',
   'agentEnv.image': '镜像',
