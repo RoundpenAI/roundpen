@@ -61,14 +61,9 @@ func Resolve(ctx context.Context, eval Evaluator, req Request) Resolution {
 				AskHuman: true,
 			}
 		}
-		return Resolution{
-			Verdict: Verdict{
-				Decision: SoftDeny,
-				Rule:     "classifier_unavailable",
-				Reason:   "auto mode classifier is not configured",
-			},
-			AskHuman: true,
-		}
+		// No classifier configured: ask the human with a plain title (same as
+		// the interactive ModeDecide path when Evaluator is nil).
+		return Resolution{AskHuman: true}
 	}
 	v, err := eval.Evaluate(ctx, req)
 	if err != nil {

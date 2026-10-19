@@ -86,6 +86,17 @@ func TestResolveClassifierErrorAsksHuman(t *testing.T) {
 	}
 }
 
+func TestResolveNilEvaluatorAsksWithoutRule(t *testing.T) {
+	res := automode.Resolve(context.Background(), nil, automode.Request{Name: "Write", Args: `{}`})
+	if !res.AskHuman || res.Verdict.Rule != "" {
+		t.Fatalf("nil evaluator should plain-ask, got %+v", res)
+	}
+	l2 := automode.Resolve(context.Background(), nil, automode.Request{Name: "Bash", Args: `{}`})
+	if !l2.AskHuman || l2.Verdict.Rule != "high_side_effect" {
+		t.Fatalf("nil evaluator still L2-asks, got %+v", l2)
+	}
+}
+
 func TestResolvePreCheckBeatsL2(t *testing.T) {
 	eval := &stubEval{v: automode.Verdict{Decision: automode.Allow}}
 	res := automode.Resolve(context.Background(), eval, automode.Request{
