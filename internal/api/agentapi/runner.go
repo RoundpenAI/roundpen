@@ -471,35 +471,57 @@ func (r *runner) finishTurn() {
 
 // autoResolve answers a permission request from the chat's permission mode.
 // Interactive questions are never auto-answered: their options are the answer
-// choices. handled false means the interactive dialog runs.
-func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID, title string) (acp.RequestPermissionResponse, bool) {
+// choices. ModeDecide runs automode.Resolve (L3 HardDeny, L2 confirm,
+// classifier); SoftDeny escalates to the interactive dialog (handled=false).
+// ModeAll / ModeEdit still apply L3 PreCheck before silent-allow. When SoftDeny
+// escalates, title may be rewritten with rule/reason for the UI.
+func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID string, title *string) (acp.RequestPermissionResponse, bool) {
+	if title == nil {
+		empty := ""
+		title = &empty
+	}
 	if isQuestionRequest(req) {
 		return acp.RequestPermissionResponse{}, false
 	}
+	// In-process agent already escalated SoftDeny/L2 — do not re-classify.
+	if askHumanMeta(req) {
+		return acp.RequestPermissionResponse{}, false
+	}
+
+	toolName := *title
+	if req.ToolCall.Title != nil && strings.TrimSpace(*req.ToolCall.Title) != "" {
+		toolName = *req.ToolCall.Title
+	}
+	kind := ""
+	if req.ToolCall.Kind != nil {
+		kind = string(*req.ToolCall.Kind)
+	}
+
 	switch r.permMode() {
 	case automode.ModeAll:
-		return r.allowPermission(req, reqID, title)
+		if resp, denied := r.hardDenyPermission(req, reqID, *title, toolName); denied {
+			return resp, true
+		}
+		return r.allowPermission(req, reqID, *title, "")
 	case automode.ModeEdit:
-		kind := ""
-		if req.ToolCall.Kind != nil {
-			kind = string(*req.ToolCall.Kind)
+		if resp, denied := r.hardDenyPermission(req, reqID, *title, toolName); denied {
+			return resp, true
 		}
-		if !automode.IsWorkspaceEdit(title, kind) {
+		if !automode.IsWorkspaceEdit(toolName, kind) {
 			return acp.RequestPermissionResponse{}, false
 		}
-		return r.allowPermission(req, reqID, title)
+		return r.allowPermission(req, reqID, *title, "")
 	default:
-		if r.handler.AutoMode == nil {
-			return acp.RequestPermissionResponse{}, false
-		}
-		verdict, err := r.classifyPermission(req, title)
-		if err != nil && r.handler.Log != nil {
+		res := r.resolvePermission(req, toolName)
+		if res.EvalErr != nil && r.handler.Log != nil {
 			r.handler.Log.Warn("auto mode classifier failed",
-				"session", r.session.ID, "tool", title, "err", err)
+				"session", r.session.ID, "tool", toolName, "err", res.EvalErr)
 		}
-		if !verdict.Allowed() {
-			rule := strings.TrimSpace(verdict.Rule)
-			reason := strings.TrimSpace(verdict.Reason)
+
+		rule := strings.TrimSpace(res.Verdict.Rule)
+		reason := strings.TrimSpace(res.Verdict.Reason)
+
+		if res.Verdict.Decision == automode.HardDeny {
 			line := rule
 			if reason != "" {
 				line += " — " + reason
@@ -508,7 +530,7 @@ func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID, title stri
 			r.persist(agentsession.RolePermission, line, agentsession.PermissionMeta{
 				Type:      "permission",
 				RequestID: reqID,
-				Title:     title,
+				Title:     *title,
 				OptionID:  opt,
 				Outcome:   "auto_deny",
 				Options:   req.Options,
@@ -521,16 +543,78 @@ func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID, title stri
 			r.mu.Unlock()
 			return resp, true
 		}
-		return r.allowPermission(req, reqID, title)
+
+		if res.AskHuman {
+			if rule != "" {
+				annotated := *title + " · " + rule
+				if reason != "" {
+					annotated += " — " + reason
+				}
+				*title = annotated
+			}
+			return acp.RequestPermissionResponse{}, false
+		}
+
+		if !res.Allowed() {
+			return acp.RequestPermissionResponse{}, false
+		}
+		return r.allowPermission(req, reqID, *title, rule)
 	}
 }
 
-func (r *runner) allowPermission(req acp.RequestPermissionRequest, reqID, title string) (acp.RequestPermissionResponse, bool) {
+func (r *runner) hardDenyPermission(req acp.RequestPermissionRequest, reqID, title, toolName string) (acp.RequestPermissionResponse, bool) {
+	args := ""
+	if req.ToolCall.RawInput != nil {
+		if b, err := json.Marshal(req.ToolCall.RawInput); err == nil {
+			args = string(b)
+		}
+	}
+	kind := ""
+	if req.ToolCall.Kind != nil {
+		kind = string(*req.ToolCall.Kind)
+	}
+	v, ok := automode.PreCheck(automode.Request{
+		Name:  toolName,
+		Title: title,
+		Kind:  kind,
+		Args:  args,
+	})
+	if !ok || v.Decision != automode.HardDeny {
+		return acp.RequestPermissionResponse{}, false
+	}
+	rule := strings.TrimSpace(v.Rule)
+	reason := strings.TrimSpace(v.Reason)
+	line := rule
+	if reason != "" {
+		line += " — " + reason
+	}
+	opt := acpclient.PickReject(req.Options)
+	r.persist(agentsession.RolePermission, line, agentsession.PermissionMeta{
+		Type:      "permission",
+		RequestID: reqID,
+		Title:     title,
+		OptionID:  opt,
+		Outcome:   "auto_deny",
+		Options:   req.Options,
+		ToolID:    reqID,
+		Rule:      rule,
+		Reason:    reason,
+	})
+	r.mu.Lock()
+	resp := r.permResult(reqID, opt, opt == "")
+	r.mu.Unlock()
+	return resp, true
+}
+
+func (r *runner) allowPermission(req acp.RequestPermissionRequest, reqID, title, rule string) (acp.RequestPermissionResponse, bool) {
 	opt := acpclient.PickOrdinaryAllow(req.Options)
 	if opt == "" {
 		return acp.RequestPermissionResponse{}, false
 	}
 	label := permissionOptionLabel(req.Options, opt)
+	if rule != "" {
+		label = "自动审核通过 · " + rule
+	}
 	r.persist(agentsession.RolePermission, label, agentsession.PermissionMeta{
 		Type:      "permission",
 		RequestID: reqID,
@@ -539,6 +623,7 @@ func (r *runner) allowPermission(req acp.RequestPermissionRequest, reqID, title 
 		Outcome:   "auto",
 		Options:   req.Options,
 		ToolID:    reqID,
+		Rule:      rule,
 	})
 	r.mu.Lock()
 	resp := r.permResult(reqID, opt, false)
@@ -546,17 +631,13 @@ func (r *runner) allowPermission(req acp.RequestPermissionRequest, reqID, title 
 	return resp, true
 }
 
-// isQuestionRequest reports whether the request is an interactive question or
-// plan approval rather than a tool action. The in-process agent marks these
-// with a meta field because their titles carry the question text.
-func isQuestionRequest(req acp.RequestPermissionRequest) bool {
-	v, _ := req.Meta[sysagent.PermissionMetaKindKey].(string)
-	return v == sysagent.PermissionKindQuestion
+func askHumanMeta(req acp.RequestPermissionRequest) bool {
+	v, _ := req.Meta[sysagent.PermissionMetaAskHumanKey].(bool)
+	return v
 }
 
-// classifyPermission builds the classifier request from the pending call plus
-// recent conversation context.
-func (r *runner) classifyPermission(req acp.RequestPermissionRequest, title string) (automode.Verdict, error) {
+// resolvePermission builds the classifier request and runs automode.Resolve.
+func (r *runner) resolvePermission(req acp.RequestPermissionRequest, title string) automode.Resolution {
 	args := ""
 	if req.ToolCall.RawInput != nil {
 		if b, err := json.Marshal(req.ToolCall.RawInput); err == nil {
@@ -571,7 +652,7 @@ func (r *runner) classifyPermission(req acp.RequestPermissionRequest, title stri
 	for _, o := range req.Options {
 		options = append(options, o.Name)
 	}
-	return r.handler.AutoMode.Evaluate(r.ctx, automode.Request{
+	return automode.Resolve(r.ctx, r.handler.AutoMode, automode.Request{
 		Name:       title,
 		Title:      title,
 		Kind:       kind,
@@ -579,6 +660,14 @@ func (r *runner) classifyPermission(req acp.RequestPermissionRequest, title stri
 		Options:    options,
 		UserDigest: r.recentDigest(),
 	})
+}
+
+// isQuestionRequest reports whether the request is an interactive question or
+// plan approval rather than a tool action. The in-process agent marks these
+// with a meta field because their titles carry the question text.
+func isQuestionRequest(req acp.RequestPermissionRequest) bool {
+	v, _ := req.Meta[sysagent.PermissionMetaKindKey].(string)
+	return v == sysagent.PermissionKindQuestion
 }
 
 // recentDigest renders user/assistant turns for the classifier; tool results
@@ -619,7 +708,7 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	}
 	r.flushThought()
 
-	if resp, handled := r.autoResolve(req, reqID, title); handled {
+	if resp, handled := r.autoResolve(req, reqID, &title); handled {
 		return resp, nil
 	}
 

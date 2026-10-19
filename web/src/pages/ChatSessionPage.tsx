@@ -771,7 +771,6 @@ export function ChatSessionPage() {
           </div>
         }
       />
-
       {showLlmGuide && (
         <div role="status" style={{ padding: '0 16px 8px' }}>
           <LlmSetupChooser
