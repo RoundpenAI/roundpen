@@ -53,7 +53,7 @@ func uniqueImageRefs(refs ...string) []string {
 	var out []string
 	for _, r := range refs {
 		r = strings.TrimSpace(r)
-		if r == "" {
+		if !config.PullableImage(r) {
 			continue
 		}
 		if _, ok := seen[r]; ok {

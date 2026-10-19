@@ -21,6 +21,7 @@ import {
   type ProjectWorkerRole,
 } from '../api'
 import { useT, type MessageKey } from '../i18n'
+import { useMatchMedia } from '../lib/useMatchMedia'
 
 const WORKER_ROLES: ProjectWorkerRole[] = [
   'implementer',
@@ -60,6 +61,7 @@ function workerTagColor(
 export function ProjectDetailPage() {
   const t = useT()
   const navigate = useNavigate()
+  const narrow = useMatchMedia('(max-width: 767px)')
   const { key = '' } = useParams()
   const [project, setProject] = useState<Project | null>(null)
   const [workers, setWorkers] = useState<ProjectWorker[]>([])
@@ -182,43 +184,66 @@ export function ProjectDetailPage() {
   }
 
   const workerColumns: ColumnProps<ProjectWorker>[] = [
-    {
-      title: t('projects.worker.column.key'),
-      dataIndex: 'key',
-      width: 100,
-      render: (_: unknown, row: ProjectWorker) => (
-        <Typography.Text
-          size="small"
-          style={{ fontFamily: 'var(--semi-font-family-code)' }}
-        >
-          {row.key}
-        </Typography.Text>
-      ),
-    },
-    {
-      title: t('projects.worker.column.role'),
-      dataIndex: 'role',
-      width: 110,
-      render: (_: unknown, row: ProjectWorker) => (
-        <Tag size="small" color="blue">
-          {t(workerRoleKey(row.role || 'implementer'))}
-        </Tag>
-      ),
-    },
-    {
-      title: t('projects.worker.column.title'),
-      dataIndex: 'title',
-    },
-    {
-      title: t('projects.worker.column.status'),
-      dataIndex: 'status',
-      width: 120,
-      render: (_: unknown, row: ProjectWorker) => (
-        <Tag color={workerTagColor(row.status)} size="small">
-          {t(workerStatusKey(row.status))}
-        </Tag>
-      ),
-    },
+    ...(narrow
+      ? [
+          {
+            title: t('projects.worker.column.title'),
+            dataIndex: 'title',
+            render: (_: unknown, row: ProjectWorker) => (
+              <div className="rp-projects-cell">
+                <Typography.Text strong>{row.title}</Typography.Text>
+                <div className="rp-projects-cell-tags">
+                  <Tag size="small" color="blue">
+                    {t(workerRoleKey(row.role || 'implementer'))}
+                  </Tag>
+                  <Tag color={workerTagColor(row.status)} size="small">
+                    {t(workerStatusKey(row.status))}
+                  </Tag>
+                  <span className="rp-projects-cell-meta">{row.key}</span>
+                </div>
+              </div>
+            ),
+          } satisfies ColumnProps<ProjectWorker>,
+        ]
+      : [
+          {
+            title: t('projects.worker.column.key'),
+            dataIndex: 'key',
+            width: 100,
+            render: (_: unknown, row: ProjectWorker) => (
+              <Typography.Text
+                size="small"
+                style={{ fontFamily: 'var(--semi-font-family-code)' }}
+              >
+                {row.key}
+              </Typography.Text>
+            ),
+          } satisfies ColumnProps<ProjectWorker>,
+          {
+            title: t('projects.worker.column.role'),
+            dataIndex: 'role',
+            width: 110,
+            render: (_: unknown, row: ProjectWorker) => (
+              <Tag size="small" color="blue">
+                {t(workerRoleKey(row.role || 'implementer'))}
+              </Tag>
+            ),
+          } satisfies ColumnProps<ProjectWorker>,
+          {
+            title: t('projects.worker.column.title'),
+            dataIndex: 'title',
+          } satisfies ColumnProps<ProjectWorker>,
+          {
+            title: t('projects.worker.column.status'),
+            dataIndex: 'status',
+            width: 120,
+            render: (_: unknown, row: ProjectWorker) => (
+              <Tag color={workerTagColor(row.status)} size="small">
+                {t(workerStatusKey(row.status))}
+              </Tag>
+            ),
+          } satisfies ColumnProps<ProjectWorker>,
+        ]),
   ]
 
   if (loading) {
@@ -231,7 +256,7 @@ export function ProjectDetailPage() {
 
   if (error || !project) {
     return (
-      <div style={{ padding: 24, maxWidth: 900, margin: '0 auto' }}>
+      <div className="rp-projects rp-projects-detail">
         <Link to="/projects">{t('projects.back')}</Link>
         <Banner
           type="danger"
@@ -244,7 +269,7 @@ export function ProjectDetailPage() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', width: '100%' }}>
+    <div className="rp-projects rp-projects-detail">
       <Button
         theme="borderless"
         icon={<IconArrowLeft />}
@@ -254,16 +279,8 @@ export function ProjectDetailPage() {
         {t('projects.back')}
       </Button>
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 8,
-        }}
-      >
-        <Typography.Title heading={3} style={{ margin: 0, flex: 1 }}>
+      <div className="rp-projects-head" style={{ marginBottom: 8 }}>
+        <Typography.Title heading={3} className="rp-projects-title">
           {project.icon ? `${project.icon} ` : ''}
           {project.name}
         </Typography.Title>
@@ -284,14 +301,7 @@ export function ProjectDetailPage() {
         {t('projects.detail.guide')}
       </Typography.Paragraph>
 
-      <div
-        style={{
-          display: 'grid',
-          gap: 12,
-          marginTop: 20,
-          marginBottom: 24,
-        }}
-      >
+      <div className="rp-projects-meta">
         <MetaRow label={t('projects.field.slug')} value={project.slug} code />
         <MetaRow
           label={t('projects.field.path')}
@@ -309,7 +319,7 @@ export function ProjectDetailPage() {
         />
       </div>
 
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28 }}>
+      <div className="rp-projects-actions">
         <Button
           theme="solid"
           type="primary"
@@ -332,15 +342,8 @@ export function ProjectDetailPage() {
         </Button>
       </div>
 
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          marginBottom: 12,
-        }}
-      >
-        <Typography.Title heading={5} style={{ margin: 0, flex: 1 }}>
+      <div className="rp-projects-head">
+        <Typography.Title heading={5} className="rp-projects-title">
           {t('projects.workers.title')}
         </Typography.Title>
         <Button
@@ -354,6 +357,11 @@ export function ProjectDetailPage() {
         {t('projects.workers.guide')}
       </Typography.Paragraph>
       <Table
+        className={
+          narrow
+            ? 'rp-projects-table rp-projects-table-narrow'
+            : 'rp-projects-table'
+        }
         rowKey="id"
         columns={workerColumns}
         dataSource={workers}
@@ -376,7 +384,7 @@ export function ProjectDetailPage() {
           <Typography.Paragraph type="tertiary" style={{ marginBottom: 16 }}>
             {t('projects.delegate.guide')}
           </Typography.Paragraph>
-          <div style={{ display: 'grid', gap: 12, maxWidth: 560 }}>
+          <div className="rp-projects-delegate">
             <div>
               <Typography.Text size="small" type="tertiary">
                 {t('projects.delegate.taskTitle')}
@@ -446,12 +454,15 @@ function MetaRow({
       <Typography.Text size="small" type="tertiary">
         {label}
       </Typography.Text>
-      <div>
+      <div
+        className="rp-projects-meta-value"
+        style={
+          code ? { fontFamily: 'var(--semi-font-family-code)' } : undefined
+        }
+      >
         <Typography.Text
           style={
-            code
-              ? { fontFamily: 'var(--semi-font-family-code)' }
-              : undefined
+            code ? { fontFamily: 'var(--semi-font-family-code)' } : undefined
           }
         >
           {value}

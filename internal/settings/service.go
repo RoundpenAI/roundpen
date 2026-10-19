@@ -113,10 +113,10 @@ func (s *Service) applyRuntime(ctx context.Context, v AppSettings) error {
 		s.deps.AllowPublicReg(v.AllowPublicRegistration)
 	}
 	if s.deps.Sandbox != nil {
-		s.deps.Sandbox.SetDefaults(v.DefaultImage, time.Duration(v.DefaultTtlSeconds)*time.Second)
+		s.deps.Sandbox.SetDefaults(s.cfg.DefaultImage, time.Duration(v.DefaultTtlSeconds)*time.Second)
 	}
 	if s.deps.Templates != nil {
-		s.deps.Templates.SetDefaultImage(v.DefaultImage)
+		s.deps.Templates.SetDefaultImage(s.cfg.DefaultImage)
 	}
 	if s.deps.SetAgentImage != nil {
 		s.deps.SetAgentImage(v.AgentImage)

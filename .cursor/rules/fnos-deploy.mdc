@@ -1,0 +1,39 @@
+---
+description: 用户说「部署到飞牛」时，升版本、打 fpk、安装到 NAS
+alwaysApply: true
+---
+
+# 部署到飞牛
+
+用户说「部署到飞牛」时，按顺序做完这三步，不要只改版本或只打包。
+
+目标机：`mike@10.10.1.3`（x86_64）。`appcenter-cli` 必须 `sudo -n`。
+
+## 1. 升版本
+
+未指定版本时，把补丁号加一（`0.4.0` → `0.4.1`）。两处默认值一起改：
+
+- `Makefile` 的 `VERSION ?=`
+- `scripts/build-fnos-fpk.sh` 的 `VERSION="${VERSION:-...}"`
+
+`deploy/fnos/manifest` 的 `changelog` 写成这一版用户能看懂的一两句。`version` / `platform` 由打包脚本写入，不必改仓库里的占位值。
+
+## 2. 打包
+
+```bash
+make fpk
+```
+
+产物：`dist/fnos/roundpen-<version>-fnos-x86.fpk`。
+
+## 3. 安装到这台 NAS
+
+`install-fpk` 在应用已存在时只会解包，不会替换正在运行的版本。用解出来的目录做安装（会先停再卸再装；`/vol1/@appdata/roundpen` 保留）。
+
+```bash
+scp dist/fnos/roundpen-<version>-fnos-x86.fpk mike@10.10.1.3:/tmp/roundpen-<version>-fnos-x86.fpk
+ssh mike@10.10.1.3 'sudo -n appcenter-cli install-fpk /tmp/roundpen-<version>-fnos-x86.fpk'
+ssh mike@10.10.1.3 'sudo -n appcenter-cli install-local -d /vol1/appcenter-downloads/roundpen-<version>-tpk'
+```
+
+装完确认：`sudo -n appcenter-cli list` 里 roundpen 是新版本且 `running`，`curl -fsS http://127.0.0.1:9527/health` 为 `ok`，`/vol1/@appdata/roundpen/data/secret.key` 仍在。

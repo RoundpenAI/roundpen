@@ -6,6 +6,22 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
+func TestCoerceDefaultImage(t *testing.T) {
+	const agent = "ghcr.io/roundpenai/code-agent:0.1.0"
+	if got := config.CoerceDefaultImage("host", agent); got != agent {
+		t.Fatalf("host: %q", got)
+	}
+	if got := config.CoerceDefaultImage("disks/agent.qcow2", agent); got != agent {
+		t.Fatalf("qcow2: %q", got)
+	}
+	if got := config.CoerceDefaultImage("python:3.12-slim", agent); got != "python:3.12-slim" {
+		t.Fatalf("real image: %q", got)
+	}
+	if config.PullableImage("host") || config.PullableImage("vm.qcow2") {
+		t.Fatal("legacy refs must not be pulled")
+	}
+}
+
 func TestLoadIMEnabled(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://roundpen:roundpen@127.0.0.1:5432/roundpen?sslmode=disable")
 	t.Setenv("ROUNDPEN_BACKEND", "docker")

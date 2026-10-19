@@ -37,7 +37,8 @@ export default defineConfig({
       },
       // All other /v1/* API calls (no WebSocket).
       '/v1': apiProxy,
-      '/p': apiProxy,
+      // Prefix must be /p/ so the console route /projects is not proxied.
+      '/p/': apiProxy,
       '/health': apiProxy,
     },
   },
