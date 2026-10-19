@@ -8,10 +8,17 @@ func UserWorkspaceID(username string) string {
 	return "user-" + sanitizeWorkspaceUser(username)
 }
 
-// AgentSandboxID is the stable sandbox id for the user's Agent slot.
+// AgentSandboxID is the stable sandbox id for the user's interactive Agent slot.
 // Docker container name is "roundpen-" + AgentSandboxID (see docker.containerName).
 func AgentSandboxID(username string) string {
 	return sanitizeWorkspaceUser(username)
+}
+
+// AgentJobSandboxID is the stable sandbox id for long-running job work
+// (routines / project workers). Shares the user's workspace mount with the
+// interactive agent slot but uses a separate container so chat is not blocked.
+func AgentJobSandboxID(username string) string {
+	return sanitizeWorkspaceUser(username) + "-job"
 }
 
 func sanitizeWorkspaceUser(u string) string {

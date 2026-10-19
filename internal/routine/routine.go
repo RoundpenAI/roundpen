@@ -40,6 +40,9 @@ const (
 	// MaxContinueChain caps chained segments so a runaway agent cannot enqueue forever.
 	// 24 × 2h ≈ 48h of wall-clock work for one long job.
 	MaxContinueChain = 24
+	// DefaultMaxTokens is 0 = unlimited (wall-clock only). Set per routine to
+	// enforce a chain-wide token ceiling across continue segments.
+	DefaultMaxTokens = 0
 
 	minGap         = time.Minute
 	day            = 24 * time.Hour
@@ -148,6 +151,7 @@ type Routine struct {
 	Timezone             string          `json:"timezone"`
 	DeliverIM            bool            `json:"deliverIm"`
 	MaxDurationSec       int             `json:"maxDurationSec"`
+	MaxTokens            int             `json:"maxTokens"` // 0 = unlimited; chain-wide token ceiling
 	State                json.RawMessage `json:"state"`
 	Status               string          `json:"status"`
 	NextRunAt            *time.Time      `json:"nextRunAt,omitempty"`
@@ -178,6 +182,7 @@ type Run struct {
 	BudgetLeftSec  *int            `json:"budgetLeftSec,omitempty"`
 	SegmentIndex   int             `json:"segmentIndex"`
 	ContinueFrom   string          `json:"continueFrom,omitempty"`
+	TokensUsed     int             `json:"tokensUsed"`
 	CreatedAt      time.Time       `json:"createdAt"`
 }
 
@@ -196,6 +201,7 @@ type CreateInput struct {
 	Timezone             string
 	DeliverIM            bool
 	MaxDurationSec       int
+	MaxTokens            int // 0 = unlimited
 }
 
 // ValidateCreate checks fields that do not depend on the assignee's constitution.
@@ -230,6 +236,9 @@ func ValidateCreate(in *CreateInput) (Schedule, error) {
 	}
 	if in.MaxDurationSec < MinDurationSec || in.MaxDurationSec > MaxDurationSec {
 		return Schedule{}, fmt.Errorf("%w: max duration must be between %d and %d seconds", ErrInvalid, MinDurationSec, MaxDurationSec)
+	}
+	if in.MaxTokens < 0 {
+		return Schedule{}, fmt.Errorf("%w: max tokens must be >= 0", ErrInvalid)
 	}
 	return ParseSchedule(in.Cron, in.Timezone)
 }

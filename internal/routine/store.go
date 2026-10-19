@@ -18,12 +18,12 @@ type Store struct {
 
 const routineCols = `id, key, user_id, COALESCE(assignee_assistant_id, ''), COALESCE(created_by_assistant_id, ''),
 	created_by_session_id, COALESCE(issue_id, ''), title, brief, autonomy, hosts, cron, timezone,
-	deliver_im, max_duration_sec, state, status, next_run_at, created_at, updated_at`
+	deliver_im, max_duration_sec, COALESCE(max_tokens, 0), state, status, next_run_at, created_at, updated_at`
 
 const runCols = `id, key, routine_id, user_id, COALESCE(assistant_id, ''), session_id, status,
 	scheduled_at, started_at, finished_at, wait_started_at, summary, artifacts, error,
 	deliver_error, assist_ticket_id, budget_left_sec, created_at,
-	COALESCE(segment_index, 1), COALESCE(continue_from, '')`
+	COALESCE(segment_index, 1), COALESCE(continue_from, ''), COALESCE(tokens_used, 0)`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -56,7 +56,7 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Rou
 		CreatedBySessionID: in.CreatedBySessionID, IssueID: in.IssueID,
 		Title: in.Title, Brief: in.Brief, Autonomy: in.Autonomy, Hosts: in.Hosts,
 		Cron: in.Cron, Timezone: in.Timezone, DeliverIM: in.DeliverIM,
-		MaxDurationSec: in.MaxDurationSec, State: json.RawMessage(`{}`),
+		MaxDurationSec: in.MaxDurationSec, MaxTokens: in.MaxTokens, State: json.RawMessage(`{}`),
 		Status: StatusActive, CreatedAt: now, UpdatedAt: now,
 	}
 	next := sched.NextAfter(now)
@@ -65,15 +65,15 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Rou
 		INSERT INTO routines (
 			id, key, user_id, assignee_assistant_id, created_by_assistant_id, created_by_session_id,
 			issue_id, title, brief, autonomy, hosts, cron, timezone, deliver_im, max_duration_sec,
-			state, status, next_run_at, created_at, updated_at
+			max_tokens, state, status, next_run_at, created_at, updated_at
 		) VALUES (
 			$1, 'RTN-' || nextval('routine_key_seq'), $2, NULLIF($3,''), NULLIF($4,''), $5,
 			NULLIF($6,''), $7, $8, $9, $10, $11, $12, $13, $14,
-			'{}', $15, $16, $17, $17
+			$15, '{}', $16, $17, $18, $18
 		) RETURNING key`,
 		rt.ID, userID, rt.AssigneeAssistantID, rt.CreatedByAssistantID, rt.CreatedBySessionID,
 		rt.IssueID, rt.Title, rt.Brief, rt.Autonomy, hosts, rt.Cron, rt.Timezone, rt.DeliverIM,
-		rt.MaxDurationSec, rt.Status, next, now,
+		rt.MaxDurationSec, rt.MaxTokens, rt.Status, next, now,
 	).Scan(&rt.Key)
 	if err != nil {
 		return nil, err
@@ -158,6 +158,7 @@ type UpdateInput struct {
 	Timezone            *string
 	DeliverIM           *bool
 	MaxDurationSec      *int
+	MaxTokens           *int
 	Status              *string
 	AssigneeAssistantID *string
 	IssueID             *string
@@ -194,6 +195,9 @@ func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInp
 	if in.MaxDurationSec != nil {
 		rt.MaxDurationSec = *in.MaxDurationSec
 	}
+	if in.MaxTokens != nil {
+		rt.MaxTokens = *in.MaxTokens
+	}
 	if in.Status != nil {
 		rt.Status = *in.Status
 	}
@@ -209,7 +213,7 @@ func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInp
 	}
 	sched, err := ValidateCreate(&CreateInput{
 		Title: rt.Title, Brief: rt.Brief, Autonomy: rt.Autonomy, Hosts: rt.Hosts,
-		Cron: rt.Cron, Timezone: rt.Timezone, MaxDurationSec: rt.MaxDurationSec,
+		Cron: rt.Cron, Timezone: rt.Timezone, MaxDurationSec: rt.MaxDurationSec, MaxTokens: rt.MaxTokens,
 	})
 	if err != nil {
 		return nil, err
@@ -234,11 +238,11 @@ func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInp
 	_, err = s.DB.ExecContext(ctx, `
 		UPDATE routines SET
 			title=$3, brief=$4, autonomy=$5, hosts=$6, cron=$7, timezone=$8,
-			deliver_im=$9, max_duration_sec=$10, status=$11, assignee_assistant_id=NULLIF($12,''),
-			issue_id=NULLIF($13,''), next_run_at=$14, updated_at=$15
+			deliver_im=$9, max_duration_sec=$10, max_tokens=$11, status=$12, assignee_assistant_id=NULLIF($13,''),
+			issue_id=NULLIF($14,''), next_run_at=$15, updated_at=$16
 		WHERE user_id=$1 AND id=$2`,
 		userID, rt.ID, rt.Title, rt.Brief, rt.Autonomy, hosts, rt.Cron, rt.Timezone,
-		rt.DeliverIM, rt.MaxDurationSec, rt.Status, rt.AssigneeAssistantID, rt.IssueID, next, now,
+		rt.DeliverIM, rt.MaxDurationSec, rt.MaxTokens, rt.Status, rt.AssigneeAssistantID, rt.IssueID, next, now,
 	)
 	if err != nil {
 		return nil, err
@@ -668,6 +672,41 @@ func (s *Store) ListOrphanQueued(ctx context.Context, olderThan time.Time) ([]Ru
 	return out, rows.Err()
 }
 
+// GetRunByID loads a run by primary key (any user). Used to resolve continue parents.
+func (s *Store) GetRunByID(ctx context.Context, runID string) (*Run, error) {
+	row := s.DB.QueryRowContext(ctx, `SELECT `+runCols+` FROM routine_runs WHERE id=$1`, runID)
+	rn, err := scanRun(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return rn, err
+}
+
+// AddTokensUsed increments a run's token counter (by id or key) and returns the new total.
+func (s *Store) AddTokensUsed(ctx context.Context, runIDOrKey string, delta int) (int, error) {
+	if delta <= 0 {
+		row := s.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(tokens_used,0) FROM routine_runs WHERE id=$1 OR key=$1`, runIDOrKey)
+		var n int
+		err := row.Scan(&n)
+		return n, err
+	}
+	row := s.DB.QueryRowContext(ctx, `
+		UPDATE routine_runs SET tokens_used = COALESCE(tokens_used,0) + $2
+		WHERE id=$1 OR key=$1 RETURNING tokens_used`, runIDOrKey, delta)
+	var n int
+	err := row.Scan(&n)
+	return n, err
+}
+
+// ChainTokensUsed sums tokens across all runs of a routine (whole continue chain).
+func (s *Store) ChainTokensUsed(ctx context.Context, routineID string) (int, error) {
+	var n int
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(tokens_used),0) FROM routine_runs WHERE routine_id=$1`, routineID).Scan(&n)
+	return n, err
+}
+
 // LastSuccessSummary is the summary of the newest succeeded run, or empty.
 func (s *Store) LastSuccessSummary(ctx context.Context, routineID string) (string, error) {
 	var summary string
@@ -688,7 +727,7 @@ func scanRoutine(row rowScanner) (*Routine, error) {
 	if err := row.Scan(
 		&rt.ID, &rt.Key, &rt.UserID, &rt.AssigneeAssistantID, &rt.CreatedByAssistantID,
 		&rt.CreatedBySessionID, &rt.IssueID, &rt.Title, &rt.Brief, &rt.Autonomy, &hosts,
-		&rt.Cron, &rt.Timezone, &rt.DeliverIM, &rt.MaxDurationSec, &state, &rt.Status,
+		&rt.Cron, &rt.Timezone, &rt.DeliverIM, &rt.MaxDurationSec, &rt.MaxTokens, &state, &rt.Status,
 		&next, &rt.CreatedAt, &rt.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -719,7 +758,7 @@ func scanRun(row rowScanner) (*Run, error) {
 		&rn.ID, &rn.Key, &rn.RoutineID, &rn.UserID, &rn.AssistantID, &rn.SessionID, &rn.Status,
 		&rn.ScheduledAt, &started, &finished, &waited, &rn.Summary, &artifacts, &rn.Error,
 		&rn.DeliverError, &rn.AssistTicketID, &budget, &rn.CreatedAt,
-		&rn.SegmentIndex, &rn.ContinueFrom,
+		&rn.SegmentIndex, &rn.ContinueFrom, &rn.TokensUsed,
 	); err != nil {
 		return nil, err
 	}

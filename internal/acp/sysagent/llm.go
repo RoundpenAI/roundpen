@@ -28,6 +28,15 @@ type LLMConfig struct {
 	Model        string
 	DefaultModel func() string
 	HTTPClient   *http.Client
+	// OnUsage is called once per completion when the upstream reports token usage.
+	OnUsage func(TokenUsage)
+}
+
+// TokenUsage is one chat completion's reported token counts.
+type TokenUsage struct {
+	Prompt     int
+	Completion int
+	Total      int
 }
 
 type chatMessage struct {
@@ -161,12 +170,12 @@ func (c LLMConfig) chatStreamOnce(ctx context.Context, url string, body []byte, 
 	trimmed := bytes.TrimSpace(peek)
 	// Some gateways ignore stream=true and return a full JSON object.
 	if len(trimmed) > 0 && trimmed[0] == '{' && !bytes.Contains(peek, []byte("data:")) {
-		return readChatJSON(br, onContent, onReasoning)
+		return readChatJSON(br, onContent, onReasoning, c.OnUsage)
 	}
-	return readChatSSE(ctx, br, onContent, onReasoning)
+	return readChatSSE(ctx, br, onContent, onReasoning, c.OnUsage)
 }
 
-func readChatJSON(r io.Reader, onContent, onReasoning func(string) error) (chatMessage, string, error) {
+func readChatJSON(r io.Reader, onContent, onReasoning func(string) error, onUsage func(TokenUsage)) (chatMessage, string, error) {
 	raw, err := io.ReadAll(io.LimitReader(r, 4<<20))
 	if err != nil {
 		return chatMessage{}, "", err
@@ -180,6 +189,11 @@ func readChatJSON(r io.Reader, onContent, onReasoning func(string) error) (chatM
 			} `json:"message"`
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
+		Usage *struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage,omitempty"`
 		Error *struct {
 			Message string `json:"message"`
 		} `json:"error,omitempty"`
@@ -204,7 +218,25 @@ func readChatJSON(r io.Reader, onContent, onReasoning func(string) error) (chatM
 			return chatMessage{}, "", err
 		}
 	}
+	emitUsage(onUsage, out.Usage)
 	return msg, out.Choices[0].FinishReason, nil
+}
+
+func emitUsage(onUsage func(TokenUsage), u *struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}) {
+	if onUsage == nil || u == nil {
+		return
+	}
+	total := u.TotalTokens
+	if total == 0 {
+		total = u.PromptTokens + u.CompletionTokens
+	}
+	if total > 0 {
+		onUsage(TokenUsage{Prompt: u.PromptTokens, Completion: u.CompletionTokens, Total: total})
+	}
 }
 
 func (c LLMConfig) streamClient() *http.Client {
@@ -234,6 +266,11 @@ type streamDelta struct {
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage,omitempty"`
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
@@ -264,12 +301,17 @@ func extractReasoning(reasoningContent, reasoning any) string {
 	return b.String()
 }
 
-func readChatSSE(ctx context.Context, r io.Reader, onContent, onReasoning func(string) error) (chatMessage, string, error) {
+func readChatSSE(ctx context.Context, r io.Reader, onContent, onReasoning func(string) error, onUsage func(TokenUsage)) (chatMessage, string, error) {
 	br := newLineReader(r)
 	var content strings.Builder
 	toolAcc := map[int]*toolCall{}
 	var finish string
 	role := "assistant"
+	var lastUsage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	}
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -299,6 +341,9 @@ func readChatSSE(ctx context.Context, r io.Reader, onContent, onReasoning func(s
 		}
 		if chunk.Error != nil && chunk.Error.Message != "" {
 			return chatMessage{}, "", fmt.Errorf("llm error: %s", chunk.Error.Message)
+		}
+		if chunk.Usage != nil {
+			lastUsage = chunk.Usage
 		}
 		if len(chunk.Choices) == 0 {
 			continue
@@ -368,6 +413,7 @@ func readChatSSE(ctx context.Context, r io.Reader, onContent, onReasoning func(s
 	if finish == "" {
 		finish = "stop"
 	}
+	emitUsage(onUsage, lastUsage)
 	return msg, finish, nil
 }
 

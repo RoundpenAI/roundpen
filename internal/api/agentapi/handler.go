@@ -208,7 +208,7 @@ func (h *Handler) EnsureCoordinatorRuntime(ctx context.Context, user *storage.Us
 
 // StartRoutine opens a kind=routine session and starts its System Agent with the
 // narrowed tool surface for this firing.
-func (h *Handler) StartRoutine(ctx context.Context, user *storage.User, assistantID, title, runKey, autonomy string) (string, error) {
+func (h *Handler) StartRoutine(ctx context.Context, user *storage.User, assistantID, title, runKey, autonomy string, tokenBudget int) (string, error) {
 	if title == "" {
 		title = runKey
 	}
@@ -216,7 +216,7 @@ func (h *Handler) StartRoutine(ctx context.Context, user *storage.User, assistan
 	if err != nil {
 		return "", err
 	}
-	if err := h.startRoutineRuntime(ctx, user, sess.ID, runKey, autonomy); err != nil {
+	if err := h.startRoutineRuntime(ctx, user, sess.ID, runKey, autonomy, tokenBudget); err != nil {
 		return "", err
 	}
 	return sess.ID, nil
@@ -271,14 +271,22 @@ func (h *Handler) profileFor(ctx context.Context, user *storage.User, sess *agen
 }
 
 // ResumeRoutine starts the runtime again for an existing run session.
-func (h *Handler) ResumeRoutine(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string) error {
-	if _, ok := h.ACP.Get(sessionID); ok {
-		return nil
+// When a continue segment reuses the Roundpen session, the live System Agent is
+// rebound to the new run key so FinishRun targets the right row without tearing
+// down the ACP session.
+func (h *Handler) ResumeRoutine(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string, tokenBudget int) error {
+	if rt, ok := h.ACP.Get(sessionID); ok {
+		if rt.CanRebindRoutine() {
+			rt.RebindRoutine(runKey, autonomy, tokenBudget)
+			return nil
+		}
+		h.deleteRunner(sessionID)
+		h.ACP.Stop(sessionID)
 	}
-	return h.startRoutineRuntime(ctx, user, sessionID, runKey, autonomy)
+	return h.startRoutineRuntime(ctx, user, sessionID, runKey, autonomy, tokenBudget)
 }
 
-func (h *Handler) startRoutineRuntime(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string) error {
+func (h *Handler) startRoutineRuntime(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string, tokenBudget int) error {
 	assistantID := ""
 	if sess, err := h.Store.Get(ctx, sessionID); err == nil && sess != nil {
 		assistantID = sess.AssistantID
@@ -290,7 +298,11 @@ func (h *Handler) startRoutineRuntime(ctx context.Context, user *storage.User, s
 			APIKey:   user.APIKey,
 		},
 		AssistantID: assistantID,
-		Routine:     manager.RoutineStart{RunKey: runKey, Autonomy: autonomy},
+		Routine: manager.RoutineStart{
+			RunKey:      runKey,
+			Autonomy:    autonomy,
+			TokenBudget: tokenBudget,
+		},
 	})
 	return err
 }

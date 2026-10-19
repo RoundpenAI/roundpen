@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -18,8 +19,8 @@ import (
 
 // SessionStarter opens the execution session for one run.
 type SessionStarter interface {
-	StartRoutine(ctx context.Context, user *storage.User, assistantID, title, runKey, autonomy string) (sessionID string, err error)
-	ResumeRoutine(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string) error
+	StartRoutine(ctx context.Context, user *storage.User, assistantID, title, runKey, autonomy string, tokenBudget int) (sessionID string, err error)
+	ResumeRoutine(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string, tokenBudget int) error
 }
 
 // Prompter sends a turn to a live session.
@@ -34,9 +35,16 @@ type UserLookup interface {
 }
 
 // EnvReady makes sure the user's agent and browser slots are up.
+// EnsureAgentJob is preferred for routines when implemented so long jobs do not
+// block the interactive agent slot; otherwise EnsureAgent is used.
 type EnvReady interface {
 	EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error)
 	EnsureBrowser(ctx context.Context, userID string) (*userenv.BrowserTarget, error)
+}
+
+// AgentJobReady is an optional EnvReady extension for the dedicated job slot.
+type AgentJobReady interface {
+	EnsureAgentJob(ctx context.Context, userID string) (*sandbox.Sandbox, error)
 }
 
 // Runner claims due routines and executes them.
@@ -127,7 +135,7 @@ func (r *Runner) execute(ctx context.Context, c Claim) {
 		return
 	}
 	if r.Envs != nil {
-		if _, err := r.Envs.EnsureAgent(ctx, c.Routine.UserID); err != nil {
+		if err := r.ensureJobEnv(ctx, c.Routine.UserID); err != nil {
 			_ = r.Store.FailRun(ctx, c.Run.ID, "Agent 环境没有就绪", err.Error())
 			r.deliver(ctx, c, RunFailed, "Agent 环境没有就绪")
 			return
@@ -140,13 +148,20 @@ func (r *Runner) execute(ctx context.Context, c Claim) {
 			}
 		}
 	}
+	if c.Routine.MaxTokens > 0 {
+		used, err := r.Store.ChainTokensUsed(ctx, c.Routine.ID)
+		if err == nil && used >= c.Routine.MaxTokens {
+			_ = r.Store.FailRun(ctx, c.Run.ID, "已达 token 预算", "")
+			r.deliver(ctx, c, RunFailed, "已达 token 预算")
+			return
+		}
+	}
 	user, err := r.user(ctx, c.Routine.UserID)
 	if err != nil {
 		_ = r.Store.FailRun(ctx, c.Run.ID, "找不到任务所属用户", err.Error())
 		return
 	}
-	title := c.Routine.Key + " " + c.Run.Key
-	sessionID, err := r.Starter.StartRoutine(ctx, user, c.Routine.AssigneeAssistantID, title, c.Run.Key, c.Routine.Autonomy)
+	sessionID, promptText, err := r.openSession(ctx, user, c)
 	if err != nil {
 		_ = r.Store.FailRun(ctx, c.Run.ID, "无法启动执行会话", err.Error())
 		r.deliver(ctx, c, RunFailed, "无法启动执行会话")
@@ -157,8 +172,59 @@ func (r *Runner) execute(ctx context.Context, c Claim) {
 		return
 	}
 	c.Run.SessionID = sessionID
+	r.prompt(ctx, c, sessionID, promptText, r.budget(c.Routine.MaxDurationSec))
+}
+
+func (r *Runner) ensureJobEnv(ctx context.Context, userID string) error {
+	if job, ok := r.Envs.(AgentJobReady); ok {
+		_, err := job.EnsureAgentJob(ctx, userID)
+		return err
+	}
+	_, err := r.Envs.EnsureAgent(ctx, userID)
+	return err
+}
+
+// openSession reuses the parent run's session for continue segments; otherwise
+// creates a fresh kind=routine session.
+func (r *Runner) openSession(ctx context.Context, user *storage.User, c Claim) (sessionID, promptText string, err error) {
 	last, _ := r.Store.LastSuccessSummary(ctx, c.Routine.ID)
-	r.prompt(ctx, c, sessionID, RenderPrompt(c, last), r.budget(c.Routine.MaxDurationSec))
+	promptText = RenderPrompt(c, last)
+	budget := r.tokenBudgetRemaining(ctx, c.Routine)
+	if c.Run.ContinueFrom == "" {
+		title := c.Routine.Key + " " + c.Run.Key
+		sessionID, err = r.Starter.StartRoutine(ctx, user, c.Routine.AssigneeAssistantID, title, c.Run.Key, c.Routine.Autonomy, budget)
+		return sessionID, promptText, err
+	}
+	parent, err := r.Store.GetRunByID(ctx, c.Run.ContinueFrom)
+	if err != nil || parent == nil || strings.TrimSpace(parent.SessionID) == "" {
+		// Parent session lost — fall back to a new session.
+		title := c.Routine.Key + " " + c.Run.Key
+		sessionID, err = r.Starter.StartRoutine(ctx, user, c.Routine.AssigneeAssistantID, title, c.Run.Key, c.Routine.Autonomy, budget)
+		return sessionID, promptText, err
+	}
+	sessionID = parent.SessionID
+	if err := r.Starter.ResumeRoutine(ctx, user, sessionID, c.Run.Key, c.Routine.Autonomy, budget); err != nil {
+		return "", "", err
+	}
+	promptText = RenderContinuePrompt(c, last)
+	return sessionID, promptText, nil
+}
+
+// tokenBudgetRemaining is MaxTokens minus tokens already spent on the chain.
+// Zero means unlimited (either no ceiling or nothing left — caller fails first).
+func (r *Runner) tokenBudgetRemaining(ctx context.Context, rt Routine) int {
+	if rt.MaxTokens <= 0 || r.Store == nil {
+		return 0
+	}
+	used, err := r.Store.ChainTokensUsed(ctx, rt.ID)
+	if err != nil {
+		return rt.MaxTokens
+	}
+	left := rt.MaxTokens - used
+	if left < 0 {
+		return 0
+	}
+	return left
 }
 
 func (r *Runner) prompt(ctx context.Context, c Claim, sessionID, text string, budget time.Duration) {
@@ -334,7 +400,7 @@ func (r *Runner) HandleTicket(ctx context.Context, t *assistticket.Ticket) {
 	if err != nil {
 		return
 	}
-	if err := r.Starter.ResumeRoutine(ctx, user, rn.SessionID, rn.Key, rt.Autonomy); err != nil {
+	if err := r.Starter.ResumeRoutine(ctx, user, rn.SessionID, rn.Key, rt.Autonomy, r.tokenBudgetRemaining(ctx, *rt)); err != nil {
 		_ = r.Store.FailRun(ctx, rn.ID, "无法恢复执行会话", err.Error())
 		r.deliver(ctx, c, RunFailed, "无法恢复执行会话")
 		return

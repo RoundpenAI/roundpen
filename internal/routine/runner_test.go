@@ -39,13 +39,13 @@ type fakeExec struct {
 	block    bool
 }
 
-func (f *fakeExec) StartRoutine(_ context.Context, _ *storage.User, _, _, runKey, autonomy string) (string, error) {
+func (f *fakeExec) StartRoutine(_ context.Context, _ *storage.User, _, _, runKey, autonomy string, _ int) (string, error) {
 	f.starts++
 	f.autonomy = autonomy
 	f.runKey = runKey
 	return "sess-" + runKey, nil
 }
-func (f *fakeExec) ResumeRoutine(context.Context, *storage.User, string, string, string) error {
+func (f *fakeExec) ResumeRoutine(context.Context, *storage.User, string, string, string, int) error {
 	return nil
 }
 func (f *fakeExec) Prompt(ctx context.Context, sessionID, _ string) (acp.StopReason, error) {

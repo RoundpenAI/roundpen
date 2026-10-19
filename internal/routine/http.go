@@ -103,6 +103,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		Hosts               []string `json:"hosts"`
 		DeliverIM           *bool    `json:"deliverIm"`
 		MaxDurationSec      int      `json:"maxDurationSec"`
+		MaxTokens           int      `json:"maxTokens"`
 		AssigneeAssistantID string   `json:"assigneeAssistantId"`
 		IssueKey            string   `json:"issueKey"`
 		SessionID           string   `json:"sessionId"`
@@ -166,6 +167,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		Timezone:             body.Timezone,
 		DeliverIM:            deliver,
 		MaxDurationSec:       body.MaxDurationSec,
+		MaxTokens:            body.MaxTokens,
 	})
 	if err != nil {
 		writeErr(w, err)
@@ -204,6 +206,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		Timezone            *string  `json:"timezone"`
 		DeliverIM           *bool    `json:"deliverIm"`
 		MaxDurationSec      *int     `json:"maxDurationSec"`
+		MaxTokens           *int     `json:"maxTokens"`
 		Status              *string  `json:"status"`
 		AssigneeAssistantID *string  `json:"assigneeAssistantId"`
 		IssueKey            *string  `json:"issueKey"`
@@ -220,7 +223,7 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 	in := UpdateInput{
 		Title: body.Title, Brief: body.Brief, Autonomy: body.Autonomy,
 		Cron: body.Cron, Timezone: body.Timezone, DeliverIM: body.DeliverIM,
-		MaxDurationSec: body.MaxDurationSec, Status: body.Status,
+		MaxDurationSec: body.MaxDurationSec, MaxTokens: body.MaxTokens, Status: body.Status,
 	}
 	if body.Hosts != nil {
 		in.Hosts = body.Hosts

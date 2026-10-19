@@ -44,6 +44,11 @@ type SysDeps struct {
 	BrowserHub   *browser.Hub
 	BrowserSlots tools.BrowserSlot
 	AgentSlots   tools.AgentSlot
+	// AgentJobSlots is the dedicated long-job Agent environment (routines /
+	// project workers). When nil, AgentSlots is used for those sessions too.
+	AgentJobSlots tools.AgentSlot
+	// OnRoutineTokens persists per-completion token usage for a run key.
+	OnRoutineTokens func(runKey string, delta int)
 
 	// Roundpen is in-process management tools (envs/templates/sessions/settings).
 	Roundpen *tools.RoundpenBinder
@@ -86,6 +91,8 @@ type Runtime struct {
 	Provider  providers.Provider
 	// Profile is the session persona used at Start (coordinator / worker role / "").
 	Profile string
+	// RunKey is the standing-routine firing bound at Start (empty for chat).
+	RunKey string
 
 	bridge *acpclient.Bridge
 	conn   *acp.ClientSideConnection
@@ -103,9 +110,29 @@ type Runtime struct {
 	// providers without mid-turn injection (external agents).
 	steerFunc func(string) error
 
+	// rebindRoutine swaps FinishRun's run key and token budget on a live
+	// System Agent so continue segments keep the same ACP session.
+	rebindRoutine func(runKey, autonomy string, tokenBudget int)
+
 	gen    uint64
 	cancel context.CancelFunc
 	mu     sync.Mutex
+}
+
+// CanRebindRoutine reports whether continue segments can reuse this runtime.
+func (rt *Runtime) CanRebindRoutine() bool {
+	return rt != nil && rt.rebindRoutine != nil
+}
+
+// RebindRoutine updates the live run tools and token ceiling for a new segment.
+func (rt *Runtime) RebindRoutine(runKey, autonomy string, tokenBudget int) {
+	if rt == nil || rt.rebindRoutine == nil {
+		return
+	}
+	rt.rebindRoutine(runKey, autonomy, tokenBudget)
+	rt.mu.Lock()
+	rt.RunKey = runKey
+	rt.mu.Unlock()
 }
 
 // Manager tracks runtimes and a global prompt concurrency gate.
@@ -151,8 +178,9 @@ func (m *Manager) Providers() []providers.Provider {
 // RoutineStart marks a session as one firing of a standing routine.
 // An empty RunKey is an ordinary chat.
 type RoutineStart struct {
-	RunKey   string
-	Autonomy string // read | browse
+	RunKey      string
+	Autonomy    string // read | browse
+	TokenBudget int    // remaining chain budget for this segment; 0 = unlimited
 }
 
 // ProjectStart selects a project coordinator / code-dev worker persona.
@@ -167,6 +195,17 @@ type StartOpts struct {
 	AssistantID string
 	Routine     RoutineStart
 	Project     ProjectStart
+}
+
+func (opts StartOpts) useJobSlot() bool {
+	if opts.Routine.RunKey != "" {
+		return true
+	}
+	switch opts.Project.Profile {
+	case "implementer", "reviewer", "tester":
+		return true
+	}
+	return false
 }
 
 // mcpBinder loads the user's MCP tool snapshots for one session. Scheduled
@@ -211,6 +250,10 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	var conn *acp.ClientSideConnection
 	var runtimeGen uint64
 	var sysAgent *sysagent.Agent
+	var reg *tools.Registry
+	var controlPlane *tools.RoundpenHTTP
+	runKeyHold := &atomic.Value{}
+	runKeyHold.Store(opts.Routine.RunKey)
 	switch p.Mode {
 	case "sysadmin", "mock", "":
 		c2aR, c2aW := io.Pipe()
@@ -222,10 +265,14 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 				llmCfg.APIKey = m.sys.LLMKey
 			}
 		}
-		reg := tools.NewRegistry()
-		controlPlane := &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase}
+		reg = tools.NewRegistry()
+		controlPlane = &tools.RoundpenHTTP{BaseURL: m.sys.LoopbackBase}
+		agentSlots := m.sys.AgentSlots
+		if opts.useJobSlot() && m.sys.AgentJobSlots != nil {
+			agentSlots = m.sys.AgentJobSlots
+		}
 		binder := &tools.AgentBinder{
-			Slots: m.sys.AgentSlots,
+			Slots: agentSlots,
 			Exec:  m.sandboxes,
 			Files: m.sandboxes,
 		}
@@ -269,6 +316,15 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		if m.sys.PolicyFor != nil && opts.AssistantID != "" {
 			pol = m.sys.PolicyFor(ctx, opts.Actor.Username, opts.AssistantID)
 		}
+		var onTokens func(int)
+		if opts.Routine.RunKey != "" && m.sys.OnRoutineTokens != nil {
+			onTokens = func(delta int) {
+				key, _ := runKeyHold.Load().(string)
+				if key != "" && delta > 0 {
+					m.sys.OnRoutineTokens(key, delta)
+				}
+			}
+		}
 		agent := sysagent.New(sysagent.Deps{
 			LLM:         llmCfg,
 			Tools:       reg,
@@ -280,6 +336,8 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			AssistantID: opts.AssistantID,
 			Evaluator:   m.sys.AutoMode,
 			Profile:     opts.Project.Profile,
+			TokenBudget: opts.Routine.TokenBudget,
+			OnTokens:    onTokens,
 		})
 		sysAgent = agent
 		asc := acp.NewAgentSideConnection(agent, a2cW, c2aR)
@@ -360,6 +418,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		SandboxID:   sandboxID,
 		Provider:    p,
 		Profile:     opts.Project.Profile,
+		RunKey:      opts.Routine.RunKey,
 		bridge:      bridge,
 		conn:        conn,
 		acpSID:      sess.SessionId,
@@ -371,6 +430,20 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		sid := string(sess.SessionId)
 		rt.setSysMode = func(mode string) { sysAgent.SetPermMode(sid, mode) }
 		rt.steerFunc = func(text string) error { return sysAgent.SteerSession(sid, text) }
+		if opts.Routine.RunKey != "" {
+			rt.rebindRoutine = func(runKey, autonomy string, tokenBudget int) {
+				_ = autonomy // browse tools stay as registered for the routine
+				if runKey != "" {
+					tools.RegisterRunTools(reg, controlPlane, sessionID, runKey)
+					runKeyHold.Store(runKey)
+				}
+				sysAgent.ResetTokenAccounting(tokenBudget)
+				// Clear leftover cancel so the next Prompt can start cleanly.
+				_, _ = sysAgent.ResumeSession(context.Background(), acp.ResumeSessionRequest{
+					SessionId: acp.SessionId(sid),
+				})
+			}
+		}
 	}
 	m.mu.Lock()
 	m.runtimes[sessionID] = rt

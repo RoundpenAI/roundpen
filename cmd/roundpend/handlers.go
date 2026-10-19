@@ -41,6 +41,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/project"
+	"github.com/RoundpenAI/roundpen/internal/routine"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
@@ -525,22 +526,42 @@ func llmConfigFor(items *settingitems.Catalog, loopback, key string) func(userID
 	}
 }
 
+// agentJobSlots adapts userenv.EnsureAgentJob to the tools.AgentSlot interface
+// so routine / worker sessions do not block the interactive agent container.
+type agentJobSlots struct {
+	svc *userenv.Service
+}
+
+func (a agentJobSlots) EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error) {
+	return a.svc.EnsureAgentJob(ctx, userID)
+}
+
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, mcpSvc *mcp.Service, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, mcpSvc *mcp.Service, routineStore *routine.Store, logger *slog.Logger) *manager.Manager {
 	// Grant-gated host reads (NAS shares) for the agent's Read/Glob tools.
 	hostRead := hostaccess.New(agentStore, assistantStore, logger)
+	var onTokens func(runKey string, delta int)
+	if routineStore != nil {
+		onTokens = func(runKey string, delta int) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _ = routineStore.AddTokensUsed(ctx, runKey, delta)
+		}
+	}
 	acpMgr := manager.New(logger, mgr, providers.Default(), manager.SysDeps{
-		LoopbackBase: loopback,
-		LLMKey:       gw.InternalKey(),
-		LLM:          llmConfigFor(items, loopback, gw.InternalKey()),
-		AutoMode:     autoEvaluator,
-		BrowserHub:   browserHub,
-		BrowserSlots: envSvc,
-		AgentSlots:   envSvc,
-		PreviewZone:  previewZone,
-		History:      agentStore,
-		Google:       connectorsSvc,
-		MCP:          mcpSvc,
+		LoopbackBase:    loopback,
+		LLMKey:          gw.InternalKey(),
+		LLM:             llmConfigFor(items, loopback, gw.InternalKey()),
+		AutoMode:        autoEvaluator,
+		BrowserHub:      browserHub,
+		BrowserSlots:    envSvc,
+		AgentSlots:      envSvc,
+		AgentJobSlots:   agentJobSlots{svc: envSvc},
+		OnRoutineTokens: onTokens,
+		PreviewZone:     previewZone,
+		History:         agentStore,
+		Google:          connectorsSvc,
+		MCP:             mcpSvc,
 		PolicyFor: func(ctx context.Context, userID, assistantID string) *policy.Profile {
 			if assistantStore == nil || assistantID == "" {
 				return nil
