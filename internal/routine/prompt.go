@@ -41,6 +41,28 @@ func RenderPrompt(c Claim, lastSummary string) string {
 	return b.String()
 }
 
+// RenderContinuePrompt is injected when the next segment reuses the same session.
+// History already carries prior tools; this nudge is short.
+func RenderContinuePrompt(c Claim, lastSummary string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Continue segment %d of %s / %s on the same session.\n", c.Run.SegmentIndex, c.Routine.Key, c.Run.Key)
+	state := strings.TrimSpace(string(c.Routine.State))
+	if state == "" {
+		state = "{}"
+	}
+	fmt.Fprintf(&b, "State (checkpoint): %s\n", state)
+	if strings.TrimSpace(lastSummary) != "" {
+		fmt.Fprintf(&b, "Previous segment summary: %s\n", lastSummary)
+	}
+	mins := c.Routine.MaxDurationSec / 60
+	if mins < 1 {
+		mins = 1
+	}
+	fmt.Fprintf(&b, "This segment has %d minutes. Resume from the checkpoint; do not redo finished work. ", mins)
+	b.WriteString("When done, FinishRun; if more remains, FinishRun with continue=true.")
+	return b.String()
+}
+
 // SummaryLine is the one line written into the assistant's primary chat.
 func SummaryLine(routineKey, runKey, status, summary string) string {
 	summary = strings.TrimSpace(summary)

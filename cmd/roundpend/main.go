@@ -243,7 +243,8 @@ func main() {
 	}
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
-	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, mcpSvc, logger)
+	routineStore := &routine.Store{DB: db.SQL}
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, mcpSvc, routineStore, logger)
 
 	pushSvc := newPushService(cfg, db, logger)
 	if pushSvc != nil {
@@ -294,7 +295,6 @@ func main() {
 		Dirs:       projectDirSeeder{Envs: envSvc, Paths: sbSvc},
 		Log:        logger,
 	}).Mount(mux)
-	routineStore := &routine.Store{DB: db.SQL}
 	routineRunner := &routine.Runner{
 		Store:      routineStore,
 		Users:      userStore,

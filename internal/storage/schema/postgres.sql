@@ -631,6 +631,8 @@ CREATE TABLE IF NOT EXISTS routines (
     deliver_im              BOOLEAN NOT NULL DEFAULT FALSE,
     max_duration_sec        INTEGER NOT NULL DEFAULT 900
         CHECK (max_duration_sec BETWEEN 60 AND 7200),
+    max_tokens              INTEGER NOT NULL DEFAULT 0
+        CHECK (max_tokens >= 0),
     state                   JSONB NOT NULL DEFAULT '{}',
     status                  TEXT NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'paused', 'archived')),
@@ -670,6 +672,8 @@ CREATE TABLE IF NOT EXISTS routine_runs (
     segment_index    INTEGER NOT NULL DEFAULT 1
         CHECK (segment_index >= 1 AND segment_index <= 48),
     continue_from    TEXT NOT NULL DEFAULT '',
+    tokens_used      INTEGER NOT NULL DEFAULT 0
+        CHECK (tokens_used >= 0),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS routine_runs_routine_idx

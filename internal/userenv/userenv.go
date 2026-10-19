@@ -27,9 +27,10 @@ import (
 )
 
 const (
-	SlotAgent   = "agent"
-	SlotBrowser = "browser"
-	SlotMobile  = "mobile"
+	SlotAgent    = "agent"
+	SlotAgentJob = "agent-job" // routines / project workers; parallel to interactive agent
+	SlotBrowser  = "browser"
+	SlotMobile   = "mobile"
 )
 
 // Store persists user → environment mappings.
@@ -325,9 +326,19 @@ func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTar
 	return &BrowserTarget{Key: sb.ID, Provider: provider, Managed: true, Sandbox: sb}, nil
 }
 
-// EnsureAgent starts or resumes the user's Cloud Agent environment.
+// EnsureAgent starts or resumes the user's interactive Cloud Agent environment.
 // Agent is always Docker + code-agent (or Config.AgentTemplate override).
 func (s *Service) EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error) {
+	return s.ensureAgentSlot(ctx, userID, SlotAgent, "Agent")
+}
+
+// EnsureAgentJob starts or resumes the per-user job Agent slot used by standing
+// routines and project workers so long jobs do not block interactive chat.
+func (s *Service) EnsureAgentJob(ctx context.Context, userID string) (*sandbox.Sandbox, error) {
+	return s.ensureAgentSlot(ctx, userID, SlotAgentJob, "Agent job")
+}
+
+func (s *Service) ensureAgentSlot(ctx context.Context, userID, slot, category string) (*sandbox.Sandbox, error) {
 	engine := runtime.EngineDocker
 	if s.Probe != nil {
 		if err := s.Probe.RequireAgent(engine); err != nil {
@@ -338,7 +349,7 @@ func (s *Service) EnsureAgent(ctx context.Context, userID string) (*sandbox.Sand
 	if t := strings.TrimSpace(s.Config.AgentTemplate); t != "" {
 		templateID = t
 	}
-	sb, err := s.ensure(ctx, userID, SlotAgent, templateID, "Agent", engine)
+	sb, err := s.ensure(ctx, userID, slot, templateID, category, engine)
 	if err != nil {
 		return nil, err
 	}
@@ -641,8 +652,14 @@ func (s *Service) createSlot(ctx context.Context, userID, slot, templateID, cate
 		Metadata:   meta,
 		TTL:        24 * time.Hour,
 	}
-	if slot == SlotAgent {
-		create.ID = workspace.AgentSandboxID(userID)
+	if slot == SlotAgent || slot == SlotAgentJob {
+		if slot == SlotAgentJob {
+			create.ID = workspace.AgentJobSandboxID(userID)
+		} else {
+			create.ID = workspace.AgentSandboxID(userID)
+		}
+		// Job and interactive slots share the same host workspace so
+		// checkpoints and repo edits stay continuous across chat vs routines.
 		create.WorkspaceID = workspace.UserWorkspaceID(userID)
 		// The admin image override swaps the image while the template keeps
 		// providing the resource limits.

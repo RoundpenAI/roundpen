@@ -83,6 +83,12 @@ type Deps struct {
 	// Profile selects system prompt + is mirrored in tools.SessionSurface.
 	// Empty means the default System Agent persona.
 	Profile string
+	// TokenBudget is a soft ceiling for this agent instance (0 = unlimited).
+	// When exceeded mid-turn after a tool batch, the turn ends with a nudge to
+	// FinishRun(continue=true) for routine runs.
+	TokenBudget int
+	// OnTokens reports each completion's total tokens (for routine persistence).
+	OnTokens func(total int)
 }
 
 // Agent is an ACP agent that runs an OpenAI tool-calling loop.
@@ -91,6 +97,7 @@ type Agent struct {
 	conn        *acp.AgentSideConnection
 	sessions    map[string]*session
 	permDefault string
+	tokensUsed  int
 	mu          sync.Mutex
 }
 
@@ -110,11 +117,46 @@ func New(deps Deps) *Agent {
 // SetAgentConnection receives the connection after construction.
 func (a *Agent) SetAgentConnection(conn *acp.AgentSideConnection) { a.conn = conn }
 
+// SetTokenBudget updates the remaining token ceiling for subsequent turns.
+func (a *Agent) SetTokenBudget(n int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.deps.TokenBudget = n
+}
+
+// TokensUsed is the cumulative total reported by the upstream for this agent.
+func (a *Agent) TokensUsed() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.tokensUsed
+}
+
+// ResetTokenAccounting clears the instance counter and installs a new ceiling.
+// Used when a continue segment rebinds the same live agent to a new run key.
+func (a *Agent) ResetTokenAccounting(budget int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.tokensUsed = 0
+	a.deps.TokenBudget = budget
+}
+
+func (a *Agent) tokenBudgetExceeded() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.deps.TokenBudget <= 0 {
+		return false
+	}
+	return a.tokensUsed >= a.deps.TokenBudget
+}
+
 func (a *Agent) Initialize(ctx context.Context, params acp.InitializeRequest) (acp.InitializeResponse, error) {
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentCapabilities: acp.AgentCapabilities{
 			LoadSession: false,
+			SessionCapabilities: acp.SessionCapabilities{
+				Resume: &acp.SessionResumeCapabilities{},
+			},
 		},
 	}, nil
 }
@@ -294,7 +336,16 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 		}
 		var streamed bool
 		streamOnce := func() (chatMessage, string, error) {
-			return a.deps.LLM.chatStream(ctx, messages, openaiTools,
+			cfg := a.deps.LLM
+			cfg.OnUsage = func(u TokenUsage) {
+				a.mu.Lock()
+				a.tokensUsed += u.Total
+				a.mu.Unlock()
+				if a.deps.OnTokens != nil && u.Total > 0 {
+					a.deps.OnTokens(u.Total)
+				}
+			}
+			return cfg.chatStream(ctx, messages, openaiTools,
 				func(chunk string) error {
 					streamed = true
 					return a.emitText(ctx, sid, chunk)
@@ -315,6 +366,11 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 			return err
 		}
 		messages = append(messages, msg)
+
+		if a.tokenBudgetExceeded() {
+			_ = a.emitText(ctx, sid, "Token budget reached for this run. Call FinishRun with continue=true to keep going in the next segment, or FinishRun without continue if the job is done.")
+			return nil
+		}
 
 		if len(msg.ToolCalls) == 0 {
 			// A steer that landed while the final text streamed must not be
@@ -697,7 +753,25 @@ func (a *Agent) ListSessions(ctx context.Context, params acp.ListSessionsRequest
 	return acp.ListSessionsResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionList)
 }
 func (a *Agent) ResumeSession(ctx context.Context, params acp.ResumeSessionRequest) (acp.ResumeSessionResponse, error) {
-	return acp.ResumeSessionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionResume)
+	sid := string(params.SessionId)
+	if strings.TrimSpace(sid) == "" {
+		return acp.ResumeSessionResponse{}, fmt.Errorf("sessionId is required")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.sessions[sid]; s != nil {
+		// Already live — clear any leftover cancel from a finished turn.
+		s.cancel = nil
+		return acp.ResumeSessionResponse{}, nil
+	}
+	a.sessions[sid] = &session{
+		id:         sid,
+		allowTools: make(map[string]bool),
+		denyTools:  make(map[string]bool),
+		permMode:   a.permDefault,
+		inbox:      make(chan string, steerInboxSize),
+	}
+	return acp.ResumeSessionResponse{}, nil
 }
 func (a *Agent) SetSessionConfigOption(ctx context.Context, params acp.SetSessionConfigOptionRequest) (acp.SetSessionConfigOptionResponse, error) {
 	return acp.SetSessionConfigOptionResponse{}, acp.NewMethodNotFound(acp.AgentMethodSessionSetConfigOption)
