@@ -847,6 +847,8 @@ CREATE TABLE IF NOT EXISTS project_workers (
     status       TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
     error        TEXT NOT NULL DEFAULT '',
+    review_json  TEXT NOT NULL DEFAULT '',
+    user_decision TEXT NOT NULL DEFAULT '',
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     started_at   TIMESTAMPTZ,
@@ -873,5 +875,21 @@ BEGIN
         ALTER TABLE project_workers
             ADD CONSTRAINT project_workers_role_ck
             CHECK (role IN ('implementer', 'reviewer', 'tester'));
+    END IF;
+END $$;
+
+ALTER TABLE project_workers
+    ADD COLUMN IF NOT EXISTS review_json TEXT NOT NULL DEFAULT '';
+ALTER TABLE project_workers
+    ADD COLUMN IF NOT EXISTS user_decision TEXT NOT NULL DEFAULT '';
+DO $$
+BEGIN
+    ALTER TABLE project_workers DROP CONSTRAINT IF EXISTS project_workers_user_decision_ck;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'project_workers_user_decision_ck'
+    ) THEN
+        ALTER TABLE project_workers
+            ADD CONSTRAINT project_workers_user_decision_ck
+            CHECK (user_decision IN ('', 'passed', 'changes_requested'));
     END IF;
 END $$;

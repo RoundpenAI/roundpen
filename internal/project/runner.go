@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
@@ -32,14 +33,20 @@ type Transcript interface {
 	AddMessage(ctx context.Context, sessionID, role, content string, meta any) (*agentsession.Message, error)
 }
 
+// MessageSource reads recent session messages (to parse reviewer JSON).
+type MessageSource interface {
+	ListRecentMessages(ctx context.Context, sessionID string, limit int) ([]*agentsession.Message, error)
+}
+
 // Runner drains the per-user serial worker queue.
 type Runner struct {
-	Store   *Store
-	Users   UserLookup
-	Starter WorkerStarter
-	ACP     Prompter
-	Notes   Transcript
-	Log     *slog.Logger
+	Store    *Store
+	Users    UserLookup
+	Starter  WorkerStarter
+	ACP      Prompter
+	Notes    Transcript
+	Messages MessageSource
+	Log      *slog.Logger
 }
 
 // Kick tries to start the next queued worker for userID.
@@ -93,6 +100,13 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 		errMsg = err.Error()
 	}
 	_ = r.Store.FinishWorker(ctx, w.ID, status, errMsg)
+	if w.Role == RoleReviewer && r.Notes != nil && w.SessionID != "" {
+		if review := r.extractReview(ctx, w.SessionID); review != nil {
+			_ = r.Store.SetWorkerReview(ctx, w.ID, review)
+			w.Review = review
+			w.ReviewJSON = MarshalReview(review)
+		}
+	}
 	if fresh, getErr := r.Store.GetWorker(ctx, w.UserID, w.ID); getErr == nil {
 		w = fresh
 	} else {
@@ -101,6 +115,29 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 	}
 	r.notifyCoordinator(ctx, p, w, status)
 	r.Kick(ctx, w.UserID)
+}
+
+func (r *Runner) extractReview(ctx context.Context, sessionID string) *ReviewResult {
+	src := r.Messages
+	if src == nil {
+		if store, ok := r.Notes.(*agentsession.Store); ok {
+			src = store
+		}
+	}
+	if src == nil {
+		return nil
+	}
+	rows, err := src.ListRecentMessages(ctx, sessionID, 40)
+	if err != nil {
+		return nil
+	}
+	var texts []string
+	for _, m := range agentsession.AfterLastClear(rows) {
+		if m.Role == agentsession.RoleAssistant && strings.TrimSpace(m.Content) != "" {
+			texts = append(texts, m.Content)
+		}
+	}
+	return ExtractReviewResult(texts...)
 }
 
 func (r *Runner) notifyCoordinator(ctx context.Context, p *Project, w *Worker, status string) {

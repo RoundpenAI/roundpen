@@ -11,7 +11,8 @@ import (
 )
 
 const workerCols = `id, key, project_id, user_id, session_id, COALESCE(issue_id, ''),
-	title, brief, role, status, error, created_at, updated_at, started_at, finished_at`
+	title, brief, role, status, error, COALESCE(review_json, ''), COALESCE(user_decision, ''),
+	created_at, updated_at, started_at, finished_at`
 
 // CreateWorker inserts a queued worker row.
 func (s *Store) CreateWorker(ctx context.Context, userID, projectID string, in DelegateInput, sessionID string) (*Worker, error) {
@@ -205,7 +206,7 @@ func scanWorker(row rowScanner) (*Worker, error) {
 	var w Worker
 	err := row.Scan(
 		&w.ID, &w.Key, &w.ProjectID, &w.UserID, &w.SessionID, &w.IssueID,
-		&w.Title, &w.Brief, &w.Role, &w.Status, &w.Error,
+		&w.Title, &w.Brief, &w.Role, &w.Status, &w.Error, &w.ReviewJSON, &w.UserDecision,
 		&w.CreatedAt, &w.UpdatedAt, &w.StartedAt, &w.FinishedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -214,7 +215,37 @@ func scanWorker(row rowScanner) (*Worker, error) {
 	if err != nil {
 		return nil, err
 	}
+	w.Review = UnmarshalReview(w.ReviewJSON)
 	return &w, nil
+}
+
+// SetWorkerReview stores structured reviewer output for a finished worker.
+func (s *Store) SetWorkerReview(ctx context.Context, id string, review *ReviewResult) error {
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE project_workers SET review_json = $2, updated_at = $3 WHERE id = $1`,
+		id, MarshalReview(review), time.Now().UTC())
+	return err
+}
+
+// SetWorkerUserDecision records Pass / Request changes (once).
+func (s *Store) SetWorkerUserDecision(ctx context.Context, id, decision string) error {
+	switch decision {
+	case DecisionPassed, DecisionChangesRequested:
+	default:
+		return errors.New("decision must be passed or changes_requested")
+	}
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE project_workers SET user_decision = $2, updated_at = $3
+		WHERE id = $1 AND user_decision = ''`,
+		id, decision, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errors.New("decision already recorded or worker not found")
+	}
+	return nil
 }
 
 func fmtInvalidStatus(status string) error {

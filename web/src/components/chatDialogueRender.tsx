@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react'
+import { ChangeSetCard } from '../components/ChangeSetCard'
 import {
   ThoughtBlock,
   ToolCallGroup,
   type ToolCallData,
 } from '../components/ToolCallCard'
+import { buildChangeSet } from '../lib/changeSet'
 import {
   isActivityMessage,
   isClearDivider,
@@ -81,6 +83,7 @@ function activityFromMessage(message: DialogueMessage): {
 
 export function renderActivityContent(message: DialogueMessage): ReactNode {
   const { thoughts, tools } = activityFromMessage(message)
+  const changeSet = buildChangeSet(tools)
   return (
     <div className="chat-activity">
       {thoughts.map((t, i) =>
@@ -95,6 +98,7 @@ export function renderActivityContent(message: DialogueMessage): ReactNode {
         ) : null,
       )}
       {tools.length > 0 ? <ToolCallGroup calls={tools} alwaysStats /> : null}
+      {changeSet ? <ChangeSetCard changeSet={changeSet} /> : null}
     </div>
   )
 }

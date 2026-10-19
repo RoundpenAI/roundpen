@@ -69,6 +69,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/projects/{key}/workers", h.listWorkers)
 	mux.HandleFunc("POST /v1/projects/{key}/workers", h.delegate)
 	mux.HandleFunc("GET /v1/projects/{key}/workers/{workerKey}", h.getWorker)
+	mux.HandleFunc("POST /v1/projects/{key}/workers/{workerKey}/decision", h.workerDecision)
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +385,98 @@ func (h *Handler) delegate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"worker": wk})
+}
+
+// workerDecision records Pass / Request changes for a finished reviewer worker.
+// Request changes queues a follow-up implementer with the review findings as brief.
+func (h *Handler) workerDecision(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	p, err := h.Store.Get(r.Context(), user.Username, r.PathValue("key"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	wk, err := h.Store.GetWorker(r.Context(), user.Username, r.PathValue("workerKey"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if wk.ProjectID != p.ID {
+		httpx.WriteErr(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	if wk.Role != RoleReviewer {
+		httpx.WriteErr(w, http.StatusBadRequest, "only reviewer workers accept Pass / Request changes")
+		return
+	}
+	if wk.Status != WorkerSucceeded && wk.Status != WorkerFailed {
+		httpx.WriteErr(w, http.StatusConflict, "worker has not finished")
+		return
+	}
+	var body struct {
+		Decision string `json:"decision"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	decision := strings.TrimSpace(strings.ToLower(body.Decision))
+	if decision != DecisionPassed && decision != DecisionChangesRequested {
+		httpx.WriteErr(w, http.StatusBadRequest, "decision must be passed or changes_requested")
+		return
+	}
+	if err := h.Store.SetWorkerUserDecision(r.Context(), wk.ID, decision); err != nil {
+		httpx.WriteErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	wk.UserDecision = decision
+
+	var followUp *Worker
+	if decision == DecisionChangesRequested {
+		if p.Status != StatusActive {
+			httpx.WriteErr(w, http.StatusConflict, "project is archived")
+			return
+		}
+		if h.Workers == nil || p.CoordinatorAssistantID == "" {
+			httpx.WriteErr(w, http.StatusServiceUnavailable, "cannot queue follow-up implementer")
+			return
+		}
+		title := "Address review: " + wk.Title
+		if len([]rune(title)) > 200 {
+			title = string([]rune(title)[:200])
+		}
+		brief := FormatChangesBrief(wk.Review, wk.Title)
+		sess, err := h.Workers.CreateWorkerSession(r.Context(), user, p.CoordinatorAssistantID, title)
+		if err != nil {
+			httpx.WriteErrOrInternal(w, r, err, nil)
+			return
+		}
+		followUp, err = h.Store.CreateWorker(r.Context(), user.Username, p.ID, DelegateInput{
+			Title:   title,
+			Brief:   brief,
+			Role:    RoleImplementer,
+			IssueID: wk.IssueID,
+		}, sess.ID)
+		if err != nil {
+			writeStoreErr(w, err)
+			return
+		}
+		if h.Runner != nil {
+			h.Runner.Kick(r.Context(), user.Username)
+			if fresh, err := h.Store.GetWorker(r.Context(), user.Username, followUp.Key); err == nil {
+				followUp = fresh
+			}
+		}
+	}
+
+	out := map[string]any{"worker": wk}
+	if followUp != nil {
+		out["followUp"] = followUp
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func decodeBody(w http.ResponseWriter, r *http.Request, dst any) bool {

@@ -20,6 +20,7 @@ import {
   type ProjectWorker,
   type ProjectWorkerRole,
 } from '../api'
+import { workspacePreviewHref } from '../lib/changeSet'
 import { useT, type MessageKey } from '../i18n'
 
 const WORKER_ROLES: ProjectWorkerRole[] = [
@@ -73,18 +74,60 @@ export function ProjectDetailPage() {
   const [delegateRole, setDelegateRole] =
     useState<ProjectWorkerRole>('implementer')
   const [delegating, setDelegating] = useState(false)
+  const [selectedReviewer, setSelectedReviewer] =
+    useState<ProjectWorker | null>(null)
+  const [deciding, setDeciding] = useState(false)
 
   const loadWorkers = useCallback(async (projectKey: string) => {
     setWorkersLoading(true)
     try {
       const res = await projects.listWorkers(projectKey)
-      setWorkers(res.workers ?? [])
+      const list = res.workers ?? []
+      setWorkers(list)
+      setSelectedReviewer((prev) => {
+        if (prev) {
+          const fresh = list.find((w) => w.id === prev.id)
+          if (fresh) return fresh
+        }
+        return (
+          list.find(
+            (w) =>
+              w.role === 'reviewer' &&
+              (w.status === 'succeeded' || w.status === 'failed'),
+          ) ?? null
+        )
+      })
     } catch {
       /* list is best-effort on the detail page */
     } finally {
       setWorkersLoading(false)
     }
   }, [])
+
+  const decideReview = async (decision: 'passed' | 'changes_requested') => {
+    if (!project || !selectedReviewer) return
+    setDeciding(true)
+    try {
+      const res = await projects.decideWorker(
+        project.key,
+        selectedReviewer.key,
+        decision,
+      )
+      Toast.success(
+        decision === 'passed'
+          ? t('projects.review.passed')
+          : t('projects.review.changesRequested'),
+      )
+      setSelectedReviewer(res.worker)
+      await loadWorkers(project.key)
+    } catch (e: unknown) {
+      Toast.error(
+        e instanceof Error ? e.message : t('projects.review.decideFailed'),
+      )
+    } finally {
+      setDeciding(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -361,12 +404,139 @@ export function ProjectDetailPage() {
         loading={workersLoading}
         empty={t('projects.workers.empty')}
         onRow={(record) => ({
-          style: { cursor: record?.sessionId ? 'pointer' : 'default' },
+          style: {
+            cursor:
+              record?.role === 'reviewer' || record?.sessionId
+                ? 'pointer'
+                : 'default',
+          },
           onClick: () => {
+            if (record?.role === 'reviewer') {
+              setSelectedReviewer(record)
+              return
+            }
             if (record?.sessionId) void openWorker(record)
           },
         })}
       />
+
+      {selectedReviewer?.role === 'reviewer' ? (
+        <div className="rp-review-panel">
+          <Typography.Title heading={5} style={{ margin: '0 0 4px' }}>
+            {t('projects.review.title')} · {selectedReviewer.key}
+          </Typography.Title>
+          <Typography.Paragraph type="tertiary" size="small">
+            {t('projects.review.guide')}
+          </Typography.Paragraph>
+          {selectedReviewer.review ? (
+            <>
+              <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+                <Tag
+                  color={
+                    selectedReviewer.review.verdict === 'approve'
+                      ? 'green'
+                      : 'orange'
+                  }
+                >
+                  {selectedReviewer.review.verdict === 'approve'
+                    ? t('projects.review.verdict.approve')
+                    : t('projects.review.verdict.request_changes')}
+                </Tag>
+                {selectedReviewer.userDecision === 'passed' ? (
+                  <Typography.Text type="success" size="small">
+                    {t('projects.review.passed')}
+                  </Typography.Text>
+                ) : null}
+                {selectedReviewer.userDecision === 'changes_requested' ? (
+                  <Typography.Text type="warning" size="small">
+                    {t('projects.review.changesRequested')}
+                  </Typography.Text>
+                ) : null}
+              </div>
+              {selectedReviewer.review.summary ? (
+                <Typography.Paragraph style={{ marginTop: 10 }}>
+                  <strong>{t('projects.review.summary')}: </strong>
+                  {selectedReviewer.review.summary}
+                </Typography.Paragraph>
+              ) : null}
+              {(selectedReviewer.review.findings?.length ?? 0) > 0 ? (
+                <div style={{ marginTop: 8 }}>
+                  <Typography.Text type="tertiary" size="small">
+                    {t('projects.review.findings')}
+                  </Typography.Text>
+                  {selectedReviewer.review.findings!.map((f, i) => (
+                    <div
+                      key={i}
+                      className={`rp-review-finding is-${f.severity || 'info'}`}
+                    >
+                      <Typography.Text size="small">
+                        <Tag size="small" style={{ marginRight: 6 }}>
+                          {f.severity || 'info'}
+                        </Tag>
+                        {f.path ? (
+                          <>
+                            <code>{f.path}{f.line ? `:${f.line}` : ''}</code>
+                            {' — '}
+                          </>
+                        ) : null}
+                        {f.note}
+                      </Typography.Text>
+                      {f.path ? (
+                        <div style={{ marginTop: 4 }}>
+                          <Link
+                            to={workspacePreviewHref(
+                              f.path.startsWith(project.repoPath)
+                                ? f.path
+                                : `${project.repoPath}/${f.path}`.replace(
+                                    /\/+/g,
+                                    '/',
+                                  ),
+                            )}
+                          >
+                            {t('projects.review.openFile')}
+                          </Link>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <Typography.Paragraph type="tertiary" style={{ marginTop: 8 }}>
+              {t('projects.review.empty')}
+            </Typography.Paragraph>
+          )}
+          {!selectedReviewer.userDecision &&
+          (selectedReviewer.status === 'succeeded' ||
+            selectedReviewer.status === 'failed') ? (
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <Button
+                theme="solid"
+                type="primary"
+                loading={deciding}
+                onClick={() => void decideReview('passed')}
+              >
+                {t('projects.review.pass')}
+              </Button>
+              <Button
+                loading={deciding}
+                onClick={() => void decideReview('changes_requested')}
+              >
+                {t('projects.review.requestChanges')}
+              </Button>
+              {selectedReviewer.sessionId ? (
+                <Button
+                  theme="borderless"
+                  onClick={() => void openWorker(selectedReviewer)}
+                >
+                  {t('projects.openChat')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {project.status === 'active' ? (
         <div style={{ marginTop: 28 }}>

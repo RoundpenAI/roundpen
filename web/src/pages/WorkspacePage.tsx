@@ -34,6 +34,11 @@ export function WorkspacePage() {
     if (!raw || raw === '/' || raw.includes('..')) return '.'
     return raw.replace(/^\/+/, '').replace(/\/+$/, '') || '.'
   })()
+  const previewName = (() => {
+    const raw = (searchParams.get('preview') ?? '').trim()
+    if (!raw || raw.includes('..') || raw.includes('/')) return ''
+    return raw
+  })()
   const [path, setPath] = useState(initialPath)
   const [entries, setEntries] = useState<DirEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -45,6 +50,7 @@ export function WorkspacePage() {
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
   const anchorRef = useRef<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const previewOpenedRef = useRef('')
 
   useEffect(() => {
     setPath(initialPath)
@@ -67,6 +73,22 @@ export function WorkspacePage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Deep-link from chat ChangeSet: /workspace?path=dir&preview=file.ext
+  useEffect(() => {
+    if (!previewName || loading || error) return
+    const key = `${path}\0${previewName}`
+    if (previewOpenedRef.current === key) return
+    const entry = entries.find((e) => e.name === previewName && !e.is_dir)
+    if (!entry) return
+    previewOpenedRef.current = key
+    setPreview({
+      name: entry.name,
+      path: joinPath(path, entry.name),
+      size: entry.size ?? 0,
+      kind: fileKind(entry),
+    })
+  }, [previewName, loading, error, entries, path])
 
   // Selection keys are names inside the current directory: leaving the
   // directory invalidates them (the clipboard stores full paths and survives).
