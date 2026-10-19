@@ -1100,8 +1100,9 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	}
 
 	rt, startErr := h.ACP.Start(context.Background(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{
-		Actor:   actor,
-		Project: manager.ProjectStart{Profile: profile},
+		Actor:       actor,
+		AssistantID: sess.AssistantID,
+		Project:     manager.ProjectStart{Profile: profile},
 	})
 	if startErr != nil {
 		if existing, ok := h.ACP.Get(sess.ID); ok {

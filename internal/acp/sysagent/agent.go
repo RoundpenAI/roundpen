@@ -18,6 +18,8 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
 	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/automode"
+	"github.com/RoundpenAI/roundpen/internal/policy"
+	"github.com/RoundpenAI/roundpen/internal/toolgw"
 )
 
 // keepLastToolResults is how many recent tool payloads stay verbatim in-context.
@@ -69,10 +71,16 @@ type session struct {
 type Deps struct {
 	LLM       LLMConfig
 	Tools     *tools.Registry
-	Actor     tools.Actor
-	History   MessageSource
-	SessionID string // Roundpen agent session id (for history replay)
-	Evaluator automode.Evaluator
+	// Gateway is the unified tool invoke path. When nil, New wraps Tools.
+	Gateway *toolgw.Gateway
+	// Policy is the optional assistant constitution enforced inside toolgw
+	// (nil = NAS zero-config: only L3 HardDeny, no soft policy friction).
+	Policy      *policy.Profile
+	Actor       tools.Actor
+	History     MessageSource
+	SessionID   string // Roundpen agent session id (for history replay)
+	AssistantID string
+	Evaluator   automode.Evaluator
 	// Profile selects system prompt + is mirrored in tools.SessionSurface.
 	// Empty means the default System Agent persona.
 	Profile string
@@ -93,6 +101,9 @@ var _ acp.Agent = (*Agent)(nil)
 func New(deps Deps) *Agent {
 	if deps.Tools == nil {
 		deps.Tools = tools.NewRegistry()
+	}
+	if deps.Gateway == nil {
+		deps.Gateway = toolgw.New(deps.Tools)
 	}
 	return &Agent{deps: deps, sessions: make(map[string]*session)}
 }
@@ -363,6 +374,7 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 			allowed := true
 			autoDenied := false
 			autoDenyReason := ""
+			autoVerdict := automode.Verdict{Decision: automode.Allow}
 			if !blockedByPlanMode && mutating {
 				if decided, ok := a.toolPermCached(sid, name); ok {
 					allowed = decided
@@ -383,12 +395,14 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 							allowed = false
 							autoDenied = true
 							autoDenyReason = formatAutoReason(v)
+							autoVerdict = v
 						} else {
 							allowed = true
 						}
 					case mode == automode.ModeDecide:
 						// L3 HardDeny → L2 confirm / SoftDeny→人审 → classifier Allow.
 						res := automode.Resolve(ctx, a.deps.Evaluator, req)
+						autoVerdict = res.Verdict
 						if res.EvalErr != nil {
 							slog.Default().Warn("auto mode classifier failed",
 								slog.String("session", sid), slog.String("tool", name), slog.Any("err", res.EvalErr))
@@ -446,15 +460,28 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 				status = acp.ToolCallStatusFailed
 			} else {
 				toolCtx := tools.WithInteractor(ctx, a.interactor(sid))
-				result, callErr = a.deps.Tools.Call(toolCtx, a.deps.Actor, name, args)
-				if name == "Skill" {
-					skillInvocations++
-				}
-				if callErr != nil {
+				inv := a.deps.Gateway.Invoke(toolCtx, toolgw.Call{
+					Actor:       a.deps.Actor,
+					SessionID:   a.deps.SessionID,
+					AssistantID: a.deps.AssistantID,
+					Name:        name,
+					Args:        args,
+					AutoVerdict: autoVerdict,
+					Policy:      a.deps.Policy,
+				})
+				result = inv.Content
+				callErr = inv.Err
+				if inv.Decision == toolgw.DecisionDeny {
+					status = acp.ToolCallStatusFailed
+					callErr = nil // content already explains the deny to the model
+				} else if callErr != nil {
 					status = acp.ToolCallStatusFailed
 					if strings.TrimSpace(result) == "" {
 						result = tools.FormatToolError(callErr)
 					}
+				}
+				if name == "Skill" && inv.Decision == toolgw.DecisionAllow {
+					skillInvocations++
 				}
 			}
 			if err := a.finishToolCall(ctx, sid, tc.ID, status, result); err != nil {

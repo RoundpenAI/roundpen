@@ -20,8 +20,10 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
+	"github.com/RoundpenAI/roundpen/internal/toolgw"
 )
 
 const maxConcurrentPrompts = 3
@@ -71,6 +73,10 @@ type SysDeps struct {
 	// MCP is the per-user MCP connector layer (nil skips MCP tools). Tool
 	// snapshots are read once per session start.
 	MCP tools.MCPAPI
+
+	// PolicyFor returns the assistant constitution for toolgw hard checks.
+	// nil keeps NAS zero-config (only L3 HardDeny inside the gateway).
+	PolicyFor func(ctx context.Context, userID, assistantID string) *policy.Profile
 }
 
 // Runtime is a live ACP connection for one agent session.
@@ -157,9 +163,10 @@ type ProjectStart struct {
 
 // StartOpts configures Start.
 type StartOpts struct {
-	Actor   Actor
-	Routine RoutineStart
-	Project ProjectStart
+	Actor       Actor
+	AssistantID string
+	Routine     RoutineStart
+	Project     ProjectStart
 }
 
 // mcpBinder loads the user's MCP tool snapshots for one session. Scheduled
@@ -258,14 +265,21 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Google: &tools.GoogleBinder{API: m.sys.Google},
 			MCP:    m.mcpBinder(opts.Actor.Username, opts.Routine.RunKey != ""),
 		})
+		var pol *policy.Profile
+		if m.sys.PolicyFor != nil && opts.AssistantID != "" {
+			pol = m.sys.PolicyFor(ctx, opts.Actor.Username, opts.AssistantID)
+		}
 		agent := sysagent.New(sysagent.Deps{
-			LLM:       llmCfg,
-			Tools:     reg,
-			Actor:     opts.Actor,
-			History:   m.sys.History,
-			SessionID: sessionID,
-			Evaluator: m.sys.AutoMode,
-			Profile:   opts.Project.Profile,
+			LLM:         llmCfg,
+			Tools:       reg,
+			Gateway:     toolgw.New(reg),
+			Policy:      pol,
+			Actor:       opts.Actor,
+			History:     m.sys.History,
+			SessionID:   sessionID,
+			AssistantID: opts.AssistantID,
+			Evaluator:   m.sys.AutoMode,
+			Profile:     opts.Project.Profile,
 		})
 		sysAgent = agent
 		asc := acp.NewAgentSideConnection(agent, a2cW, c2aR)
