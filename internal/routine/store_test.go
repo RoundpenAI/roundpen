@@ -273,10 +273,10 @@ func TestStore_StateLimitAndFinishSession(t *testing.T) {
 	if _, ok, err := st.MarkRunning(ctx, claims[0].Run.ID); err != nil || !ok {
 		t.Fatalf("mark running: ok=%v err=%v", ok, err)
 	}
-	if _, err := st.FinishRun(ctx, "routine-state", claims[0].Run.Key, "sess-other", "nope", nil); err != ErrForbidden {
+	if _, _, err := st.FinishRun(ctx, "routine-state", claims[0].Run.Key, "sess-other", "nope", nil, false); err != ErrForbidden {
 		t.Fatalf("wrong session: %v", err)
 	}
-	done, err := st.FinishRun(ctx, "routine-state", claims[0].Run.Key, "sess-real", "写好了", nil)
+	done, _, err := st.FinishRun(ctx, "routine-state", claims[0].Run.Key, "sess-real", "写好了", nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,11 @@ import (
 // RenderPrompt is the user message injected into a run session.
 func RenderPrompt(c Claim, lastSummary string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "This is scheduled run %s of standing routine %s.\n", c.Run.Key, c.Routine.Key)
+	fmt.Fprintf(&b, "This is scheduled run %s of standing routine %s", c.Run.Key, c.Routine.Key)
+	if c.Run.SegmentIndex > 1 {
+		fmt.Fprintf(&b, " (segment %d, continuing long work)", c.Run.SegmentIndex)
+	}
+	b.WriteByte('\n')
 	fmt.Fprintf(&b, "Title: %s\n", c.Routine.Title)
 	if strings.TrimSpace(c.Routine.Brief) != "" {
 		fmt.Fprintf(&b, "Brief:\n%s\n", c.Routine.Brief)
@@ -21,7 +25,7 @@ func RenderPrompt(c Claim, lastSummary string) string {
 	if state == "" {
 		state = "{}"
 	}
-	fmt.Fprintf(&b, "State: %s\n", state)
+	fmt.Fprintf(&b, "State (checkpoint — resume from here): %s\n", state)
 	if strings.TrimSpace(lastSummary) == "" {
 		lastSummary = "无"
 	}
@@ -30,7 +34,9 @@ func RenderPrompt(c Claim, lastSummary string) string {
 	if mins < 1 {
 		mins = 1
 	}
-	fmt.Fprintf(&b, "Finish within %d minutes by calling FinishRun. ", mins)
+	fmt.Fprintf(&b, "This segment has %d minutes. Persist progress with UpdateRoutineState. ", mins)
+	b.WriteString("When the whole job is done, call FinishRun. ")
+	b.WriteString("If more work remains after this segment, call FinishRun with continue=true so the next segment starts immediately. ")
 	b.WriteString("If you must pay, submit a form, delete user data, or message anyone outside the delivery channel, call RequestRoutineConfirm and stop.")
 	return b.String()
 }

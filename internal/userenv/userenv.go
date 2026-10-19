@@ -569,6 +569,14 @@ func (s *Service) adopt(ctx context.Context, userID, slot, templateID, engine, s
 	}
 	switch sb.Status {
 	case sandbox.StatusRunning, sandbox.StatusCreating:
+		// Long segments may think without Exec for a while; renew TTL on ensure
+		// so a 24h sandbox is not reaped mid-job when tools pause.
+		if sb.Status == sandbox.StatusRunning {
+			_ = s.Sandboxes.Touch(ctx, sandboxID)
+			if fresh, gerr := s.Sandboxes.Get(ctx, sandboxID); gerr == nil {
+				sb = fresh
+			}
+		}
 	case sandbox.StatusPaused, sandbox.StatusStopped:
 		if _, _, err := s.Sandboxes.Connect(ctx, sandboxID); err != nil {
 			return nil, err

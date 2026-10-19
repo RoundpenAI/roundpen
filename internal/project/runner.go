@@ -82,7 +82,8 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 		r.Kick(ctx, w.UserID)
 		return
 	}
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Minute)
+	// Align with chat turnTimeout / routine segment budget (2h).
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Hour)
 	defer cancel()
 	_, err = r.ACP.Prompt(runCtx, w.SessionID, RenderWorkerPrompt(p, w))
 	status := WorkerSucceeded

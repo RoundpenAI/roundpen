@@ -35,7 +35,11 @@ const (
 	MaxStateBytes      = 64 << 10
 	DefaultMaxDuration = 900
 	MinDurationSec     = 60
-	MaxDurationSec     = 3600
+	// MaxDurationSec matches the chat turnTimeout (2h): one segment is one Prompt.
+	MaxDurationSec = 7200
+	// MaxContinueChain caps chained segments so a runaway agent cannot enqueue forever.
+	// 24 × 2h ≈ 48h of wall-clock work for one long job.
+	MaxContinueChain = 24
 
 	minGap         = time.Minute
 	day            = 24 * time.Hour
@@ -172,6 +176,8 @@ type Run struct {
 	DeliverError   string          `json:"deliverError,omitempty"`
 	AssistTicketID string          `json:"assistTicketId,omitempty"`
 	BudgetLeftSec  *int            `json:"budgetLeftSec,omitempty"`
+	SegmentIndex   int             `json:"segmentIndex"`
+	ContinueFrom   string          `json:"continueFrom,omitempty"`
 	CreatedAt      time.Time       `json:"createdAt"`
 }
 

@@ -168,10 +168,17 @@ func RegisterRunTools(r *Registry, api *RoundpenHTTP, sessionID, runKey string) 
 	}
 	r.Register(Tool{
 		Name: "FinishRun",
-		Description: "Finish this scheduled run. Call it once, with a short summary the user will see, " +
-			"after the work is done. artifacts may list workspace paths or markdown.",
+		Description: "Finish this scheduled run segment. Call it once with a short summary the user will see. " +
+			"artifacts may list workspace paths or markdown. " +
+			"For long jobs that exceed one segment budget: first UpdateRoutineState with a checkpoint, " +
+			"then FinishRun with continue=true so the next segment starts immediately and resumes from state. " +
+			"Omit continue (or set false) when the whole job is done.",
 		Parameters: objectSchema(map[string]any{
 			"summary": map[string]any{"type": "string"},
+			"continue": map[string]any{
+				"type":        "boolean",
+				"description": "true = more work remains; enqueue the next segment now",
+			},
 			"artifacts": map[string]any{"type": "array", "items": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -184,12 +191,13 @@ func RegisterRunTools(r *Registry, api *RoundpenHTTP, sessionID, runKey string) 
 		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
 			var a struct {
 				Summary   string `json:"summary"`
+				Continue  bool   `json:"continue"`
 				Artifacts []any  `json:"artifacts"`
 			}
 			if err := json.Unmarshal(raw, &a); err != nil {
 				return "", err
 			}
-			body := map[string]any{"summary": a.Summary, "sessionId": sessionID}
+			body := map[string]any{"summary": a.Summary, "sessionId": sessionID, "continue": a.Continue}
 			if a.Artifacts != nil {
 				body["artifacts"] = a.Artifacts
 			}

@@ -53,7 +53,7 @@ func (f *fakeExec) Prompt(ctx context.Context, sessionID, _ string) (acp.StopRea
 		<-ctx.Done()
 		return "", ctx.Err()
 	}
-	_, err := f.store.FinishRun(ctx, f.user, f.runKey, sessionID, "写好了", nil)
+	_, _, err := f.store.FinishRun(ctx, f.user, f.runKey, sessionID, "写好了", nil, false)
 	return "", err
 }
 func (f *fakeExec) Cancel(context.Context, string) error {

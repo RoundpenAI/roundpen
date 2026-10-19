@@ -630,7 +630,7 @@ CREATE TABLE IF NOT EXISTS routines (
     timezone                TEXT NOT NULL,
     deliver_im              BOOLEAN NOT NULL DEFAULT FALSE,
     max_duration_sec        INTEGER NOT NULL DEFAULT 900
-        CHECK (max_duration_sec BETWEEN 60 AND 3600),
+        CHECK (max_duration_sec BETWEEN 60 AND 7200),
     state                   JSONB NOT NULL DEFAULT '{}',
     status                  TEXT NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'paused', 'archived')),
@@ -667,6 +667,9 @@ CREATE TABLE IF NOT EXISTS routine_runs (
     deliver_error    TEXT NOT NULL DEFAULT '',
     assist_ticket_id TEXT NOT NULL DEFAULT '',
     budget_left_sec  INTEGER,
+    segment_index    INTEGER NOT NULL DEFAULT 1
+        CHECK (segment_index >= 1 AND segment_index <= 48),
+    continue_from    TEXT NOT NULL DEFAULT '',
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS routine_runs_routine_idx
