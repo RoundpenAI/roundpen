@@ -25,7 +25,7 @@ import {
   isStreamingMessage,
   MESSAGE_PAGE_SIZE,
   nowIso,
-  readAutoMode,
+  readPermMode,
   reconcileRefetch,
   upsertToolMessage,
   type PermReq,
@@ -45,6 +45,7 @@ export type ChatSocketDeps = {
   setWsStatus: Dispatch<SetStateAction<WsUiStatus>>
   setWsDetail: Dispatch<SetStateAction<string | null>>
   setBrowserSeen: Dispatch<SetStateAction<boolean>>
+  setShowBrowser: Dispatch<SetStateAction<boolean>>
   /** Queue snapshot changes (version-checked before this fires). */
   onQueue: (items: QueueItem[]) => void
   /** Mid-turn injection capability as reported by the runner. */
@@ -121,6 +122,7 @@ export function connectChatSocket(
     setWsStatus,
     setWsDetail,
     setBrowserSeen,
+    setShowBrowser,
     onQueue,
     setSteerCap,
     refreshCommands,
@@ -276,7 +278,7 @@ export function connectChatSocket(
   const handleFrame = (handle: ChatStreamHandle, raw: string) => {
     if (markOpen(handle)) {
       void agents
-        .sessionAction(id, { type: 'auto', enabled: readAutoMode() })
+        .sessionAction(id, { type: 'auto', mode: readPermMode() })
         .catch(() => undefined)
     }
     try {
@@ -399,6 +401,7 @@ export function connectChatSocket(
           const status = (e.status ?? '').trim()
           if (isBrowserTool(title)) {
             setBrowserSeen(true)
+            if (e.type === 'tool_call') setShowBrowser(true)
           }
           setStatusHint('工作中')
           setMessages((prev) =>
@@ -530,7 +533,7 @@ export function connectChatSocket(
         handle.readyState = STREAM_OPEN
         if (markOpen(handle)) {
           void agents
-            .sessionAction(id, { type: 'auto', enabled: readAutoMode() })
+            .sessionAction(id, { type: 'auto', mode: readPermMode() })
             .catch(() => undefined)
         }
         const reader = res.body.getReader()

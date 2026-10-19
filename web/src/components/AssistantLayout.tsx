@@ -22,13 +22,14 @@ import {
   SideSheet,
   Typography,
 } from '@douyinfe/semi-ui-19'
-import { IconPlus, IconMenu } from '@douyinfe/semi-icons'
+import { IconPlus, IconMenu, IconUser } from '@douyinfe/semi-icons'
 import {
   assistantsApi,
   ApiError,
   type Assistant,
   type AssistTicket,
 } from '../api'
+import { useOpenAppMenu } from './AppShell'
 import { Loading } from './Loading'
 import { pickHomeAssistant } from '../lib/assistants'
 import { ticketSessionPath } from '../lib/assistTickets'
@@ -38,6 +39,7 @@ const { Sider, Header, Content } = Layout
 type AssistantLayoutValue = {
   assistants: Assistant[]
   refresh: () => Promise<void>
+  openAssistantList: () => void
 }
 
 const AssistantLayoutContext = createContext<AssistantLayoutValue | null>(null)
@@ -60,6 +62,12 @@ export function AssistantLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { assistantId } = useParams()
+  const openAppMenu = useOpenAppMenu()
+  const isChat = /\/s\/[^/]+$/.test(location.pathname)
+  const onDetail =
+    assistantId != null &&
+    (location.pathname === `/a/${assistantId}` ||
+      location.pathname === `/a/${assistantId}/`)
 
   const [assistants, setAssistants] = useState<Assistant[]>([])
   const [pending, setPending] = useState<AssistTicket[]>([])
@@ -112,9 +120,11 @@ export function AssistantLayout() {
     navigate(ticketSessionPath(t) ?? `/a/${t.assistantId}`)
   }
 
+  const openAssistantList = useCallback(() => setMobileOpen(true), [])
+
   const value = useMemo(
-    () => ({ assistants, refresh }),
-    [assistants, refresh],
+    () => ({ assistants, refresh, openAssistantList }),
+    [assistants, refresh, openAssistantList],
   )
 
   const title =
@@ -335,14 +345,15 @@ export function AssistantLayout() {
         </SideSheet>
 
         <Layout>
+          {!isChat && (
           <Header
             className="rp-assistant-header"
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '0 12px',
-              height: 48,
+              gap: 4,
+              padding: '0 8px',
+              height: 40,
               background: 'var(--semi-color-bg-1)',
               borderBottom: '1px solid var(--semi-color-border)',
             }}
@@ -351,28 +362,49 @@ export function AssistantLayout() {
               theme="borderless"
               type="tertiary"
               icon={<IconMenu />}
+              aria-label="打开菜单"
+              className="rp-shell-menu-mobile"
+              onClick={openAppMenu}
+            />
+            <Button
+              theme="borderless"
+              type="tertiary"
+              icon={<IconUser />}
               aria-label="打开助手列表"
               className="rp-assistant-menu-mobile"
-              onClick={() => setMobileOpen(true)}
+              onClick={openAssistantList}
             />
-            <Typography.Text
-              strong
-              ellipsis={{ showTooltip: true }}
-              style={{ flex: 1, minWidth: 0 }}
+            <button
+              type="button"
+              className="rp-assistant-title"
+              title={title}
+              aria-label="切换助手"
+              onClick={openAssistantList}
             >
               {title}
-            </Typography.Text>
-            {assistantId && (
-              <Button
-                theme="borderless"
-                type="tertiary"
-                size="small"
-                onClick={() => navigate(`/a/${assistantId}`)}
-              >
-                详情
-              </Button>
-            )}
+            </button>
+            {assistantId &&
+              (onDetail ? (
+                <Button
+                  theme="borderless"
+                  type="tertiary"
+                  size="small"
+                  onClick={() => navigate(`/a/${assistantId}/chat`)}
+                >
+                  会话
+                </Button>
+              ) : (
+                <Button
+                  theme="borderless"
+                  type="tertiary"
+                  size="small"
+                  onClick={() => navigate(`/a/${assistantId}`)}
+                >
+                  详情
+                </Button>
+              ))}
           </Header>
+          )}
           <Content
             style={{
               minHeight: 0,
@@ -401,6 +433,7 @@ export function AssistantLayout() {
         @media (min-width: 768px) {
           .rp-assistant-sider-desktop { display: block !important; }
           .rp-assistant-menu-mobile { display: none !important; }
+          .rp-shell-menu-mobile { display: none !important; }
         }
       `}</style>
     </AssistantLayoutContext.Provider>

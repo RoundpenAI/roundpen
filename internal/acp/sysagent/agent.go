@@ -52,7 +52,7 @@ type session struct {
 	allowTools map[string]bool
 	denyTools  map[string]bool
 	planMode   bool
-	autoMode   bool
+	permMode   string
 
 	// inbox carries mid-turn user messages (steering) from the runner; the
 	// turn loop drains it at checkpoints. turnSeq lets a finishing turn clear
@@ -76,7 +76,7 @@ type Agent struct {
 	deps        Deps
 	conn        *acp.AgentSideConnection
 	sessions    map[string]*session
-	autoDefault bool
+	permDefault string
 	mu          sync.Mutex
 }
 
@@ -109,32 +109,47 @@ func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (a
 		id:         sid,
 		allowTools: make(map[string]bool),
 		denyTools:  make(map[string]bool),
-		autoMode:   a.autoDefault,
+		permMode:   a.permDefault,
 		inbox:      make(chan string, steerInboxSize),
 	}
 	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionId: acp.SessionId(sid)}, nil
 }
 
-// SetAutoMode toggles classifier-based auto approval for a session. Calls
-// before NewSession are remembered as the default for later sessions.
-func (a *Agent) SetAutoMode(sid string, on bool) {
+// SetPermMode selects how mutating tool calls are approved. Calls before
+// NewSession are remembered as the default for later sessions.
+func (a *Agent) SetPermMode(sid, mode string) {
+	mode = automode.NormalizeMode(mode)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if s := a.sessions[sid]; s != nil {
-		s.autoMode = on
+		s.permMode = mode
 		return
 	}
-	a.autoDefault = on
+	a.permDefault = mode
 }
 
-func (a *Agent) autoModeOn(sid string) bool {
+// SetAutoMode keeps the old on/off switch: on is the classifier, off allows
+// workspace edits and asks about every other tool.
+func (a *Agent) SetAutoMode(sid string, on bool) {
+	mode := automode.ModeEdit
+	if on {
+		mode = automode.ModeDecide
+	}
+	a.SetPermMode(sid, mode)
+}
+
+func (a *Agent) permMode(sid string) string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	mode := a.permDefault
 	if s := a.sessions[sid]; s != nil {
-		return s.autoMode
+		mode = s.permMode
 	}
-	return a.autoDefault
+	if mode == "" {
+		return automode.ModeDecide
+	}
+	return mode
 }
 
 // turnDigest renders user/assistant text for the classifier; tool results and
@@ -344,10 +359,12 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 			if !blockedByPlanMode && mutating {
 				if decided, ok := a.toolPermCached(sid, name); ok {
 					allowed = decided
-				} else if a.autoModeOn(sid) && a.deps.Evaluator != nil {
-					// Auto mode: the policy classifier decides instead of the
-					// user. Failures block the call, so a broken classifier can
-					// never silently widen what may run.
+				} else if a.permMode(sid) == automode.ModeAll ||
+					(a.permMode(sid) == automode.ModeEdit && automode.IsWorkspaceEdit(name, "")) {
+					allowed = true
+				} else if a.permMode(sid) == automode.ModeDecide && a.deps.Evaluator != nil {
+					// Classifier: failures block the call, so a broken model
+					// can never silently widen what may run.
 					verdict, evalErr := a.deps.Evaluator.Evaluate(ctx, automode.Request{
 						Name:       name,
 						Title:      title,

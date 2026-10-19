@@ -63,6 +63,10 @@ func (f *fakeStore) DeleteProvider(_ context.Context, id string) error {
 func (f *fakeStore) enrich(id *Identity) {
 	if p, ok := f.providers[id.ProviderID]; ok {
 		id.ProviderKind, id.ProviderHost, id.ProviderLabel = p.Kind, p.Host, p.Label
+		return
+	}
+	if id.ProviderID == CloudGitHubProviderID {
+		id.ProviderKind, id.ProviderHost, id.ProviderLabel = KindGitHub, "github.com", "GitHub"
 	}
 }
 

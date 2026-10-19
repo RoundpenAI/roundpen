@@ -6,8 +6,6 @@ import {
   templateDisplayName,
   templates,
   type AppSettings,
-  type AutoModeDefaults,
-  type AutoModeSettings,
   type SettingsResponse,
   type Template,
 } from '../../api'
@@ -17,11 +15,9 @@ import { OAuthProvidersPanel } from '../../components/OAuthProvidersPanel'
 import { PluginsPanel } from '../../components/PluginsPanel'
 import { SETTINGS_AREAS } from '../../lib/appNav'
 import {
-  AUTOMODE_DEFAULTS_TOKEN,
   emptySettings,
   LOG_BODY_OPTIONS,
   SANDBOX_TTL_OPTIONS,
-  type AutoModeListKey,
 } from './constants'
 import {
   numberOptionsWithCurrent,
@@ -29,7 +25,6 @@ import {
   templateRef,
   ttlOptionsWithCurrent,
 } from './helpers'
-import { AutoModeDefaultsModal, AutoModeSection } from './AutoModeSection'
 import { BrowserSection } from './BrowserSection'
 import { GeneralSection } from './GeneralSection'
 import { LlmgwSection } from './LlmgwSection'
@@ -47,9 +42,6 @@ export function AdminSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [templateList, setTemplateList] = useState<Template[]>([])
-  const [defaultsOpen, setDefaultsOpen] = useState(false)
-  const [defaultsLoading, setDefaultsLoading] = useState(false)
-  const [defaultsView, setDefaultsView] = useState<AutoModeDefaults | null>(null)
   const { section: sectionParam } = useParams()
   const t = useT()
   const currentSuffix = useCallback(
@@ -126,32 +118,6 @@ export function AdminSettingsPage() {
   function patch(partial: Partial<AppSettings>) {
     setForm((prev) => ({ ...prev, ...partial }))
     setDirty(true)
-  }
-
-  function patchAutoMode(next: Partial<AutoModeSettings>) {
-    patch({ autoMode: { ...form.autoMode, ...next } })
-  }
-
-  // setAutoModeList writes the custom entries back while preserving whether
-  // the "$defaults" token is in effect for that list.
-  function setAutoModeList(key: AutoModeListKey, custom: string[]) {
-    const withDefaults = form.autoMode[key].includes(AUTOMODE_DEFAULTS_TOKEN)
-    patchAutoMode({
-      [key]: withDefaults ? [...custom, AUTOMODE_DEFAULTS_TOKEN] : custom,
-    } as Partial<AutoModeSettings>)
-  }
-
-  async function openDefaults() {
-    setDefaultsOpen(true)
-    if (defaultsView) return
-    setDefaultsLoading(true)
-    try {
-      setDefaultsView(await adminSettings.automodeDefaults())
-    } catch {
-      setDefaultsView(null)
-    } finally {
-      setDefaultsLoading(false)
-    }
   }
 
   async function onSave() {
@@ -251,27 +217,6 @@ export function AdminSettingsPage() {
           patch={patch}
         />
       )}
-
-      {section === 'automode' && (
-        <AutoModeSection
-          isAdmin={isAdmin}
-          loading={loading}
-          t={t}
-          form={form}
-          patch={patch}
-          patchAutoMode={patchAutoMode}
-          setAutoModeList={setAutoModeList}
-          openDefaults={openDefaults}
-        />
-      )}
-
-      <AutoModeDefaultsModal
-        t={t}
-        defaultsOpen={defaultsOpen}
-        setDefaultsOpen={setDefaultsOpen}
-        defaultsLoading={defaultsLoading}
-        defaultsView={defaultsView}
-      />
 
       {section === 'proxy' && (
         <ProxySection isAdmin={isAdmin} loading={loading} t={t} form={form} patch={patch} />

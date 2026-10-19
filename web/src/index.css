@@ -660,93 +660,248 @@ html.keyboard-open .chat-composer-dock {
   line-height: 1.45;
 }
 
-/* Browser-style session tab strip (top of the chat pane) */
+/* Chat chrome: assistant / current session, with the session list in a menu. */
 .rp-session-tabs {
+  position: relative;
   flex-shrink: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  height: 36px;
   min-width: 0;
-  padding: 0;
-  overflow: hidden;
+  padding: 0 4px;
+  gap: 2px;
   border-bottom: 1px solid var(--semi-color-border);
   background: var(--semi-color-bg-2);
 }
 
-.rp-session-tabs-scroll {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.rp-session-tabs-scroll::-webkit-scrollbar {
-  display: none;
-}
-
-.rp-session-tab {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  max-width: 190px;
-  min-width: 0;
-  padding: 5px 6px 5px 10px;
-  border: 1px solid var(--semi-color-border);
-  border-bottom: none;
-  border-radius: 7px 7px 0 0;
-  background: var(--semi-color-bg-1);
-  color: var(--semi-color-text-2);
-}
-
-.rp-session-tab.is-active {
-  background: var(--semi-color-bg-0);
-  color: var(--semi-color-text-0);
-  box-shadow: inset 0 2px 0 var(--semi-color-primary);
-}
-
-.rp-session-tab-label {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  padding: 1px 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  font: inherit;
-}
-
-.rp-session-tab-title {
+.rp-chat-assistant-name,
+.rp-assistant-title {
+  flex: 0 1 auto;
+  max-width: 8rem;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.75rem;
-  line-height: 1.35;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--semi-color-text-0);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
 }
 
-.rp-session-tab-close {
+.rp-assistant-header .rp-assistant-title {
+  max-width: none;
+}
+
+.rp-assistant-header .rp-assistant-title + .semi-button,
+.rp-assistant-header button.rp-assistant-title ~ button {
+  margin-left: auto;
+}
+
+.rp-session-crumb-sep {
+  flex-shrink: 0;
+  color: var(--semi-color-text-2);
+  font-size: 13px;
+}
+
+.rp-session-crumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--semi-color-text-0);
+  cursor: pointer;
+  font: inherit;
+}
+
+.rp-session-crumb:hover,
+.rp-session-crumb[aria-expanded='true'] {
+  background: var(--semi-color-fill-0);
+}
+
+.rp-session-crumb-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rp-session-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 8px;
+  right: 8px;
+  max-height: min(60vh, 360px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--semi-color-bg-1);
+  box-shadow: var(--semi-shadow-elevated);
+}
+
+.rp-session-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  border-radius: 6px;
+}
+
+.rp-session-menu-row.is-active {
+  background: var(--semi-color-fill-0);
+}
+
+.rp-session-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 8px;
+  border: none;
+  background: transparent;
+  color: var(--semi-color-text-0);
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.rp-session-menu-icon {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1rem;
-  height: 1rem;
+  width: 32px;
+  height: 32px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
-  color: inherit;
+  color: var(--semi-color-text-2);
   cursor: pointer;
-  opacity: 0.45;
 }
 
-.rp-session-tab-close:hover {
-  opacity: 1;
+.rp-session-menu-icon:hover {
+  background: var(--semi-color-fill-1);
+  color: var(--semi-color-text-0);
+}
+
+.rp-session-menu-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 8px;
+  border: none;
+  border-bottom: 1px solid var(--semi-color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--semi-color-text-0);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rp-session-menu-new:hover {
   background: var(--semi-color-fill-0);
+}
+
+.rp-more-menu {
+  position: absolute;
+  z-index: 21;
+  top: calc(100% + 4px);
+  right: 8px;
+  width: min(280px, calc(100vw - 16px));
+  padding: 4px;
+  border: 1px solid var(--semi-color-border);
+  border-radius: 8px;
+  background: var(--semi-color-bg-1);
+  box-shadow: var(--semi-shadow-elevated);
+}
+
+.rp-more-caption {
+  display: block;
+  padding: 8px 8px 4px;
+}
+
+.rp-more-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--semi-color-text-0);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.rp-more-item.is-active,
+.rp-more-item:hover {
+  background: var(--semi-color-fill-0);
+}
+
+.rp-session-tabs-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.rp-chat-status-wide {
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .rp-chat-status-wide {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .rp-chat-assistant-name,
+  .rp-session-crumb-sep,
+  .rp-shell-menu-mobile,
+  .rp-assistant-menu-mobile {
+    display: none !important;
+  }
+
+  .rp-session-menu {
+    left: 8px;
+    right: auto;
+    width: 280px;
+  }
+}
+
+.rp-session-menu .rp-session-tab-input {
+  flex: 1;
+  width: auto;
 }
 
 .rp-session-tab-input {
@@ -766,9 +921,9 @@ html.keyboard-open .chat-composer-dock {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.65rem;
-  height: 1.65rem;
-  margin: 3px 4px;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin: 0 2px;
   padding: 0;
   border: none;
   border-radius: 6px;

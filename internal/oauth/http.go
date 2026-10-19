@@ -27,12 +27,15 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/auth/oauth/providers", h.listEnabled)
 	mux.HandleFunc("GET /v1/auth/oauth/{provider}/start", h.start)
 	mux.HandleFunc("GET /v1/auth/oauth/{provider}/callback", h.callback)
+	// The official relay sends the browser here. The path is fixed in the worker.
+	mux.HandleFunc("GET /v1/auth/oauth/github/cloud/callback", h.cloudCallback)
 	// GitHub App Manifest: GitHub redirects the admin's browser here after
 	// they create the app. Public like other OAuth callbacks; the state row
 	// and the admin session bind the handshake.
 	mux.HandleFunc("GET /v1/auth/oauth/github/manifest/callback", h.githubManifestCallback)
 
 	mux.HandleFunc("GET /v1/me/identities", h.listIdentities)
+	mux.HandleFunc("GET /v1/me/oauth/providers", h.listLinkable)
 	mux.HandleFunc("POST /v1/me/identities/link/{provider}", h.link)
 	mux.HandleFunc("DELETE /v1/me/identities/{id}", h.unlink)
 
@@ -127,6 +130,34 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target, http.StatusFound)
 }
 
+func (h *Handler) cloudCallback(w http.ResponseWriter, r *http.Request) {
+	sessionUser := ""
+	if user := auth.GetUser(r.Context()); user != nil {
+		sessionUser = user.Username
+	}
+	res, err := h.Svc.HandleCloudCallback(r.Context(), CloudCallbackInput{
+		Ticket:      r.URL.Query().Get("ticket"),
+		State:       r.URL.Query().Get("state"),
+		Error:       r.URL.Query().Get("error"),
+		SessionUser: sessionUser,
+	})
+	if err != nil {
+		slog.Warn("github cloud callback", "err", err)
+		http.Redirect(w, r, loginErrorPath(sessionUser, errorCode(err)), http.StatusFound)
+		return
+	}
+	if _, err := auth.IssueSession(w, r, h.Sessions, res.User); err != nil {
+		slog.Error("github cloud session", "user", res.User.Username, "err", err)
+		http.Redirect(w, r, loginErrorPath(sessionUser, "failed"), http.StatusFound)
+		return
+	}
+	target := res.RedirectTo
+	if res.Linked {
+		target = withQuery(target, "oauth_linked", "1")
+	}
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
 func (h *Handler) link(w http.ResponseWriter, r *http.Request) {
 	user := auth.GetUser(r.Context())
 	if user == nil {
@@ -161,6 +192,23 @@ type identityView struct {
 	HasRefreshToken bool       `json:"hasRefreshToken"`
 	LastLoginAt     *time.Time `json:"lastLoginAt,omitempty"`
 	CreatedAt       time.Time  `json:"createdAt"`
+}
+
+func (h *Handler) listLinkable(w http.ResponseWriter, r *http.Request) {
+	if auth.GetUser(r.Context()) == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	providers, err := h.Svc.ListLinkProviders(r.Context())
+	if err != nil {
+		httpx.WriteErrOrInternal(w, r, err, nil)
+		return
+	}
+	out := make([]providerView, 0, len(providers))
+	for _, p := range providers {
+		out = append(out, providerView{ID: p.ID, Kind: p.Kind, Host: p.Host, Label: p.DisplayLabel()})
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"providers": out})
 }
 
 func (h *Handler) listIdentities(w http.ResponseWriter, r *http.Request) {

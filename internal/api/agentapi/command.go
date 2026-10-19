@@ -265,12 +265,6 @@ func (r *runner) restartRuntime() (*manager.Runtime, error) {
 	}
 	rt.SetEventHandler(r.onEvent)
 	rt.SetPermissionHandler(r.onPermission)
-	rt.SetAutoMode(r.autoEnabled())
+	rt.SetPermMode(r.permMode())
 	return rt, nil
-}
-
-func (r *runner) autoEnabled() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.auto
 }

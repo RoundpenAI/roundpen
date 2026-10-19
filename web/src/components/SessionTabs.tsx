@@ -1,21 +1,31 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { IconClose, IconPlus } from '@douyinfe/semi-icons'
+import { IconChevronDown, IconClose, IconEdit, IconPlus } from '@douyinfe/semi-icons'
 import { Spin, Typography } from '@douyinfe/semi-ui-19'
 import { agents, ApiError, type AgentSession } from '../api'
 
 type SessionTabsProps = {
   assistantId: string
   currentId: string
+  leading?: ReactNode
+  trailing?: ReactNode
 }
 
-export function SessionTabs({ assistantId, currentId }: SessionTabsProps) {
+export function SessionTabs({
+  assistantId,
+  currentId,
+  leading,
+  trailing,
+}: SessionTabsProps) {
   const navigate = useNavigate()
+  const rootRef = useRef<HTMLDivElement>(null)
   const [sessions, setSessions] = useState<AgentSession[]>([])
   const [actionBusy, setActionBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [open, setOpen] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
   const refresh = useCallback(async () => {
     if (!assistantId) return
@@ -27,6 +37,8 @@ export function SessionTabs({ assistantId, currentId }: SessionTabsProps) {
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
+    } finally {
+      setLoaded(true)
     }
   }, [assistantId])
 
@@ -34,7 +46,6 @@ export function SessionTabs({ assistantId, currentId }: SessionTabsProps) {
     void refresh()
   }, [refresh])
 
-  // Pick up sessions created on this or another tab while away.
   useEffect(() => {
     if (!assistantId) return
     const onVisible = () => {
@@ -44,9 +55,26 @@ export function SessionTabs({ assistantId, currentId }: SessionTabsProps) {
     return () => document.removeEventListener('visibilitychange', onVisible)
   }, [assistantId, refresh])
 
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
   const openNewSession = async () => {
     if (actionBusy) return
     setActionBusy(true)
+    setOpen(false)
     try {
       const sess = await agents.createSession({
         title: '新会话',
@@ -56,6 +84,7 @@ export function SessionTabs({ assistantId, currentId }: SessionTabsProps) {
       navigate(`/a/${assistantId}/s/${sess.id}`)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
+      setOpen(true)
     } finally {
       setActionBusy(false)
     }
@@ -66,9 +95,7 @@ export function SessionTabs({ assistantId, currentId }: SessionTabsProps) {
     if (id === currentId && idx >= 0) {
       const nextTab = sessions[idx + 1] ?? sessions[idx - 1]
       navigate(
-        nextTab
-          ? `/a/${assistantId}/s/${nextTab.id}`
-          : `/a/${assistantId}`,
+        nextTab ? `/a/${assistantId}/s/${nextTab.id}` : `/a/${assistantId}`,
       )
     }
     setSessions((prev) => prev.filter((s) => s.id !== id))
@@ -93,89 +120,122 @@ export function SessionTabs({ assistantId, currentId }: SessionTabsProps) {
 
   if (!assistantId) return null
 
+  const current = sessions.find((s) => s.id === currentId)
+  const currentTitle = current?.title || '新会话'
+
   return (
-    <div className="rp-session-tabs">
-      <div className="rp-session-tabs-scroll">
-        {sessions.map((s) => {
-          const active = s.id === currentId
-          return (
-            <div
-              key={s.id}
-              className={[
-                'rp-session-tab',
-                active ? 'is-active' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              title={s.title || '新会话'}
-            >
-              {editingId === s.id ? (
-                <input
-                  autoFocus
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onBlur={() => void commitRename(s.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      void commitRename(s.id)
-                    } else if (e.key === 'Escape') {
-                      setEditingId(null)
-                    }
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  className="rp-session-tab-input"
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="rp-session-tab-label"
-                  onClick={() => navigate(`/a/${assistantId}/s/${s.id}`)}
-                  onDoubleClick={() => {
-                    setEditingId(s.id)
-                    setDraft(s.title)
-                  }}
-                >
-                  <span className="rp-session-tab-title">
-                    {s.title || '新会话'}
-                  </span>
-                </button>
-              )}
-              <button
-                type="button"
-                className="rp-session-tab-close"
-                aria-label="关闭会话"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void closeSession(s.id)
-                }}
-              >
-                <IconClose size="extra-small" />
-              </button>
-            </div>
-          )
-        })}
-        <button
-          type="button"
-          className="rp-session-tab-add"
-          title="新会话"
-          aria-label="新会话"
-          disabled={actionBusy}
-          onClick={() => void openNewSession()}
-        >
-          {actionBusy ? <Spin size="small" /> : <IconPlus size="extra-small" />}
-        </button>
-        {error && (
-          <Typography.Text
-            type="danger"
-            size="small"
-            ellipsis
-            style={{ marginInline: 8, minWidth: 0 }}
+    <div className="rp-session-tabs" ref={rootRef}>
+      {leading}
+      <span className="rp-session-crumb-sep" aria-hidden>
+        /
+      </span>
+      <button
+        type="button"
+        className="rp-session-crumb"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        title={currentTitle}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="rp-session-crumb-title">{currentTitle}</span>
+        <IconChevronDown size="small" />
+      </button>
+      {trailing}
+      {open && (
+        <div className="rp-session-menu" role="listbox" aria-label="会话">
+          <button
+            type="button"
+            className="rp-session-menu-new"
+            disabled={actionBusy}
+            onClick={() => void openNewSession()}
           >
-            {error}
-          </Typography.Text>
-        )}
-      </div>
+            {actionBusy ? <Spin size="small" /> : <IconPlus size="small" />}
+            新会话
+          </button>
+          {!loaded ? (
+            <Typography.Text type="tertiary" size="small" style={{ padding: 8 }}>
+              加载中…
+            </Typography.Text>
+          ) : sessions.length === 0 ? (
+            <Typography.Text type="tertiary" size="small" style={{ padding: 8 }}>
+              还没有会话
+            </Typography.Text>
+          ) : (
+            sessions.map((s) => {
+              const active = s.id === currentId
+              const title = s.title || '新会话'
+              return (
+                <div
+                  key={s.id}
+                  className={['rp-session-menu-row', active ? 'is-active' : '']
+                    .filter(Boolean)
+                    .join(' ')}
+                  role="option"
+                  aria-selected={active}
+                >
+                  {editingId === s.id ? (
+                    <input
+                      autoFocus
+                      value={draft}
+                      className="rp-session-tab-input"
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={() => void commitRename(s.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          void commitRename(s.id)
+                        } else if (e.key === 'Escape') {
+                          setEditingId(null)
+                        }
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="rp-session-menu-label"
+                      onClick={() => {
+                        setOpen(false)
+                        if (!active) navigate(`/a/${assistantId}/s/${s.id}`)
+                      }}
+                    >
+                      {title}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="rp-session-menu-icon"
+                    aria-label="改名"
+                    onClick={() => {
+                      setEditingId(s.id)
+                      setDraft(s.title)
+                    }}
+                  >
+                    <IconEdit size="small" />
+                  </button>
+                  <button
+                    type="button"
+                    className="rp-session-menu-icon"
+                    aria-label="关闭会话"
+                    onClick={() => void closeSession(s.id)}
+                  >
+                    <IconClose size="small" />
+                  </button>
+                </div>
+              )
+            })
+          )}
+          {error && (
+            <Typography.Text
+              type="danger"
+              size="small"
+              style={{ display: 'block', padding: '4px 8px' }}
+            >
+              {error}
+            </Typography.Text>
+          )}
+        </div>
+      )}
     </div>
   )
 }

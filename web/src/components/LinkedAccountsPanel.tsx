@@ -59,7 +59,7 @@ export function LinkedAccountsPanel() {
     try {
       const [linked, available] = await Promise.all([
         identities.list(),
-        oauthProviders.list(),
+        oauthProviders.listLinkable(),
       ])
       setList(linked.identities ?? [])
       setProviders(available.providers ?? [])

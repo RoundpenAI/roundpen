@@ -43,13 +43,10 @@ describe('settings sections', () => {
       ADMIN_SETTINGS_SECTIONS.map((s) => s.key),
       [
         'general',
-        'oauth',
-        'plugins',
         'llmgw',
         'webtools',
         'browser',
         'proxy',
-        'automode',
         'system',
       ],
     )
@@ -97,15 +94,18 @@ describe('resolveAdminSection', () => {
   })
 
   it('accepts admin sections and rejects personal ones', () => {
-    assert.equal(resolveAdminSection('automode'), 'automode')
+    assert.equal(resolveAdminSection('proxy'), 'proxy')
+    assert.equal(resolveAdminSection('automode'), 'general')
     assert.equal(resolveAdminSection('git'), 'general')
   })
 })
 
 describe('isAdminSectionKey', () => {
   it('separates platform sections from personal ones', () => {
-    assert.equal(isAdminSectionKey('automode'), true)
-    assert.equal(isAdminSectionKey('oauth'), true)
+    assert.equal(isAdminSectionKey('proxy'), true)
+    assert.equal(isAdminSectionKey('automode'), false)
+    assert.equal(isAdminSectionKey('llmgw'), true)
+    assert.equal(isAdminSectionKey('oauth'), false)
     assert.equal(isAdminSectionKey('git'), false)
     assert.equal(isAdminSectionKey(undefined), false)
   })

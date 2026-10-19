@@ -78,6 +78,12 @@ type Service struct {
 	// SelfHostedGitEnabled, when set, gates new Gitea / GitLab / GitHub
 	// Enterprise providers. nil allows them (tests and pre-plugin stores).
 	SelfHostedGitEnabled func() bool
+	// GitHubRelay is the official OAuth relay origin. Empty leaves GitHub
+	// to a provider the admin configured themselves. The relay authorizes a
+	// signed-in user; it is not offered as a way to sign in.
+	GitHubRelay string
+	// Install authenticates this NAS to the relay.
+	Install InstallSigner
 }
 
 // StartInput describes one authorization (login or link) request.
@@ -106,8 +112,23 @@ type CallbackResult struct {
 }
 
 // ListEnabledProviders returns the providers shown on the login page.
+// The official GitHub relay is not one of them: it authorizes an existing
+// session to operate GitHub, it does not sign people in.
 func (s *Service) ListEnabledProviders(ctx context.Context) ([]Provider, error) {
 	return s.Store.ListProviders(ctx, true)
+}
+
+// ListLinkProviders returns providers a signed-in user can authorize,
+// including the official GitHub relay when this install has no own GitHub App.
+func (s *Service) ListLinkProviders(ctx context.Context) ([]Provider, error) {
+	list, err := s.Store.ListProviders(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	if s.cloudOn() && !s.hasOwnGitHub(ctx) {
+		list = append([]Provider{s.cloudGitHub()}, list...)
+	}
+	return list, nil
 }
 
 // ListProviders returns every configured provider (admin view).
@@ -182,6 +203,9 @@ func (s *Service) stateTTL() time.Duration {
 
 // AuthorizeURL starts a flow and returns the remote authorization URL.
 func (s *Service) AuthorizeURL(ctx context.Context, in StartInput) (string, error) {
+	if in.ProviderID == CloudGitHubProviderID {
+		return s.cloudAuthorize(ctx, in)
+	}
 	p, err := s.provider(ctx, in.ProviderID)
 	if err != nil {
 		return "", err
@@ -354,6 +378,13 @@ func (s *Service) CredsForUser(ctx context.Context, userID string) ([]gitcred.Cr
 	for i := range idents {
 		id := idents[i]
 		if id.AccessToken == "" {
+			continue
+		}
+		if id.ProviderID == CloudGitHubProviderID {
+			if !s.cloudOn() {
+				continue
+			}
+			out = append(out, gitcred.TokenCred(KindGitHub, "github.com", id.AccessToken))
 			continue
 		}
 		if s.expiring(&id) {

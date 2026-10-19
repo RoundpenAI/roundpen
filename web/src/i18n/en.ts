@@ -234,7 +234,7 @@ export const en = {
   'git.provider.generic': 'Other git host',
   'accounts.title': 'Linked accounts',
   'accounts.desc':
-    'Sign in with GitHub or Gitea and the token is injected into your agent sandbox: git, gh and tea act as that account. A personal token set under Git personal tokens wins for the same host.',
+    'After you authorize an account, the token is injected into your agent sandbox: git, gh and tea act as that account. Official GitHub is authorized here; you do not need to register your own app first. A personal token set under Git personal tokens wins for the same host.',
   'accounts.loadFailed': 'failed to load linked accounts',
   'accounts.connectFailed': 'failed to start the authorization',
   'accounts.unlinkFailed': 'disconnect failed',
@@ -696,6 +696,16 @@ export const en = {
   'issues.task.markBlocked': 'Block',
   'issues.task.markCancelled': 'Cancel task',
   'issues.task.reopen': 'Reopen',
+
+  'chat.perm.label': 'Tool permission',
+  'chat.perm.edit': 'Allow edits',
+  'chat.perm.decide': 'Model decides',
+  'chat.perm.all': 'Approve all',
+  'chat.perm.editHint':
+    'File edits run immediately. Shell, browser, and other tools still ask you.',
+  'chat.perm.decideHint':
+    'A classifier allows safe tool calls and blocks destructive or outbound ones.',
+  'chat.perm.allHint': 'Every tool call runs without asking. Questions still wait for you.',
 
   'chat.suggest.hint':
     'These can run on their own and come back to this chat.',

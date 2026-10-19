@@ -16,7 +16,7 @@ import {
   Spin,
   Typography,
 } from '@douyinfe/semi-ui-19'
-import { IconArrowUp } from '@douyinfe/semi-icons'
+import { IconArrowUp, IconMenu, IconMore, IconUser } from '@douyinfe/semi-icons'
 import type { MessageContent } from '@douyinfe/semi-ui-19/lib/es/aiChatInput/interface'
 import {
   agents,
@@ -29,11 +29,13 @@ import {
   ApiError,
 } from '../api'
 import { AgentBrowserPanel } from '../components/AgentBrowserPanel'
+import { useOpenAppMenu } from '../components/AppShell'
 import { useAssistantLayout } from '../components/AssistantLayout'
 import { SessionTabs } from '../components/SessionTabs'
 import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
 import { LlmSetupChooser } from '../components/LlmSetupChooser'
 import { useAuth } from '../auth'
+import { useT } from '../i18n'
 import {
   agentMessagesToSemi,
   type SemiChatMessage,
@@ -59,8 +61,10 @@ import {
   MESSAGE_PAGE_SIZE,
   mergeHistoryWithLive,
   nowIso,
-  readAutoMode,
   readPendingPrompt,
+  readPermMode,
+  writePermMode,
+  type PermMode,
   ROLE_CONFIG,
   sentPending,
   shouldShowInDialogue,
@@ -118,7 +122,13 @@ export function ChatSessionPage() {
   const location = useLocation()
   const navigate = useNavigate()
   // Answering drops the ticket from the assistant sidebar's todo list.
-  const { refresh: refreshAssistantLayout } = useAssistantLayout()
+  const {
+    assistants,
+    refresh: refreshAssistantLayout,
+    openAssistantList,
+  } = useAssistantLayout()
+  const openAppMenu = useOpenAppMenu()
+  const t = useT()
   const auth = useAuth()
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
   const [session, setSession] = useState<AgentSession | null>(null)
@@ -130,6 +140,23 @@ export function ChatSessionPage() {
   const [perm, setPerm] = useState<PermReq | null>(null)
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserSeen, setBrowserSeen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!moreOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (!moreRef.current?.contains(e.target as Node)) setMoreOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [moreOpen])
   const wsRef = useRef<ChatStreamHandle | null>(null)
 
   const sendAction = (body: Record<string, unknown>) => {
@@ -157,7 +184,7 @@ export function ChatSessionPage() {
   const [wsStatus, setWsStatus] = useState<WsUiStatus>('connecting')
   const [wsDetail, setWsDetail] = useState<string | null>(null)
   const wsOpen = wsStatus === 'open'
-  const [autoMode, setAutoMode] = useState(readAutoMode)
+  const [permMode, setPermMode] = useState<PermMode>(readPermMode)
   const [composerFocused, setComposerFocused] = useState(false)
   const [composerHasText, setComposerHasText] = useState(false)
   const [commands, setCommands] = useState<AgentCommand[]>([])
@@ -304,6 +331,7 @@ export function ChatSessionPage() {
         setWsStatus,
         setWsDetail,
         setBrowserSeen,
+        setShowBrowser,
         onQueue: applyQueue,
         setSteerCap,
         refreshCommands,
@@ -432,16 +460,11 @@ export function ChatSessionPage() {
       void loadOlderMessages()
     }
   }
-  const toggleAuto = () => {
-    const next = !autoMode
-    setAutoMode(next)
-    try {
-      localStorage.setItem('roundpen.chat.auto', next ? '1' : '0')
-    } catch {
-      /* ignore */
-    }
+  const choosePermMode = (next: PermMode) => {
+    setPermMode(next)
+    writePermMode(next)
     if (wsRef.current && wsRef.current.readyState === STREAM_OPEN) {
-      sendAction({ type: 'auto', enabled: next })
+      sendAction({ type: 'auto', mode: next })
     }
   }
 
@@ -620,59 +643,134 @@ export function ChatSessionPage() {
       <SessionTabs
         assistantId={assistantIdParam || session?.assistantId || ''}
         currentId={id}
+        leading={
+          <>
+            <Button
+              theme="borderless"
+              type="tertiary"
+              size="small"
+              icon={<IconMenu />}
+              aria-label="打开菜单"
+              className="rp-shell-menu-mobile"
+              onClick={openAppMenu}
+            />
+            <Button
+              theme="borderless"
+              type="tertiary"
+              size="small"
+              icon={<IconUser />}
+              aria-label="打开助手列表"
+              className="rp-assistant-menu-mobile"
+              onClick={openAssistantList}
+            />
+            {(assistantIdParam || session?.assistantId) && (
+              <button
+                type="button"
+                className="rp-chat-assistant-name"
+                title={
+                  assistants.find(
+                    (a) =>
+                      a.id === (assistantIdParam || session?.assistantId),
+                  )?.name
+                }
+                aria-label="切换助手"
+                onClick={openAssistantList}
+              >
+                {assistants.find(
+                  (a) => a.id === (assistantIdParam || session?.assistantId),
+                )?.name || '助手'}
+              </button>
+            )}
+          </>
+        }
+        trailing={
+          <div className="rp-session-tabs-tools" ref={moreRef}>
+            <Button
+              theme="borderless"
+              type="tertiary"
+              size="small"
+              icon={<IconMore />}
+              aria-label={t('chat.perm.label')}
+              aria-expanded={moreOpen}
+              onClick={() => setMoreOpen((v) => !v)}
+            />
+            {moreOpen && (
+              <div className="rp-more-menu" role="menu">
+                <Typography.Text
+                  type="tertiary"
+                  size="small"
+                  className="rp-more-caption"
+                >
+                  {t('chat.perm.label')}
+                </Typography.Text>
+                {(['edit', 'decide', 'all'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={permMode === mode}
+                    className={
+                      permMode === mode
+                        ? 'rp-more-item is-active'
+                        : 'rp-more-item'
+                    }
+                    onClick={() => {
+                      choosePermMode(mode)
+                      setMoreOpen(false)
+                    }}
+                  >
+                    <span>
+                      {mode === 'edit'
+                        ? t('chat.perm.edit')
+                        : mode === 'all'
+                          ? t('chat.perm.all')
+                          : t('chat.perm.decide')}
+                    </span>
+                    <Typography.Text type="tertiary" size="small">
+                      {mode === 'edit'
+                        ? t('chat.perm.editHint')
+                        : mode === 'all'
+                          ? t('chat.perm.allHint')
+                          : t('chat.perm.decideHint')}
+                    </Typography.Text>
+                  </button>
+                ))}
+                {session?.assistantId && (
+                  <Link
+                    to={`/a/${session.assistantId}`}
+                    className="rp-more-item"
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    助手详情
+                  </Link>
+                )}
+                <Typography.Text
+                  type={wsStatus === 'open' ? 'tertiary' : 'danger'}
+                  size="small"
+                  className="rp-more-caption"
+                  title={wsDetail ?? undefined}
+                >
+                  {session ? (busy ? '工作中' : session.status) : ''}
+                  {session ? ' · ' : ''}
+                  {wsStatusLabel(wsStatus, wsDetail)}
+                </Typography.Text>
+                {browserSeen && !showBrowser && (
+                  <button
+                    type="button"
+                    className="rp-more-item"
+                    onClick={() => {
+                      setShowBrowser(true)
+                      setMoreOpen(false)
+                    }}
+                  >
+                    打开画面
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        }
       />
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          gap: 8,
-          padding: '8px 16px',
-        }}
-      >
-        {session?.assistantId && (
-          <Link
-            to={`/a/${session.assistantId}`}
-            style={{ color: 'var(--semi-color-link)', fontSize: 12 }}
-          >
-            助手详情
-          </Link>
-        )}
-        {session && (
-          <Typography.Text type="tertiary" size="small">
-            {busy ? '工作中' : session.status}
-          </Typography.Text>
-        )}
-        <Typography.Text
-          type={wsStatus === 'open' ? 'tertiary' : 'danger'}
-          size="small"
-          title={wsDetail ?? undefined}
-        >
-          {wsStatusLabel(wsStatus, wsDetail)}
-        </Typography.Text>
-        <Button
-          size="small"
-          theme={autoMode ? 'solid' : 'borderless'}
-          type={autoMode ? 'primary' : 'tertiary'}
-          style={{ marginLeft: 'auto' }}
-          title={
-            autoMode
-              ? '自动模式：分类器放行安全操作，拦截危险操作'
-              : '工具权限需你确认（协助单）'
-          }
-          onClick={toggleAuto}
-        >
-          Auto
-        </Button>
-        <Button
-          size="small"
-          theme="borderless"
-          type="tertiary"
-          onClick={() => setShowBrowser((v) => !v)}
-        >
-          {showBrowser ? '收起浏览器' : '打开画面'}
-        </Button>
-      </div>
 
       {showLlmGuide && (
         <div role="status" style={{ padding: '0 16px 8px' }}>

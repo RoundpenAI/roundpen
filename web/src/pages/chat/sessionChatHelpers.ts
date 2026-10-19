@@ -13,12 +13,28 @@ export const ROLE_CONFIG = {
   system: { name: '' },
 }
 
-export function readAutoMode(): boolean {
+export type PermMode = 'edit' | 'decide' | 'all'
+
+const PERM_MODE_KEY = 'roundpen.chat.permMode'
+
+export function readPermMode(): PermMode {
   try {
-    const v = localStorage.getItem('roundpen.chat.auto')
-    return v !== '0'
+    const v = localStorage.getItem(PERM_MODE_KEY)
+    if (v === 'edit' || v === 'decide' || v === 'all') return v
+    // The old Auto switch: off asked for every tool, which is closest to
+    // allowing edits and asking about the rest.
+    if (localStorage.getItem('roundpen.chat.auto') === '0') return 'edit'
   } catch {
-    return true
+    /* ignore */
+  }
+  return 'decide'
+}
+
+export function writePermMode(mode: PermMode): void {
+  try {
+    localStorage.setItem(PERM_MODE_KEY, mode)
+  } catch {
+    /* ignore */
   }
 }
 

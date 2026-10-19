@@ -12,6 +12,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
+	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -64,6 +65,7 @@ type streamIn struct {
 	OptionID  string `json:"optionId,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
 	Enabled   bool   `json:"enabled"`
+	Mode      string `json:"mode,omitempty"`
 	// ID is a queue item reference (unqueue); ClientMsgID echoes the sender's
 	// optimistic row so the queue snapshot can be matched per client.
 	ID          string `json:"id,omitempty"`
@@ -230,7 +232,14 @@ func (h *Handler) sessionAction(w http.ResponseWriter, r *http.Request) {
 	case "cancel":
 		run.cancelTurn()
 	case "auto":
-		run.setAuto(in.Enabled)
+		mode := strings.TrimSpace(in.Mode)
+		if mode == "" {
+			mode = automode.ModeEdit
+			if in.Enabled {
+				mode = automode.ModeDecide
+			}
+		}
+		run.setPermMode(mode)
 	case "permission":
 		run.answerPermission(in.RequestID, in.OptionID)
 	default:

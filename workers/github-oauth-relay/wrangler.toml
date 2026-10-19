@@ -1,16 +1,17 @@
-name = "roundpen-github-oauth"
+name = "roundpen"
 main = "src/index.ts"
 compatibility_date = "2026-10-18"
 
-# Custom domain in the dashboard (or `routes` below):
-#   auth.roundpen.ai/*
-# Register that same origin + /github/callback on the official GitHub App.
+# Register this origin + /github/callback on the official GitHub App.
+[[routes]]
+pattern = "auth.eaxi.com"
+custom_domain = true
 
 [vars]
 # Public origin of THIS worker. Must match the GitHub App callback origin.
-PUBLIC_BASE = "https://auth.roundpen.ai"
-# Login-only. Do not request repo write on a shared official app.
-GITHUB_SCOPES = "read:user user:email"
+PUBLIC_BASE = "https://auth.eaxi.com"
+# Signed-in Roundpen users authorize this app so the agent can git/gh as them.
+GITHUB_SCOPES = "repo read:user user:email"
 TICKET_TTL_SECONDS = "60"
 
 [[durable_objects.bindings]]

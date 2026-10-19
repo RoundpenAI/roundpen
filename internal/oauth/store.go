@@ -164,7 +164,11 @@ func (s *Store) DeleteProvider(ctx context.Context, id string) error {
 }
 
 const identityCols = `
-	i.id, i.user_id, i.provider_id, p.kind, p.host, p.label, i.subject, i.login, i.name, i.email,
+	i.id, i.user_id, i.provider_id,
+	COALESCE(p.kind, CASE WHEN i.provider_id = 'github-cloud' THEN 'github' ELSE '' END),
+	COALESCE(p.host, CASE WHEN i.provider_id = 'github-cloud' THEN 'github.com' ELSE '' END),
+	COALESCE(p.label, CASE WHEN i.provider_id = 'github-cloud' THEN 'GitHub' ELSE '' END),
+	i.subject, i.login, i.name, i.email,
 	i.access_token, i.refresh_token, i.token_expires_at, i.scopes, i.last_login_at, i.created_at, i.updated_at`
 
 func (s *Store) ListIdentities(ctx context.Context, userID string) ([]Identity, error) {
@@ -173,8 +177,8 @@ func (s *Store) ListIdentities(ctx context.Context, userID string) ([]Identity, 
 	}
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT `+identityCols+`
-		FROM user_identities i JOIN oauth_providers p ON p.id = i.provider_id
-		WHERE i.user_id=$1 ORDER BY p.kind, p.host`, userID)
+		FROM user_identities i LEFT JOIN oauth_providers p ON p.id = i.provider_id
+		WHERE i.user_id=$1 ORDER BY i.provider_id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +200,7 @@ func (s *Store) GetIdentityBySubject(ctx context.Context, providerID, subject st
 	}
 	row := s.DB.QueryRowContext(ctx, `
 		SELECT `+identityCols+`
-		FROM user_identities i JOIN oauth_providers p ON p.id = i.provider_id
+		FROM user_identities i LEFT JOIN oauth_providers p ON p.id = i.provider_id
 		WHERE i.provider_id=$1 AND i.subject=$2`, providerID, subject)
 	id, err := scanIdentity(row)
 	if err != nil {
