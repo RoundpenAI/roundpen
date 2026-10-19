@@ -232,7 +232,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'git.provider.generic': '其他 Git 主机',
   'accounts.title': '关联账号',
   'accounts.desc':
-    '用 GitHub 或 Gitea 登录后，令牌会注入你的 Agent 沙箱：git、gh、tea 都以该身份操作远程仓库。同一 host 上手填的 Git 个人令牌优先。',
+    '授权后，令牌会注入你的 Agent 沙箱：git、gh、tea 都以该身份操作远程仓库。官方 GitHub 在这里授权即可，不必先配自己的应用。同一 host 上手填的 Git 个人令牌优先。',
   'accounts.loadFailed': '加载关联账号失败',
   'accounts.connectFailed': '发起授权失败',
   'accounts.unlinkFailed': '解绑失败',
@@ -759,6 +759,14 @@ export const zh_CN: Record<MessageKey, string> = {
   'issues.task.markBlocked': '标记受阻',
   'issues.task.markCancelled': '取消任务',
   'issues.task.reopen': '重新打开',
+
+  'chat.perm.label': '工具权限',
+  'chat.perm.edit': '允许编辑',
+  'chat.perm.decide': '模型决策',
+  'chat.perm.all': '全部同意',
+  'chat.perm.editHint': '改文件直接执行。终端、浏览器和其它工具仍会询问你。',
+  'chat.perm.decideHint': '分类器放行安全操作，拦截破坏性或对外的操作。',
+  'chat.perm.allHint': '所有工具直接执行。向你提问时仍会等待回答。',
 
   'chat.suggest.hint': '这些可以到点自己做，结果发回这条对话。',
   'chat.suggest.papers':

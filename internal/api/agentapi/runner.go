@@ -105,7 +105,7 @@ type runner struct {
 	mu           sync.Mutex
 	clients      map[*streamClient]struct{}
 	busy         bool
-	auto         bool
+	mode         string
 	clearPending bool          // /clear arrived mid-turn; reset once the turn ends
 	pending      []pendingItem // queued prompts while a turn is in progress
 	queueVer     uint64        // monotonic queue-snapshot version (frame ordering)
@@ -469,13 +469,29 @@ func (r *runner) finishTurn() {
 	r.broadcast(r.snapshot())
 }
 
-// autoResolve answers a permission request under auto mode. Interactive
-// questions are never auto-answered: their options are the answer choices, so
-// picking one would put words in the user's mouth. Tool actions go through the
-// policy classifier and are blocked when it denies. handled false means no
-// automatic answer applies and the interactive dialog runs.
+// autoResolve answers a permission request from the chat's permission mode.
+// Interactive questions are never auto-answered: their options are the answer
+// choices. handled false means the interactive dialog runs.
 func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID, title string) (acp.RequestPermissionResponse, bool) {
-	if r.handler.AutoMode != nil && !isQuestionRequest(req) {
+	if isQuestionRequest(req) {
+		return acp.RequestPermissionResponse{}, false
+	}
+	switch r.permMode() {
+	case automode.ModeAll:
+		return r.allowPermission(req, reqID, title)
+	case automode.ModeEdit:
+		kind := ""
+		if req.ToolCall.Kind != nil {
+			kind = string(*req.ToolCall.Kind)
+		}
+		if !automode.IsWorkspaceEdit(title, kind) {
+			return acp.RequestPermissionResponse{}, false
+		}
+		return r.allowPermission(req, reqID, title)
+	default:
+		if r.handler.AutoMode == nil {
+			return acp.RequestPermissionResponse{}, false
+		}
 		verdict, err := r.classifyPermission(req, title)
 		if err != nil && r.handler.Log != nil {
 			r.handler.Log.Warn("auto mode classifier failed",
@@ -505,27 +521,29 @@ func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID, title stri
 			r.mu.Unlock()
 			return resp, true
 		}
+		return r.allowPermission(req, reqID, title)
 	}
-	if isQuestionRequest(req) {
+}
+
+func (r *runner) allowPermission(req acp.RequestPermissionRequest, reqID, title string) (acp.RequestPermissionResponse, bool) {
+	opt := acpclient.PickOrdinaryAllow(req.Options)
+	if opt == "" {
 		return acp.RequestPermissionResponse{}, false
 	}
-	if opt := acpclient.PickOrdinaryAllow(req.Options); opt != "" {
-		label := permissionOptionLabel(req.Options, opt)
-		r.persist(agentsession.RolePermission, label, agentsession.PermissionMeta{
-			Type:      "permission",
-			RequestID: reqID,
-			Title:     title,
-			OptionID:  opt,
-			Outcome:   "auto",
-			Options:   req.Options,
-			ToolID:    reqID,
-		})
-		r.mu.Lock()
-		resp := r.permResult(reqID, opt, false)
-		r.mu.Unlock()
-		return resp, true
-	}
-	return acp.RequestPermissionResponse{}, false
+	label := permissionOptionLabel(req.Options, opt)
+	r.persist(agentsession.RolePermission, label, agentsession.PermissionMeta{
+		Type:      "permission",
+		RequestID: reqID,
+		Title:     title,
+		OptionID:  opt,
+		Outcome:   "auto",
+		Options:   req.Options,
+		ToolID:    reqID,
+	})
+	r.mu.Lock()
+	resp := r.permResult(reqID, opt, false)
+	r.mu.Unlock()
+	return resp, true
 }
 
 // isQuestionRequest reports whether the request is an interactive question or
@@ -593,7 +611,6 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	ch := make(chan string, 1)
 	r.mu.Lock()
 	r.perms[reqID] = &permWait{ch: ch, cancel: make(chan struct{})}
-	auto := r.auto
 	r.mu.Unlock()
 
 	title := ""
@@ -602,10 +619,8 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 	}
 	r.flushThought()
 
-	if auto {
-		if resp, handled := r.autoResolve(req, reqID, title); handled {
-			return resp, nil
-		}
+	if resp, handled := r.autoResolve(req, reqID, title); handled {
+		return resp, nil
 	}
 
 	r.persist(agentsession.RolePermission, title, agentsession.PermissionMeta{
@@ -904,12 +919,22 @@ func (r *runner) cancelTurn() {
 	_ = r.acp.Cancel(r.ctx, r.session.ID)
 }
 
-// setAuto toggles classifier-based auto approval for the runtime.
-func (r *runner) setAuto(v bool) {
+func (r *runner) permMode() string {
 	r.mu.Lock()
-	r.auto = v
+	defer r.mu.Unlock()
+	return automode.NormalizeMode(r.mode)
+}
+
+// setPermMode selects how tool calls are approved for this chat.
+func (r *runner) setPermMode(mode string) {
+	mode = automode.NormalizeMode(mode)
+	r.mu.Lock()
+	r.mode = mode
+	rt := r.rt
 	r.mu.Unlock()
-	r.rt.SetAutoMode(v)
+	if rt != nil {
+		rt.SetPermMode(mode)
+	}
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -1012,12 +1037,12 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 		ctx:     ctx,
 		cancel:  cancel,
 		clients: make(map[*streamClient]struct{}),
-		auto:    true,
+		mode:    automode.ModeDecide,
 		perms:   make(map[string]*permWait),
 	}
 	rt.SetEventHandler(r.onEvent)
 	rt.SetPermissionHandler(r.onPermission)
-	rt.SetAutoMode(true)
+	rt.SetPermMode(automode.ModeDecide)
 	h.runners[sess.ID] = r
 	return r, nil
 }

@@ -86,7 +86,7 @@ func permTestRunner(t *testing.T, eval automode.Evaluator) (*runner, *agentsessi
 		handler: &Handler{Store: store, AutoMode: eval},
 		session: sess,
 		ctx:     ctx,
-		auto:    true,
+		mode:    automode.ModeDecide,
 		perms:   make(map[string]*permWait),
 	}
 	return r, store
@@ -307,7 +307,7 @@ func (s *stubPush) Notify(_ context.Context, _ string, p webpush.Payload) {
 func TestRunnerAutoOffKeepsInteractivePath(t *testing.T) {
 	eval := &stubEvaluator{verdict: automode.Verdict{Decision: automode.Allow}}
 	r, store := permTestRunner(t, eval)
-	r.auto = false
+	r.mode = automode.ModeEdit
 
 	done := make(chan struct{})
 	go func() {
@@ -348,7 +348,7 @@ func TestRunnerAutoOffKeepsInteractivePath(t *testing.T) {
 func TestRunnerWaitsForPermissionWhenPushSubscribed(t *testing.T) {
 	eval := &stubEvaluator{verdict: automode.Verdict{Decision: automode.Allow}}
 	r, _ := permTestRunner(t, eval)
-	r.auto = false
+	r.mode = automode.ModeEdit
 	push := &stubPush{has: true}
 	r.handler.Push = push
 

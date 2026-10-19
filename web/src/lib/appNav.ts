@@ -88,13 +88,12 @@ export const ADMIN_SETTINGS_GROUPS: SettingsGroup[] = [
 
 export const ADMIN_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'general', labelKey: 'settings.section.general', group: 'access' },
-  { key: 'oauth', labelKey: 'settings.section.oauth', group: 'access' },
-  { key: 'plugins', labelKey: 'settings.section.plugins', group: 'access' },
+  // Federated login (GitHub / Gitea / the plugin that enables it) is hidden
+  // until we want it back. The pages stay in the codebase.
   { key: 'llmgw', labelKey: 'settings.section.llmgw', group: 'integrations' },
   { key: 'webtools', labelKey: 'settings.section.webtools', group: 'integrations' },
   { key: 'browser', labelKey: 'settings.section.browser', group: 'integrations' },
   { key: 'proxy', labelKey: 'settings.section.proxy', group: 'sandbox' },
-  { key: 'automode', labelKey: 'settings.section.automode', group: 'sandbox' },
   { key: 'system', labelKey: 'settings.section.system', group: 'sandbox' },
 ]
 

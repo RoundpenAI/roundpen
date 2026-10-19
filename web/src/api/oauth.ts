@@ -11,6 +11,10 @@ export type OAuthProviderOption = {
 export const oauthProviders = {
   list: () =>
     api<{ providers: OAuthProviderOption[] }>('/v1/auth/oauth/providers'),
+  // Providers a signed-in user can authorize, including the official GitHub
+  // relay. Not shown on the login page.
+  listLinkable: () =>
+    api<{ providers: OAuthProviderOption[] }>('/v1/me/oauth/providers'),
   startUrl: (id: string, redirect?: string) =>
     apiUrl(
       `/v1/auth/oauth/${encodeURIComponent(id)}/start${

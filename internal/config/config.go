@@ -49,6 +49,7 @@ type Config struct {
 	VAPIDSubject              string // mailto: or https: contact for VAPID
 	FnosGatewaySocket         string // fnOS unified-gateway Unix socket; empty = gateway SSO off
 	FnosGatewayPrefix         string // gateway path prefix the fnOS web console mounts at
+	GitHubOAuthRelay          string // official GitHub OAuth relay origin; empty = off
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -85,6 +86,7 @@ func Load() (*Config, error) {
 		VAPIDSubject:              strings.TrimSpace(os.Getenv("ROUNDPEN_VAPID_SUBJECT")),
 		FnosGatewaySocket:         strings.TrimSpace(os.Getenv("ROUNDPEN_FNOS_GATEWAY_SOCKET")),
 		FnosGatewayPrefix:         strings.TrimSpace(getenv("ROUNDPEN_FNOS_GATEWAY_PREFIX", "/app/roundpen")),
+		GitHubOAuthRelay:          githubOAuthRelay(os.Getenv("ROUNDPEN_GITHUB_OAUTH_RELAY")),
 	}
 	domain, scheme, err := parsePreviewDomain(os.Getenv("ROUNDPEN_PREVIEW_DOMAIN"))
 	if err != nil {
@@ -206,6 +208,20 @@ func validateDomain(host string) error {
 		}
 	}
 	return nil
+}
+
+// githubOAuthRelay is the shared official relay. Unset uses that host;
+// off/none disables it so an install can bring its own GitHub App instead.
+func githubOAuthRelay(raw string) string {
+	v := strings.TrimRight(strings.TrimSpace(raw), "/")
+	switch strings.ToLower(v) {
+	case "", "default":
+		return "https://auth.eaxi.com"
+	case "off", "none", "false", "0":
+		return ""
+	default:
+		return v
+	}
 }
 
 func getenv(key, fallback string) string {

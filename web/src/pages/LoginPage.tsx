@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Banner, Button, Input, Typography } from '@douyinfe/semi-ui-19'
-import { auth as authApi, oauthProviders, type OAuthProviderOption } from '../api'
+import { auth as authApi } from '../api'
 import { doLogin, useAuth } from '../auth'
 import { useT, type MessageKey } from '../i18n'
 import { LocaleToggle } from '../components/LocaleToggle'
@@ -38,7 +38,6 @@ export function LoginPage() {
   })
   const [errorRaw, setErrorRaw] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [providers, setProviders] = useState<OAuthProviderOption[]>([])
   const [defaultCreds, setDefaultCreds] = useState<{
     username: string
     password: string
@@ -46,14 +45,6 @@ export function LoginPage() {
 
   useEffect(() => {
     let alive = true
-    oauthProviders
-      .list()
-      .then((res) => {
-        if (alive) setProviders(res.providers ?? [])
-      })
-      .catch(() => {
-        /* no federated providers is a valid state */
-      })
     authApi
       .bootstrapHint()
       .then((hint) => {
@@ -195,35 +186,6 @@ export function LoginPage() {
             {t('login.submit')}
           </Button>
         </form>
-        {providers.length > 0 && (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              marginTop: 24,
-            }}
-          >
-            <Typography.Text
-              type="tertiary"
-              size="small"
-              style={{ textAlign: 'center' }}
-            >
-              {t('login.orContinue')}
-            </Typography.Text>
-            {providers.map((p) => (
-              <Button
-                key={p.id}
-                block
-                onClick={() =>
-                  window.location.assign(oauthProviders.startUrl(p.id, from))
-                }
-              >
-                {t('login.signInWith', { provider: p.label })}
-              </Button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   )

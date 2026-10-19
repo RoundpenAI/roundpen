@@ -184,6 +184,8 @@ func main() {
 	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 	pluginSvc := &plugins.Service{Settings: settingsSvc}
+	oauthSvc.GitHubRelay = cfg.GitHubOAuthRelay
+	oauthSvc.Install = installIdentity
 	oauthSvc.SelfHostedGitEnabled = func() bool { return pluginSvc.IsEnabled(plugins.SelfHostedGit) }
 	(&plugins.Handler{Svc: pluginSvc}).Mount(mux)
 

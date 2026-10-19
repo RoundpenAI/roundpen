@@ -61,8 +61,8 @@ type SysDeps struct {
 
 	History sysagent.MessageSource
 
-	// AutoMode classifies tool calls for the in-process System Agent when the
-	// chat Auto toggle is on (nil disables classifier-based auto approval).
+	// AutoMode classifies tool calls when the chat permission mode is
+	// "decide" (nil falls through to asking the user).
 	AutoMode automode.Evaluator
 
 	// Google is the per-user Gmail/Calendar connector (nil skips those tools).
@@ -89,9 +89,9 @@ type Runtime struct {
 	// Postgres transcript preamble (same projection as System Agent).
 	seedHistory bool
 
-	// setSysAuto flips classifier-based auto approval on the in-process
-	// System Agent; nil for external (stdio) runtimes.
-	setSysAuto func(bool)
+	// setSysMode sets how the in-process System Agent approves tool calls;
+	// nil for external (stdio) runtimes.
+	setSysMode func(string)
 
 	// steerFunc injects a mid-turn user message into the running turn; nil for
 	// providers without mid-turn injection (external agents).
@@ -355,7 +355,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 	}
 	if sysAgent != nil {
 		sid := string(sess.SessionId)
-		rt.setSysAuto = func(on bool) { sysAgent.SetAutoMode(sid, on) }
+		rt.setSysMode = func(mode string) { sysAgent.SetPermMode(sid, mode) }
 		rt.steerFunc = func(text string) error { return sysAgent.SteerSession(sid, text) }
 	}
 	m.mu.Lock()
@@ -393,13 +393,22 @@ func (rt *Runtime) SetPermissionHandler(fn func(acp.RequestPermissionRequest) (a
 	rt.bridge.SetPermissionHandler(fn)
 }
 
-// SetAutoMode toggles classifier-based auto approval. The in-process System
-// Agent consults the policy evaluator itself; external agents are classified
-// by the runner's permission handler instead.
-func (rt *Runtime) SetAutoMode(v bool) {
-	if rt.setSysAuto != nil {
-		rt.setSysAuto(v)
+// SetPermMode selects how tool calls are approved. The in-process System
+// Agent applies it itself; external agents are handled by the runner.
+func (rt *Runtime) SetPermMode(mode string) {
+	if rt.setSysMode != nil {
+		rt.setSysMode(mode)
 	}
+}
+
+// SetAutoMode keeps the old on/off switch: on is the classifier, off allows
+// workspace edits and asks about every other tool.
+func (rt *Runtime) SetAutoMode(v bool) {
+	mode := automode.ModeEdit
+	if v {
+		mode = automode.ModeDecide
+	}
+	rt.SetPermMode(mode)
 }
 
 // SteerCapable reports whether the runtime can inject mid-turn messages.

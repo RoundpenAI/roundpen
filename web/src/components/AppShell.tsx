@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Layout, SideSheet, Typography } from '@douyinfe/semi-ui-19'
 import {
@@ -24,6 +24,12 @@ import {
 } from '../lib/appNav'
 
 const { Sider, Content } = Layout
+
+const OpenAppMenuContext = createContext<(() => void) | null>(null)
+
+export function useOpenAppMenu(): () => void {
+  return useContext(OpenAppMenuContext) ?? (() => {})
+}
 
 function menuIcon(id: PrimaryMenuId) {
   if (id === 'projects') return <IconApps />
@@ -152,7 +158,10 @@ export function AppShell() {
     </div>
   )
 
+  const inAssistant = location.pathname.startsWith('/a')
+
   return (
+    <OpenAppMenuContext.Provider value={() => setMobileOpen(true)}>
     <Layout style={{ height: '100%', background: 'var(--semi-color-bg-0)' }}>
       <Sider
         className="rp-app-primary-desktop"
@@ -181,6 +190,7 @@ export function AppShell() {
         })}
       </SideSheet>
       <Layout>
+        {!inAssistant && (
         <div
           className="rp-app-mobile-bar"
           style={{
@@ -201,6 +211,7 @@ export function AppShell() {
             Roundpen
           </Typography.Text>
         </div>
+        )}
         <Content
           className="rp-app-content"
           style={{
@@ -230,5 +241,6 @@ export function AppShell() {
         }
       `}</style>
     </Layout>
+    </OpenAppMenuContext.Provider>
   )
 }

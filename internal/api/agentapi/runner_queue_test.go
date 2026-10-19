@@ -66,7 +66,6 @@ func queueTestRunner(t *testing.T, llmURL string) (*runner, *agentsession.Store)
 		ctx:     ctx,
 		cancel:  func() {},
 		clients: map[*streamClient]struct{}{},
-		auto:    true,
 		perms:   map[string]*permWait{},
 	}
 	return r, store

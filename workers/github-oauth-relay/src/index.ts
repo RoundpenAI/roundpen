@@ -67,7 +67,7 @@ async function start(req: Request, env: Env): Promise<Response> {
       clientId: env.GITHUB_CLIENT_ID,
       redirectUri: publicCallback(env),
       state: sealed,
-      scopes: env.GITHUB_SCOPES || 'read:user user:email',
+      scopes: env.GITHUB_SCOPES || 'repo read:user user:email',
       challenge,
     }),
   })

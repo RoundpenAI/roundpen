@@ -15,8 +15,8 @@ npx wrangler login
 ```
 
 1. 在 GitHub 建 **一个** GitHub App 或 OAuth App  
-   - Callback / redirect：`https://auth.roundpen.ai/github/callback`（改成你的 Worker 域名）  
-   - 权限只要登录：`Account permissions → Email addresses: Read`，不要给 `contents: write`
+   - Callback / redirect：`https://auth.eaxi.com/github/callback`  
+   - 权限要能操作仓库：OAuth App scopes `repo read:user user:email`（或 GitHub App 的 Contents 读写）。这是用户授权自己的仓库，不是登录 Roundpen。
 2. `wrangler.toml` 里把 `PUBLIC_BASE` 改成同一 origin
 3. 写入密钥（不要进 git）：
 
@@ -32,13 +32,15 @@ npx wrangler secret put STATE_SECRET   # 长随机串，给 OAuth state HMAC
 npx wrangler deploy
 ```
 
-`GET https://auth.roundpen.ai/health` 应返回 `{"ok":true}`。
+`GET https://auth.eaxi.com/health` 应返回 `{"ok":true}`。
 
-## NAS 合同（控制面尚未接线）
+控制面默认把 `ROUNDPEN_GITHUB_OAUTH_RELAY` 指到这个 origin。设成 `off` 则不提供官方 GitHub 授权。这不是登录方式：已登录用户在「关联账号」里授权，令牌注入 Agent 沙箱（`git` / `gh`）。
+
+## NAS 合同
 
 安装身份与 FREE 模型相同：`rp1.<install_id>.<exp>.<sig>`，公钥头 `X-Roundpen-Install-Pub`。首次见该 `install_id` 会 TOFU 记下公钥。
 
-**1. 用户点「使用 GitHub 登录」—— NAS 出站：**
+**1. 已登录用户点「去绑定」—— NAS 出站：**
 
 ```http
 POST /github/start
@@ -77,13 +79,13 @@ X-Roundpen-Install-Pub: <64 hex>
   "email": "…",
   "accessToken": "ghu_…",
   "tokenType": "bearer",
-  "scope": "read:user,user:email",
+  "scope": "repo,read:user,user:email",
   "refreshToken": "…",
   "expiresIn": 28800
 }
 ```
 
-404：过期、已领过、或不是这台安装的票。拿到后按现有联合登录建 session；token 只进 `user_identities`，不要写进对话或 memory。
+404：过期、已领过、或不是这台安装的票。token 只进该用户的 `user_identities`，注入沙箱给 git/gh 用，不要写进对话或 memory。
 
 ## 本地
 
