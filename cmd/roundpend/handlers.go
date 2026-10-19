@@ -38,6 +38,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/mcp"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
+	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/project"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
@@ -540,6 +541,16 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 		History:      agentStore,
 		Google:       connectorsSvc,
 		MCP:          mcpSvc,
+		PolicyFor: func(ctx context.Context, userID, assistantID string) *policy.Profile {
+			if assistantStore == nil || assistantID == "" {
+				return nil
+			}
+			a, err := assistantStore.Get(ctx, assistantID)
+			if err != nil || a == nil || a.UserID != userID {
+				return nil
+			}
+			return assistant.PolicyProfile(a)
+		},
 
 		Roundpen: &tools.RoundpenBinder{
 			Envs:      envSvc,

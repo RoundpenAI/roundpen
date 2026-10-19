@@ -190,13 +190,18 @@ func (h *Handler) EnsureCoordinatorRuntime(ctx context.Context, user *storage.Us
 		h.deleteRunner(sessionID)
 		h.ACP.Stop(sessionID)
 	}
+	assistantID := ""
+	if sess, err := h.Store.Get(ctx, sessionID); err == nil && sess != nil {
+		assistantID = sess.AssistantID
+	}
 	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
 			Username: user.Username,
 			Role:     string(user.Role),
 			APIKey:   user.APIKey,
 		},
-		Project: manager.ProjectStart{Profile: "coordinator"},
+		AssistantID: assistantID,
+		Project:     manager.ProjectStart{Profile: "coordinator"},
 	})
 	return err
 }
@@ -242,13 +247,18 @@ func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, se
 		h.deleteRunner(sessionID)
 		h.ACP.Stop(sessionID)
 	}
+	assistantID := ""
+	if sess, err := h.Store.Get(ctx, sessionID); err == nil && sess != nil {
+		assistantID = sess.AssistantID
+	}
 	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
 			Username: user.Username,
 			Role:     string(user.Role),
 			APIKey:   user.APIKey,
 		},
-		Project: manager.ProjectStart{Profile: profile},
+		AssistantID: assistantID,
+		Project:     manager.ProjectStart{Profile: profile},
 	})
 	return err
 }
@@ -269,13 +279,18 @@ func (h *Handler) ResumeRoutine(ctx context.Context, user *storage.User, session
 }
 
 func (h *Handler) startRoutineRuntime(ctx context.Context, user *storage.User, sessionID, runKey, autonomy string) error {
+	assistantID := ""
+	if sess, err := h.Store.Get(ctx, sessionID); err == nil && sess != nil {
+		assistantID = sess.AssistantID
+	}
 	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
 			Username: user.Username,
 			Role:     string(user.Role),
 			APIKey:   user.APIKey,
 		},
-		Routine: manager.RoutineStart{RunKey: runKey, Autonomy: autonomy},
+		AssistantID: assistantID,
+		Routine:     manager.RoutineStart{RunKey: runKey, Autonomy: autonomy},
 	})
 	return err
 }
@@ -328,8 +343,9 @@ func (h *Handler) startSession(ctx context.Context, user *storage.User, title, p
 		APIKey:   user.APIKey,
 	}
 	if _, err := h.ACP.Start(ctx, sess.ID, sandboxID, providerID, manager.StartOpts{
-		Actor:   actor,
-		Project: manager.ProjectStart{Profile: profile},
+		Actor:       actor,
+		AssistantID: sess.AssistantID,
+		Project:     manager.ProjectStart{Profile: profile},
 	}); err != nil {
 		return nil, &sessionStartError{Code: http.StatusBadGateway, Msg: "start agent: " + err.Error()}
 	}
