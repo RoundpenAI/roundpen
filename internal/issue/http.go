@@ -154,6 +154,7 @@ func (h *Handler) patchIssue(w http.ResponseWriter, r *http.Request) {
 		Status  *string `json:"status"`
 		Title   *string `json:"title"`
 		Summary *string `json:"summary"`
+		PRURL   *string `json:"prUrl"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -178,6 +179,7 @@ func (h *Handler) patchIssue(w http.ResponseWriter, r *http.Request) {
 		Status:  body.Status,
 		Title:   body.Title,
 		Summary: body.Summary,
+		PRURL:   body.PRURL,
 	})
 	if err != nil {
 		writeStoreErr(w, err)

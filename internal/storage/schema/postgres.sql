@@ -418,6 +418,7 @@ CREATE TABLE IF NOT EXISTS issues (
     session_id   TEXT NOT NULL DEFAULT '',
     title        TEXT NOT NULL,
     summary      TEXT NOT NULL DEFAULT '',
+    pr_url       TEXT NOT NULL DEFAULT '',
     status       TEXT NOT NULL DEFAULT 'drafting'
         CHECK (status IN ('drafting', 'specced', 'planned', 'in_progress', 'done', 'cancelled')),
     origin       TEXT NOT NULL DEFAULT 'chat'
@@ -426,6 +427,7 @@ CREATE TABLE IF NOT EXISTS issues (
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     closed_at    TIMESTAMPTZ
 );
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS pr_url TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS issues_user_status_idx ON issues (user_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS issues_assistant_idx ON issues (assistant_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS issues_session_idx ON issues (session_id) WHERE session_id <> '';

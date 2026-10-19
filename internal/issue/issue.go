@@ -60,6 +60,7 @@ type Issue struct {
 	ProjectID   string     `json:"projectId,omitempty"`
 	Title       string     `json:"title"`
 	Summary     string     `json:"summary"`
+	PRURL       string     `json:"prUrl,omitempty"`
 	Status      string     `json:"status"`
 	Origin      string     `json:"origin"`
 	CreatedAt   time.Time  `json:"createdAt"`

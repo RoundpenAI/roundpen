@@ -9,12 +9,15 @@ import (
 )
 
 func TestRequiresConfirm(t *testing.T) {
-	for _, name := range []string{"Bash", "bash", "browser_type", "browser_click", "browser_evaluate", "Bash · note"} {
+	for _, name := range []string{
+		"Bash", "bash", "browser_type", "browser_click", "browser_evaluate", "Bash · note",
+		"GitPush", "CreatePullRequest", "MergePullRequest",
+	} {
 		if !automode.RequiresConfirm(name) {
 			t.Fatalf("RequiresConfirm(%q) = false", name)
 		}
 	}
-	for _, name := range []string{"Write", "CreateIssue", "browser_navigate", "browser_snapshot", ""} {
+	for _, name := range []string{"Write", "CreateIssue", "browser_navigate", "browser_snapshot", "GitCommit", ""} {
 		if automode.RequiresConfirm(name) {
 			t.Fatalf("RequiresConfirm(%q) = true", name)
 		}

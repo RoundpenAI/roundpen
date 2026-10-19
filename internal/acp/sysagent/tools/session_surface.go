@@ -92,6 +92,7 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 		RegisterSkill(reg, s.Agent, s.WebHTTP)
 		RegisterFiles(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
+		RegisterGitPR(reg, s.Agent)
 	}
 	RegisterInteractive(reg)
 	if s.Web != nil {
@@ -130,6 +131,7 @@ func registerImplementerTools(reg *Registry, s SessionSurface) {
 		RegisterSkill(reg, s.Agent, s.WebHTTP)
 		RegisterFiles(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
+		RegisterGitPR(reg, s.Agent)
 	}
 	RegisterInteractive(reg)
 	if s.Web != nil {

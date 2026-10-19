@@ -9,6 +9,7 @@ export type Issue = {
   projectId?: string
   title: string
   summary: string
+  prUrl?: string
   status:
     | 'drafting'
     | 'specced'
@@ -72,7 +73,7 @@ export const issues = {
     ),
   update: (
     key: string,
-    body: { status?: string; title?: string; summary?: string },
+    body: { status?: string; title?: string; summary?: string; prUrl?: string },
   ) =>
     api<{ issue: Issue }>(`/v1/issues/${key}`, {
       method: 'PATCH',

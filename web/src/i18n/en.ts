@@ -797,6 +797,11 @@ export const en = {
   'issues.task.markCancelled': 'Cancel task',
   'issues.task.reopen': 'Reopen',
 
+  'chat.delivery.label': 'Deliver changes',
+  'chat.delivery.hint':
+    'Always open a GitHub PR — never push straight to the default branch. Push/PR/merge ask for confirmation.',
+  'chat.delivery.openPR': 'Commit · Push · Open PR',
+  'chat.delivery.mergePR': 'Merge PR',
   'chat.perm.label': 'Tool permission',
   'chat.perm.edit': 'Allow edits',
   'chat.perm.decide': 'Model decides',
