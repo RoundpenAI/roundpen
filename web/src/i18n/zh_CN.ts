@@ -269,6 +269,8 @@ export const zh_CN: Record<MessageKey, string> = {
   'connectors.google': 'Google（Gmail + 日历）',
   'connectors.googleHelp':
     '授权回调 URI 必须完全一致。申请的权限：gmail.readonly 与 calendar.readonly。',
+  'connectors.officialHelp':
+    '这台 Roundpen 使用共享的 Google 应用（只读 Gmail 与日历）。可以直接连接；若填写自己的客户端 ID 和密钥，则改用你的私有 OAuth 客户端。',
   'connectors.callbackUrl': '授权回调 URI',
   'connectors.callbackHint': '复制到 Google Cloud OAuth 客户端的「已授权的重定向 URI」。',
   'connectors.clientId': '客户端 ID',

@@ -1,4 +1,4 @@
-import type { Ticket } from './types'
+import type { Profile, TokenResult } from './types'
 
 export function authorizeURL(opts: {
   clientId: string
@@ -24,13 +24,7 @@ export async function exchangeCode(opts: {
   redirectUri: string
   code: string
   verifier: string
-}): Promise<{
-  access_token: string
-  token_type?: string
-  scope?: string
-  refresh_token?: string
-  expires_in?: number
-}> {
+}): Promise<TokenResult> {
   const res = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
     headers: {
@@ -66,7 +60,46 @@ export async function exchangeCode(opts: {
   }
 }
 
-export async function githubProfile(accessToken: string): Promise<Pick<Ticket, 'login' | 'name' | 'email'>> {
+export async function refreshToken(opts: {
+  clientId: string
+  clientSecret: string
+  refreshToken: string
+}): Promise<TokenResult> {
+  const res = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      client_id: opts.clientId,
+      client_secret: opts.clientSecret,
+      refresh_token: opts.refreshToken,
+    }),
+  })
+  const body = (await res.json()) as {
+    error?: string
+    error_description?: string
+    access_token?: string
+    token_type?: string
+    scope?: string
+    refresh_token?: string
+    expires_in?: number
+  }
+  if (!res.ok || !body.access_token) {
+    throw new Error(body.error_description || body.error || `github token refresh HTTP ${res.status}`)
+  }
+  return {
+    access_token: body.access_token,
+    token_type: body.token_type,
+    scope: body.scope,
+    refresh_token: body.refresh_token,
+    expires_in: body.expires_in,
+  }
+}
+
+export async function githubProfile(accessToken: string): Promise<Profile> {
   const me = await ghJSON<{ login?: string; name?: string; email?: string }>(accessToken, 'https://api.github.com/user')
   const login = (me.login || '').trim()
   if (!login) throw new Error('github profile missing login')
@@ -80,7 +113,7 @@ export async function githubProfile(accessToken: string): Promise<Pick<Ticket, '
     const verified = emails.filter((e) => e.verified && e.email)
     email = (verified.find((e) => e.primary)?.email || verified[0]?.email || '').trim()
   }
-  return { login, name: (me.name || '').trim(), email }
+  return { subject: login, login, name: (me.name || '').trim(), email }
 }
 
 async function ghJSON<T>(accessToken: string, url: string): Promise<T> {

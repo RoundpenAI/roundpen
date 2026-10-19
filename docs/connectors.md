@@ -7,12 +7,21 @@ access. This is separate from GitHub/Gitea OAuth login (`docs/auth.md`).
 
 | Piece | Who configures it |
 |-------|-------------------|
-| Google Cloud OAuth client (Client ID + Secret) | Each Roundpen user (bring your own) |
+| Shared Google OAuth client | Official relay (`ROUNDPEN_OAUTH_RELAY`, default `https://auth.eaxi.com`) |
+| Optional private Google client (Client ID + Secret) | The user. When set, it replaces the shared app for that user |
 | Consent + tokens | User connects under **Settings → Connectors** |
 | Agent tools | System Agent: `GmailSearch`, `GmailGet`, `CalendarListEvents`, `CalendarGetEvent` |
 
-There is **no** instance-wide Google OAuth app and **no** send-mail / write-calendar
-tools in this MVP.
+There are **no** send-mail / write-calendar tools in this MVP.
+
+When the relay is on and the user has not saved a private client, **Connect Google**
+starts at `POST /oauth/google/start`. The browser returns to
+`/v1/connectors/google/cloud/callback`. The grant's `source` is `relay`, and
+access-token refresh goes to `POST /oauth/google/refresh` so the client secret
+stays on the worker. The relay binds the one-time ticket to this install and to
+the NAS CSRF state, and binds the refresh token to this install. Set
+`ROUNDPEN_OAUTH_RELAY=off` to require a private client. `ROUNDPEN_GITHUB_OAUTH_RELAY`
+is still accepted as a legacy alias for the same origin.
 
 ## Setup (per user)
 
@@ -67,3 +76,4 @@ user removes the client.
 | POST | `/v1/me/connectors/google/connect` |
 | DELETE | `/v1/me/connectors/google` |
 | GET | `/v1/connectors/google/callback` (public; PKCE state binds the user) |
+| GET | `/v1/connectors/google/cloud/callback` (public; relay ticket + NAS state) |

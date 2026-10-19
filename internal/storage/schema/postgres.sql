@@ -703,10 +703,12 @@ CREATE TABLE IF NOT EXISTS user_connector_grants (
     refresh_token    TEXT NOT NULL DEFAULT '',
     token_expires_at TIMESTAMPTZ,
     scopes           TEXT NOT NULL DEFAULT '',
+    source           TEXT NOT NULL DEFAULT '',
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (user_id, kind)
 );
+ALTER TABLE user_connector_grants ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS user_connector_grants_user_idx ON user_connector_grants (user_id);
 
 CREATE TABLE IF NOT EXISTS connector_oauth_states (

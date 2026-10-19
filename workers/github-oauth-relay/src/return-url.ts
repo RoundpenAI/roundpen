@@ -46,8 +46,16 @@ export function isLocalOrPrivateHost(hostname: string): boolean {
   return false
 }
 
-export function nasCloudCallback(origin: string, query: Record<string, string>): string {
-  const u = new URL('/v1/auth/oauth/github/cloud/callback', origin + '/')
+const NAS_CALLBACKS = new Set([
+  '/v1/auth/oauth/github/cloud/callback',
+  '/v1/connectors/google/cloud/callback',
+])
+
+export function nasCloudCallback(origin: string, callbackPath: string, query: Record<string, string>): string {
+  if (!NAS_CALLBACKS.has(callbackPath)) {
+    throw new Error('callback path is not registered')
+  }
+  const u = new URL(callbackPath, origin + '/')
   for (const [k, v] of Object.entries(query)) {
     if (v) u.searchParams.set(k, v)
   }

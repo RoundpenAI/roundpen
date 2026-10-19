@@ -272,6 +272,8 @@ export const en = {
   'connectors.google': 'Google (Gmail + Calendar)',
   'connectors.googleHelp':
     'Authorized redirect URI must match exactly. Scopes requested: gmail.readonly and calendar.readonly.',
+  'connectors.officialHelp':
+    'This Roundpen uses the shared Google app (read-only Gmail and Calendar). Connect directly, or save your own Client ID and Secret to use a private OAuth client instead.',
   'connectors.callbackUrl': 'Authorized redirect URI',
   'connectors.callbackHint': 'Paste this into your Google Cloud OAuth client.',
   'connectors.clientId': 'Client ID',

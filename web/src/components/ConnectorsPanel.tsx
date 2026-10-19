@@ -142,7 +142,9 @@ export function ConnectorsPanel() {
   }
 
   const hasClient = Boolean(status?.hasClient || client?.clientId)
+  const official = Boolean(status?.official)
   const connected = Boolean(status?.connected)
+  const canConnect = hasClient || official
 
   return (
     <div style={sectionGap}>
@@ -167,7 +169,7 @@ export function ConnectorsPanel() {
           {t('connectors.google')}
         </Typography.Title>
         <Typography.Paragraph type="tertiary" style={{ margin: 0 }}>
-          {t('connectors.googleHelp')}
+          {official && !hasClient ? t('connectors.officialHelp') : t('connectors.googleHelp')}
         </Typography.Paragraph>
 
         <div>
@@ -246,7 +248,7 @@ export function ConnectorsPanel() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           <Button
             theme="solid"
-            disabled={!hasClient || !!busy}
+            disabled={!canConnect || !!busy}
             loading={busy === 'connect'}
             onClick={() => void onConnect()}
           >

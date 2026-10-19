@@ -4,6 +4,7 @@ export type ConnectorStatus = {
   kind: string
   connected: boolean
   hasClient: boolean
+  official?: boolean
   email?: string
   subject?: string
   scopes?: string

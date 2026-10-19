@@ -30,15 +30,19 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/me/connectors/google/connect", h.connect)
 	mux.HandleFunc("DELETE /v1/me/connectors/google", h.disconnect)
 	mux.HandleFunc("GET /v1/connectors/google/callback", h.callback)
+	mux.HandleFunc("GET /v1/connectors/google/cloud/callback", h.cloudCallback)
 }
 
 type connectorStatusView struct {
 	Kind      string `json:"kind"`
 	Connected bool   `json:"connected"`
 	HasClient bool   `json:"hasClient"`
-	Email     string `json:"email,omitempty"`
-	Subject   string `json:"subject,omitempty"`
-	Scopes    string `json:"scopes,omitempty"`
+	// Official is true when this install can connect through the shared relay
+	// without a user-owned Google client.
+	Official bool   `json:"official"`
+	Email    string `json:"email,omitempty"`
+	Subject  string `json:"subject,omitempty"`
+	Scopes   string `json:"scopes,omitempty"`
 }
 
 type clientView struct {
@@ -59,7 +63,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
-	view := connectorStatusView{Kind: KindGoogle, HasClient: hasClient}
+	view := connectorStatusView{Kind: KindGoogle, HasClient: hasClient, Official: h.Svc.Official()}
 	if grant != nil {
 		view.Connected = true
 		view.Email = grant.Email
@@ -201,6 +205,27 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		slog.Warn("google connector callback", "err", err)
+		target := redirectTo
+		if target == "" {
+			target = "/settings/connectors"
+		}
+		http.Redirect(w, r, withQuery(target, "google", errorCode(err)), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, withQuery(redirectTo, "google", "linked"), http.StatusFound)
+}
+
+func (h *Handler) cloudCallback(w http.ResponseWriter, r *http.Request) {
+	if e := r.URL.Query().Get("error"); e != "" {
+		http.Redirect(w, r, connectorsErrorPath("denied"), http.StatusFound)
+		return
+	}
+	redirectTo, err := h.Svc.HandleCloudCallback(r.Context(),
+		r.URL.Query().Get("ticket"),
+		r.URL.Query().Get("state"),
+	)
+	if err != nil {
+		slog.Warn("google cloud callback", "err", err)
 		target := redirectTo
 		if target == "" {
 			target = "/settings/connectors"

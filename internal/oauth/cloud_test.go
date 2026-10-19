@@ -45,6 +45,9 @@ func TestCloudGitHubLinkInjectsRepoToken(t *testing.T) {
 				"authorizeUrl": "https://github.com/login/oauth/authorize?state=" + body.State,
 			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/tickets/"):
+			if r.URL.Query().Get("state") == "" {
+				t.Errorf("ticket redeem missing state")
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"login": "octocat", "name": "Octo", "email": "octo@example.test",
 				"accessToken": "gho_operate", "scope": "repo,read:user,user:email",

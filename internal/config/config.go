@@ -27,10 +27,10 @@ type Config struct {
 	DockerHost                string
 	DockerRuntime             string // e.g. runc, runsc; empty = daemon default
 	DefaultImage              string
-	DefaultBrowserTemplate    string // browser slot template name (default "browser")
-	DefaultAgentTemplate      string // agent slot template name (default code-agent)
-	AgentImage                string // default agent OCI image ref
-	BrowserImage              string // default browser OCI image
+	DefaultBrowserTemplate    string         // browser slot template name (default "browser")
+	DefaultAgentTemplate      string         // agent slot template name (default code-agent)
+	AgentImage                string         // default agent OCI image ref
+	BrowserImage              string         // default browser OCI image
 	ImageMirrors              string         // ROUNDPEN_IMAGE_MIRRORS: comma templates, or none/off
 	ImageMirrorRaceDelay      *time.Duration // nil=default 15s; 0=disable race; ROUNDPEN_IMAGE_MIRROR_RACE_DELAY
 	DefaultTTL                time.Duration
@@ -49,7 +49,7 @@ type Config struct {
 	VAPIDSubject              string // mailto: or https: contact for VAPID
 	FnosGatewaySocket         string // fnOS unified-gateway Unix socket; empty = gateway SSO off
 	FnosGatewayPrefix         string // gateway path prefix the fnOS web console mounts at
-	GitHubOAuthRelay          string // official GitHub OAuth relay origin; empty = off
+	OAuthRelay                string // shared official OAuth relay origin; empty = off
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -86,7 +86,7 @@ func Load() (*Config, error) {
 		VAPIDSubject:              strings.TrimSpace(os.Getenv("ROUNDPEN_VAPID_SUBJECT")),
 		FnosGatewaySocket:         strings.TrimSpace(os.Getenv("ROUNDPEN_FNOS_GATEWAY_SOCKET")),
 		FnosGatewayPrefix:         strings.TrimSpace(getenv("ROUNDPEN_FNOS_GATEWAY_PREFIX", "/app/roundpen")),
-		GitHubOAuthRelay:          githubOAuthRelay(os.Getenv("ROUNDPEN_GITHUB_OAUTH_RELAY")),
+		OAuthRelay:                oauthRelay(os.Getenv("ROUNDPEN_OAUTH_RELAY"), os.Getenv("ROUNDPEN_GITHUB_OAUTH_RELAY")),
 	}
 	domain, scheme, err := parsePreviewDomain(os.Getenv("ROUNDPEN_PREVIEW_DOMAIN"))
 	if err != nil {
@@ -229,10 +229,15 @@ func validateDomain(host string) error {
 	return nil
 }
 
-// githubOAuthRelay is the shared official relay. Unset uses that host;
-// off/none disables it so an install can bring its own GitHub App instead.
-func githubOAuthRelay(raw string) string {
-	v := strings.TrimRight(strings.TrimSpace(raw), "/")
+// oauthRelay is the shared official relay (GitHub, Google, …).
+// ROUNDPEN_OAUTH_RELAY wins; ROUNDPEN_GITHUB_OAUTH_RELAY remains as a legacy alias.
+// Unset uses the public host. off/none disables it so an install can bring its own apps.
+func oauthRelay(primary, legacy string) string {
+	raw := strings.TrimSpace(primary)
+	if raw == "" {
+		raw = legacy
+	}
+	v := strings.TrimRight(raw, "/")
 	switch strings.ToLower(v) {
 	case "", "default":
 		return "https://auth.eaxi.com"

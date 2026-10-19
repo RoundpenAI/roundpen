@@ -81,7 +81,7 @@ func (s *Store) GetGrant(ctx context.Context, userID, kind string) (*Grant, erro
 	}
 	row := s.DB.QueryRowContext(ctx, `
 		SELECT id, user_id, kind, subject, email, access_token, refresh_token,
-		       token_expires_at, scopes, created_at, updated_at
+		       token_expires_at, scopes, source, created_at, updated_at
 		FROM user_connector_grants WHERE user_id=$1 AND kind=$2`, userID, kind)
 	g, err := scanGrant(row)
 	if err != nil {
@@ -105,8 +105,8 @@ func (s *Store) UpsertGrant(ctx context.Context, g Grant) (*Grant, error) {
 	_, err := s.DB.ExecContext(ctx, `
 		INSERT INTO user_connector_grants (
 			id, user_id, kind, subject, email, access_token, refresh_token,
-			token_expires_at, scopes, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+			token_expires_at, scopes, source, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
 		ON CONFLICT (user_id, kind) DO UPDATE SET
 			subject=EXCLUDED.subject,
 			email=EXCLUDED.email,
@@ -114,9 +114,10 @@ func (s *Store) UpsertGrant(ctx context.Context, g Grant) (*Grant, error) {
 			refresh_token=COALESCE(NULLIF(EXCLUDED.refresh_token,''), user_connector_grants.refresh_token),
 			token_expires_at=EXCLUDED.token_expires_at,
 			scopes=EXCLUDED.scopes,
+			source=EXCLUDED.source,
 			updated_at=EXCLUDED.updated_at`,
 		g.ID, g.UserID, g.Kind, g.Subject, g.Email, g.AccessToken, g.RefreshToken,
-		nullTime(g.TokenExpiresAt), g.Scopes, now)
+		nullTime(g.TokenExpiresAt), g.Scopes, g.Source, now)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +208,7 @@ func scanGrant(row scannable) (Grant, error) {
 	var exp sql.NullTime
 	err := row.Scan(
 		&g.ID, &g.UserID, &g.Kind, &g.Subject, &g.Email,
-		&g.AccessToken, &g.RefreshToken, &exp, &g.Scopes,
+		&g.AccessToken, &g.RefreshToken, &exp, &g.Scopes, &g.Source,
 		&g.CreatedAt, &g.UpdatedAt,
 	)
 	if err != nil {

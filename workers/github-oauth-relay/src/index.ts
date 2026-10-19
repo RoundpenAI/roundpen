@@ -1,5 +1,13 @@
-import { authorizeURL, exchangeCode, githubProfile, pkcePair } from './github'
 import { browserError } from './html'
+import { pkcePair } from './github'
+import {
+  providerFromCallback,
+  providerFromRefresh,
+  providerFromStart,
+  resolveProvider,
+  selectScopes,
+  type Provider,
+} from './providers'
 import { nasCloudCallback, parseReturnOrigin } from './return-url'
 import { verifyRp1 } from './rp1'
 import { openState, sealState } from './state'
@@ -8,8 +16,6 @@ import type { Env, StartBody, Ticket } from './types'
 
 export { InstallDO, TicketDO }
 
-const CALLBACK_PATH = '/github/callback'
-
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     try {
@@ -17,8 +23,8 @@ export default {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'internal error'
       const url = new URL(req.url)
-      if (url.pathname === CALLBACK_PATH) {
-        return browserError('GitHub login failed', msg)
+      if (providerFromCallback(url.pathname)) {
+        return browserError('Authorization failed', msg)
       }
       return json({ error: msg }, 400)
     }
@@ -30,11 +36,17 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (req.method === 'GET' && url.pathname === '/health') {
     return json({ ok: true })
   }
-  if (url.pathname === '/github/start' && (req.method === 'POST' || req.method === 'GET')) {
-    return start(req, env)
+  const startId = providerFromStart(url.pathname)
+  if (startId && (req.method === 'POST' || req.method === 'GET')) {
+    return start(req, env, startId)
   }
-  if (req.method === 'GET' && url.pathname === CALLBACK_PATH) {
-    return callback(req, env)
+  const callbackId = providerFromCallback(url.pathname)
+  if (callbackId && req.method === 'GET') {
+    return callback(req, env, callbackId)
+  }
+  const refreshId = providerFromRefresh(url.pathname)
+  if (refreshId && req.method === 'POST') {
+    return refresh(req, env, refreshId)
   }
   const take = /^\/tickets\/([^/]+)$/.exec(url.pathname)
   if (take && req.method === 'GET') {
@@ -43,8 +55,8 @@ async function route(req: Request, env: Env): Promise<Response> {
   return json({ error: 'not found' }, 404)
 }
 
-async function start(req: Request, env: Env): Promise<Response> {
-  requireSecrets(env)
+async function start(req: Request, env: Env, providerId: string): Promise<Response> {
+  const provider = loadProvider(env, providerId)
   const inst = await verifyInstall(req, env)
   const body = await readStart(req)
   const origin = parseReturnOrigin(body.return)
@@ -52,6 +64,7 @@ async function start(req: Request, env: Env): Promise<Response> {
   if (!state || state.length > 256) {
     throw new Error('state is required (max 256 chars)')
   }
+  const scopes = selectScopes(provider, body.scopes || '')
 
   const { verifier, challenge } = await pkcePair()
   const sealed = await sealState(env.STATE_SECRET, {
@@ -61,22 +74,24 @@ async function start(req: Request, env: Env): Promise<Response> {
     st: state,
     exp: Math.floor(Date.now() / 1000) + 10 * 60,
     cv: verifier,
+    pv: provider.id,
+    cb: provider.nasCallbackPath,
   })
   return json({
-    authorizeUrl: authorizeURL({
-      clientId: env.GITHUB_CLIENT_ID,
-      redirectUri: publicCallback(env),
+    authorizeUrl: provider.authorize({
+      clientId: provider.clientId,
+      redirectUri: publicCallback(env, provider),
       state: sealed,
-      scopes: env.GITHUB_SCOPES || 'repo read:user user:email',
+      scopes,
       challenge,
     }),
   })
 }
 
-async function callback(req: Request, env: Env): Promise<Response> {
-  requireSecrets(env)
+async function callback(req: Request, env: Env, providerId: string): Promise<Response> {
+  const provider = loadProvider(env, providerId)
   const url = new URL(req.url)
-  const ghErr = url.searchParams.get('error')
+  const upstreamErr = url.searchParams.get('error')
   const rawState = url.searchParams.get('state') || ''
   let st: Awaited<ReturnType<typeof openState>> | null = null
   if (rawState) {
@@ -86,30 +101,39 @@ async function callback(req: Request, env: Env): Promise<Response> {
       st = null
     }
   }
-  if (ghErr) {
+  if (st && st.pv !== provider.id) {
+    return browserError('Authorization failed', 'This callback does not match the authorization that was started.')
+  }
+  if (upstreamErr) {
     if (st) {
       return redirect(
-        nasCloudCallback(st.ret, { error: ghErr === 'access_denied' ? 'denied' : 'failed', state: st.st }),
+        nasCloudCallback(st.ret, st.cb || provider.nasCallbackPath, {
+          error: upstreamErr === 'access_denied' ? 'denied' : 'failed',
+          state: st.st,
+        }),
       )
     }
-    return browserError('GitHub login cancelled', 'The GitHub authorization was denied or failed.')
+    return browserError('Authorization cancelled', 'The authorization was denied or failed.')
   }
 
   const code = url.searchParams.get('code') || ''
   if (!code || !st) {
-    return browserError('GitHub login failed', 'Missing authorization code or state.')
+    return browserError('Authorization failed', 'Missing authorization code or state.')
   }
 
-  const token = await exchangeCode({
-    clientId: env.GITHUB_CLIENT_ID,
-    clientSecret: env.GITHUB_CLIENT_SECRET,
-    redirectUri: publicCallback(env),
+  const token = await provider.exchange({
+    clientId: provider.clientId,
+    clientSecret: provider.clientSecret,
+    redirectUri: publicCallback(env, provider),
     code,
     verifier: st.cv,
   })
-  const profile = await githubProfile(token.access_token)
+  const profile = await provider.profile(token.access_token)
   const ticket: Ticket = {
     installId: st.inst,
+    nasState: st.st,
+    provider: provider.id,
+    subject: profile.subject,
     login: profile.login,
     name: profile.name,
     email: profile.email,
@@ -118,6 +142,13 @@ async function callback(req: Request, env: Env): Promise<Response> {
     scope: token.scope || '',
     refreshToken: token.refresh_token,
     expiresIn: token.expires_in,
+  }
+
+  if (ticket.refreshToken) {
+    const bound = await bindRefresh(env, ticket.refreshToken, ticket.installId, provider.id)
+    if (!bound.ok) {
+      return browserError('Authorization failed', 'Could not bind the refresh token to this install.')
+    }
   }
 
   const ticketId = randomId()
@@ -131,10 +162,49 @@ async function callback(req: Request, env: Env): Promise<Response> {
     }),
   )
   if (!put.ok) {
-    return browserError('GitHub login failed', 'Could not store the login ticket.')
+    return browserError('Authorization failed', 'Could not store the authorization ticket.')
   }
 
-  return redirect(nasCloudCallback(st.ret, { ticket: ticketId, state: st.st }))
+  return redirect(nasCloudCallback(st.ret, st.cb || provider.nasCallbackPath, { ticket: ticketId, state: st.st }))
+}
+
+async function refresh(req: Request, env: Env, providerId: string): Promise<Response> {
+  const provider = loadProvider(env, providerId)
+  const inst = await verifyInstall(req, env)
+  const raw = await req.json().catch(() => null)
+  const refreshToken =
+    raw && typeof raw === 'object' ? String((raw as { refreshToken?: unknown }).refreshToken || '') : ''
+  if (!refreshToken) {
+    return json({ error: 'refreshToken is required' }, 400)
+  }
+  const hash = await tokenHash(refreshToken)
+  const check = await installFetch(env, '/check', { hash, installId: inst.installId, provider: provider.id })
+  if (check.status === 404) {
+    return json({ error: 'refresh token not found' }, 404)
+  }
+  if (!check.ok) {
+    return json({ error: 'refresh token unavailable' }, check.status === 403 ? 403 : 400)
+  }
+  const token = await provider.refresh({
+    clientId: provider.clientId,
+    clientSecret: provider.clientSecret,
+    refreshToken,
+  })
+  const rotated = token.refresh_token && token.refresh_token !== refreshToken ? token.refresh_token : ''
+  if (rotated) {
+    const bound = await bindRefresh(env, rotated, inst.installId, provider.id)
+    if (!bound.ok) {
+      return json({ error: 'could not bind the rotated refresh token' }, 400)
+    }
+    await installFetch(env, '/unbind', { hash, installId: inst.installId, provider: provider.id })
+  }
+  return json({
+    accessToken: token.access_token,
+    tokenType: token.token_type || 'bearer',
+    scope: token.scope || '',
+    refreshToken: rotated,
+    expiresIn: token.expires_in,
+  })
 }
 
 async function takeTicket(req: Request, env: Env, ticketId: string): Promise<Response> {
@@ -142,8 +212,14 @@ async function takeTicket(req: Request, env: Env, ticketId: string): Promise<Res
     return json({ error: 'ticket not found' }, 404)
   }
   const inst = await verifyInstall(req, env)
+  const url = new URL(req.url)
+  const state = (url.searchParams.get('state') || '').trim()
+  if (!state) {
+    return json({ error: 'ticket not found' }, 404)
+  }
   const stub = env.TICKETS.get(env.TICKETS.idFromName(ticketId))
-  const res = await stub.fetch(new Request('https://tickets/take', { method: 'POST' }))
+  const takeURL = `https://tickets/take?install=${encodeURIComponent(inst.installId)}&state=${encodeURIComponent(state)}`
+  const res = await stub.fetch(new Request(takeURL, { method: 'POST' }))
   if (res.status === 404) {
     return json({ error: 'ticket not found' }, 404)
   }
@@ -151,10 +227,9 @@ async function takeTicket(req: Request, env: Env, ticketId: string): Promise<Res
     return json({ error: 'ticket unavailable' }, 400)
   }
   const ticket = (await res.json()) as Ticket
-  if (ticket.installId !== inst.installId) {
-    return json({ error: 'ticket not found' }, 404)
-  }
   return json({
+    provider: ticket.provider,
+    subject: ticket.subject,
     login: ticket.login,
     name: ticket.name,
     email: ticket.email,
@@ -172,6 +247,7 @@ async function readStart(req: Request): Promise<StartBody> {
     return {
       return: url.searchParams.get('return') || '',
       state: url.searchParams.get('state') || '',
+      scopes: url.searchParams.get('scopes') || '',
     }
   }
   const raw = await req.json().catch(() => null)
@@ -182,6 +258,7 @@ async function readStart(req: Request): Promise<StartBody> {
   return {
     return: String(body.return || ''),
     state: String(body.state || ''),
+    scopes: String(body.scopes || ''),
   }
 }
 
@@ -192,13 +269,7 @@ async function verifyInstall(req: Request, env: Env): Promise<{ installId: strin
     throw new Error('Authorization Bearer rp1 token and X-Roundpen-Install-Pub are required')
   }
   const parsed = await verifyRp1(token, pub, Math.floor(Date.now() / 1000))
-  const tofu = await env.INSTALLS.get(env.INSTALLS.idFromName('installs')).fetch(
-    new Request('https://installs/tofu', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ installId: parsed.installId, publicKeyHex: pub }),
-    }),
-  )
+  const tofu = await installFetch(env, '/tofu', { installId: parsed.installId, publicKeyHex: pub })
   if (tofu.status === 403) {
     throw new Error('this install_id is already bound to a different public key')
   }
@@ -208,20 +279,55 @@ async function verifyInstall(req: Request, env: Env): Promise<{ installId: strin
   return { installId: parsed.installId }
 }
 
+async function bindRefresh(
+  env: Env,
+  refreshToken: string,
+  installId: string,
+  provider: string,
+): Promise<{ ok: boolean }> {
+  const hash = await tokenHash(refreshToken)
+  const res = await installFetch(env, '/bind', { hash, installId, provider })
+  return { ok: res.ok }
+}
+
+function installStub(env: Env): DurableObjectStub {
+  return env.INSTALLS.get(env.INSTALLS.idFromName('installs'))
+}
+
+function installFetch(env: Env, pathname: string, body: unknown): Promise<Response> {
+  return installStub(env).fetch(
+    new Request(`https://installs${pathname}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+  )
+}
+
+async function tokenHash(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function loadProvider(env: Env, id: string): Provider {
+  const provider = resolveProvider(id, env)
+  if (!provider) {
+    throw new Error('unknown provider')
+  }
+  if (!provider.clientId || !provider.clientSecret || !env.STATE_SECRET) {
+    throw new Error(`worker secrets for ${provider.id} and STATE_SECRET are not set`)
+  }
+  return provider
+}
+
 function bearer(req: Request): string {
   const h = req.headers.get('Authorization') || ''
   const m = /^Bearer\s+(\S+)/i.exec(h)
   return m ? m[1] : ''
 }
 
-function publicCallback(env: Env): string {
-  return `${env.PUBLIC_BASE.replace(/\/$/, '')}${CALLBACK_PATH}`
-}
-
-function requireSecrets(env: Env): void {
-  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET || !env.STATE_SECRET) {
-    throw new Error('worker secrets GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, STATE_SECRET are not set')
-  }
+function publicCallback(env: Env, provider: Provider): string {
+  return `${env.PUBLIC_BASE.replace(/\/$/, '')}${provider.workerCallbackPath}`
 }
 
 function randomId(): string {
