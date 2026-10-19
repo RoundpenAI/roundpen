@@ -15,13 +15,20 @@ import {
 describe('visiblePrimaryMenus', () => {
   it('hides the admin menus for non-admin', () => {
     const keys = visiblePrimaryMenus(false).map((m) => m.id)
-    assert.deepEqual(keys, ['assistants', 'issues', 'workspace', 'settings'])
+    assert.deepEqual(keys, [
+      'assistants',
+      'projects',
+      'issues',
+      'workspace',
+      'settings',
+    ])
   })
 
   it('shows the admin menus for admin', () => {
     const keys = visiblePrimaryMenus(true).map((m) => m.id)
     assert.deepEqual(keys, [
       'assistants',
+      'projects',
       'issues',
       'workspace',
       'settings',
@@ -127,6 +134,8 @@ describe('PRIMARY_MENUS paths', () => {
 describe('matchPrimaryMenu', () => {
   it('matches workspace path', () => {
     assert.equal(matchPrimaryMenu('/workspace'), 'workspace')
+    assert.equal(matchPrimaryMenu('/projects'), 'projects')
+    assert.equal(matchPrimaryMenu('/projects/PRJ-1'), 'projects')
     assert.equal(matchPrimaryMenu('/a/x'), 'assistants')
   })
 

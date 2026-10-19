@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,20 @@ func TestDefaultSystemCreateInput(t *testing.T) {
 		t.Fatalf("%+v", in)
 	}
 	if err := ValidateCreate(in); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDefaultCoordinatorCreateInput(t *testing.T) {
+	in := DefaultCoordinatorCreateInput("Billing")
+	if in.Kind != KindCoordinator || !strings.Contains(in.Name, "Billing") {
+		t.Fatalf("%+v", in)
+	}
+	if err := ValidateCreate(in); err != nil {
+		t.Fatal(err)
+	}
+	disabled := StatusDisabled
+	if err := validateDisable(&Assistant{Kind: KindCoordinator}, &disabled); err != nil {
 		t.Fatal(err)
 	}
 }

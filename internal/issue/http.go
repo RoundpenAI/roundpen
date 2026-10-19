@@ -1,6 +1,7 @@
 package issue
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,9 +13,15 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
+// ProjectBinder resolves a chat session to an owning project id (optional).
+type ProjectBinder interface {
+	ProjectIDForSession(ctx context.Context, userID, sessionID string) (string, error)
+}
+
 // Handler serves the issue tracker: /v1/issues, their docs and tasks.
 type Handler struct {
-	Store *Store
+	Store    *Store
+	Projects ProjectBinder
 }
 
 // Mount registers the issue tracker routes on the console API mux.
@@ -44,6 +51,9 @@ func (h *Handler) listIssues(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.Status = status
+	}
+	if projectID := r.URL.Query().Get("projectId"); projectID != "" {
+		f.ProjectID = projectID
 	}
 	if limit := r.URL.Query().Get("limit"); limit != "" {
 		n, err := strconv.Atoi(limit)
@@ -75,6 +85,7 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 		Title     string `json:"title"`
 		Summary   string `json:"summary"`
 		SessionID string `json:"sessionId"` // 助手工具传入；控制台不传
+		ProjectID string `json:"projectId"` // optional; auto from coordinator session when omitted
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -89,7 +100,10 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	// The client never supplies assistantId: it is always derived from the
 	// session row, so the recorded origin cannot be forged.
-	in := CreateInput{Title: body.Title, Summary: body.Summary, Origin: OriginConsole}
+	in := CreateInput{
+		Title: body.Title, Summary: body.Summary, Origin: OriginConsole,
+		ProjectID: strings.TrimSpace(body.ProjectID),
+	}
 	if body.SessionID != "" {
 		assistantID, ok := h.resolveSession(w, r, user.Username, body.SessionID)
 		if !ok {
@@ -98,6 +112,11 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 		in.SessionID = body.SessionID
 		in.AssistantID = assistantID
 		in.Origin = OriginChat
+		if in.ProjectID == "" && h.Projects != nil {
+			if pid, err := h.Projects.ProjectIDForSession(r.Context(), user.Username, body.SessionID); err == nil {
+				in.ProjectID = pid
+			}
+		}
 	}
 	it, err := h.Store.Create(r.Context(), user.Username, in)
 	if err != nil {

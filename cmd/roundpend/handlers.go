@@ -39,6 +39,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/project"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
@@ -50,6 +51,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 	"github.com/RoundpenAI/roundpen/internal/userworkspace"
 	"github.com/RoundpenAI/roundpen/internal/webpush"
+	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
 // newPushService loads or generates VAPID keys and returns a push Service.
@@ -594,6 +596,113 @@ func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentS
 	ticketStore := &assistticket.Store{DB: db.SQL}
 	agentHandler.Tickets = ticketStore
 	return agentHandler, ticketStore, provisioner
+}
+
+// projectDirSeeder creates projects/<slug>/ and Shared Context on the host
+// workspace after EnsureAgent. Failures are non-fatal at the API layer.
+type projectDirSeeder struct {
+	Envs interface {
+		EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error)
+	}
+	Paths interface {
+		WorkspaceHostPath(ctx context.Context, id string) (string, error)
+	}
+}
+
+func (s projectDirSeeder) EnsureProjectTree(ctx context.Context, userID, slug string) error {
+	if s.Envs == nil || s.Paths == nil {
+		return fmt.Errorf("workspace seeder not configured")
+	}
+	sb, err := s.Envs.EnsureAgent(ctx, userID)
+	if err != nil {
+		return err
+	}
+	host, err := s.Paths.WorkspaceHostPath(ctx, sb.ID)
+	if err != nil {
+		return err
+	}
+	return workspace.SeedProject(host, slug)
+}
+
+// projectSessionProfiler restores coordinator / worker personas on reconnect.
+type projectSessionProfiler struct {
+	Projects interface {
+		GetWorkerBySession(ctx context.Context, userID, sessionID string) (*project.Worker, error)
+	}
+	Assistants interface {
+		Get(ctx context.Context, id string) (*assistant.Assistant, error)
+	}
+}
+
+func (p projectSessionProfiler) ProfileFor(ctx context.Context, userID string, sess *agentsession.Session) string {
+	if sess == nil {
+		return ""
+	}
+	if sess.Kind == "worker" {
+		if p.Projects != nil {
+			if w, err := p.Projects.GetWorkerBySession(ctx, userID, sess.ID); err == nil && w != nil {
+				role, _ := project.NormalizeWorkerRole(w.Role)
+				return role
+			}
+		}
+		return project.RoleImplementer
+	}
+	if sess.Kind == "chat" && sess.AssistantID != "" && p.Assistants != nil {
+		if a, err := p.Assistants.Get(ctx, sess.AssistantID); err == nil && a != nil && a.Kind == assistant.KindCoordinator {
+			return "coordinator"
+		}
+	}
+	return ""
+}
+
+// projectWorkerStarter adapts agentapi.Handler to project.WorkerStarter.
+type projectWorkerStarter struct {
+	H interface {
+		CreateWorkerSession(ctx context.Context, user *storage.User, assistantID, title string) (*agentsession.Session, error)
+		StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error
+	}
+}
+
+func (a projectWorkerStarter) CreateWorkerSession(ctx context.Context, user *storage.User, assistantID, title string) (string, error) {
+	sess, err := a.H.CreateWorkerSession(ctx, user, assistantID, title)
+	if err != nil {
+		return "", err
+	}
+	return sess.ID, nil
+}
+
+func (a projectWorkerStarter) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error {
+	return a.H.StartWorkerRuntime(ctx, user, sessionID, role)
+}
+
+// projectSessionBinder lets issue create auto-attach a project from the coordinator session.
+type projectSessionBinder struct {
+	Store interface {
+		GetByCoordinatorSession(ctx context.Context, userID, sessionID string) (*project.Project, error)
+		GetByCoordinatorAssistant(ctx context.Context, userID, assistantID string) (*project.Project, error)
+	}
+}
+
+func (b projectSessionBinder) ProjectIDForSession(ctx context.Context, userID, sessionID string) (string, error) {
+	if b.Store == nil {
+		return "", project.ErrNotFound
+	}
+	p, err := b.Store.GetByCoordinatorSession(ctx, userID, sessionID)
+	if err == nil {
+		return p.ID, nil
+	}
+	return "", err
+}
+
+// issueIDResolver adapts issue.Store for project.Handler.Issues.
+type issueIDResolver struct {
+	Store interface {
+		ResolveID(ctx context.Context, userID, keyOrID string) (string, error)
+	}
+}
+
+func (r issueIDResolver) LookupID(ctx context.Context, userID, keyOrID string) (string, error) {
+	return r.Store.ResolveID(ctx, userID, keyOrID)
 }
 
 func checkBoundFolder(ctx context.Context, users storage.UserStore, files *fnosfile.Client, userID, root string, write bool) error {

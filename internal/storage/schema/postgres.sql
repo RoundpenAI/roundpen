@@ -288,7 +288,7 @@ CREATE TABLE IF NOT EXISTS assistants (
     status          TEXT NOT NULL DEFAULT 'active'
         CHECK (status IN ('active', 'disabled')),
     kind            TEXT NOT NULL DEFAULT 'user'
-        CHECK (kind IN ('user', 'system')),
+        CHECK (kind IN ('user', 'system', 'coordinator')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -298,6 +298,20 @@ ALTER TABLE assistants ADD COLUMN IF NOT EXISTS im_channels JSONB NOT NULL DEFAU
 CREATE UNIQUE INDEX IF NOT EXISTS assistants_user_system_active_idx
     ON assistants (user_id)
     WHERE kind = 'system' AND status = 'active';
+
+-- Widen assistants.kind for upgrades from user|system-only installs.
+DO $$
+BEGIN
+    ALTER TABLE assistants DROP CONSTRAINT IF EXISTS assistants_kind_check;
+    ALTER TABLE assistants DROP CONSTRAINT IF EXISTS assistants_kind_ck;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'assistants_kind_ck'
+    ) THEN
+        ALTER TABLE assistants
+            ADD CONSTRAINT assistants_kind_ck
+            CHECK (kind IN ('user', 'system', 'coordinator'));
+    END IF;
+END $$;
 
 ALTER TABLE agent_sessions
     ADD COLUMN IF NOT EXISTS assistant_id TEXT REFERENCES assistants (id) ON DELETE SET NULL;
@@ -593,7 +607,7 @@ BEGIN
         SELECT 1 FROM pg_constraint WHERE conname = 'agent_sessions_kind_ck'
     ) THEN
         ALTER TABLE agent_sessions
-            ADD CONSTRAINT agent_sessions_kind_ck CHECK (kind IN ('chat', 'routine'));
+            ADD CONSTRAINT agent_sessions_kind_ck CHECK (kind IN ('chat', 'routine', 'worker'));
     END IF;
 END $$;
 
@@ -763,3 +777,94 @@ CREATE TABLE IF NOT EXISTS user_workspace_roots (
     path       TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Agent Projects (coordinator + local repo path under projects/<slug>/).
+CREATE SEQUENCE IF NOT EXISTS project_key_seq;
+
+CREATE TABLE IF NOT EXISTS projects (
+    id                        TEXT PRIMARY KEY,
+    key                       TEXT NOT NULL UNIQUE,
+    user_id                   TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    name                      TEXT NOT NULL,
+    icon                      TEXT NOT NULL DEFAULT '',
+    slug                      TEXT NOT NULL,
+    repo_path                 TEXT NOT NULL,
+    repo_url                  TEXT NOT NULL DEFAULT '',
+    coordinator_assistant_id  TEXT REFERENCES assistants (id) ON DELETE SET NULL,
+    coordinator_session_id    TEXT NOT NULL DEFAULT '',
+    status                    TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'archived')),
+    created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, slug)
+);
+CREATE INDEX IF NOT EXISTS projects_user_idx
+    ON projects (user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS projects_coordinator_idx
+    ON projects (coordinator_assistant_id)
+    WHERE coordinator_assistant_id IS NOT NULL;
+
+
+-- Project workers + issues.project_id (P1 delegate).
+DO $$
+BEGIN
+    ALTER TABLE agent_sessions DROP CONSTRAINT IF EXISTS agent_sessions_kind_ck;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'agent_sessions_kind_ck'
+    ) THEN
+        ALTER TABLE agent_sessions
+            ADD CONSTRAINT agent_sessions_kind_ck
+            CHECK (kind IN ('chat', 'routine', 'worker'));
+    END IF;
+END $$;
+
+ALTER TABLE issues
+    ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects (id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS issues_project_idx
+    ON issues (project_id, updated_at DESC)
+    WHERE project_id IS NOT NULL;
+
+CREATE SEQUENCE IF NOT EXISTS project_worker_key_seq;
+
+CREATE TABLE IF NOT EXISTS project_workers (
+    id           TEXT PRIMARY KEY,
+    key          TEXT NOT NULL UNIQUE,
+    project_id   TEXT NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    user_id      TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    session_id   TEXT NOT NULL DEFAULT '',
+    issue_id     TEXT REFERENCES issues (id) ON DELETE SET NULL,
+    title        TEXT NOT NULL,
+    brief        TEXT NOT NULL DEFAULT '',
+    role         TEXT NOT NULL DEFAULT 'implementer'
+        CHECK (role IN ('implementer', 'reviewer', 'tester')),
+    status       TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+    error        TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at   TIMESTAMPTZ,
+    finished_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS project_workers_project_idx
+    ON project_workers (project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS project_workers_user_queue_idx
+    ON project_workers (user_id, status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS project_workers_one_running_per_user_idx
+    ON project_workers (user_id)
+    WHERE status = 'running';
+
+
+-- Code-dev worker roles
+ALTER TABLE project_workers
+    ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'implementer';
+DO $$
+BEGIN
+    ALTER TABLE project_workers DROP CONSTRAINT IF EXISTS project_workers_role_ck;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'project_workers_role_ck'
+    ) THEN
+        ALTER TABLE project_workers
+            ADD CONSTRAINT project_workers_role_ck
+            CHECK (role IN ('implementer', 'reviewer', 'tester'));
+    END IF;
+END $$;

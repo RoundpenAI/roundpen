@@ -13,6 +13,8 @@ import { BrowserPage } from './pages/BrowserPage'
 import { ChatSessionPage } from './pages/ChatSessionPage'
 import { IssueDetailPage } from './pages/IssueDetailPage'
 import { IssuesPage } from './pages/IssuesPage'
+import { ProjectDetailPage } from './pages/ProjectDetailPage'
+import { ProjectsPage } from './pages/ProjectsPage'
 import { LoginPage } from './pages/LoginPage'
 import { RoutineDetailPage } from './pages/RoutineDetailPage'
 import { SettingsLayout } from './pages/SettingsLayout'
@@ -64,6 +66,8 @@ export default function App() {
             <Route path=":section" element={<AdminSettingsPage />} />
           </Route>
           <Route path="/workspace" element={<WorkspacePage />} />
+          <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/projects/:key" element={<ProjectDetailPage />} />
           <Route path="/issues" element={<IssuesPage />} />
           <Route path="/issues/:key" element={<IssueDetailPage />} />
         </Route>

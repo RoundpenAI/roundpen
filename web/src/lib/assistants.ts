@@ -1,4 +1,4 @@
-export type AssistantKind = 'user' | 'system'
+export type AssistantKind = 'user' | 'system' | 'coordinator'
 
 export type AssistantLike = {
   id: string

@@ -6,6 +6,7 @@ export type Issue = {
   userId: string
   assistantId?: string
   sessionId?: string
+  projectId?: string
   title: string
   summary: string
   status:
@@ -53,11 +54,14 @@ export type IssueTask = {
 }
 
 export const issues = {
-  list: (status?: string) =>
-    api<{ issues: Issue[] }>(
-      `/v1/issues${status ? `?status=${encodeURIComponent(status)}` : ''}`,
-    ),
-  create: (body: { title: string; summary?: string }) =>
+  list: (status?: string, projectId?: string) => {
+    const q = new URLSearchParams()
+    if (status) q.set('status', status)
+    if (projectId) q.set('projectId', projectId)
+    const qs = q.toString()
+    return api<{ issues: Issue[] }>(`/v1/issues${qs ? `?${qs}` : ''}`)
+  },
+  create: (body: { title: string; summary?: string; projectId?: string }) =>
     api<{ issue: Issue }>('/v1/issues', {
       method: 'POST',
       body: JSON.stringify(body),

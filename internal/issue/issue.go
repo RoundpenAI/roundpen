@@ -57,6 +57,7 @@ type Issue struct {
 	UserID      string     `json:"userId"`
 	AssistantID string     `json:"assistantId,omitempty"`
 	SessionID   string     `json:"sessionId,omitempty"`
+	ProjectID   string     `json:"projectId,omitempty"`
 	Title       string     `json:"title"`
 	Summary     string     `json:"summary"`
 	Status      string     `json:"status"`

@@ -10,8 +10,8 @@ import (
 
 const maxReadBytes = 100 << 10
 
-// RegisterFiles adds Read, Write, and Edit tools for the Agent workspace.
-func RegisterFiles(r *Registry, binder *AgentBinder) {
+// RegisterExploreFiles adds read-only Read for planning/review personas.
+func RegisterExploreFiles(r *Registry, binder *AgentBinder) {
 	if r == nil || binder == nil {
 		return
 	}
@@ -37,6 +37,14 @@ func RegisterFiles(r *Registry, binder *AgentBinder) {
 			return binder.readFile(ctx, actor, in.FilePath, in.Offset, in.Limit)
 		},
 	})
+}
+
+// RegisterFiles adds Read, Write, and Edit tools for the Agent workspace.
+func RegisterFiles(r *Registry, binder *AgentBinder) {
+	if r == nil || binder == nil {
+		return
+	}
+	RegisterExploreFiles(r, binder)
 	r.Register(Tool{
 		Name:        "Write",
 		Description: "Create or overwrite a text file in the Agent workspace (/workspace).",

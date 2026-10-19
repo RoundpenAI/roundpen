@@ -21,7 +21,7 @@ type Session struct {
 	ProviderID  string    `json:"providerId"`
 	SandboxID   string    `json:"sandboxId"`
 	AssistantID string    `json:"assistantId,omitempty"`
-	Kind        string    `json:"kind"`   // chat | routine
+	Kind        string    `json:"kind"`   // chat | routine | worker
 	Status      string    `json:"status"` // active | stopped
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -169,10 +169,10 @@ func (s *Store) Create(ctx context.Context, userID, title, providerID, sandboxID
 	return s.CreateKind(ctx, userID, title, providerID, sandboxID, assistantID, "chat")
 }
 
-// CreateKind inserts a session of kind "chat" or "routine". Routine sessions are
-// hidden from the primary-chat lookup.
+// CreateKind inserts a session of kind "chat", "routine", or "worker".
+// Routine and worker sessions are hidden from the primary-chat lookup.
 func (s *Store) CreateKind(ctx context.Context, userID, title, providerID, sandboxID, assistantID, kind string) (*Session, error) {
-	if kind != "chat" && kind != "routine" {
+	if kind != "chat" && kind != "routine" && kind != "worker" {
 		return nil, fmt.Errorf("invalid session kind %q", kind)
 	}
 	now := time.Now().UTC()

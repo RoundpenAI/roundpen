@@ -62,7 +62,8 @@ func (c *scriptedClient) SessionUpdate(ctx context.Context, n acp.SessionNotific
 				c.mu.Lock()
 				c.toolCalls[string(u.ToolCallId)] = blk.Content.Content.Text.Text
 				c.mu.Unlock()
-			}		}
+			}
+		}
 	}
 	return c.captureClient.SessionUpdate(ctx, n)
 }
@@ -232,7 +233,7 @@ func TestAgent_SkillActionGating(t *testing.T) {
 	})
 	client := newScriptedClient(map[string]string{
 		"Plan approval · Approve this plan?\n\np": "opt-0",
-		"Skill":   "allow",
+		"Skill": "allow",
 	})
 	driveAgent(t, agent, client, "skills")
 

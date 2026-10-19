@@ -26,33 +26,15 @@ const (
 // buildPromptMessages is the Claude Code-shaped replay:
 // system + prior user/assistant/tool pairs from the database + this turn's user text.
 func (a *Agent) buildPromptMessages(ctx context.Context, userText string) []chatMessage {
-	system := `You are Roundpen System Agent. You help the signed-in user manage Roundpen resources they are allowed to access.
-Use tools for factual actions. Do not invent API results. Prefer concise answers.
+	system := systemPromptForProfile(a.deps.Profile)
 
-Workspace tools (working directory /workspace): Read, Write, Edit, Glob, Grep, Bash, BashOutput, KillShell.
-Bash run_in_background starts a long command (build, test, server) without blocking and returns a job id; BashOutput reads that job's new output and status, KillShell stops it.
-Workspace layout (mandatory): keep /workspace tidy. Read /workspace/AGENTS.md and follow it. Put git repos and apps under projects/<name>/, user materials under uploads/, durable notes under notes/, deliverables under outputs/, scratch under tmp/. Never drop loose files or clone at the workspace root. Skills and git credentials stay in $HOME/.roundpen/, never under /workspace.
-Browser tools (browser_*): Chrome only — cannot run git or shell. Use them for clicks, forms, screenshots, login-walled pages, or when the user explicitly asks for the browser.
-Web tools: WebFetch reads one URL and answers your question about the page (no browser session or cookies, so login-walled pages fail). Unless the user asks for the browser, prefer WebFetch for reading a page; only fall back to browser_* after WebFetch fails or returns unusable content (empty shell, bot challenge, needs JS interaction).
-Interactive tools: AskUserQuestion prompts the user with choices; use it for decisions that genuinely need input.
-EnterPlanMode / ExitPlanMode: for complex tasks, enter plan mode to explore and design before editing; ExitPlanMode presents the plan for approval. While in plan mode, mutating tools are blocked.
-Skill: runs a curated workflow by name (built-ins: commit, review, fix, summarize; users can install their own into ~/.roundpen/skills in the agent's home - private and never part of the /workspace project). Actions: invoke (default) runs a skill and returns instructions to follow; list shows available skills; install fetches a skill from a url or inline content (overwriting an existing one asks the user first); remove deletes an installed skill. Skills just shape how you work - they do not add capabilities. Skill calls are capped at 3 per reply; to use more, finish and ask the user for a follow-up.
-Issues: when the user starts a new piece of work (more than a one-off question or a single trivial edit), create an issue with CreateIssue; if it is ambiguous whether they want one, ask. When you speak Chinese, call it 事项, not 议题. The English name stays issue, and keys stay ISS-n. Clarify scope, direction and decisions with AskUserQuestion before writing anything, then WriteIssueDoc kind=spec, then kind=plan, then CreateTask for each plan step. Refer to work by key (ISS-12, TSK-34) and keep task status current as you implement: UpdateTask when you start and finish each one. Every tool call must be earned - do not create issues for questions you can answer directly.
-Standing routines: when the user wants something repeated (daily, weekly, monthly, or at a clock time), confirm the brief, the assignee (default: you), a five-field cron, the timezone, autonomy (read or browse), and whether to push IM, then CreateRoutine. Do not create one until those are clear. Handing the routine to another assistant requires AskUserQuestion first, then assigneeConfirmed=true. On a scheduled run, follow the brief you were given. read must not use the browser. Payment, charging money, final form or tax submission, deleting the user's data, or messaging anyone other than the routine's delivery channel requires RequestRoutineConfirm, then stop — even if the brief says to submit. When the run's work is done, call FinishRun. Put seen-item cursors in UpdateRoutineState, not in the report body.
-
-If ListEnvironments shows agent status=absent, the Agent workspace is simply not started yet.
-Call Bash or a file tool; the environment starts as needed. Do not stop after listing.
-A running Browser is not a substitute for the Agent workspace.
-When the user asks to clone a repo, run commands, or work in files, use Bash and the file tools.
-Git auth: if the user saved a personal token (Settings → Git), git inside Bash uses it automatically.
-Do not put tokens in clone URLs, and do not inspect credential files.
-Prior user messages, your replies, and tool calls/results are included when this session has history.`
-
-	if _, ok := a.deps.Tools.Get("WebSearch"); ok {
-		system += "\nWebSearch looks up current information; cite the URLs you used."
-	}
-	if _, ok := a.deps.Tools.Get("GmailSearch"); ok {
-		system += "\nGmail and Calendar tools (GmailSearch, GmailGet, CalendarListEvents, CalendarGetEvent) are read-only. Use them when the user asks about mail or schedule. If they return a not-connected error, tell the user to connect Google under Settings → Connectors (they must provide their own Google OAuth Client ID and Secret)."
+	if a.deps.Profile == ProfileDefault || a.deps.Profile == "" {
+		if _, ok := a.deps.Tools.Get("WebSearch"); ok {
+			system += "\nWebSearch looks up current information; cite the URLs you used."
+		}
+		if _, ok := a.deps.Tools.Get("GmailSearch"); ok {
+			system += "\nGmail and Calendar tools (GmailSearch, GmailGet, CalendarListEvents, CalendarGetEvent) are read-only. Use them when the user asks about mail or schedule. If they return a not-connected error, tell the user to connect Google under Settings → Connectors (they must provide their own Google OAuth Client ID and Secret)."
+		}
 	}
 
 	out := []chatMessage{{Role: "system", Content: system}}
@@ -144,11 +126,18 @@ func projectHistory(rows []*agentsession.Message) []chatMessage {
 			pending = append(pending, m)
 		case agentsession.RoleEvent:
 			flushTools()
-			if metaType(m) == "error" && strings.TrimSpace(m.Content) != "" {
-				out = append(out, chatMessage{
-					Role:    "user",
-					Content: "Previous turn error: " + strings.TrimSpace(m.Content),
-				})
+			switch metaType(m) {
+			case "error":
+				if strings.TrimSpace(m.Content) != "" {
+					out = append(out, chatMessage{
+						Role:    "user",
+						Content: "Previous turn error: " + strings.TrimSpace(m.Content),
+					})
+				}
+			case "worker_done":
+				if text := strings.TrimSpace(m.Content); text != "" {
+					out = append(out, chatMessage{Role: "user", Content: text})
+				}
 			}
 		default:
 			// thought / permission: UI + audit only (Claude Code does not replay old thinking).

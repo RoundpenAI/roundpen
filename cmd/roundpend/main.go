@@ -31,6 +31,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/plugins"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/project"
 	"github.com/RoundpenAI/roundpen/internal/routine"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
@@ -263,7 +264,34 @@ func main() {
 
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}
-	(&issue.Handler{Store: issueStore}).Mount(mux)
+	projectStore := &project.Store{DB: db.SQL}
+	agentHandler.Profiles = projectSessionProfiler{
+		Projects:   projectStore,
+		Assistants: assistantStore,
+	}
+	projectRunner := &project.Runner{
+		Store:   projectStore,
+		Users:   userStore,
+		Starter: projectWorkerStarter{H: agentHandler},
+		ACP:     acpMgr,
+		Notes:   agentStore,
+		Log:     logger,
+	}
+	(&issue.Handler{
+		Store:    issueStore,
+		Projects: projectSessionBinder{Store: projectStore},
+	}).Mount(mux)
+	(&project.Handler{
+		Store:      projectStore,
+		Assistants: assistantStore,
+		Sessions:   agentStore,
+		Starter:    agentHandler,
+		Workers:    agentHandler,
+		Issues:     issueIDResolver{Store: issueStore},
+		Runner:     projectRunner,
+		Dirs:       projectDirSeeder{Envs: envSvc, Paths: sbSvc},
+		Log:        logger,
+	}).Mount(mux)
 	routineStore := &routine.Store{DB: db.SQL}
 	routineRunner := &routine.Runner{
 		Store:      routineStore,

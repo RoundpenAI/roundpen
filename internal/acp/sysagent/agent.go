@@ -69,6 +69,9 @@ type Deps struct {
 	History   MessageSource
 	SessionID string // Roundpen agent session id (for history replay)
 	Evaluator automode.Evaluator
+	// Profile selects system prompt + is mirrored in tools.SessionSurface.
+	// Empty means the default System Agent persona.
+	Profile string
 }
 
 // Agent is an ACP agent that runs an OpenAI tool-calling loop.
