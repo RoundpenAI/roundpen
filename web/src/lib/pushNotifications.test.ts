@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { detectPushSupport, urlBase64ToUint8Array } from './pushNotifications.ts'
+import { detectPushSupport, isPushSupported, urlBase64ToUint8Array } from './pushSupport.ts'
 
 describe('urlBase64ToUint8Array', () => {
   it('decodes padded URL-safe base64', () => {
@@ -41,5 +41,29 @@ describe('detectPushSupport', () => {
     assert.equal(got.serviceWorker, true)
     assert.equal(got.pushManager, true)
     assert.equal(got.notification, true)
+  })
+})
+
+describe('isPushSupported', () => {
+  it('is false unless every required API is present', () => {
+    assert.equal(
+      isPushSupported({ serviceWorker: true, pushManager: true, notification: false }),
+      false,
+    )
+    assert.equal(
+      isPushSupported({ serviceWorker: true, pushManager: false, notification: true }),
+      false,
+    )
+    assert.equal(
+      isPushSupported({ serviceWorker: false, pushManager: true, notification: true }),
+      false,
+    )
+  })
+
+  it('is true when SW, PushManager, and Notification all exist', () => {
+    assert.equal(
+      isPushSupported({ serviceWorker: true, pushManager: true, notification: true }),
+      true,
+    )
   })
 })

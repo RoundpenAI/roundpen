@@ -117,8 +117,21 @@ function resolveSection(
     : fallback
 }
 
-export function resolvePersonalSection(raw: string | undefined): SettingsSectionKey {
-  return resolveSection(raw, PERSONAL_SETTINGS_SECTIONS, PERSONAL_SETTINGS_FALLBACK)
+/** Personal settings that should appear for this browser's Web Push support. */
+export function visiblePersonalSettingsSections(pushSupported: boolean): SettingsSection[] {
+  if (pushSupported) return PERSONAL_SETTINGS_SECTIONS
+  return PERSONAL_SETTINGS_SECTIONS.filter((s) => s.key !== 'notifications')
+}
+
+export function resolvePersonalSection(
+  raw: string | undefined,
+  pushSupported = true,
+): SettingsSectionKey {
+  return resolveSection(
+    raw,
+    visiblePersonalSettingsSections(pushSupported),
+    PERSONAL_SETTINGS_FALLBACK,
+  )
 }
 
 export function resolveAdminSection(raw: string | undefined): SettingsSectionKey {

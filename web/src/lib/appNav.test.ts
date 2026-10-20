@@ -9,6 +9,7 @@ import {
   matchPrimaryMenu,
   resolveAdminSection,
   resolvePersonalSection,
+  visiblePersonalSettingsSections,
   visiblePrimaryMenus,
 } from './appNav.ts'
 
@@ -86,11 +87,26 @@ describe('resolvePersonalSection', () => {
   it('accepts personal sections', () => {
     assert.equal(resolvePersonalSection('git'), 'git')
     assert.equal(resolvePersonalSection('agent'), 'agent')
+    assert.equal(resolvePersonalSection('notifications', true), 'notifications')
   })
 
-  it('rejects unknown and admin sections', () => {
+  it('rejects unknown, admin, and unsupported notification sections', () => {
     assert.equal(resolvePersonalSection('nope'), 'accounts')
     assert.equal(resolvePersonalSection('general'), 'accounts')
+    assert.equal(resolvePersonalSection('notifications', false), 'accounts')
+  })
+})
+
+describe('visiblePersonalSettingsSections', () => {
+  it('includes notifications only when Web Push is supported', () => {
+    assert.deepEqual(
+      visiblePersonalSettingsSections(true).map((s) => s.key),
+      ['accounts', 'connectors', 'mcp', 'password', 'notifications', 'git', 'agent', 'slots'],
+    )
+    assert.deepEqual(
+      visiblePersonalSettingsSections(false).map((s) => s.key),
+      ['accounts', 'connectors', 'mcp', 'password', 'git', 'agent', 'slots'],
+    )
   })
 })
 
