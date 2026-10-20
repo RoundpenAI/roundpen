@@ -95,6 +95,9 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           PLATFORM: ${{ matrix.platform }}
           PG0_VERSION: ${{ env.PG0_VERSION }}
+          # GitHub-hosted runners cannot reach intranet npm mirrors baked into
+          # some lockfile resolved URLs; force the public registry.
+          NPM_REGISTRY: https://registry.npmjs.org/
         run: ./scripts/build-fnos-fpk.sh
 
       - uses: actions/upload-artifact@v4
