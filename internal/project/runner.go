@@ -151,6 +151,31 @@ func (r *Runner) notifyCoordinator(ctx context.Context, p *Project, w *Worker, s
 	}
 }
 
+// NotifyGitHubEvent writes a subscription notice into the coordinator transcript
+// and best-effort starts a short turn so the coordinator can summarize.
+func (r *Runner) NotifyGitHubEvent(ctx context.Context, p *Project, kind, repo, summary string) {
+	if r == nil || p == nil || p.CoordinatorSessionID == "" {
+		return
+	}
+	notice := FormatHookNotice(kind, repo, summary)
+	if r.Notes != nil {
+		if _, err := r.Notes.AddMessage(ctx, p.CoordinatorSessionID, agentsession.RoleEvent,
+			notice, map[string]string{"type": "github_hook", "kind": kind}); err != nil {
+			r.log().Warn("coordinator github_hook note", "project", p.Key, "err", err)
+		}
+	}
+	if r.ACP == nil {
+		return
+	}
+	go func() {
+		runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+		defer cancel()
+		if _, err := r.ACP.Prompt(runCtx, p.CoordinatorSessionID, notice); err != nil {
+			r.log().Info("coordinator github_hook prompt", "project", p.Key, "err", err)
+		}
+	}()
+}
+
 func (r *Runner) log() *slog.Logger {
 	if r.Log != nil {
 		return r.Log

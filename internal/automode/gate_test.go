@@ -11,7 +11,7 @@ import (
 func TestRequiresConfirm(t *testing.T) {
 	for _, name := range []string{
 		"Bash", "bash", "browser_type", "browser_click", "browser_evaluate", "Bash · note",
-		"GitPush", "CreatePullRequest", "MergePullRequest",
+		"GitPush", "CreatePullRequest", "MergePullRequest", "PostPullRequestReview",
 	} {
 		if !automode.RequiresConfirm(name) {
 			t.Fatalf("RequiresConfirm(%q) = false", name)

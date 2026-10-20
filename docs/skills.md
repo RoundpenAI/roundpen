@@ -76,6 +76,7 @@ frontmatter 字段：
 - Project 的 **reviewer** Worker 应输出结构化 JSON（`verdict` + `findings`）；用户在项目页 **通过 / 要求修改**。
 - **远程 PR 讨论线程仍在 GitHub**（评论、required checks、branch protection）。Roundpen 不替代 GitHub 的 PR 审阅 UI。
 - 交付路径（P1）：一流工具 `GitCommit` → `GitPush` → `CreatePullRequest` →（确认后）`MergePullRequest`；聊天动作条默认 **总是开 PR**，禁止以直推默认分支为主路径。GitHub 优先；Gitea/GitLab 仅扩展点。
+- 远程协同（P2）：项目页 Listening 订阅 GitHub PR/CI webhook → 提醒 Coordinator；可选 `PostPullRequestReview` 把 findings 贴到 GitHub；CI 徽章读 webhook 缓存或 Checks API。讨论线程仍在 GitHub。
 
 ## 安装示例
 
