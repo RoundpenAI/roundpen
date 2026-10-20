@@ -19,7 +19,7 @@ func TestNormalizeHost(t *testing.T) {
 }
 
 func TestGitConfigRewritesSSH(t *testing.T) {
-	cfg := gitConfig([]Cred{{Provider: ProviderGitea, Host: "git.eaxi.com", Token: "rp-secret-pat"}})
+	cfg := gitConfig([]Cred{{Provider: ProviderGitea, Host: "git.eaxi.com", Token: "rp-secret-pat"}}, Identity{})
 	if !strings.Contains(cfg, `insteadOf = git@git.eaxi.com:`) {
 		t.Fatalf("config:\n%s", cfg)
 	}
@@ -28,6 +28,13 @@ func TestGitConfigRewritesSSH(t *testing.T) {
 	}
 	if !strings.Contains(cfg, "/home/roundpen/.roundpen/git/credentials") {
 		t.Fatalf("credential store must point into guest home:\n%s", cfg)
+	}
+}
+
+func TestGitConfigWritesAuthor(t *testing.T) {
+	cfg := gitConfig(nil, Identity{Name: "Ada", Email: "ada@example.com"})
+	if !strings.Contains(cfg, "name = Ada") || !strings.Contains(cfg, "email = ada@example.com") {
+		t.Fatalf("config:\n%s", cfg)
 	}
 }
 
@@ -43,7 +50,7 @@ func TestCredentialStoreHasHTTPS(t *testing.T) {
 func TestGuestInstallScriptHasNoRawTokenAndRewritesSSH(t *testing.T) {
 	script := InstallScript([]Cred{{
 		Provider: ProviderGitea, Host: "git.eaxi.com", Token: "rp-secret-pat",
-	}})
+	}}, Identity{})
 	if strings.Contains(script, "rp-secret-pat") {
 		t.Fatal("raw token must not appear in guest script")
 	}
@@ -65,9 +72,35 @@ func TestGuestInstallScriptHasNoRawTokenAndRewritesSSH(t *testing.T) {
 	}
 }
 
+func TestInstallScriptImportsGPGKey(t *testing.T) {
+	key := "-----BEGIN PGP PRIVATE KEY BLOCK-----\nfake\n-----END PGP PRIVATE KEY BLOCK-----"
+	script := InstallScript(nil, Identity{
+		Name: "Ada", Email: "ada@example.com",
+		GPGPrivateKey: key, SignCommits: true,
+	})
+	for _, want := range []string{
+		"/home/roundpen/.roundpen/gnupg",
+		"gpg --batch --yes --import",
+		"commit.gpgsign true",
+		"user.signingkey",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("script missing %q:\n%s", want, script)
+		}
+	}
+	if strings.Contains(script, key) {
+		t.Fatal("raw armored key must be base64-encoded in the script")
+	}
+}
+
 func TestGuestClearScriptRemovesWorkspaceLegacy(t *testing.T) {
 	script := GuestClearGitScript()
-	for _, want := range []string{"/workspace/.roundpen/git", "/home/roundpen/.roundpen/git", "/home/roundpen/.gitconfig"} {
+	for _, want := range []string{
+		"/workspace/.roundpen/git",
+		"/home/roundpen/.roundpen/git",
+		"/home/roundpen/.roundpen/gnupg",
+		"/home/roundpen/.gitconfig",
+	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("clear script missing %q:\n%s", want, script)
 		}

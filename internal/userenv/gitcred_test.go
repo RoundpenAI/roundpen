@@ -67,7 +67,7 @@ func TestReinjectGitWritesIdentityCredentialsToRunningSandbox(t *testing.T) {
 	if len(boxes.execs) != 1 {
 		t.Fatalf("execs = %d, want 1", len(boxes.execs))
 	}
-	want := gitcred.InstallScript(idents.creds)
+	want := gitcred.InstallScript(idents.creds, gitcred.Identity{})
 	cmd := boxes.execs[0].Cmd
 	if len(cmd) == 0 {
 		t.Fatal("exec command is empty")

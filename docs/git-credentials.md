@@ -47,9 +47,12 @@ API：`GET/PUT /v1/me/git-credentials`，`DELETE /v1/me/git-credentials/{id}`。
 | Guest 路径 | 作用 |
 |------------|------|
 | `/home/roundpen/.roundpen/git/credentials` | `git credential store`（HTTPS user:token@host） |
-| `/home/roundpen/.roundpen/git/config` | `credential.helper` + `url.insteadOf`（`git@host:` → `https://host/`） |
+| `/home/roundpen/.roundpen/git/config` | `credential.helper` + `url.insteadOf` + `user.name` / `user.email`（来自设置 → 个人资料）+ 可选 `user.signingkey` / `commit.gpgsign` |
 | `/home/roundpen/.roundpen/git/env` | `GH_TOKEN` / `GITEA_TOKEN` / `TEA_TOKEN` / `GITLAB_TOKEN`，给以后的 `gh` / `tea` / `glab` |
+| `/home/roundpen/.roundpen/gnupg` | 个人资料里上传的 GPG 私钥（`GNUPGHOME`）；建议无口令 |
 | `/home/roundpen/.gitconfig` | include 上面的 config，所以 SSH / exec 进来的 `git` 自动用 PAT |
+
+提交署名与 GPG 在 **设置 → 个人资料**（`gitName` / `gitEmail` / 私钥），不是「已连接应用」里的 Username（那只用于 HTTPS 鉴权）。改资料后会对运行中的 Agent 沙箱立即重注入。
 
 旧版落在 `/workspace/.roundpen/git` 的文件在注入时删除；`/workspace/.roundpen/ssh`（自动拷贝的旧 SSH 钥匙）同样删除。
 

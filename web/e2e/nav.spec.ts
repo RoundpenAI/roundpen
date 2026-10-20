@@ -9,6 +9,19 @@ test('settings page loads for admin', async ({ page }) => {
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
+test('admin settings keeps a mobile path back to the primary menu', async ({
+  page,
+}) => {
+  skipIfNoLivePassword()
+  await loginViaApi(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/admin/settings/llmgw')
+  // "/admin" must not be treated as "/a…" and hide the shell mobile bar.
+  await page.getByRole('button', { name: '打开菜单' }).click()
+  await expect(page.getByRole('button', { name: '助手' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '系统管理' })).toBeVisible()
+})
+
 test('nav reaches settings from assistants', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)

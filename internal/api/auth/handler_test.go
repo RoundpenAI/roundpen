@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -152,12 +153,17 @@ func TestUpdateProfile_SelfServeFields(t *testing.T) {
 	}
 	stored, _ := users.GetByUsername(t.Context(), "alice")
 	h := NewUserHandler(users)
+	var reinjected string
+	h.OnProfileChange = func(_ context.Context, userID string) { reinjected = userID }
 
-	body, _ := json.Marshal(map[string]string{
+	body, _ := json.Marshal(map[string]any{
 		"fullname":  "Alice",
 		"orgName":   "Acme",
 		"about":     "Prefers short replies.",
 		"timezone":  "Asia/Shanghai",
+		"gitName":   "Alice L",
+		"gitEmail":  "alice@example.com",
+		"gpgSign":   false,
 	})
 	req := httptest.NewRequest("PUT", "/v1/auth/profile", bytes.NewReader(body))
 	req = req.WithContext(WithUser(req.Context(), stored))
@@ -172,6 +178,19 @@ func TestUpdateProfile_SelfServeFields(t *testing.T) {
 	}
 	if got.FullName != "Alice" || got.OrgName != "Acme" || got.About != "Prefers short replies." || got.Timezone != "Asia/Shanghai" {
 		t.Fatalf("profile not saved: %+v", got)
+	}
+	if got.GitName != "Alice L" || got.GitEmail != "alice@example.com" {
+		t.Fatalf("git identity not saved: %+v", got)
+	}
+	if reinjected != "alice" {
+		t.Fatalf("OnProfileChange = %q", reinjected)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["hasGpgKey"] != false {
+		t.Fatalf("hasGpgKey = %v", resp["hasGpgKey"])
 	}
 }
 

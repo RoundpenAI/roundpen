@@ -166,7 +166,7 @@ func main() {
 	sbSvc = bs.sandboxes
 	probe := bs.probe
 
-	mux, previewHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
+	mux, previewHandler, userHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
 	if cfg.PreviewDomain != "" {
 		// Booked preview names only exist under a wildcard zone; without one
 		// the router never sees those hosts, so the store stays unset.
@@ -174,6 +174,9 @@ func main() {
 	}
 
 	envSvc, envHandler, oauthSvc, connectorsSvc, mcpSvc, setupSvc, setupHandler := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration, itemsCat, secretBox)
+	userHandler.OnProfileChange = func(ctx context.Context, userID string) {
+		envSvc.ReinjectGit(context.WithoutCancel(ctx), userID)
+	}
 	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)

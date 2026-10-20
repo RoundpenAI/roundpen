@@ -23,6 +23,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/runtime"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
@@ -223,9 +224,11 @@ type Service struct {
 	// IdentityTokens supplies credentials from federated logins (OAuth).
 	// Manual PATs win for the same host; see the merge in injectGit.
 	IdentityTokens identityTokens
-	Probe          *runtime.Probe
-	Config         Config
-	Cfg            *config.Config
+	// Users supplies profile fields for git author / GPG injection.
+	Users  userProfiles
+	Probe  *runtime.Probe
+	Config Config
+	Cfg    *config.Config
 
 	// ModelSource resolves a user's model-source preference (storage
 	// constants); nil or "" means the gateway default.
@@ -447,6 +450,11 @@ type identityTokens interface {
 	CredsForUser(ctx context.Context, userID string) ([]gitcred.Cred, error)
 }
 
+// userProfiles is the subset of storage.UserStore injectGit needs.
+type userProfiles interface {
+	GetByUsername(ctx context.Context, username string) (*storage.User, error)
+}
+
 // gitCredentials merges hand-entered PATs (which win per host) with tokens
 // obtained by federated login.
 func (s *Service) gitCredentials(ctx context.Context, userID string) ([]gitcred.Cred, error) {
@@ -489,7 +497,10 @@ func (s *Service) ReinjectGit(ctx context.Context, userID string) {
 }
 
 func (s *Service) injectGit(ctx context.Context, userID, sandboxID string) {
-	if s == nil || s.Sandboxes == nil || (s.Git == nil && s.IdentityTokens == nil) {
+	if s == nil || s.Sandboxes == nil {
+		return
+	}
+	if s.Git == nil && s.IdentityTokens == nil && s.Users == nil {
 		return
 	}
 	creds, err := s.gitCredentials(ctx, userID)
@@ -497,7 +508,15 @@ func (s *Service) injectGit(ctx context.Context, userID, sandboxID string) {
 		slog.Warn("git credentials", "user", userID, "err", err)
 		return
 	}
-	script := gitcred.InstallScript(creds)
+	id := gitcred.Identity{}
+	if s.Users != nil {
+		if u, err := s.Users.GetByUsername(ctx, userID); err != nil {
+			slog.Warn("git identity profile", "user", userID, "err", err)
+		} else {
+			id = gitcred.IdentityFromUser(u)
+		}
+	}
+	script := gitcred.InstallScript(creds, id)
 	execCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	res, err := s.Sandboxes.Exec(execCtx, sandboxID, sandbox.ExecRequest{

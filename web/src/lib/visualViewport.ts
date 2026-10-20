@@ -40,16 +40,21 @@ export type AppViewport = {
 }
 
 /**
- * Resolve CSS viewport vars. In standalone PWA, Safari often reports a
- * residual visualViewport offset/height as if the URL bar still existed —
- * ignore that when the keyboard is closed.
+ * Resolve CSS viewport vars.
+ *
+ * Never pin the fixed shell to visualViewport.offsetTop. On short pages
+ * (settings forms, etc.) overscroll / URL-bar motion updates offsetTop while
+ * the inner scroller has nothing to move — applying it as `top` makes the UI
+ * travel opposite the finger. Height still tracks the visual viewport so the
+ * keyboard and URL bar resize correctly; standalone idle uses innerHeight to
+ * ignore Safari's residual URL-bar metrics.
  */
 export function resolveAppViewport(m: ViewportMetrics): AppViewport {
   const inset = keyboardInset(m.innerHeight, m.vvHeight, m.vvOffsetTop)
   const keyboardOpen = inset > KEYBOARD_OPEN_PX
-  if (m.standalone && !keyboardOpen) {
+  if (!keyboardOpen) {
     return {
-      height: m.innerHeight,
+      height: m.standalone ? m.innerHeight : m.vvHeight,
       offsetTop: 0,
       keyboardInset: 0,
       keyboardOpen: false,
@@ -57,11 +62,9 @@ export function resolveAppViewport(m: ViewportMetrics): AppViewport {
   }
   return {
     height: m.vvHeight,
-    // Standalone + keyboard: keep top at 0 so we do not double-count Safari's
-    // layout scroll (offsetTop) on top of the shrunk height.
-    offsetTop: m.standalone ? 0 : m.vvOffsetTop,
+    offsetTop: 0,
     keyboardInset: inset,
-    keyboardOpen,
+    keyboardOpen: true,
   }
 }
 

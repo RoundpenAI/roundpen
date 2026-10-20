@@ -18,12 +18,22 @@ CREATE TABLE IF NOT EXISTS users (
     model_source    TEXT NOT NULL DEFAULT 'gateway',
     about           TEXT NOT NULL DEFAULT '',
     timezone        TEXT NOT NULL DEFAULT '',
+    git_name        TEXT NOT NULL DEFAULT '',
+    git_email       TEXT NOT NULL DEFAULT '',
+    gpg_private_key TEXT NOT NULL DEFAULT '',
+    gpg_key_id      TEXT NOT NULL DEFAULT '',
+    gpg_sign        BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS model_source TEXT NOT NULL DEFAULT 'gateway';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS about TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS git_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS git_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gpg_private_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gpg_key_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gpg_sign BOOLEAN NOT NULL DEFAULT false;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email

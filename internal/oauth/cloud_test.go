@@ -110,7 +110,7 @@ func TestCloudGitHubLinkInjectsRepoToken(t *testing.T) {
 	if len(creds) != 1 || creds[0].Token != "gho_operate" || creds[0].Host != "github.com" || creds[0].Provider != gitcred.ProviderGitHub {
 		t.Fatalf("creds %+v", creds)
 	}
-	script := gitcred.InstallScript(creds)
+	script := gitcred.InstallScript(creds, gitcred.Identity{})
 	want := base64.StdEncoding.EncodeToString([]byte("export GH_TOKEN=\"gho_operate\"\nexport GITHUB_TOKEN=\"gho_operate\"\n"))
 	if !strings.Contains(script, want) {
 		t.Fatalf("install script missing github env")

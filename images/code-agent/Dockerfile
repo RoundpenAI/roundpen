@@ -40,6 +40,7 @@ RUN set -eux; \
         ca-certificates \
         curl \
         git \
+        gnupg \
         jq \
         make \
         openssh-client \
@@ -47,6 +48,7 @@ RUN set -eux; \
         python3-pip; \
     rm -rf /var/lib/apt/lists/*; \
     git --version; \
+    gpg --version | head -1; \
     ssh -V 2>&1 | head -1; \
     python3 --version; \
     make --version | head -1; \

@@ -3,7 +3,10 @@ import { Button, CodeHighlight, Typography } from '@douyinfe/semi-ui-19'
 import { IconClose, IconDownload } from '@douyinfe/semi-icons'
 import { meWorkspace } from '../../api'
 import type { MessageKey } from '../../i18n'
-import { languageForFilename } from '../../lib/previewHighlight'
+import {
+  ensurePreviewLanguages,
+  languageForFilename,
+} from '../../lib/previewHighlight'
 import { formatBytes, type FileKind } from '../../lib/workspaceFiles'
 
 export type PreviewTarget = {
@@ -28,6 +31,17 @@ export function FilePreview({
 }) {
   const [text, setText] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const [langsReady, setLangsReady] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void ensurePreviewLanguages().then(() => {
+      if (!cancelled) setLangsReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     setText(null)
@@ -81,7 +95,7 @@ export function FilePreview({
           {t('workspace.previewFailed')}
         </Typography.Text>
       )
-    } else if (text === null) {
+    } else if (text === null || !langsReady) {
       body = <Typography.Text type="tertiary">…</Typography.Text>
     } else {
       const lang = languageForFilename(target.name)

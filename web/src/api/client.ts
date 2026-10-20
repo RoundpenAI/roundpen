@@ -5,6 +5,11 @@ export type User = {
   orgName: string
   about?: string
   timezone?: string
+  gitName?: string
+  gitEmail?: string
+  gpgKeyId?: string
+  gpgSign?: boolean
+  hasGpgKey?: boolean
   apiKey: string
   role: string
   hasPassword?: boolean

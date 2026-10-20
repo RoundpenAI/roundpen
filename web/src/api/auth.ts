@@ -6,6 +6,12 @@ export type ProfileUpdate = {
   orgName?: string
   about?: string
   timezone?: string
+  gitName?: string
+  gitEmail?: string
+  gpgPrivateKey?: string
+  gpgKeyId?: string
+  gpgSign?: boolean
+  clearGpgKey?: boolean
 }
 
 export const auth = {

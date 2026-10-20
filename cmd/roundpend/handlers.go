@@ -79,9 +79,9 @@ func newPushService(cfg *config.Config, db *storage.DB, logger *slog.Logger) *we
 // newCoreMux creates the API mux and mounts the auth, platform, native HTTP,
 // browser and preview handlers. It also returns the preview handler, whose
 // host router has to wrap the finished handler stack (see main).
-func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler) {
+func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler, *auth.UserHandler) {
 	mux := http.NewServeMux()
-	auth.Mount(mux, userStore, sessionStore, allowRegistration, cfg.BootstrapAdminPassword)
+	userHandler := auth.Mount(mux, userStore, sessionStore, allowRegistration, cfg.BootstrapAdminPassword)
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr, PublicURL: firstNonEmpty(cfg.PreviewPublicURL, cfg.LLMGW.PublicURL)}
 	native.Mount(mux)
@@ -95,7 +95,7 @@ func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Servic
 		Scheme:    cfg.PreviewDomainScheme,
 	}
 	previewHandler.Mount(mux)
-	return mux, previewHandler
+	return mux, previewHandler, userHandler
 }
 
 // mountEnvStack builds the user environment, git credential, OAuth, connectors,
@@ -116,6 +116,7 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		Sandboxes:      mgr,
 		Git:            gitStore,
 		IdentityTokens: oauthSvc,
+		Users:          userStore,
 		Probe:          probe,
 		Cfg:            cfg,
 		ModelSource: func(ctx context.Context, userID string) string {

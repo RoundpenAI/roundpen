@@ -158,7 +158,9 @@ export function AppShell() {
     </div>
   )
 
-  const inAssistant = location.pathname.startsWith('/a')
+  // Assistant chrome owns its own menu affordance; other areas use this bar.
+  // Do not use pathname.startsWith('/a') — "/admin/…" would match too.
+  const inAssistant = active === 'assistants'
 
   return (
     <OpenAppMenuContext.Provider value={() => setMobileOpen(true)}>
