@@ -1,19 +1,37 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"net/mail"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/RoundpenAI/roundpen/internal/httpx"
+	"github.com/RoundpenAI/roundpen/internal/secretbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
+)
+
+const (
+	maxAboutRunes    = 2000
+	maxFullNameRunes = 80
+	maxOrgNameRunes  = 80
+	maxGitNameRunes  = 80
+	maxGitEmailRunes = 254
+	maxGPGKeyBytes   = 64 << 10
+	maxGPGKeyIDRunes = 64
 )
 
 // UserHandler serves current-user and admin user-management endpoints.
 type UserHandler struct {
 	users storage.UserStore
+	// OnProfileChange is called after a successful self-serve profile save so
+	// a running agent sandbox can pick up git author / GPG changes.
+	OnProfileChange func(ctx context.Context, userID string)
 }
 
 // NewUserHandler constructs a user handler.
@@ -28,24 +46,35 @@ func maskAPIKey(key string) string {
 	return key[:7] + "..." + key[len(key)-4:]
 }
 
+// UserWithFlags is a user listing / me row with secrets redacted.
+type UserWithFlags struct {
+	storage.User
+	HasPassword bool `json:"hasPassword"`
+	HasGPGKey   bool `json:"hasGpgKey"`
+}
+
+func writeUserJSON(w http.ResponseWriter, status int, u *storage.User) {
+	masked := *u
+	masked.APIKey = maskAPIKey(u.APIKey)
+	httpx.WriteJSON(w, status, UserWithFlags{
+		User:        masked,
+		HasPassword: u.PasswordHash != "",
+		HasGPGKey:   strings.TrimSpace(u.GPGPrivateKey) != "",
+	})
+}
+
 func (h *UserHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	user := GetUser(r.Context())
 	if user == nil {
 		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	masked := *user
-	masked.APIKey = maskAPIKey(masked.APIKey)
-	httpx.WriteJSON(w, http.StatusOK, struct {
-		storage.User
-		HasPassword bool `json:"hasPassword"`
-	}{User: masked, HasPassword: user.PasswordHash != ""})
-}
-
-// UserWithFlags is a user listing row with secrets redacted.
-type UserWithFlags struct {
-	storage.User
-	HasPassword bool `json:"hasPassword"`
+	fresh, err := h.users.GetByUsername(r.Context(), user.Username)
+	if err != nil {
+		writeUserJSON(w, http.StatusOK, user)
+		return
+	}
+	writeUserJSON(w, http.StatusOK, fresh)
 }
 
 func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +88,7 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		result[i].User = u
 		result[i].APIKey = maskAPIKey(u.APIKey)
 		result[i].HasPassword = u.PasswordHash != ""
+		result[i].HasGPGKey = strings.TrimSpace(u.GPGPrivateKey) != ""
 	}
 	httpx.WriteJSON(w, http.StatusOK, result)
 }
@@ -189,6 +219,147 @@ func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UpdateProfile lets the signed-in user edit personal fields Agents use.
+func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	stored, err := h.users.GetByUsername(r.Context(), user.Username)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	var req struct {
+		FullName      *string `json:"fullname"`
+		OrgName       *string `json:"orgName"`
+		About         *string `json:"about"`
+		Timezone      *string `json:"timezone"`
+		GitName       *string `json:"gitName"`
+		GitEmail      *string `json:"gitEmail"`
+		GPGPrivateKey *string `json:"gpgPrivateKey"`
+		GPGKeyID      *string `json:"gpgKeyId"`
+		GPGSign       *bool   `json:"gpgSign"`
+		ClearGPGKey   *bool   `json:"clearGpgKey"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	p := storage.UserProfile{
+		FullName: stored.FullName,
+		OrgName:  stored.OrgName,
+		About:    stored.About,
+		Timezone: stored.Timezone,
+		GitName:  stored.GitName,
+		GitEmail: stored.GitEmail,
+		GPGKeyID: stored.GPGKeyID,
+		GPGSign:  stored.GPGSign,
+	}
+	if req.FullName != nil {
+		p.FullName = strings.TrimSpace(*req.FullName)
+		if utf8.RuneCountInString(p.FullName) > maxFullNameRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "fullname is too long")
+			return
+		}
+	}
+	if req.OrgName != nil {
+		p.OrgName = strings.TrimSpace(*req.OrgName)
+		if utf8.RuneCountInString(p.OrgName) > maxOrgNameRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "orgName is too long")
+			return
+		}
+	}
+	if req.About != nil {
+		p.About = strings.TrimSpace(*req.About)
+		if utf8.RuneCountInString(p.About) > maxAboutRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "about is too long")
+			return
+		}
+	}
+	if req.Timezone != nil {
+		tz := strings.TrimSpace(*req.Timezone)
+		if tz != "" {
+			if _, err := time.LoadLocation(tz); err != nil {
+				httpx.WriteErr(w, http.StatusBadRequest, "timezone must be an IANA name (e.g. Asia/Shanghai)")
+				return
+			}
+		}
+		p.Timezone = tz
+	}
+	if req.GitName != nil {
+		p.GitName = strings.TrimSpace(*req.GitName)
+		if utf8.RuneCountInString(p.GitName) > maxGitNameRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "gitName is too long")
+			return
+		}
+	}
+	if req.GitEmail != nil {
+		p.GitEmail = strings.TrimSpace(*req.GitEmail)
+		if utf8.RuneCountInString(p.GitEmail) > maxGitEmailRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "gitEmail is too long")
+			return
+		}
+		if p.GitEmail != "" {
+			if _, err := mail.ParseAddress(p.GitEmail); err != nil {
+				httpx.WriteErr(w, http.StatusBadRequest, "gitEmail must be a valid email address")
+				return
+			}
+		}
+	}
+	if req.GPGKeyID != nil {
+		p.GPGKeyID = strings.TrimSpace(*req.GPGKeyID)
+		if utf8.RuneCountInString(p.GPGKeyID) > maxGPGKeyIDRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "gpgKeyId is too long")
+			return
+		}
+	}
+	if req.ClearGPGKey != nil && *req.ClearGPGKey {
+		p.ClearGPGKey = true
+		p.GPGSign = false
+	}
+	if req.GPGPrivateKey != nil {
+		key := strings.TrimSpace(*req.GPGPrivateKey)
+		if key != "" && !secretbox.IsMasked(key) {
+			if len(key) > maxGPGKeyBytes {
+				httpx.WriteErr(w, http.StatusBadRequest, "gpgPrivateKey is too large")
+				return
+			}
+			if !looksLikeArmoredPrivateKey(key) {
+				httpx.WriteErr(w, http.StatusBadRequest, "gpgPrivateKey must be an ASCII-armored PGP private key")
+				return
+			}
+			p.GPGPrivateKey = key
+		}
+	}
+	if req.GPGSign != nil {
+		p.GPGSign = *req.GPGSign
+	}
+	if p.GPGSign && !p.ClearGPGKey && p.GPGPrivateKey == "" && strings.TrimSpace(stored.GPGPrivateKey) == "" {
+		httpx.WriteErr(w, http.StatusBadRequest, "gpgSign requires a GPG private key")
+		return
+	}
+	if err := h.users.UpdateProfile(r.Context(), user.Username, p); err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	fresh, err := h.users.GetByUsername(r.Context(), user.Username)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	if h.OnProfileChange != nil {
+		h.OnProfileChange(r.Context(), user.Username)
+	}
+	writeUserJSON(w, http.StatusOK, fresh)
+}
+
+func looksLikeArmoredPrivateKey(s string) bool {
+	return strings.Contains(s, "BEGIN PGP PRIVATE KEY BLOCK") ||
+		strings.Contains(s, "BEGIN PGP SECRET KEY BLOCK")
+}
+
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	username := r.PathValue("username")
 	if username == "" {
@@ -292,8 +463,9 @@ func (h *UserHandler) GenerateAPIKey(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Mount registers auth and admin user routes.
-func Mount(mux *http.ServeMux, users storage.UserStore, sessions storage.SessionStore, allowRegistration func() bool, bootstrapPassword string) {
+// Mount registers auth and admin user routes and returns the user handler so
+// callers can attach post-save hooks (e.g. git reinjection).
+func Mount(mux *http.ServeMux, users storage.UserStore, sessions storage.SessionStore, allowRegistration func() bool, bootstrapPassword string) *UserHandler {
 	sh := NewSessionHandler(users, sessions, allowRegistration, bootstrapPassword)
 	uh := NewUserHandler(users)
 	mux.HandleFunc("POST /v1/auth/register", sh.Register)
@@ -301,6 +473,7 @@ func Mount(mux *http.ServeMux, users storage.UserStore, sessions storage.Session
 	mux.HandleFunc("GET /v1/auth/bootstrap-hint", sh.BootstrapHint)
 	mux.HandleFunc("POST /v1/auth/logout", sh.Logout)
 	mux.HandleFunc("GET /v1/auth/user", uh.GetCurrentUser)
+	mux.HandleFunc("PUT /v1/auth/profile", uh.UpdateProfile)
 	mux.HandleFunc("POST /v1/auth/password", sh.ChangePassword)
 	mux.HandleFunc("POST /v1/auth/apikey/rotate", sh.RotateAPIKey)
 
@@ -310,4 +483,5 @@ func Mount(mux *http.ServeMux, users storage.UserStore, sessions storage.Session
 	mux.HandleFunc("DELETE /v1/admin/users/{username}", RequireAdmin(uh.DeleteUser))
 	mux.HandleFunc("POST /v1/admin/users/{username}/apikey", RequireAdmin(uh.GenerateAPIKey))
 	mux.HandleFunc("POST /v1/admin/users/{username}/password", RequireAdmin(uh.ResetPassword))
+	return uh
 }

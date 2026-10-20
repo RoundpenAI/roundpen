@@ -25,25 +25,23 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
 ]
 
 export type SettingsSectionKey =
+  | 'profile'
   | 'apps'
   | 'password'
-  | 'agent'
   | 'slots'
   | 'notifications'
-  | 'general'
   | 'oauth'
   | 'plugins'
   | 'llmgw'
   | 'webtools'
   | 'browser'
   | 'proxy'
+  | 'env'
   | 'automode'
-  | 'system'
 
 export type SettingsGroupKey =
   | 'account'
   | 'workspace'
-  | 'access'
   | 'integrations'
   | 'sandbox'
 
@@ -67,40 +65,40 @@ export const PERSONAL_SETTINGS_GROUPS: SettingsGroup[] = [
 ]
 
 export const PERSONAL_SETTINGS_SECTIONS: SettingsSection[] = [
+  { key: 'profile', labelKey: 'settings.section.profile', group: 'account' },
   { key: 'apps', labelKey: 'settings.section.apps', group: 'account' },
   { key: 'password', labelKey: 'settings.section.password', group: 'account' },
   { key: 'notifications', labelKey: 'settings.section.notifications', group: 'account' },
-  { key: 'agent', labelKey: 'settings.section.agent', group: 'workspace' },
   { key: 'slots', labelKey: 'settings.section.slots', group: 'workspace' },
 ]
 
-/** Old settings URLs that now live under Connected apps. */
+/** Old settings URLs that moved or merged into another section. */
 const LEGACY_PERSONAL_SECTIONS: Record<string, SettingsSectionKey> = {
   accounts: 'apps',
   connectors: 'apps',
   mcp: 'apps',
   git: 'apps',
+  // Agent env (status / upgrade / model source) was removed; proxy & co. live here.
+  agent: 'slots',
 }
 
 export const ADMIN_SETTINGS_GROUPS: SettingsGroup[] = [
-  { key: 'access', labelKey: 'settings.group.access' },
   { key: 'integrations', labelKey: 'settings.group.integrations' },
   { key: 'sandbox', labelKey: 'settings.group.sandbox' },
 ]
 
 export const ADMIN_SETTINGS_SECTIONS: SettingsSection[] = [
-  { key: 'general', labelKey: 'settings.section.general', group: 'access' },
   // Federated login (GitHub / Gitea / the plugin that enables it) is hidden
   // until we want it back. The pages stay in the codebase.
   { key: 'llmgw', labelKey: 'settings.section.llmgw', group: 'integrations' },
   { key: 'webtools', labelKey: 'settings.section.webtools', group: 'integrations' },
   { key: 'browser', labelKey: 'settings.section.browser', group: 'integrations' },
   { key: 'proxy', labelKey: 'settings.section.proxy', group: 'sandbox' },
-  { key: 'system', labelKey: 'settings.section.system', group: 'sandbox' },
+  { key: 'env', labelKey: 'settings.section.env', group: 'sandbox' },
 ]
 
 export const PERSONAL_SETTINGS_FALLBACK: SettingsSectionKey = 'apps'
-export const ADMIN_SETTINGS_FALLBACK: SettingsSectionKey = 'general'
+export const ADMIN_SETTINGS_FALLBACK: SettingsSectionKey = 'llmgw'
 
 export const PRIMARY_COLLAPSED_KEY = 'roundpen.app.primaryCollapsed'
 

@@ -83,6 +83,9 @@ type Deps struct {
 	// Profile selects system prompt + is mirrored in tools.SessionSurface.
 	// Empty means the default System Agent persona.
 	Profile string
+	// UserContext is a short "about the human" block appended to the system
+	// prompt (empty = skip). Built from the user's profile settings.
+	UserContext string
 	// TokenBudget is a soft ceiling for this agent instance (0 = unlimited).
 	// When exceeded mid-turn after a tool batch, the turn ends with a nudge to
 	// FinishRun(continue=true) for routine runs.

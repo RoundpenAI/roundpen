@@ -106,7 +106,7 @@ func main() {
 		logger.Error("settings bootstrap", slog.Any("err", err))
 		os.Exit(1)
 	}
-	allowRegistration, setAllowRegistration := newRegistrationGate(cfg)
+	allowRegistration := newRegistrationGate(cfg)
 
 	userStore := storage.NewUserStore(db)
 	sessionStore := storage.NewSessionStore(db)
@@ -166,7 +166,7 @@ func main() {
 	sbSvc = bs.sandboxes
 	probe := bs.probe
 
-	mux, previewHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
+	mux, previewHandler, userHandler := newCoreMux(cfg, mgr, tplSvc, browserHub, userStore, sessionStore, allowRegistration)
 	if cfg.PreviewDomain != "" {
 		// Booked preview names only exist under a wildcard zone; without one
 		// the router never sees those hosts, so the store stays unset.
@@ -174,6 +174,9 @@ func main() {
 	}
 
 	envSvc, envHandler, oauthSvc, connectorsSvc, mcpSvc, setupSvc, setupHandler := mountEnvStack(mux, db, cfg, mgr, sbSvc, userStore, sessionStore, probe, allowRegistration, itemsCat, secretBox)
+	userHandler.OnProfileChange = func(ctx context.Context, userID string) {
+		envSvc.ReinjectGit(context.WithoutCancel(ctx), userID)
+	}
 	(&settingitems.Handler{Cat: itemsCat, Envs: envRebuilder{svc: envSvc}}).Mount(mux)
 
 	memStore := memory.NewPgStore(db)
@@ -182,7 +185,7 @@ func main() {
 
 	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, itemsCat, installIdentity.MintToken, installIdentity.PublicKeyHex(), logger)
 
-	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
+	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 	pluginSvc := &plugins.Service{Settings: settingsSvc}
 	oauthSvc.GitHubRelay = cfg.OAuthRelay
@@ -247,7 +250,7 @@ func main() {
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
 	routineStore := &routine.Store{DB: db.SQL}
-	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, mcpSvc, routineStore, logger)
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, mcpSvc, routineStore, userStore, logger)
 
 	pushSvc := newPushService(cfg, db, logger)
 	if pushSvc != nil {

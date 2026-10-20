@@ -16,10 +16,24 @@ CREATE TABLE IF NOT EXISTS users (
     -- own: the gateway env is withheld so agents use the user's own login
     -- (vendor subscription / free tier) inside the sandbox.
     model_source    TEXT NOT NULL DEFAULT 'gateway',
+    about           TEXT NOT NULL DEFAULT '',
+    timezone        TEXT NOT NULL DEFAULT '',
+    git_name        TEXT NOT NULL DEFAULT '',
+    git_email       TEXT NOT NULL DEFAULT '',
+    gpg_private_key TEXT NOT NULL DEFAULT '',
+    gpg_key_id      TEXT NOT NULL DEFAULT '',
+    gpg_sign        BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS model_source TEXT NOT NULL DEFAULT 'gateway';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS about TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS git_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS git_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gpg_private_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gpg_key_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS gpg_sign BOOLEAN NOT NULL DEFAULT false;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email
@@ -678,6 +692,57 @@ CREATE TABLE IF NOT EXISTS routine_runs (
         CHECK (tokens_used >= 0),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Long-task columns: CREATE TABLE IF NOT EXISTS will not widen an existing table.
+ALTER TABLE routines
+    ADD COLUMN IF NOT EXISTS max_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE routine_runs
+    ADD COLUMN IF NOT EXISTS segment_index INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE routine_runs
+    ADD COLUMN IF NOT EXISTS continue_from TEXT NOT NULL DEFAULT '';
+ALTER TABLE routine_runs
+    ADD COLUMN IF NOT EXISTS tokens_used INTEGER NOT NULL DEFAULT 0;
+DO $$
+BEGIN
+    ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_max_duration_sec_check;
+    ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_max_duration_sec_ck;
+EXCEPTION
+    WHEN undefined_object THEN NULL;
+END $$;
+DO $$
+BEGIN
+    ALTER TABLE routines
+        ADD CONSTRAINT routines_max_duration_sec_ck
+        CHECK (max_duration_sec BETWEEN 60 AND 7200);
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+DO $$
+BEGIN
+    ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_max_tokens_ck;
+    ALTER TABLE routines
+        ADD CONSTRAINT routines_max_tokens_ck
+        CHECK (max_tokens >= 0);
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+DO $$
+BEGIN
+    ALTER TABLE routine_runs DROP CONSTRAINT IF EXISTS routine_runs_segment_index_ck;
+    ALTER TABLE routine_runs
+        ADD CONSTRAINT routine_runs_segment_index_ck
+        CHECK (segment_index >= 1 AND segment_index <= 48);
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+DO $$
+BEGIN
+    ALTER TABLE routine_runs DROP CONSTRAINT IF EXISTS routine_runs_tokens_used_ck;
+    ALTER TABLE routine_runs
+        ADD CONSTRAINT routine_runs_tokens_used_ck
+        CHECK (tokens_used >= 0);
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 CREATE INDEX IF NOT EXISTS routine_runs_routine_idx
     ON routine_runs (routine_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS routine_runs_one_open_idx

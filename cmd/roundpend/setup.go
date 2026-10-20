@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/authz"
@@ -52,23 +51,10 @@ func openStorage(ctx context.Context, cfg *config.Config, logger *slog.Logger) *
 	return db
 }
 
-// newRegistrationGate returns the public-registration flag reader and setter
-// shared by the auth handlers and the settings service.
-func newRegistrationGate(cfg *config.Config) (func() bool, func(bool)) {
-	var allowRegMu sync.RWMutex
-	allowPublicRegistration := cfg.AllowPublicRegistration
-	allowRegistration := func() bool {
-		allowRegMu.RLock()
-		defer allowRegMu.RUnlock()
-		return allowPublicRegistration
-	}
-	setAllowRegistration := func(v bool) {
-		allowRegMu.Lock()
-		allowPublicRegistration = v
-		cfg.AllowPublicRegistration = v
-		allowRegMu.Unlock()
-	}
-	return allowRegistration, setAllowRegistration
+// newRegistrationGate returns a reader for the env-only public-registration flag
+// (ROUNDPEN_ALLOW_PUBLIC_REGISTRATION).
+func newRegistrationGate(cfg *config.Config) func() bool {
+	return func() bool { return cfg.AllowPublicRegistration }
 }
 
 // bootstrapAdmin seeds the initial admin account when configured.

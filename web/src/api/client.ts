@@ -3,8 +3,16 @@ export type User = {
   email: string
   fullname: string
   orgName: string
+  about?: string
+  timezone?: string
+  gitName?: string
+  gitEmail?: string
+  gpgKeyId?: string
+  gpgSign?: boolean
+  hasGpgKey?: boolean
   apiKey: string
   role: string
+  hasPassword?: boolean
 }
 
 export type Sandbox = {

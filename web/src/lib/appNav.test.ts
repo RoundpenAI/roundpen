@@ -42,7 +42,7 @@ describe('settings sections', () => {
   it('personal sections keep their grouped order', () => {
     assert.deepEqual(
       PERSONAL_SETTINGS_SECTIONS.map((s) => s.key),
-      ['apps', 'password', 'notifications', 'agent', 'slots'],
+      ['profile', 'apps', 'password', 'notifications', 'slots'],
     )
   })
 
@@ -50,12 +50,11 @@ describe('settings sections', () => {
     assert.deepEqual(
       ADMIN_SETTINGS_SECTIONS.map((s) => s.key),
       [
-        'general',
         'llmgw',
         'webtools',
         'browser',
         'proxy',
-        'system',
+        'env',
       ],
     )
   })
@@ -85,16 +84,17 @@ describe('resolvePersonalSection', () => {
   })
 
   it('accepts personal sections', () => {
-    assert.equal(resolvePersonalSection('agent'), 'agent')
+    assert.equal(resolvePersonalSection('slots'), 'slots')
     assert.equal(resolvePersonalSection('apps'), 'apps')
     assert.equal(resolvePersonalSection('notifications', true), 'notifications')
   })
 
-  it('maps legacy accounts/connectors/mcp/git to apps', () => {
+  it('maps legacy accounts/connectors/mcp/git to apps and agent to slots', () => {
     assert.equal(resolvePersonalSection('accounts'), 'apps')
     assert.equal(resolvePersonalSection('connectors'), 'apps')
     assert.equal(resolvePersonalSection('mcp'), 'apps')
     assert.equal(resolvePersonalSection('git'), 'apps')
+    assert.equal(resolvePersonalSection('agent'), 'slots')
   })
 
   it('rejects unknown, admin, and unsupported notification sections', () => {
@@ -108,25 +108,26 @@ describe('visiblePersonalSettingsSections', () => {
   it('includes notifications only when Web Push is supported', () => {
     assert.deepEqual(
       visiblePersonalSettingsSections(true).map((s) => s.key),
-      ['apps', 'password', 'notifications', 'agent', 'slots'],
+      ['profile', 'apps', 'password', 'notifications', 'slots'],
     )
     assert.deepEqual(
       visiblePersonalSettingsSections(false).map((s) => s.key),
-      ['apps', 'password', 'agent', 'slots'],
+      ['profile', 'apps', 'password', 'slots'],
     )
   })
 })
 
 describe('resolveAdminSection', () => {
-  it('defaults to general', () => {
-    assert.equal(resolveAdminSection(undefined), 'general')
-    assert.equal(resolveAdminSection('nope'), 'general')
+  it('defaults to llmgw', () => {
+    assert.equal(resolveAdminSection(undefined), 'llmgw')
+    assert.equal(resolveAdminSection('nope'), 'llmgw')
+    assert.equal(resolveAdminSection('general'), 'llmgw')
   })
 
   it('accepts admin sections and rejects personal ones', () => {
     assert.equal(resolveAdminSection('proxy'), 'proxy')
-    assert.equal(resolveAdminSection('automode'), 'general')
-    assert.equal(resolveAdminSection('git'), 'general')
+    assert.equal(resolveAdminSection('automode'), 'llmgw')
+    assert.equal(resolveAdminSection('git'), 'llmgw')
   })
 })
 

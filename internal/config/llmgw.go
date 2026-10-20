@@ -83,15 +83,8 @@ func loadLLMGW() (LLMGWConfig, error) {
 	}
 	cfg.VirtualKeys = keys
 
-	hasSeed := cfg.OpenAI != nil || cfg.Anthropic != nil || len(cfg.VirtualKeys) > 0
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("ROUNDPEN_LLMGW_ENABLED"))) {
-	case "1", "true", "yes", "on":
-		cfg.Enabled = true
-	case "0", "false", "no", "off":
-		cfg.Enabled = false
-	default:
-		cfg.Enabled = hasSeed
-	}
+	// Relay is always on; there is no settings UI to disable it.
+	cfg.Enabled = true
 
 	return cfg, nil
 }

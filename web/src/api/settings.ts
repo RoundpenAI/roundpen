@@ -55,6 +55,16 @@ export type BrowserTestResult = {
   chromeOk?: boolean
 }
 
+export type EnvVar = {
+  name: string
+  group: string
+  default: string
+  value: string
+  secret: boolean
+  hint: string
+  hintZh: string
+}
+
 export const adminSettings = {
   get: () => api<SettingsResponse>('/v1/admin/settings'),
   update: (settings: AppSettings) =>
@@ -69,4 +79,5 @@ export const adminSettings = {
     ),
   automodeDefaults: () =>
     api<AutoModeDefaults>('/v1/admin/settings/automode/defaults'),
+  envCatalog: () => api<{ vars: EnvVar[] }>('/v1/admin/settings/env'),
 }

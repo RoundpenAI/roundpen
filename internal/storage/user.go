@@ -66,17 +66,24 @@ func ValidModelSource(s string) bool {
 
 // User is an authenticated account with password and/or API key.
 type User struct {
-	Username     string    `json:"username"`
-	Email        string    `json:"email"`
-	FullName     string    `json:"fullname"`
-	OrgName      string    `json:"orgName"`
-	APIKey       string    `json:"apiKey"`
-	Role         UserRole  `json:"role"`
-	PasswordHash string    `json:"-"`
-	AuthProvider string    `json:"authProvider,omitempty"`
-	ModelSource  string    `json:"modelSource,omitempty"`
-	CreatedAt    time.Time `json:"createdAt,omitempty"`
-	UpdatedAt    time.Time `json:"updatedAt,omitempty"`
+	Username      string    `json:"username"`
+	Email         string    `json:"email"`
+	FullName      string    `json:"fullname"`
+	OrgName       string    `json:"orgName"`
+	About         string    `json:"about,omitempty"`
+	Timezone      string    `json:"timezone,omitempty"`
+	GitName       string    `json:"gitName,omitempty"`
+	GitEmail      string    `json:"gitEmail,omitempty"`
+	GPGKeyID      string    `json:"gpgKeyId,omitempty"`
+	GPGSign       bool      `json:"gpgSign"`
+	GPGPrivateKey string    `json:"-"` // never serialize; use hasGpgKey in API responses
+	APIKey        string    `json:"apiKey"`
+	Role          UserRole  `json:"role"`
+	PasswordHash  string    `json:"-"`
+	AuthProvider  string    `json:"authProvider,omitempty"`
+	ModelSource   string    `json:"modelSource,omitempty"`
+	CreatedAt     time.Time `json:"createdAt,omitempty"`
+	UpdatedAt     time.Time `json:"updatedAt,omitempty"`
 }
 
 // Session is a server-side login session (Cookie: roundpen_session).
@@ -100,6 +107,22 @@ type UserStore interface {
 	ListAll(ctx context.Context) ([]User, error)
 	Delete(ctx context.Context, username string) error
 	SetModelSource(ctx context.Context, username, source string) error
+	// UpdateProfile updates self-serve personal fields (not role / api key).
+	UpdateProfile(ctx context.Context, username string, p UserProfile) error
+}
+
+// UserProfile is the subset of User a person may edit for themselves.
+type UserProfile struct {
+	FullName      string
+	OrgName       string
+	About         string
+	Timezone      string
+	GitName       string
+	GitEmail      string
+	GPGPrivateKey string // empty = leave unchanged when clearing is false
+	GPGKeyID      string
+	GPGSign       bool
+	ClearGPGKey   bool // drop the stored private key
 }
 
 // SessionStore persists cookie-backed login sessions.
@@ -121,13 +144,16 @@ func NewUserStore(db *DB) *PgUserStore {
 	return &PgUserStore{db: db}
 }
 
-const userCols = `username, email, fullname, org_name, api_key, COALESCE(role, 'user'), COALESCE(password_hash, ''), COALESCE(auth_provider, 'local'), COALESCE(model_source, 'gateway'), created_at, updated_at`
+const userCols = `username, email, fullname, org_name, COALESCE(about, ''), COALESCE(timezone, ''),
+	COALESCE(git_name, ''), COALESCE(git_email, ''), COALESCE(gpg_private_key, ''), COALESCE(gpg_key_id, ''), COALESCE(gpg_sign, false),
+	api_key, COALESCE(role, 'user'), COALESCE(password_hash, ''), COALESCE(auth_provider, 'local'), COALESCE(model_source, 'gateway'), created_at, updated_at`
 
 func scanUser(row scannable) (*User, error) {
 	var u User
 	err := row.Scan(
-		&u.Username, &u.Email, &u.FullName, &u.OrgName, &u.APIKey,
-		&u.Role, &u.PasswordHash, &u.AuthProvider, &u.ModelSource,
+		&u.Username, &u.Email, &u.FullName, &u.OrgName, &u.About, &u.Timezone,
+		&u.GitName, &u.GitEmail, &u.GPGPrivateKey, &u.GPGKeyID, &u.GPGSign,
+		&u.APIKey, &u.Role, &u.PasswordHash, &u.AuthProvider, &u.ModelSource,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -169,18 +195,20 @@ func (s *PgUserStore) Upsert(ctx context.Context, u User) error {
 	}
 	u.UpdatedAt = now
 	_, err := s.db.SQL.ExecContext(ctx, `
-		INSERT INTO users (username, email, fullname, org_name, api_key, role, password_hash, auth_provider, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10)
+		INSERT INTO users (username, email, fullname, org_name, about, timezone, api_key, role, password_hash, auth_provider, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), $10, $11, $12)
 		ON CONFLICT (username) DO UPDATE SET
 			email          = EXCLUDED.email,
 			fullname       = EXCLUDED.fullname,
 			org_name       = EXCLUDED.org_name,
+			about          = EXCLUDED.about,
+			timezone       = EXCLUDED.timezone,
 			api_key        = EXCLUDED.api_key,
 			role           = EXCLUDED.role,
 			password_hash  = COALESCE(EXCLUDED.password_hash, users.password_hash),
 			auth_provider  = COALESCE(NULLIF(EXCLUDED.auth_provider, ''), users.auth_provider),
 			updated_at     = EXCLUDED.updated_at
-	`, u.Username, u.Email, u.FullName, u.OrgName, storedAPIKey(u.APIKey), u.Role, u.PasswordHash, u.AuthProvider, u.CreatedAt, u.UpdatedAt)
+	`, u.Username, u.Email, u.FullName, u.OrgName, u.About, u.Timezone, storedAPIKey(u.APIKey), u.Role, u.PasswordHash, u.AuthProvider, u.CreatedAt, u.UpdatedAt)
 	return err
 }
 
@@ -217,6 +245,48 @@ func (s *PgUserStore) Delete(ctx context.Context, username string) error {
 func (s *PgUserStore) SetModelSource(ctx context.Context, username, source string) error {
 	res, err := s.db.SQL.ExecContext(ctx,
 		"UPDATE users SET model_source = $2, updated_at = now() WHERE username = $1", username, source)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateProfile persists self-serve personal fields.
+func (s *PgUserStore) UpdateProfile(ctx context.Context, username string, p UserProfile) error {
+	gpgKey := p.GPGPrivateKey
+	gpgKeyID := p.GPGKeyID
+	if p.ClearGPGKey {
+		gpgKey = ""
+		gpgKeyID = ""
+	}
+	res, err := s.db.SQL.ExecContext(ctx, `
+		UPDATE users SET
+			fullname = $2,
+			org_name = $3,
+			about = $4,
+			timezone = $5,
+			git_name = $6,
+			git_email = $7,
+			gpg_private_key = CASE
+				WHEN $10::boolean THEN ''
+				WHEN $8 <> '' THEN $8
+				ELSE gpg_private_key
+			END,
+			gpg_key_id = CASE
+				WHEN $10::boolean THEN ''
+				WHEN $8 <> '' THEN $9
+				WHEN $9 <> '' THEN $9
+				ELSE gpg_key_id
+			END,
+			gpg_sign = $11,
+			updated_at = now()
+		WHERE username = $1
+	`, username, p.FullName, p.OrgName, p.About, p.Timezone,
+		p.GitName, p.GitEmail, gpgKey, gpgKeyID, p.ClearGPGKey, p.GPGSign)
 	if err != nil {
 		return err
 	}

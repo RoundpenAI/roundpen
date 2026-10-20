@@ -121,6 +121,35 @@ func (m *MemoryUserStore) SetModelSource(_ context.Context, username, source str
 	return nil
 }
 
+func (m *MemoryUserStore) UpdateProfile(_ context.Context, username string, p UserProfile) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[username]
+	if !ok {
+		return ErrNotFound
+	}
+	u.FullName = p.FullName
+	u.OrgName = p.OrgName
+	u.About = p.About
+	u.Timezone = p.Timezone
+	u.GitName = p.GitName
+	u.GitEmail = p.GitEmail
+	u.GPGSign = p.GPGSign
+	if p.ClearGPGKey {
+		u.GPGPrivateKey = ""
+		u.GPGKeyID = ""
+		u.GPGSign = false
+	} else if p.GPGPrivateKey != "" {
+		u.GPGPrivateKey = p.GPGPrivateKey
+		u.GPGKeyID = p.GPGKeyID
+	} else if p.GPGKeyID != "" {
+		u.GPGKeyID = p.GPGKeyID
+	}
+	u.UpdatedAt = time.Now().UTC()
+	m.users[username] = u
+	return nil
+}
+
 // MemorySessionStore is an in-memory SessionStore for tests.
 type MemorySessionStore struct {
 	mu       sync.Mutex

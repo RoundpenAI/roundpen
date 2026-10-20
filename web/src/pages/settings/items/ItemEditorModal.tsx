@@ -83,9 +83,40 @@ export function ItemEditorModal({ kind, def, refs, vendors, t, item, onSave, onC
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setDraft(item)
+    if (!item) {
+      setDraft(null)
+      setError(null)
+      return
+    }
+    // Preset seeds from the add menu may only set vendor; fill protocol /
+    // baseUrl / defaultModel the same way a vendor change would.
+    let next = item
+    if (kind === 'llm' && vendors?.length) {
+      const vendorId =
+        typeof item.config.vendor === 'string' && item.config.vendor !== ''
+          ? item.config.vendor
+          : ''
+      const preset = vendors.find((v) => v.id === vendorId)
+      if (preset && preset.id !== 'custom') {
+        const ids = preset.models.map((m) => m.id)
+        const model = String(item.config.defaultModel ?? '')
+        next = {
+          ...item,
+          id: item.id || preset.id,
+          name: item.name || preset.name,
+          config: {
+            ...item.config,
+            vendor: preset.id,
+            protocol: item.config.protocol || preset.protocol,
+            baseUrl: item.config.baseUrl || preset.baseUrl,
+            defaultModel: ids.includes(model) ? model : (ids[0] ?? ''),
+          },
+        }
+      }
+    }
+    setDraft(next)
     setError(null)
-  }, [item])
+  }, [item, kind, vendors])
 
   const isNew = Boolean(item) && !item?.id
   const open = draft !== null

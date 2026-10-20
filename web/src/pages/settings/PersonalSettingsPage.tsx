@@ -1,9 +1,9 @@
 import { Navigate, useParams } from 'react-router-dom'
-import { AgentEnvironmentPanel } from '../../components/AgentEnvironmentPanel'
 import { ChangePasswordForm } from '../../components/ChangePasswordForm'
 import { ConnectedAppsPanel } from '../../components/ConnectedAppsPanel'
 import { NotificationsPanel } from '../../components/NotificationsPanel'
 import { PersonalSlotsPanel } from '../../components/PersonalSlotsPanel'
+import { ProfilePanel } from '../../components/ProfilePanel'
 import { useAuth } from '../../auth'
 import { isAdminSectionKey, resolvePersonalSection } from '../../lib/appNav'
 import { isPushSupported } from '../../lib/pushSupport'
@@ -35,13 +35,13 @@ export function PersonalSettingsPage() {
         boxSizing: 'border-box',
       }}
     >
+      {section === 'profile' && <ProfilePanel />}
+
       {section === 'apps' && <ConnectedAppsPanel />}
 
       {section === 'password' && <ChangePasswordForm />}
 
       {section === 'notifications' && <NotificationsPanel />}
-
-      {section === 'agent' && <AgentEnvironmentPanel />}
 
       {section === 'slots' && <PersonalSlotsPanel />}
     </div>

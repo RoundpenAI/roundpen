@@ -79,9 +79,9 @@ func newPushService(cfg *config.Config, db *storage.DB, logger *slog.Logger) *we
 // newCoreMux creates the API mux and mounts the auth, platform, native HTTP,
 // browser and preview handlers. It also returns the preview handler, whose
 // host router has to wrap the finished handler stack (see main).
-func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler) {
+func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Service, browserHub *browser.Hub, userStore storage.UserStore, sessionStore storage.SessionStore, allowRegistration func() bool) (*http.ServeMux, *preview.Handler, *auth.UserHandler) {
 	mux := http.NewServeMux()
-	auth.Mount(mux, userStore, sessionStore, allowRegistration, cfg.BootstrapAdminPassword)
+	userHandler := auth.Mount(mux, userStore, sessionStore, allowRegistration, cfg.BootstrapAdminPassword)
 	(&platform.Handler{Manager: mgr, Templates: tplSvc}).Mount(mux)
 	native := &httpapi.Handler{Manager: mgr, PublicURL: firstNonEmpty(cfg.PreviewPublicURL, cfg.LLMGW.PublicURL)}
 	native.Mount(mux)
@@ -95,7 +95,7 @@ func newCoreMux(cfg *config.Config, mgr sandbox.Manager, tplSvc *template.Servic
 		Scheme:    cfg.PreviewDomainScheme,
 	}
 	previewHandler.Mount(mux)
-	return mux, previewHandler
+	return mux, previewHandler, userHandler
 }
 
 // mountEnvStack builds the user environment, git credential, OAuth, connectors,
@@ -116,6 +116,7 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		Sandboxes:      mgr,
 		Git:            gitStore,
 		IdentityTokens: oauthSvc,
+		Users:          userStore,
 		Probe:          probe,
 		Cfg:            cfg,
 		ModelSource: func(ctx context.Context, userID string) string {
@@ -256,14 +257,13 @@ func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cf
 }
 
 // newSettingsService builds the runtime settings service over the boot settings.
-func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAllowRegistration func(bool), setAgentImage func(string), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error, items *settingitems.Catalog) *settings.Service {
+func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAgentImage func(string), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error, items *settingitems.Catalog) *settings.Service {
 	// The stored value is what the first Agent sandbox must use; later PUTs
 	// reach the environment service through SetAgentImage.
 	if setAgentImage != nil {
 		setAgentImage(appSettings.AgentImage)
 	}
 	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
-		AllowPublicReg:   setAllowRegistration,
 		Sandbox:          sbSvc,
 		Templates:        tplSvc,
 		Probe:            probe,
@@ -537,7 +537,7 @@ func (a agentJobSlots) EnsureAgent(ctx context.Context, userID string) (*sandbox
 }
 
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, mcpSvc *mcp.Service, routineStore *routine.Store, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, mcpSvc *mcp.Service, routineStore *routine.Store, users storage.UserStore, logger *slog.Logger) *manager.Manager {
 	// Grant-gated host reads (NAS shares) for the agent's Read/Glob tools.
 	hostRead := hostaccess.New(agentStore, assistantStore, logger)
 	var onTokens func(runKey string, delta int)
@@ -592,6 +592,16 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 			return cfg
 		},
 		HostFiles: hostRead.ForSession,
+		UserContext: func(ctx context.Context, userID string) string {
+			if users == nil || strings.TrimSpace(userID) == "" {
+				return ""
+			}
+			u, err := users.GetByUsername(ctx, userID)
+			if err != nil || u == nil {
+				return ""
+			}
+			return sysagent.FormatUserContext(u.Username, u.FullName, u.OrgName, u.About, u.Timezone)
+		},
 	})
 	return acpMgr
 }

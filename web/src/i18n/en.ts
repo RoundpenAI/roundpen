@@ -70,13 +70,14 @@ export const en = {
   'workspace.previewUnsupported': 'Preview is not available for this file type',
   'workspace.previewTooLarge': 'This file is too large to preview',
   'workspace.previewFailed': 'Failed to load the file',
+  'workspace.previewPickFile': 'Select a file on the left to preview',
   'workspace.close': 'Close',
+  'workspace.backToList': 'Back to list',
 
   'settings.title': 'Settings',
   'settings.adminTitle': 'Administration',
   'settings.group.account': 'Account & security',
   'settings.group.workspace': 'Work environment',
-  'settings.group.access': 'Users & access',
   'settings.group.integrations': 'Integrations',
   'settings.group.sandbox': 'Sandbox & runtime',
   'settings.section.git': 'Git personal tokens',
@@ -120,17 +121,56 @@ export const en = {
   'apps.gitlabPatGuide':
     'On GitLab: avatar → Preferences → Access Tokens. Create a token with api and write_repository, copy it once, then enter the host and token below.',
   'apps.openPatSettings': 'Open token settings on this host',
+  'settings.section.profile': 'Profile',
   'settings.section.password': 'Password',
   'settings.section.notifications': 'Notifications',
   'settings.section.agent': 'Agent environment',
-  'settings.section.general': 'General',
+
+  'profile.intro':
+    'Agents use this to address you, respect your timezone, and understand your context. It is not shared with other users.',
+  'profile.loading': 'Loading profile…',
+  'profile.loadFailed': 'Failed to load profile',
+  'profile.saveFailed': 'Failed to save profile',
+  'profile.saved': 'Profile saved.',
+  'profile.save': 'Save',
+  'profile.username': 'Username',
+  'profile.fullname': 'Preferred name',
+  'profile.fullnameHint': 'How Agents should address you',
+  'profile.fullnamePlaceholder': 'e.g. Alex',
+  'profile.orgName': 'Organization / team',
+  'profile.orgPlaceholder': 'Optional',
+  'profile.timezone': 'Timezone',
+  'profile.timezoneHint': 'IANA name for scheduling, e.g. America/Los_Angeles',
+  'profile.about': 'About me',
+  'profile.aboutHint': 'Background, preferences, and constraints Agents should know',
+  'profile.aboutPlaceholder':
+    'e.g. I run e-commerce ops; prefer concise replies in English; avoid pings after 10pm.',
+  'profile.gitTitle': 'Git commits',
+  'profile.gitIntro':
+    'Author name and email written into the Agent sandbox for git commits. Empty fields fall back to preferred name / account email / username. Not the same as the Username on connected Git hosts (that is only for HTTPS auth).',
+  'profile.gitName': 'Commit name',
+  'profile.gitNameHint': 'git config user.name',
+  'profile.gitNamePlaceholder': 'Preferred name or username',
+  'profile.gitEmail': 'Commit email',
+  'profile.gitEmailHint': 'git config user.email',
+  'profile.gitEmailPlaceholder': 'you@example.com',
+  'profile.gpgKey': 'GPG private key',
+  'profile.gpgKeyHint':
+    'ASCII-armored secret key, preferably without a passphrase (sandboxes cannot prompt). Imported into the Agent home for signed commits.',
+  'profile.gpgKeyPlaceholder': '-----BEGIN PGP PRIVATE KEY BLOCK-----',
+  'profile.gpgKeyId': 'Signing key id (optional)',
+  'profile.gpgKeyIdHint': 'Fingerprint or key id; leave blank to use the first secret key after import',
+  'profile.gpgKeyIdPlaceholder': 'e.g. A1B2C3D4…',
+  'profile.gpgSign': 'Sign commits with GPG (commit.gpgsign)',
+  'profile.gpgClear': 'Remove stored GPG key',
   'settings.section.oauth': 'OAuth login',
   'settings.section.plugins': 'Plugins',
   'settings.section.browser': 'Browser',
-  'settings.section.llmgw': 'LLM gateway',
-  'settings.section.webtools': 'Web tools',
+  'settings.section.llmgw': 'Model config',
+  'settings.section.webtools': 'Web search',
   'settings.section.automode': 'Auto mode',
-  'settings.section.proxy': 'Network proxies',
+  'settings.section.proxy': 'Traffic egress',
+  'settings.section.env': 'Environment',
   'settings.section.system': 'System',
 
   'settings.loading': 'Loading…',
@@ -166,7 +206,20 @@ export const en = {
   'settings.notifications.serverOff':
     'The server could not load VAPID keys for Web Push. Check the control-plane logs.',
 
-  'settings.general.allowRegistration': 'Allow public registration',
+  'settings.env.howTo':
+    'Edit the install .env (real process env wins over the file), then restart roundpend — or restart / reinstall the fnOS app. Secret values are masked.',
+  'settings.env.loadFailed': 'Failed to load environment variables',
+  'settings.env.col.name': 'Variable',
+  'settings.env.col.default': 'Default',
+  'settings.env.col.value': 'Current',
+  'settings.env.col.hint': 'Notes',
+  'settings.env.group.core': 'Core',
+  'settings.env.group.sandbox': 'Sandbox',
+  'settings.env.group.browser': 'Browser',
+  'settings.env.group.llm': 'Model & search',
+  'settings.env.group.preview': 'Preview',
+  'settings.env.group.push': 'Push',
+  'settings.env.group.advanced': 'Advanced',
   'settings.general.defaultImage': 'Default template / image',
   'settings.general.agentImage': 'Agent image',
   'settings.general.agentImageHint':
@@ -194,22 +247,23 @@ export const en = {
   'settings.logBody.256k': '256 KiB',
 
   'settings.browser.intro':
-    'Browser tools attach to a DevTools websocket. Add one item per source and pick the default below; users may override it for their own browser.',
+    'Browser tools attach to a DevTools websocket. Add one or more sources and mark one as default; the default row shows Started when the browser environment is running.',
   'settings.browser.keepMasked': 'Leave masked to keep current',
   'settings.browser.test': 'Test connection',
   'settings.browser.testOk': 'reachable',
+  'settings.browser.started': 'Started',
   'settings.browser.hint':
     'NAS and compose should use Docker Chrome or a remote/cloud CDP — do not install Chrome on the NAS OS. Host Chrome is for laptop debugging only.',
 
   'settings.llmgw.intro':
-    'Roundpen relays model calls so Agents never hold your upstream keys. Add DeepSeek, Kimi, GLM or OpenRouter with an API key and a model, or a custom endpoint. The relay credential is injected into Docker agents only and is not issued for external clients.',
+    'Add FREE, DeepSeek, Kimi, GLM, OpenRouter, or a custom endpoint and set one as default — Agents and chat use it automatically. Built-in platforms need an API key and a model; custom also needs protocol and base URL. Keys are injected into Docker agents only.',
   'settings.llmgw.modeHint':
-    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → LLM gateway for production; on 429 the UI cues the same path.',
+    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → Model config for production; on 429 the UI cues the same path.',
   'settings.llmgw.enable':
     'Enable relay (required for Agent Chats & memory embeddings)',
   'settings.llmgw.upstreamTitle': '1 · Upstream providers',
   'settings.llmgw.upstreamHint':
-    'Built-in platforms need an API key and a model. A custom provider also needs a protocol and base URL. Per-usage-point choices appear only after a second provider is added; until then every usage point inherits the one you configured.',
+    'Add FREE, DeepSeek, Kimi, GLM, OpenRouter, or a custom endpoint and set one as default — Agents and chat use it automatically. Built-in platforms need an API key and a model; custom also needs protocol and base URL. Keys are injected into Docker agents only.',
   'settings.llmgw.keepSecret': 'Leave masked to keep the stored secret.',
   'settings.llmgw.agentsTitle': '2 · What Agents use',
   'settings.llmgw.agentsHint':
@@ -230,9 +284,22 @@ export const en = {
     'Secrets are stored in PostgreSQL and shown masked. Leave a masked field unchanged to keep the existing value. Saves apply immediately — no restart.',
 
   'settings.webtools.intro':
-    'Web tools let Agents fetch pages and search the web from the control plane. DeepSeek, Kimi, GLM and OpenRouter supply WebSearch from the key you already saved. Add a search backend here only when you want a different one. WebFetch needs no configuration.',
+    'Optional dedicated search backends. DeepSeek, Kimi, GLM and OpenRouter already supply WebSearch from the model key; add Tavily here only when you want a different one.',
   'settings.webtools.note':
-    'Applies to new Agent sessions — reopen a session to see the WebSearch tool. With no endpoint and no key the tool stays unregistered.',
+    'Applies to new Agent sessions — reopen a session to see the WebSearch tool. With no backend configured the tool stays unregistered.',
+  'settings.webtools.detecting': 'Detecting search backends…',
+  'settings.webtools.detectedVendor':
+    'Using {name} web search from Model config — no extra search key needed.',
+  'settings.webtools.detectedSearch': 'Using search backend “{name}”.',
+  'settings.webtools.detectedMcp': 'Using connected app “{name}” for search.',
+  'settings.webtools.suggestTitle': 'No search backend detected',
+  'settings.webtools.suggestHint':
+    'Register and enable one of these, or add a DeepSeek / Kimi / GLM / OpenRouter key under Model config.',
+  'settings.webtools.suggestTavily':
+    'Add a Tavily-compatible search item below (API key from tavily.com).',
+  'settings.webtools.suggestExa':
+    'Connect the Exa MCP server under Connected apps.',
+  'settings.webtools.openApps': 'Open Connected apps',
 
   'settings.system.title': 'System (read-only)',
   'settings.system.backend': 'Backend',
@@ -262,7 +329,7 @@ export const en = {
   'git.empty': 'No personal tokens yet. Add a host below.',
   'git.provider': 'Provider',
   'git.host': 'Host',
-  'git.username': 'Username (optional)',
+  'git.username': 'Username (optional, HTTPS auth only)',
   'git.token': 'Personal token',
   'git.tokenPlaceholder': 'PAT with repo + issues/PR scope',
   'git.save': 'Save personal token',
@@ -490,7 +557,7 @@ export const en = {
   'agentEnv.proxy.failed': 'Failed to update the proxy.',
 
   'settings.proxy.intro':
-    'Named egress proxies users can pick per environment. URLs may embed credentials (user:pass@host); item names are all users see.',
+    'Named traffic egress profiles users can pick per environment. URLs may embed credentials (user:pass@host); item names are all users see.',
   'settings.proxy.urlHint': 'http, https, socks5 or socks5h URL.',
   'settings.proxy.note':
     'Chrome ignores credentials in proxy URLs; use an auth-less proxy for the Browser slot.',
@@ -542,6 +609,10 @@ export const en = {
   'settings.items.edit': 'Edit',
   'settings.items.cancel': 'Cancel',
   'settings.items.disabled': 'Disabled',
+  'settings.items.default': 'Default',
+  'settings.items.setDefault': 'Set as default',
+  'settings.items.defaultSet': 'Default updated.',
+  'settings.items.defaultFailed': 'Failed to set the default.',
   'settings.items.newTitle': 'New item',
   'settings.items.editTitle': 'Edit item',
   'settings.items.idLocked': 'The id is fixed once the item exists.',

@@ -19,6 +19,8 @@ const globalID = "global"
 // (LLM providers, proxies, search backends, browser sources) live as setting
 // items instead; see internal/settingitems.
 type AppSettings struct {
+	// AllowPublicRegistration is retained for document compatibility; the live
+	// gate is ROUNDPEN_ALLOW_PUBLIC_REGISTRATION only (see ApplyToConfig).
 	AllowPublicRegistration bool   `json:"allowPublicRegistration"`
 	DefaultImage            string `json:"defaultImage"`
 	DefaultTtlSeconds       int    `json:"defaultTtlSeconds"`
@@ -76,6 +78,8 @@ func defaultAutoModeSettings() AutoModeSettings {
 // normalize trims free-text values before validation.
 func (s *AppSettings) normalize() {
 	s.AgentImage = strings.TrimSpace(s.AgentImage)
+	// Relay cannot be turned off from settings (or the API document).
+	s.LlmgwEnabled = true
 	s.normalizeAutoMode()
 }
 
@@ -156,12 +160,14 @@ func (s *AppSettings) MergeSecrets(previous AppSettings) {
 // endpoints and the browser source are not part of the document any more:
 // they live as items and reach their subsystems through the catalog.
 func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
-	cfg.AllowPublicRegistration = s.AllowPublicRegistration
+	// Public registration is env-only (ROUNDPEN_ALLOW_PUBLIC_REGISTRATION);
+	// the stored field is kept for document compatibility and ignored here.
 	cfg.DefaultImage = config.CoerceDefaultImage(s.DefaultImage, cfg.AgentImage)
 	cfg.DefaultTTL = time.Duration(s.DefaultTtlSeconds) * time.Second
-	cfg.LLMGW.Enabled = s.LlmgwEnabled
+	// Relay is always on; body logging stays on the env-loaded value
+	// (ROUNDPEN_LLMGW_LOG_BODY_MAX_BYTES) and is not editable via settings.
+	cfg.LLMGW.Enabled = true
 	cfg.LLMGW.PublicURL = strings.TrimSpace(s.LlmgwPublicURL)
-	cfg.LLMGW.LogBodyMaxBytes = s.LlmgwLogBodyMaxBytes
 	keys, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys)
 	if err != nil {
 		return err

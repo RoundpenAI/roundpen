@@ -50,10 +50,11 @@ func TestLoadLLMGWAutoEnable(t *testing.T) {
 	}
 }
 
-func TestLoadLLMGWDisabled(t *testing.T) {
+func TestLoadLLMGWAlwaysEnabled(t *testing.T) {
+	// ROUNDPEN_LLMGW_ENABLED is ignored; the relay cannot be turned off.
 	t.Setenv("ROUNDPEN_LLMGW_ENABLED", "false")
-	t.Setenv("ROUNDPEN_LLMGW_OPENAI_BASE_URL", "https://api.openai.com")
-	t.Setenv("ROUNDPEN_LLMGW_OPENAI_API_KEY", "sk-test")
+	t.Setenv("ROUNDPEN_LLMGW_OPENAI_BASE_URL", "")
+	t.Setenv("ROUNDPEN_LLMGW_OPENAI_API_KEY", "")
 	t.Setenv("ROUNDPEN_LLMGW_VIRTUAL_KEYS", "")
 	t.Setenv("ROUNDPEN_LLMGW_ANTHROPIC_BASE_URL", "")
 	t.Setenv("ROUNDPEN_LLMGW_ANTHROPIC_API_KEY", "")
@@ -62,7 +63,7 @@ func TestLoadLLMGWDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Enabled {
-		t.Fatal("expected disabled")
+	if !cfg.Enabled {
+		t.Fatal("expected always enabled")
 	}
 }

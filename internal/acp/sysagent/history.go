@@ -27,6 +27,9 @@ const (
 // system + prior user/assistant/tool pairs from the database + this turn's user text.
 func (a *Agent) buildPromptMessages(ctx context.Context, userText string) []chatMessage {
 	system := systemPromptForProfile(a.deps.Profile)
+	if ctx := strings.TrimSpace(a.deps.UserContext); ctx != "" {
+		system += "\n\n" + ctx
+	}
 
 	if a.deps.Profile == ProfileDefault || a.deps.Profile == "" {
 		if _, ok := a.deps.Tools.Get("WebSearch"); ok {

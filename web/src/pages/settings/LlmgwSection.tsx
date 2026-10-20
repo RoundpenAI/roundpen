@@ -1,126 +1,87 @@
 import { useCallback, useState } from 'react'
-import { Collapse, Form, Input, Select, Typography } from '@douyinfe/semi-ui-19'
+import { Button, Dropdown } from '@douyinfe/semi-ui-19'
 import { Loading } from '../../components/Loading'
-import { LlmSetupChooser } from '../../components/LlmSetupChooser'
-import type { LlmReady } from '../../api'
+import { setupApi, type SettingItem } from '../../api'
 import { ItemListSection } from './items/ItemListSection'
-import { SlotBindings } from './items/SlotBindings'
 import { sectionGap } from './constants'
-import { Field, Toggle } from './parts'
 import type { SectionBase } from './helpers'
 
-type Props = SectionBase & {
-  logBodyOptions: { value: number; label: string }[]
-}
+const PRESET_VENDORS = [
+  { id: 'deepseek', name: 'DeepSeek' },
+  { id: 'kimi', name: 'Kimi' },
+  { id: 'glm', name: 'GLM' },
+  { id: 'openrouter', name: 'OpenRouter' },
+  { id: 'custom', name: 'Custom' },
+] as const
 
-// Providers are setting items (kind "llm") and each usage point picks one via
-// a slot binding; the switches below stay in the settings document.
-export function LlmgwSection({ isAdmin, loading, t, form, patch, logBodyOptions }: Props) {
-  const [llmStatus, setLlmStatus] = useState<LlmReady | null>(null)
-  const onLlmReady = useCallback((res: LlmReady) => {
-    setLlmStatus(res)
-    if (res.ready && res.mode === 'free' && !form.llmgwEnabled) {
-      // FREE path turns the gateway on server-side; refresh the toggle.
-      patch({ llmgwEnabled: true })
+// Providers are setting items (kind "llm"). Picking one as default binds
+// agent / sysagent slots automatically. Relay is always on; body logging is
+// env-only (ROUNDPEN_LLMGW_LOG_BODY_MAX_BYTES).
+export function LlmgwSection({ isAdmin, loading, t }: SectionBase) {
+  const [freeBusy, setFreeBusy] = useState(false)
+  const [listKey, setListKey] = useState(0)
+
+  const enableFree = useCallback(async () => {
+    setFreeBusy(true)
+    try {
+      await setupApi.enableFreeLlm()
+      setListKey((k) => k + 1)
+    } finally {
+      setFreeBusy(false)
     }
-  }, [form.llmgwEnabled, patch])
+  }, [])
 
   if (!isAdmin) return null
   if (loading) return <Loading tip={t('settings.loadingSystem')} />
 
   return (
-    <Form labelPosition="top" labelAlign="left" style={sectionGap}>
-      <div style={{ ...sectionGap, paddingTop: 16 }}>
-        <Typography.Text type="tertiary" size="small">
-          {t('settings.llmgw.intro')}
-        </Typography.Text>
-
-        <div
-          style={{
-            padding: 12,
-            background: 'var(--semi-color-fill-0)',
-            borderRadius: 8,
-          }}
-        >
-          <LlmSetupChooser
-            compact
-            autoLoad
-            inSettings
-            status={llmStatus}
-            isAdmin={isAdmin}
-            onReady={onLlmReady}
-          />
-        </div>
-
-        <Toggle
-          checked={form.llmgwEnabled}
-          onChange={(v) => patch({ llmgwEnabled: v })}
-        >
-          {t('settings.llmgw.enable')}
-        </Toggle>
-
-        <div style={sectionGap}>
-          <Typography.Text strong size="small">
-            {t('settings.llmgw.upstreamTitle')}
-          </Typography.Text>
-          <ItemListSection
-            kind="llm"
-            introKey="settings.llmgw.upstreamHint"
-            noteKey="settings.llmgw.secretsNote"
-            t={t}
-          />
-        </div>
-
-        <SlotBindings kind="llm" t={t} revealAt={2} />
-
-        <div
-          style={{
-            ...sectionGap,
-            borderTop: '1px solid var(--semi-color-border)',
-            paddingTop: 16,
-          }}
-        >
-          <Typography.Text strong size="small">
-            {t('settings.llmgw.agentsTitle')}
-          </Typography.Text>
-          <Typography.Text type="tertiary" size="small">
-            {t('settings.llmgw.agentsHint')}
-          </Typography.Text>
-          <Field
-            label={t('settings.llmgw.publicUrl')}
-            hint={t('settings.llmgw.publicUrlHint')}
+    <div style={{ ...sectionGap, paddingTop: 16 }}>
+      <ItemListSection
+        key={listKey}
+        kind="llm"
+        introKey="settings.llmgw.intro"
+        noteKey="settings.llmgw.secretsNote"
+        t={t}
+        defaultSlot="llm.default"
+        alsoBindSlots={['llm.agent', 'llm.sysagent']}
+        bindModelFromItem
+        renderAdd={(openCreate) => (
+          <Dropdown
+            trigger="click"
+            position="bottomLeft"
+            render={
+              <Dropdown.Menu>
+                <Dropdown.Item
+                  disabled={freeBusy}
+                  onClick={() => void enableFree()}
+                >
+                  FREE
+                </Dropdown.Item>
+                {PRESET_VENDORS.map((v) => (
+                  <Dropdown.Item
+                    key={v.id}
+                    onClick={() =>
+                      openCreate({
+                        // Leave id empty so the editor treats this as create;
+                        // ItemEditorModal fills id/name from the vendor preset.
+                        name: v.id === 'custom' ? '' : v.name,
+                        config:
+                          v.id === 'custom'
+                            ? { vendor: 'custom', protocol: 'openai' }
+                            : { vendor: v.id },
+                      } satisfies Partial<SettingItem>)
+                    }
+                  >
+                    {v.name}
+                  </Dropdown.Item>
+                ))}
+              </Dropdown.Menu>
+            }
           >
-            <Input
-              inputMode="url"
-              autoComplete="url"
-              placeholder="http://127.0.0.1:9527"
-              value={form.llmgwPublicUrl}
-              onChange={(v) => patch({ llmgwPublicUrl: v })}
-            />
-          </Field>
-        </div>
-
-        <Collapse>
-          <Collapse.Panel header={t('settings.llmgw.advanced')} itemKey="advanced">
-            <div style={sectionGap}>
-              <Field
-                label={t('settings.llmgw.logBody')}
-                hint={t('settings.llmgw.logBodyHint')}
-              >
-                <Select
-                  value={form.llmgwLogBodyMaxBytes}
-                  onChange={(v) => patch({ llmgwLogBodyMaxBytes: Number(v) })}
-                  optionList={logBodyOptions.map((o) => ({
-                    value: o.value,
-                    label: o.label,
-                  }))}
-                  style={{ width: '100%' }}
-                />
-              </Field>
-            </div>
-          </Collapse.Panel>
-        </Collapse>
-      </div>
-    </Form>
+            <Button theme="solid">{t('settings.items.add')}</Button>
+          </Dropdown>
+        )}
+      />
+    </div>
   )
 }

@@ -10,16 +10,16 @@ import {
   type ContextMenuState,
 } from '../components/workspace/ContextMenu'
 import {
-  PreviewDialog,
+  FilePreview,
   type PreviewTarget,
-} from '../components/workspace/PreviewDialog'
+} from '../components/workspace/FilePreview'
+import { WorkspaceSidebar } from '../components/workspace/WorkspaceSidebar'
 import { WorkspaceTable } from '../components/workspace/WorkspaceTable'
 import { useT } from '../i18n'
 import {
   crumbSegments,
   fileKind,
   joinPath,
-  rangeKeys,
   renameDest,
   sortEntries,
 } from '../lib/workspaceFiles'
@@ -47,8 +47,12 @@ export function WorkspacePage() {
   const [clipboard, setClipboard] = useState<Clipboard>(null)
   const [menu, setMenu] = useState<ContextMenuState>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
+  // Split layout (left tree + right pane). Stays on while browsing folders;
+  // only "back to list" exits to the full table.
+  const [treeMode, setTreeMode] = useState(false)
   const [preview, setPreview] = useState<PreviewTarget | null>(null)
-  const anchorRef = useRef<string | null>(null)
+  // Bumped after each successful list/mutation so the sidebar reloads caches.
+  const [treeRefreshKey, setTreeRefreshKey] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
   const previewOpenedRef = useRef('')
 
@@ -62,6 +66,7 @@ export function WorkspacePage() {
     try {
       const res = await meWorkspace.list(path)
       setEntries(sortEntries(res.entries ?? []))
+      setTreeRefreshKey((k) => k + 1)
     } catch (e) {
       setEntries([])
       setError(e instanceof Error ? e.message : 'failed')
@@ -74,6 +79,30 @@ export function WorkspacePage() {
     void load()
   }, [load])
 
+  // Selection keys are names inside the current directory: leaving the
+  // directory invalidates them (the clipboard stores full paths and survives).
+  useEffect(() => {
+    setSelected([])
+    setRenaming(null)
+  }, [path])
+
+  const cutPaths = useMemo(
+    () => new Set(clipboard?.mode === 'cut' ? clipboard.paths : []),
+    [clipboard],
+  )
+  const absOf = useCallback((name: string) => joinPath(path, name), [path])
+  const crumbs = useMemo(() => crumbSegments(path), [path])
+
+  const openPreview = useCallback((absPath: string, entry: DirEntry) => {
+    setTreeMode(true)
+    setPreview({
+      name: entry.name,
+      path: absPath,
+      size: entry.size ?? 0,
+      kind: fileKind(entry),
+    })
+  }, [])
+
   // Deep-link from chat ChangeSet: /workspace?path=dir&preview=file.ext
   useEffect(() => {
     if (!previewName || loading || error) return
@@ -82,41 +111,13 @@ export function WorkspacePage() {
     const entry = entries.find((e) => e.name === previewName && !e.is_dir)
     if (!entry) return
     previewOpenedRef.current = key
-    setPreview({
-      name: entry.name,
-      path: joinPath(path, entry.name),
-      size: entry.size ?? 0,
-      kind: fileKind(entry),
-    })
-  }, [previewName, loading, error, entries, path])
+    openPreview(joinPath(path, entry.name), entry)
+  }, [previewName, loading, error, entries, path, openPreview])
 
-  // Selection keys are names inside the current directory: leaving the
-  // directory invalidates them (the clipboard stores full paths and survives).
-  useEffect(() => {
-    setSelected([])
-    setRenaming(null)
-    anchorRef.current = null
-  }, [path])
-
-  const names = useMemo(() => entries.map((e) => e.name), [entries])
-  const cutPaths = useMemo(
-    () => new Set(clipboard?.mode === 'cut' ? clipboard.paths : []),
-    [clipboard],
-  )
-  const absOf = useCallback((name: string) => joinPath(path, name), [path])
-  const crumbs = useMemo(() => crumbSegments(path), [path])
-
-  const openPreview = useCallback(
-    (entry: DirEntry) => {
-      setPreview({
-        name: entry.name,
-        path: joinPath(path, entry.name),
-        size: entry.size ?? 0,
-        kind: fileKind(entry),
-      })
-    },
-    [path],
-  )
+  const exitTreeMode = useCallback(() => {
+    setTreeMode(false)
+    setPreview(null)
+  }, [])
 
   const onUpload = async (file: File) => {
     const dest = joinPath(path, file.name)
@@ -153,14 +154,14 @@ export function WorkspacePage() {
     return failed
   }
 
-  const cut = (targets: string[]) => {
-    setClipboard({ mode: 'cut', paths: targets.map(absOf) })
-    Toast.info(t('workspace.cutDone', { count: targets.length }))
+  const cut = (absPaths: string[]) => {
+    setClipboard({ mode: 'cut', paths: absPaths })
+    Toast.info(t('workspace.cutDone', { count: absPaths.length }))
   }
 
-  const copy = (targets: string[]) => {
-    setClipboard({ mode: 'copy', paths: targets.map(absOf) })
-    Toast.info(t('workspace.copied', { count: targets.length }))
+  const copy = (absPaths: string[]) => {
+    setClipboard({ mode: 'copy', paths: absPaths })
+    Toast.info(t('workspace.copied', { count: absPaths.length }))
   }
 
   const paste = async (destDir: string) => {
@@ -192,17 +193,21 @@ export function WorkspacePage() {
     }
   }
 
-  const confirmDelete = (targets: string[]) => {
-    if (targets.length === 0) return
+  const confirmDelete = (names: string[]) => {
+    confirmDeleteAbs(names.map(absOf), names[0] ?? '')
+  }
+
+  const confirmDeleteAbs = (absPaths: string[], labelName: string) => {
+    if (absPaths.length === 0) return
     const title =
-      targets.length === 1
-        ? t('workspace.deleteConfirm', { name: targets[0] })
-        : t('workspace.deleteConfirmMany', { count: targets.length })
+      absPaths.length === 1
+        ? t('workspace.deleteConfirm', { name: labelName || absPaths[0] })
+        : t('workspace.deleteConfirmMany', { count: absPaths.length })
     Modal.confirm({
       title,
       okButtonProps: { type: 'danger', theme: 'solid' },
       onOk: async () => {
-        const failed = await runBatch(targets, (abs) => meWorkspace.remove(abs))
+        const failed = await runBatch(absPaths, (abs) => meWorkspace.remove(abs))
         setSelected([])
         await load()
         if (failed.length) {
@@ -212,35 +217,34 @@ export function WorkspacePage() {
     })
   }
 
-  const handleRowClick = (name: string, e: React.MouseEvent) => {
+  const openDir = (next: string) => {
+    setPath(next)
+  }
+
+  // Row click opens (dir → enter, file → preview). Selection is checkbox-only.
+  const handleRowClick = (name: string) => {
     if (renaming) return
-    if (e.shiftKey && anchorRef.current) {
-      setSelected(rangeKeys(names, anchorRef.current, name))
+    const entry = entries.find((x) => x.name === name)
+    if (!entry) return
+    if (entry.is_dir) {
+      openDir(joinPath(path, entry.name))
       return
     }
-    if (e.ctrlKey || e.metaKey) {
-      anchorRef.current = name
-      setSelected((prev) =>
-        prev.includes(name) ? prev.filter((k) => k !== name) : [...prev, name],
-      )
-      return
-    }
-    anchorRef.current = name
-    setSelected([name])
+    openPreview(joinPath(path, entry.name), entry)
   }
 
   const handleRowDoubleClick = (entry: DirEntry) => {
     if (renaming) return
     if (entry.is_dir) {
-      setPath(joinPath(path, entry.name))
+      openDir(joinPath(path, entry.name))
       return
     }
-    openPreview(entry)
+    openPreview(joinPath(path, entry.name), entry)
   }
 
-  const download = (names: string[]) => {
-    for (const name of names) {
-      window.open(meWorkspace.downloadUrl(absOf(name)), '_blank', 'noopener')
+  const downloadAbs = (absPaths: string[]) => {
+    for (const abs of absPaths) {
+      window.open(meWorkspace.downloadUrl(abs), '_blank', 'noopener')
     }
   }
 
@@ -248,28 +252,29 @@ export function WorkspacePage() {
     if (renaming) return
     const active = selected.includes(entry.name) ? selected : [entry.name]
     if (!selected.includes(entry.name)) setSelected([entry.name])
+    const absTargets = active.map(absOf)
     const items: ContextMenuItem[] = []
     if (!entry.is_dir) {
       items.push({
         key: 'preview',
         label: t('workspace.preview'),
-        onClick: () => openPreview(entry),
+        onClick: () => openPreview(joinPath(path, entry.name), entry),
       })
       items.push({
         key: 'download',
         label: t('workspace.download'),
-        onClick: () => download(active),
+        onClick: () => downloadAbs(absTargets),
       })
     }
     items.push({
       key: 'cut',
       label: t('workspace.cut'),
-      onClick: () => cut(active),
+      onClick: () => cut(absTargets),
     })
     items.push({
       key: 'copy',
       label: t('workspace.copy'),
-      onClick: () => copy(active),
+      onClick: () => copy(absTargets),
     })
     if (active.length === 1) {
       items.push({
@@ -283,6 +288,45 @@ export function WorkspacePage() {
       label: t('workspace.delete'),
       danger: true,
       onClick: () => confirmDelete(active),
+    })
+    setMenu({ x: e.clientX, y: e.clientY, items })
+  }
+
+  // Sidebar tree nodes are addressed by absolute path (nested dirs).
+  const handleTreeContextMenu = (
+    entry: DirEntry,
+    abs: string,
+    e: React.MouseEvent,
+  ) => {
+    const items: ContextMenuItem[] = []
+    if (!entry.is_dir) {
+      items.push({
+        key: 'preview',
+        label: t('workspace.preview'),
+        onClick: () => openPreview(abs, entry),
+      })
+      items.push({
+        key: 'download',
+        label: t('workspace.download'),
+        onClick: () => downloadAbs([abs]),
+      })
+    }
+    items.push({
+      key: 'cut',
+      label: t('workspace.cut'),
+      onClick: () => cut([abs]),
+    })
+    items.push({
+      key: 'copy',
+      label: t('workspace.copy'),
+      onClick: () => copy([abs]),
+    })
+    items.push({
+      key: 'delete',
+      label: t('workspace.delete'),
+      danger: true,
+      onClick: () =>
+        confirmDeleteAbs([abs], entry.name),
     })
     setMenu({ x: e.clientX, y: e.clientY, items })
   }
@@ -312,11 +356,15 @@ export function WorkspacePage() {
       x: rect.left,
       y: rect.bottom + 4,
       items: [
-        { key: 'cut', label: t('workspace.cut'), onClick: () => cut(selected) },
+        {
+          key: 'cut',
+          label: t('workspace.cut'),
+          onClick: () => cut(selected.map(absOf)),
+        },
         {
           key: 'copy',
           label: t('workspace.copy'),
-          onClick: () => copy(selected),
+          onClick: () => copy(selected.map(absOf)),
         },
         {
           key: 'delete',
@@ -332,6 +380,11 @@ export function WorkspacePage() {
       ],
     })
   }
+
+  // Inline rename lives on the table; leave split view so the input is visible.
+  useEffect(() => {
+    if (renaming) exitTreeMode()
+  }, [renaming, exitTreeMode])
 
   const handleRenameSubmit = async (name: string, next: string) => {
     setRenaming(null)
@@ -353,9 +406,11 @@ export function WorkspacePage() {
     }
   }
 
+  const split = treeMode
+
   return (
     <div
-      className="rp-ws-page"
+      className={split ? 'rp-ws-page is-split' : 'rp-ws-page'}
       style={{
         padding: '16px 20px',
         paddingBottom: 'max(24px, env(safe-area-inset-bottom, 0px))',
@@ -363,19 +418,24 @@ export function WorkspacePage() {
         // it in the flex column shell) the box sizes to its content, so the
         // page visibly jumps between narrow (loading) and wide (table).
         width: '100%',
-        maxWidth: 960,
+        maxWidth: split ? undefined : 960,
         margin: '0 auto',
         boxSizing: 'border-box',
-        flex: '0 0 auto',
+        flex: split ? '1 1 auto' : '0 0 auto',
+        minHeight: split ? 0 : undefined,
+        display: split ? 'flex' : undefined,
+        flexDirection: split ? 'column' : undefined,
       }}
       onContextMenu={handleEmptyContextMenu}
     >
       <Typography.Title heading={3} style={{ margin: '0 0 4px' }}>
         {t('workspace.title')}
       </Typography.Title>
-      <Typography.Text type="tertiary" size="small">
-        {t('workspace.subtitle')}
-      </Typography.Text>
+      {!split ? (
+        <Typography.Text type="tertiary" size="small">
+          {t('workspace.subtitle')}
+        </Typography.Text>
+      ) : null}
 
       <div
         style={{
@@ -383,8 +443,9 @@ export function WorkspacePage() {
           flexWrap: 'wrap',
           gap: 8,
           alignItems: 'center',
-          marginTop: 16,
+          marginTop: split ? 8 : 16,
           marginBottom: 12,
+          flex: '0 0 auto',
         }}
       >
         <div
@@ -412,7 +473,7 @@ export function WorkspacePage() {
                 theme={i === crumbs.length - 1 ? 'light' : 'borderless'}
                 type={i === crumbs.length - 1 ? 'primary' : 'tertiary'}
                 disabled={i === crumbs.length - 1}
-                onClick={() => setPath(c.path)}
+                onClick={() => openDir(c.path)}
               >
                 {c.path === '.' ? t('workspace.rootLabel') : c.label}
               </Button>
@@ -472,9 +533,42 @@ export function WorkspacePage() {
         </div>
       ) : null}
 
-      {loading ? (
+      {loading && !split ? (
         <div style={{ padding: 48, textAlign: 'center' }}>
           <Loading tip={t('workspace.preparing')} />
+        </div>
+      ) : split ? (
+        <div className="rp-ws-split">
+          <WorkspaceSidebar
+            activePath={preview?.path ?? null}
+            cutPaths={cutPaths}
+            refreshKey={treeRefreshKey}
+            onOpenFile={openPreview}
+            onContextMenu={handleTreeContextMenu}
+            t={t}
+          />
+          {preview ? (
+            <FilePreview
+              target={preview}
+              onClose={exitTreeMode}
+              t={t}
+            />
+          ) : (
+            <div className="rp-ws-preview rp-ws-preview-empty">
+              <div className="rp-ws-preview-bar">
+                <div className="rp-ws-preview-meta">
+                  <Typography.Text type="tertiary">
+                    {t('workspace.previewPickFile')}
+                  </Typography.Text>
+                </div>
+                <div className="rp-ws-preview-actions">
+                  <Button type="tertiary" onClick={exitTreeMode}>
+                    {t('workspace.backToList')}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="rp-ws-table">
@@ -496,7 +590,6 @@ export function WorkspacePage() {
       )}
 
       <ContextMenu state={menu} onClose={() => setMenu(null)} />
-      <PreviewDialog target={preview} onClose={() => setPreview(null)} t={t} />
     </div>
   )
 }

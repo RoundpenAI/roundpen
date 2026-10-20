@@ -33,7 +33,7 @@ describe('resolveAppViewport', () => {
     })
   })
 
-  it('follows visualViewport in browser tabs', () => {
+  it('shrinks height for the keyboard without pinning offsetTop', () => {
     const got = resolveAppViewport({
       innerHeight: 800,
       vvHeight: 500,
@@ -42,8 +42,23 @@ describe('resolveAppViewport', () => {
     })
     assert.equal(got.keyboardOpen, true)
     assert.equal(got.height, 500)
-    assert.equal(got.offsetTop, 50)
+    assert.equal(got.offsetTop, 0)
     assert.equal(got.keyboardInset, 250)
+  })
+
+  it('ignores rubber-band offsetTop on short idle pages in browser tabs', () => {
+    const got = resolveAppViewport({
+      innerHeight: 800,
+      vvHeight: 800,
+      vvOffsetTop: 40,
+      standalone: false,
+    })
+    assert.deepEqual(got, {
+      height: 800,
+      offsetTop: 0,
+      keyboardInset: 0,
+      keyboardOpen: false,
+    })
   })
 
   it('shrinks height for the keyboard in standalone without offsetTop', () => {

@@ -62,7 +62,7 @@ export default function App() {
               </RequireAdminRoute>
             }
           >
-            <Route index element={<Navigate to="general" replace />} />
+            <Route index element={<Navigate to="llmgw" replace />} />
             <Route path=":section" element={<AdminSettingsPage />} />
           </Route>
           <Route path="/workspace" element={<WorkspacePage />} />

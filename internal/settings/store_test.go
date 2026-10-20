@@ -86,8 +86,9 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 		PreviewTokenTTL: 15 * time.Minute,
 	}
 	want := settings.AppSettings{
-		DefaultImage:      "python",
-		DefaultTtlSeconds: 1200,
+		AllowPublicRegistration: true,
+		DefaultImage:            "python",
+		DefaultTtlSeconds:       1200,
 	}
 	if err := store.Upsert(ctx, want); err != nil {
 		t.Fatal(err)
@@ -102,6 +103,9 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 	}
 	if dbCfg.DefaultImage != "python" || dbCfg.DefaultTTL != 20*time.Minute {
 		t.Fatalf("cfg not updated: image=%q ttl=%v", dbCfg.DefaultImage, dbCfg.DefaultTTL)
+	}
+	if dbCfg.AllowPublicRegistration {
+		t.Fatal("AllowPublicRegistration is env-only; Bootstrap must not apply the stored flag")
 	}
 }
 

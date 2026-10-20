@@ -561,8 +561,38 @@ func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecRe
 		return nil, err
 	}
 	_ = s.Touch(ctx, id)
-	audit.Record(ctx, "sandbox.exec", "sandbox_id", id, "exit_code", res.ExitCode)
+	attrs := []any{
+		"sandbox_id", id,
+		"exit_code", res.ExitCode,
+		"cmd", formatExecCmd(req.Cmd),
+	}
+	if wd := strings.TrimSpace(req.WorkDir); wd != "" {
+		attrs = append(attrs, "workdir", wd)
+	}
+	audit.Record(ctx, "sandbox.exec", attrs...)
 	return &ExecResult{ExitCode: res.ExitCode, Stdout: res.Stdout, Stderr: res.Stderr}, nil
+}
+
+// formatExecCmd renders argv for audit logs. Args with spaces/empty are
+// quoted; the whole line is capped so a huge -c payload cannot flood the trail.
+func formatExecCmd(cmd []string) string {
+	if len(cmd) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(cmd))
+	for _, a := range cmd {
+		if a == "" || strings.IndexFunc(a, unicode.IsSpace) >= 0 {
+			parts = append(parts, fmt.Sprintf("%q", a))
+		} else {
+			parts = append(parts, a)
+		}
+	}
+	out := strings.Join(parts, " ")
+	const max = 512
+	if len(out) <= max {
+		return out
+	}
+	return out[:max] + "..."
 }
 
 func (s *Service) workspaceID(ctx context.Context, id string) (string, error) {
