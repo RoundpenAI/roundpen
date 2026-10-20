@@ -106,12 +106,18 @@ export async function githubProfile(accessToken: string): Promise<Profile> {
 
   let email = (me.email || '').trim()
   if (!email) {
-    const emails = await ghJSON<Array<{ email?: string; primary?: boolean; verified?: boolean }>>(
-      accessToken,
-      'https://api.github.com/user/emails',
-    )
-    const verified = emails.filter((e) => e.verified && e.email)
-    email = (verified.find((e) => e.primary)?.email || verified[0]?.email || '').trim()
+    // Missing user:email scope (or a private-email 403) must not fail auth —
+    // same soft-fail as the Go oauth client.
+    try {
+      const emails = await ghJSON<Array<{ email?: string; primary?: boolean; verified?: boolean }>>(
+        accessToken,
+        'https://api.github.com/user/emails',
+      )
+      const verified = emails.filter((e) => e.verified && e.email)
+      email = (verified.find((e) => e.primary)?.email || verified[0]?.email || '').trim()
+    } catch {
+      email = ''
+    }
   }
   return { subject: login, login, name: (me.name || '').trim(), email }
 }

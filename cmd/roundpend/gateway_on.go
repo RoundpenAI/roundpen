@@ -11,6 +11,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/fnosgateway"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -28,6 +29,8 @@ func installFnosGateway(cfg *config.Config, users storage.UserStore, sessions st
 		return nil, err
 	}
 	auth.SetFnosGatewayActive(true)
+	// SPA is built with VITE_BASE=/app/roundpen/; browser redirects must match.
+	httpx.SetUIBase(cfg.FnosGatewayPrefix)
 	return closer, nil
 }
 

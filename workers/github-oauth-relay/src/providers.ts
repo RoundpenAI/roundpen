@@ -8,7 +8,7 @@ export { selectScopes }
 export const GITHUB_NAS_CALLBACK = '/v1/auth/oauth/github/cloud/callback'
 export const GOOGLE_NAS_CALLBACK = '/v1/connectors/google/cloud/callback'
 
-const GITHUB_SCOPES = 'repo read:user user:email'
+const GITHUB_SCOPES = 'repo read:user user:email workflow'
 const GOOGLE_SCOPES =
   'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly'
 

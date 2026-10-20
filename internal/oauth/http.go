@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
@@ -171,7 +172,8 @@ func (h *Handler) link(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload struct {
-		Return string `json:"return"`
+		Return     string `json:"return"`
+		RedirectTo string `json:"redirectTo"`
 	}
 	if r.Body != nil {
 		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload)
@@ -181,10 +183,14 @@ func (h *Handler) link(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	redirectTo := strings.TrimSpace(payload.RedirectTo)
+	if redirectTo == "" {
+		redirectTo = httpx.ConsolePath("/settings/apps")
+	}
 	raw, err := h.Svc.AuthorizeURL(r.Context(), StartInput{
 		ProviderID:    r.PathValue("provider"),
 		LinkUser:      user.Username,
-		RedirectTo:    "/settings/apps",
+		RedirectTo:    redirectTo,
 		ConsoleScheme: scheme,
 		ConsoleHost:   host,
 	})
@@ -418,9 +424,9 @@ func errorCode(err error) string {
 // back to the settings page that started a link flow.
 func loginErrorPath(sessionUser, code string) string {
 	if sessionUser != "" {
-		return withQuery("/settings/apps", "oauth_error", code)
+		return withQuery(httpx.ConsolePath("/settings/apps"), "oauth_error", code)
 	}
-	return withQuery("/login", "oauth_error", code)
+	return withQuery(httpx.ConsolePath("/login"), "oauth_error", code)
 }
 
 func withQuery(path, key, value string) string {

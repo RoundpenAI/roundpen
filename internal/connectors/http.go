@@ -179,7 +179,7 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	raw, err := h.Svc.StartConnect(r.Context(), user.Username, scheme, host, "/settings/apps")
+	raw, err := h.Svc.StartConnect(r.Context(), user.Username, scheme, host, httpx.ConsolePath("/settings/apps"))
 	if err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrNoClient) {
@@ -217,7 +217,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("google connector callback", "err", err)
 		target := redirectTo
 		if target == "" {
-			target = "/settings/apps"
+			target = httpx.ConsolePath("/settings/apps")
 		}
 		http.Redirect(w, r, withQuery(target, "google", errorCode(err)), http.StatusFound)
 		return
@@ -238,7 +238,7 @@ func (h *Handler) cloudCallback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("google cloud callback", "err", err)
 		target := redirectTo
 		if target == "" {
-			target = "/settings/apps"
+			target = httpx.ConsolePath("/settings/apps")
 		}
 		http.Redirect(w, r, withQuery(target, "google", errorCode(err)), http.StatusFound)
 		return
@@ -247,7 +247,7 @@ func (h *Handler) cloudCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func connectorsErrorPath(code string) string {
-	return withQuery("/settings/apps", "google", code)
+	return withQuery(httpx.ConsolePath("/settings/apps"), "google", code)
 }
 
 func errorCode(err error) string {
@@ -266,7 +266,7 @@ func errorCode(err error) string {
 func withQuery(path, key, val string) string {
 	u, err := url.Parse(path)
 	if err != nil {
-		return "/settings/apps?" + url.Values{key: {val}}.Encode()
+		return httpx.ConsolePath("/settings/apps") + "?" + url.Values{key: {val}}.Encode()
 	}
 	q := u.Query()
 	q.Set(key, val)

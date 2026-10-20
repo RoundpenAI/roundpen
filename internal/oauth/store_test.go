@@ -165,6 +165,32 @@ func TestPgStoreProviderAndIdentityLifecycle(t *testing.T) {
 	}
 }
 
+func TestPgStoreCloudGitHubIdentityWithoutProviderRow(t *testing.T) {
+	ctx := context.Background()
+	s, db := pgStore(t)
+
+	userStore := storage.NewUserStore(db)
+	user := storage.User{Username: "oauth-cloud-user", Email: "oauth-cloud@example.com", APIKey: "rp-oauth-cloud", Role: storage.RoleUser}
+	if err := userStore.Upsert(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = s.DB.ExecContext(ctx, `DELETE FROM user_identities WHERE provider_id=$1`, CloudGitHubProviderID)
+		_ = userStore.Delete(ctx, user.Username)
+	})
+
+	got, err := s.UpsertIdentity(ctx, IdentityUpsert{
+		UserID: user.Username, ProviderID: CloudGitHubProviderID, Subject: "octocat",
+		Login: "octocat", AccessToken: "gho_test", Scopes: DefaultScopes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProviderKind != KindGitHub || got.ProviderHost != "github.com" {
+		t.Fatalf("cloud identity = %+v", got)
+	}
+}
+
 func TestPgStoreStateIsSingleUse(t *testing.T) {
 	ctx := context.Background()
 	s, _ := pgStore(t)
