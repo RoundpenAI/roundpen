@@ -74,7 +74,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.adminTitle': '系统管理',
   'settings.group.account': '账号与安全',
   'settings.group.workspace': '工作环境',
-  'settings.group.access': '用户与访问',
   'settings.group.integrations': '能力接入',
   'settings.group.sandbox': '沙箱与运行时',
   'settings.section.git': 'Git 个人令牌',
@@ -140,7 +139,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'profile.aboutHint': '工作背景、偏好、禁忌等，Agent 会读到这段说明',
   'profile.aboutPlaceholder':
     '例如：我在做电商运营，偏好简短中文回复；晚上 10 点后尽量少打扰。',
-  'settings.section.general': '通用',
   'settings.section.oauth': 'OAuth 登录',
   'settings.section.plugins': '插件',
   'settings.section.browser': '浏览器',
@@ -184,9 +182,6 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.notifications.serverOff':
     '服务端未能加载 Web Push 的 VAPID 密钥，请查看控制面日志。',
 
-  'settings.general.allowRegistration': '允许公开注册',
-  'settings.general.envOnlyHint':
-    '默认模板、Agent 镜像与沙箱 TTL 仅通过环境变量配置，见「环境变量」页。',
   'settings.env.howTo':
     '在安装目录的 .env 中修改（真实环境变量优先于文件），然后重启 roundpend；飞牛上则重启 / 重装应用。密钥类当前值已掩码。',
   'settings.env.loadFailed': '加载环境变量失败',

@@ -256,14 +256,13 @@ func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cf
 }
 
 // newSettingsService builds the runtime settings service over the boot settings.
-func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAllowRegistration func(bool), setAgentImage func(string), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error, items *settingitems.Catalog) *settings.Service {
+func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSettings settings.AppSettings, setAgentImage func(string), sbSvc *sandbox.Service, tplSvc *template.Service, probe *runtime.Probe, reconfigureLLMGW func(context.Context) error, items *settingitems.Catalog) *settings.Service {
 	// The stored value is what the first Agent sandbox must use; later PUTs
 	// reach the environment service through SetAgentImage.
 	if setAgentImage != nil {
 		setAgentImage(appSettings.AgentImage)
 	}
 	settingsSvc := settings.NewService(settingsStore, cfg, settings.RuntimeDeps{
-		AllowPublicReg:   setAllowRegistration,
 		Sandbox:          sbSvc,
 		Templates:        tplSvc,
 		Probe:            probe,

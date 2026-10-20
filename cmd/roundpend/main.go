@@ -106,7 +106,7 @@ func main() {
 		logger.Error("settings bootstrap", slog.Any("err", err))
 		os.Exit(1)
 	}
-	allowRegistration, setAllowRegistration := newRegistrationGate(cfg)
+	allowRegistration := newRegistrationGate(cfg)
 
 	userStore := storage.NewUserStore(db)
 	sessionStore := storage.NewSessionStore(db)
@@ -182,7 +182,7 @@ func main() {
 
 	gw, reconfigureLLMGW, userVKey := mountLLMGateway(ctx, mux, db, cfg, secretBox, memStore, memSvc, itemsCat, installIdentity.MintToken, installIdentity.PublicKeyHex(), logger)
 
-	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, setAllowRegistration, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
+	settingsSvc := newSettingsService(settingsStore, cfg, appSettings, envSvc.SetAgentImage, sbSvc, tplSvc, probe, reconfigureLLMGW, itemsCat)
 	(&settings.Handler{Svc: settingsSvc}).Mount(mux)
 	pluginSvc := &plugins.Service{Settings: settingsSvc}
 	oauthSvc.GitHubRelay = cfg.OAuthRelay

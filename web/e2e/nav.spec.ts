@@ -4,8 +4,8 @@ import { loginViaApi, skipIfNoLivePassword } from './helpers'
 test('settings page loads for admin', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
-  await page.goto('/admin/settings/general')
-  await expect(page.getByText('允许公开注册')).toBeVisible()
+  await page.goto('/admin/settings/llmgw')
+  await expect(page.getByText('模型配置')).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 

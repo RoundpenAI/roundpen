@@ -103,6 +103,9 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 	if dbCfg.DefaultImage != "python" || dbCfg.DefaultTTL != 20*time.Minute {
 		t.Fatalf("cfg not updated: image=%q ttl=%v", dbCfg.DefaultImage, dbCfg.DefaultTTL)
 	}
+	if dbCfg.AllowPublicRegistration {
+		t.Fatal("AllowPublicRegistration is env-only; Bootstrap must not apply the stored flag")
+	}
 }
 
 func TestVerifySecretsRejectsForeignKey(t *testing.T) {

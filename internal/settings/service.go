@@ -16,7 +16,6 @@ import (
 
 // RuntimeDeps are subsystems updated on PUT /v1/admin/settings.
 type RuntimeDeps struct {
-	AllowPublicReg   func(bool)
 	Sandbox          *sandbox.Service
 	Templates        *template.Service
 	Probe            *runtime.Probe
@@ -114,9 +113,6 @@ func (s *Service) Update(ctx context.Context, next AppSettings) error {
 }
 
 func (s *Service) applyRuntime(ctx context.Context, v AppSettings) error {
-	if s.deps.AllowPublicReg != nil {
-		s.deps.AllowPublicReg(v.AllowPublicRegistration)
-	}
 	if s.deps.Sandbox != nil {
 		s.deps.Sandbox.SetDefaults(s.cfg.DefaultImage, time.Duration(v.DefaultTtlSeconds)*time.Second)
 	}

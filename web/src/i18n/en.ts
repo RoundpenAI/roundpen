@@ -76,7 +76,6 @@ export const en = {
   'settings.adminTitle': 'Administration',
   'settings.group.account': 'Account & security',
   'settings.group.workspace': 'Work environment',
-  'settings.group.access': 'Users & access',
   'settings.group.integrations': 'Integrations',
   'settings.group.sandbox': 'Sandbox & runtime',
   'settings.section.git': 'Git personal tokens',
@@ -144,7 +143,6 @@ export const en = {
   'profile.aboutHint': 'Background, preferences, and constraints Agents should know',
   'profile.aboutPlaceholder':
     'e.g. I run e-commerce ops; prefer concise replies in English; avoid pings after 10pm.',
-  'settings.section.general': 'General',
   'settings.section.oauth': 'OAuth login',
   'settings.section.plugins': 'Plugins',
   'settings.section.browser': 'Browser',
@@ -188,9 +186,6 @@ export const en = {
   'settings.notifications.serverOff':
     'The server could not load VAPID keys for Web Push. Check the control-plane logs.',
 
-  'settings.general.allowRegistration': 'Allow public registration',
-  'settings.general.envOnlyHint':
-    'Default template, agent image and sandbox TTL are configured only via environment variables — see the Environment page.',
   'settings.env.howTo':
     'Edit the install .env (real process env wins over the file), then restart roundpend — or restart / reinstall the fnOS app. Secret values are masked.',
   'settings.env.loadFailed': 'Failed to load environment variables',

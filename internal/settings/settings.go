@@ -158,7 +158,8 @@ func (s *AppSettings) MergeSecrets(previous AppSettings) {
 // endpoints and the browser source are not part of the document any more:
 // they live as items and reach their subsystems through the catalog.
 func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
-	cfg.AllowPublicRegistration = s.AllowPublicRegistration
+	// Public registration is env-only (ROUNDPEN_ALLOW_PUBLIC_REGISTRATION);
+	// the stored field is kept for document compatibility and ignored here.
 	cfg.DefaultImage = config.CoerceDefaultImage(s.DefaultImage, cfg.AgentImage)
 	cfg.DefaultTTL = time.Duration(s.DefaultTtlSeconds) * time.Second
 	// Relay is always on; body logging stays on the env-loaded value

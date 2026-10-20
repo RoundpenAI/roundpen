@@ -30,7 +30,6 @@ export type SettingsSectionKey =
   | 'password'
   | 'slots'
   | 'notifications'
-  | 'general'
   | 'oauth'
   | 'plugins'
   | 'llmgw'
@@ -43,7 +42,6 @@ export type SettingsSectionKey =
 export type SettingsGroupKey =
   | 'account'
   | 'workspace'
-  | 'access'
   | 'integrations'
   | 'sandbox'
 
@@ -85,13 +83,11 @@ const LEGACY_PERSONAL_SECTIONS: Record<string, SettingsSectionKey> = {
 }
 
 export const ADMIN_SETTINGS_GROUPS: SettingsGroup[] = [
-  { key: 'access', labelKey: 'settings.group.access' },
   { key: 'integrations', labelKey: 'settings.group.integrations' },
   { key: 'sandbox', labelKey: 'settings.group.sandbox' },
 ]
 
 export const ADMIN_SETTINGS_SECTIONS: SettingsSection[] = [
-  { key: 'general', labelKey: 'settings.section.general', group: 'access' },
   // Federated login (GitHub / Gitea / the plugin that enables it) is hidden
   // until we want it back. The pages stay in the codebase.
   { key: 'llmgw', labelKey: 'settings.section.llmgw', group: 'integrations' },
@@ -102,7 +98,7 @@ export const ADMIN_SETTINGS_SECTIONS: SettingsSection[] = [
 ]
 
 export const PERSONAL_SETTINGS_FALLBACK: SettingsSectionKey = 'apps'
-export const ADMIN_SETTINGS_FALLBACK: SettingsSectionKey = 'general'
+export const ADMIN_SETTINGS_FALLBACK: SettingsSectionKey = 'llmgw'
 
 export const PRIMARY_COLLAPSED_KEY = 'roundpen.app.primaryCollapsed'
 

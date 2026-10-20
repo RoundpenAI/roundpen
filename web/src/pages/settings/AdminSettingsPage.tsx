@@ -12,7 +12,6 @@ import { PluginsPanel } from '../../components/PluginsPanel'
 import { SETTINGS_AREAS } from '../../lib/appNav'
 import { emptySettings } from './constants'
 import { BrowserSection } from './BrowserSection'
-import { GeneralSection } from './GeneralSection'
 import { LlmgwSection } from './LlmgwSection'
 import { EnvSection } from './EnvSection'
 import { ProxySection } from './ProxySection'
@@ -119,16 +118,6 @@ export function AdminSettingsPage() {
       {section === 'oauth' && <OAuthProvidersPanel />}
 
       {section === 'plugins' && <PluginsPanel />}
-
-      {section === 'general' && (
-        <GeneralSection
-          isAdmin={isAdmin}
-          loading={loading}
-          t={t}
-          form={form}
-          patch={patch}
-        />
-      )}
 
       {section === 'browser' && (
         <BrowserSection isAdmin={isAdmin} loading={loading} t={t} form={form} patch={patch} />

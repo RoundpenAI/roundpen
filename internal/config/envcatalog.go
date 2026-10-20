@@ -113,8 +113,8 @@ func EnvCatalog(cfg *Config) []EnvVar {
 		},
 		{
 			Name: "ROUNDPEN_ALLOW_PUBLIC_REGISTRATION", Group: "core", Default: "false",
-			Hint:   "Seed for public registration; also editable under System admin → General.",
-			HintZh: "公开注册的初始值；也可在系统管理 → 通用中改。",
+			Hint:   "When true, anyone can create an account (password sign-up and OAuth).",
+			HintZh: "为 true 时允许公开自助注册（密码注册与 OAuth）。",
 			value:  func(c *Config) string { return boolStr(c.AllowPublicRegistration) },
 		},
 		{

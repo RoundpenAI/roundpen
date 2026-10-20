@@ -50,7 +50,6 @@ describe('settings sections', () => {
     assert.deepEqual(
       ADMIN_SETTINGS_SECTIONS.map((s) => s.key),
       [
-        'general',
         'llmgw',
         'webtools',
         'browser',
@@ -119,15 +118,16 @@ describe('visiblePersonalSettingsSections', () => {
 })
 
 describe('resolveAdminSection', () => {
-  it('defaults to general', () => {
-    assert.equal(resolveAdminSection(undefined), 'general')
-    assert.equal(resolveAdminSection('nope'), 'general')
+  it('defaults to llmgw', () => {
+    assert.equal(resolveAdminSection(undefined), 'llmgw')
+    assert.equal(resolveAdminSection('nope'), 'llmgw')
+    assert.equal(resolveAdminSection('general'), 'llmgw')
   })
 
   it('accepts admin sections and rejects personal ones', () => {
     assert.equal(resolveAdminSection('proxy'), 'proxy')
-    assert.equal(resolveAdminSection('automode'), 'general')
-    assert.equal(resolveAdminSection('git'), 'general')
+    assert.equal(resolveAdminSection('automode'), 'llmgw')
+    assert.equal(resolveAdminSection('git'), 'llmgw')
   })
 })
 
