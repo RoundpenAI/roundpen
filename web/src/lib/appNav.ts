@@ -1,4 +1,5 @@
 import type { MessageKey } from '../i18n/translate'
+import { isPushSupported } from './pushNotifications'
 
 export type PrimaryMenuId =
   | 'assistants'
@@ -117,8 +118,20 @@ function resolveSection(
     : fallback
 }
 
-export function resolvePersonalSection(raw: string | undefined): SettingsSectionKey {
-  return resolveSection(raw, PERSONAL_SETTINGS_SECTIONS, PERSONAL_SETTINGS_FALLBACK)
+/** Personal settings that should appear in the current browser. */
+export function visiblePersonalSettingsSections(
+  opts: { pushSupported?: boolean } = {},
+): SettingsSection[] {
+  const pushSupported = opts.pushSupported ?? isPushSupported()
+  if (pushSupported) return PERSONAL_SETTINGS_SECTIONS
+  return PERSONAL_SETTINGS_SECTIONS.filter((s) => s.key !== 'notifications')
+}
+
+export function resolvePersonalSection(
+  raw: string | undefined,
+  opts: { pushSupported?: boolean } = {},
+): SettingsSectionKey {
+  return resolveSection(raw, visiblePersonalSettingsSections(opts), PERSONAL_SETTINGS_FALLBACK)
 }
 
 export function resolveAdminSection(raw: string | undefined): SettingsSectionKey {

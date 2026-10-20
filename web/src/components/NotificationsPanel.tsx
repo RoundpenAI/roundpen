@@ -2,21 +2,22 @@ import { useCallback, useEffect, useState } from 'react'
 import { Banner, Button, Spin, Typography } from '@douyinfe/semi-ui-19'
 import { useT } from '../i18n'
 import {
-  detectPushSupport,
   disablePushNotifications,
   enablePushNotifications,
   fetchPushStatus,
+  isPushSupported,
   type PushStatus,
 } from '../lib/pushNotifications'
 
 export function NotificationsPanel() {
   const t = useT()
-  const support = detectPushSupport()
+  const supported = isPushSupported()
   const [status, setStatus] = useState<PushStatus | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
+    if (!supported) return
     try {
       const s = await fetchPushStatus()
       setStatus(s)
@@ -24,11 +25,12 @@ export function NotificationsPanel() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [])
+  }, [supported])
 
   useEffect(() => {
+    if (!supported) return
     void refresh()
-  }, [refresh])
+  }, [refresh, supported])
 
   const onEnable = async () => {
     setBusy(true)
@@ -56,14 +58,8 @@ export function NotificationsPanel() {
     }
   }
 
-  if (!support.serviceWorker || !support.pushManager || !support.notification) {
-    return (
-      <Banner
-        type="warning"
-        description={t('settings.notifications.unsupported')}
-        closeIcon={null}
-      />
-    )
+  if (!supported) {
+    return null
   }
 
   if (!status) {

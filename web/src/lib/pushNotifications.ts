@@ -25,6 +25,11 @@ export function detectPushSupport(
   return { serviceWorker: hasSW, pushManager, notification: hasNotif }
 }
 
+/** True when this browser can subscribe to Web Push (SW + PushManager + Notification). */
+export function isPushSupported(support: PushSupport = detectPushSupport()): boolean {
+  return support.serviceWorker && support.pushManager && support.notification
+}
+
 export function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -66,8 +71,7 @@ export async function registerServiceWorker(
 }
 
 export async function enablePushNotifications(): Promise<void> {
-  const support = detectPushSupport()
-  if (!support.serviceWorker || !support.pushManager || !support.notification) {
+  if (!isPushSupported()) {
     throw new Error('此浏览器不支持系统通知')
   }
   const perm = await Notification.requestPermission()

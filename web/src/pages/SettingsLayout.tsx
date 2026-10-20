@@ -1,7 +1,11 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Layout, Typography } from '@douyinfe/semi-ui-19'
 import { useT } from '../i18n'
-import { SETTINGS_AREAS, type SettingsArea } from '../lib/appNav'
+import {
+  SETTINGS_AREAS,
+  visiblePersonalSettingsSections,
+  type SettingsArea,
+} from '../lib/appNav'
 
 const { Sider, Content } = Layout
 
@@ -9,7 +13,9 @@ export function SettingsLayout({ area }: { area: SettingsArea }) {
   const t = useT()
   const location = useLocation()
   const navigate = useNavigate()
-  const { basePath, titleKey, groups, sections, resolve } = SETTINGS_AREAS[area]
+  const { basePath, titleKey, groups, sections: allSections, resolve } = SETTINGS_AREAS[area]
+  const sections =
+    area === 'personal' ? visiblePersonalSettingsSections() : allSections
   const rawSection = location.pathname.slice(basePath.length).replace(/^\//, '')
   const active = resolve(rawSection)
 
