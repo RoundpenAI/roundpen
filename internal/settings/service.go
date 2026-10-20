@@ -81,6 +81,11 @@ func (s *Service) Current() AppSettings {
 	return s.current
 }
 
+// Config returns the live process config (used for the env catalog page).
+func (s *Service) Config() *config.Config {
+	return s.cfg
+}
+
 // Update validates, persists, and hot-applies settings.
 func (s *Service) Update(ctx context.Context, next AppSettings) error {
 	prev := s.Current()

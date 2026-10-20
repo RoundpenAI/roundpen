@@ -70,6 +70,8 @@ type User struct {
 	Email        string    `json:"email"`
 	FullName     string    `json:"fullname"`
 	OrgName      string    `json:"orgName"`
+	About        string    `json:"about,omitempty"`
+	Timezone     string    `json:"timezone,omitempty"`
 	APIKey       string    `json:"apiKey"`
 	Role         UserRole  `json:"role"`
 	PasswordHash string    `json:"-"`
@@ -100,6 +102,16 @@ type UserStore interface {
 	ListAll(ctx context.Context) ([]User, error)
 	Delete(ctx context.Context, username string) error
 	SetModelSource(ctx context.Context, username, source string) error
+	// UpdateProfile updates self-serve personal fields (not role / api key).
+	UpdateProfile(ctx context.Context, username string, p UserProfile) error
+}
+
+// UserProfile is the subset of User a person may edit for themselves.
+type UserProfile struct {
+	FullName string
+	OrgName  string
+	About    string
+	Timezone string
 }
 
 // SessionStore persists cookie-backed login sessions.
@@ -121,12 +133,12 @@ func NewUserStore(db *DB) *PgUserStore {
 	return &PgUserStore{db: db}
 }
 
-const userCols = `username, email, fullname, org_name, api_key, COALESCE(role, 'user'), COALESCE(password_hash, ''), COALESCE(auth_provider, 'local'), COALESCE(model_source, 'gateway'), created_at, updated_at`
+const userCols = `username, email, fullname, org_name, COALESCE(about, ''), COALESCE(timezone, ''), api_key, COALESCE(role, 'user'), COALESCE(password_hash, ''), COALESCE(auth_provider, 'local'), COALESCE(model_source, 'gateway'), created_at, updated_at`
 
 func scanUser(row scannable) (*User, error) {
 	var u User
 	err := row.Scan(
-		&u.Username, &u.Email, &u.FullName, &u.OrgName, &u.APIKey,
+		&u.Username, &u.Email, &u.FullName, &u.OrgName, &u.About, &u.Timezone, &u.APIKey,
 		&u.Role, &u.PasswordHash, &u.AuthProvider, &u.ModelSource,
 		&u.CreatedAt, &u.UpdatedAt,
 	)
@@ -169,18 +181,20 @@ func (s *PgUserStore) Upsert(ctx context.Context, u User) error {
 	}
 	u.UpdatedAt = now
 	_, err := s.db.SQL.ExecContext(ctx, `
-		INSERT INTO users (username, email, fullname, org_name, api_key, role, password_hash, auth_provider, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10)
+		INSERT INTO users (username, email, fullname, org_name, about, timezone, api_key, role, password_hash, auth_provider, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), $10, $11, $12)
 		ON CONFLICT (username) DO UPDATE SET
 			email          = EXCLUDED.email,
 			fullname       = EXCLUDED.fullname,
 			org_name       = EXCLUDED.org_name,
+			about          = EXCLUDED.about,
+			timezone       = EXCLUDED.timezone,
 			api_key        = EXCLUDED.api_key,
 			role           = EXCLUDED.role,
 			password_hash  = COALESCE(EXCLUDED.password_hash, users.password_hash),
 			auth_provider  = COALESCE(NULLIF(EXCLUDED.auth_provider, ''), users.auth_provider),
 			updated_at     = EXCLUDED.updated_at
-	`, u.Username, u.Email, u.FullName, u.OrgName, storedAPIKey(u.APIKey), u.Role, u.PasswordHash, u.AuthProvider, u.CreatedAt, u.UpdatedAt)
+	`, u.Username, u.Email, u.FullName, u.OrgName, u.About, u.Timezone, storedAPIKey(u.APIKey), u.Role, u.PasswordHash, u.AuthProvider, u.CreatedAt, u.UpdatedAt)
 	return err
 }
 
@@ -217,6 +231,27 @@ func (s *PgUserStore) Delete(ctx context.Context, username string) error {
 func (s *PgUserStore) SetModelSource(ctx context.Context, username, source string) error {
 	res, err := s.db.SQL.ExecContext(ctx,
 		"UPDATE users SET model_source = $2, updated_at = now() WHERE username = $1", username, source)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateProfile persists self-serve personal fields.
+func (s *PgUserStore) UpdateProfile(ctx context.Context, username string, p UserProfile) error {
+	res, err := s.db.SQL.ExecContext(ctx, `
+		UPDATE users SET
+			fullname = $2,
+			org_name = $3,
+			about = $4,
+			timezone = $5,
+			updated_at = now()
+		WHERE username = $1
+	`, username, p.FullName, p.OrgName, p.About, p.Timezone)
 	if err != nil {
 		return err
 	}

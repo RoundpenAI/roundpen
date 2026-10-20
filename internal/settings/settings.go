@@ -76,6 +76,8 @@ func defaultAutoModeSettings() AutoModeSettings {
 // normalize trims free-text values before validation.
 func (s *AppSettings) normalize() {
 	s.AgentImage = strings.TrimSpace(s.AgentImage)
+	// Relay cannot be turned off from settings (or the API document).
+	s.LlmgwEnabled = true
 	s.normalizeAutoMode()
 }
 
@@ -159,9 +161,10 @@ func ApplyToConfig(s *AppSettings, cfg *config.Config) error {
 	cfg.AllowPublicRegistration = s.AllowPublicRegistration
 	cfg.DefaultImage = config.CoerceDefaultImage(s.DefaultImage, cfg.AgentImage)
 	cfg.DefaultTTL = time.Duration(s.DefaultTtlSeconds) * time.Second
-	cfg.LLMGW.Enabled = s.LlmgwEnabled
+	// Relay is always on; body logging stays on the env-loaded value
+	// (ROUNDPEN_LLMGW_LOG_BODY_MAX_BYTES) and is not editable via settings.
+	cfg.LLMGW.Enabled = true
 	cfg.LLMGW.PublicURL = strings.TrimSpace(s.LlmgwPublicURL)
-	cfg.LLMGW.LogBodyMaxBytes = s.LlmgwLogBodyMaxBytes
 	keys, err := config.ParseVirtualKeys(s.LlmgwVirtualKeys)
 	if err != nil {
 		return err

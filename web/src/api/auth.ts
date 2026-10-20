@@ -1,8 +1,20 @@
 import { api } from './client'
 import type { User } from './client'
 
+export type ProfileUpdate = {
+  fullname?: string
+  orgName?: string
+  about?: string
+  timezone?: string
+}
+
 export const auth = {
   me: () => api<User>('/v1/auth/user'),
+  updateProfile: (body: ProfileUpdate) =>
+    api<User>('/v1/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
   login: (user: string, password: string) =>
     api<{ user: User }>('/v1/auth/login', {
       method: 'POST',

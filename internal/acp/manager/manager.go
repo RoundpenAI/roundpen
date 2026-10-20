@@ -82,6 +82,10 @@ type SysDeps struct {
 	// PolicyFor returns the assistant constitution for toolgw hard checks.
 	// nil keeps NAS zero-config (only L3 HardDeny inside the gateway).
 	PolicyFor func(ctx context.Context, userID, assistantID string) *policy.Profile
+
+	// UserContext returns a system-prompt block describing the human
+	// (preferred name, org, timezone, about). Empty string skips injection.
+	UserContext func(ctx context.Context, userID string) string
 }
 
 // Runtime is a live ACP connection for one agent session.
@@ -325,6 +329,10 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 				}
 			}
 		}
+		var userCtx string
+		if m.sys.UserContext != nil {
+			userCtx = m.sys.UserContext(ctx, opts.Actor.Username)
+		}
 		agent := sysagent.New(sysagent.Deps{
 			LLM:         llmCfg,
 			Tools:       reg,
@@ -336,6 +344,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			AssistantID: opts.AssistantID,
 			Evaluator:   m.sys.AutoMode,
 			Profile:     opts.Project.Profile,
+			UserContext: userCtx,
 			TokenBudget: opts.Routine.TokenBudget,
 			OnTokens:    onTokens,
 		})

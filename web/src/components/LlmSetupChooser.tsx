@@ -166,18 +166,18 @@ export function LlmSetupChooser({
           <div style={cardStyle}>
             <Typography.Text strong>自己的 API Key（BYOK）</Typography.Text>
             <Typography.Text type="tertiary" size="small">
-              在 LLM 网关添加 OpenAI / Anthropic 兼容上游，绑定默认槽位。不受 FREE 配额约束。
+              在模型配置中添加 DeepSeek / Kimi / GLM / OpenRouter 或自定义上游，并设为默认。不受 FREE 配额约束。
             </Typography.Text>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {!inSettings ? (
                 <Link to="/admin/settings/llmgw">
                   <Button theme="light" type="primary">
-                    前往系统管理 · LLM 网关
+                    前往系统管理 · 模型配置
                   </Button>
                 </Link>
               ) : (
                 <Typography.Text type="tertiary" size="small">
-                  在下方添加上游提供商，并绑定默认槽位。
+                  在下方添加提供商，并设为默认。
                 </Typography.Text>
               )}
               <Button theme="borderless" type="tertiary" loading={busy} onClick={() => void recheck()}>

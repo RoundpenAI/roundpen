@@ -1,19 +1,24 @@
 import { expect, test } from './fixtures'
 import { loginViaApi, skipIfNoLivePassword } from './helpers'
 
-test('admin types a manual agent image and it survives a reload', async ({ page }) => {
+test('admin general only exposes public registration', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   await page.goto('/admin/settings/general')
 
-  const imageInput = page.getByPlaceholder('ghcr.io/roundpenai/code-agent:0.1.0')
-  await expect(imageInput).toBeVisible()
+  await expect(page.getByText('允许公开注册')).toBeVisible()
+  await expect(page.getByText(/ROUNDPEN_DEFAULT_IMAGE/)).toHaveCount(0)
+  await expect(page.getByPlaceholder('ghcr.io/roundpenai/code-agent:0.1.0')).toHaveCount(0)
+  await expect(page.getByText('默认沙箱 TTL')).toHaveCount(0)
+})
 
-  const image = `ghcr.io/example/agent:${Date.now()}`
-  await imageInput.fill(image)
-  await page.getByRole('button', { name: '保存设置' }).click()
-  await expect(page.getByText('设置已保存。')).toBeVisible()
+test('admin env catalog lists configurable variables', async ({ page }) => {
+  skipIfNoLivePassword()
+  await loginViaApi(page)
+  await page.goto('/admin/settings/env')
 
-  await page.reload()
-  await expect(page.getByPlaceholder('ghcr.io/roundpenai/code-agent:0.1.0')).toHaveValue(image)
+  await expect(page.getByText(/在安装目录的 \.env/)).toBeVisible()
+  await expect(page.getByText('ROUNDPEN_DEFAULT_IMAGE')).toBeVisible()
+  await expect(page.getByText('ROUNDPEN_AGENT_IMAGE')).toBeVisible()
+  await expect(page.getByText('ROUNDPEN_DEFAULT_TTL')).toBeVisible()
 })

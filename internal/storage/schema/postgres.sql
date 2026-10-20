@@ -16,10 +16,14 @@ CREATE TABLE IF NOT EXISTS users (
     -- own: the gateway env is withheld so agents use the user's own login
     -- (vendor subscription / free tier) inside the sandbox.
     model_source    TEXT NOT NULL DEFAULT 'gateway',
+    about           TEXT NOT NULL DEFAULT '',
+    timezone        TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS model_source TEXT NOT NULL DEFAULT 'gateway';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS about TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT '';
 
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_api_key ON users (api_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_users_email

@@ -8,6 +8,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/automode"
+	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
@@ -27,6 +28,7 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/admin/settings", auth.RequireAdmin(h.put))
 	mux.HandleFunc("POST /v1/admin/settings/browser/test", auth.RequireAdmin(h.browserTest))
 	mux.HandleFunc("GET /v1/admin/settings/automode/defaults", auth.RequireAdmin(h.autoModeDefaults))
+	mux.HandleFunc("GET /v1/admin/settings/env", auth.RequireAdmin(h.envCatalog))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +70,13 @@ func (h *Handler) autoModeDefaults(w http.ResponseWriter, r *http.Request) {
 		"allow":       def.Allow,
 		"softDeny":    def.SoftDeny,
 		"hardDeny":    def.HardDeny,
+	})
+}
+
+// envCatalog lists process env knobs (defaults + current, secrets masked).
+func (h *Handler) envCatalog(w http.ResponseWriter, r *http.Request) {
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"vars": config.EnvCatalog(h.Svc.Config()),
 	})
 }
 

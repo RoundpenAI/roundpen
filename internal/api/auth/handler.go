@@ -6,9 +6,17 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
+)
+
+const (
+	maxAboutRunes    = 2000
+	maxFullNameRunes = 80
+	maxOrgNameRunes  = 80
 )
 
 // UserHandler serves current-user and admin user-management endpoints.
@@ -189,6 +197,77 @@ func (h *UserHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UpdateProfile lets the signed-in user edit personal fields Agents use.
+func (h *UserHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	user := GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req struct {
+		FullName *string `json:"fullname"`
+		OrgName  *string `json:"orgName"`
+		About    *string `json:"about"`
+		Timezone *string `json:"timezone"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	p := storage.UserProfile{
+		FullName: user.FullName,
+		OrgName:  user.OrgName,
+		About:    user.About,
+		Timezone: user.Timezone,
+	}
+	if req.FullName != nil {
+		p.FullName = strings.TrimSpace(*req.FullName)
+		if utf8.RuneCountInString(p.FullName) > maxFullNameRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "fullname is too long")
+			return
+		}
+	}
+	if req.OrgName != nil {
+		p.OrgName = strings.TrimSpace(*req.OrgName)
+		if utf8.RuneCountInString(p.OrgName) > maxOrgNameRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "orgName is too long")
+			return
+		}
+	}
+	if req.About != nil {
+		p.About = strings.TrimSpace(*req.About)
+		if utf8.RuneCountInString(p.About) > maxAboutRunes {
+			httpx.WriteErr(w, http.StatusBadRequest, "about is too long")
+			return
+		}
+	}
+	if req.Timezone != nil {
+		tz := strings.TrimSpace(*req.Timezone)
+		if tz != "" {
+			if _, err := time.LoadLocation(tz); err != nil {
+				httpx.WriteErr(w, http.StatusBadRequest, "timezone must be an IANA name (e.g. Asia/Shanghai)")
+				return
+			}
+		}
+		p.Timezone = tz
+	}
+	if err := h.users.UpdateProfile(r.Context(), user.Username, p); err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	fresh, err := h.users.GetByUsername(r.Context(), user.Username)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	masked := *fresh
+	masked.APIKey = maskAPIKey(masked.APIKey)
+	httpx.WriteJSON(w, http.StatusOK, struct {
+		storage.User
+		HasPassword bool `json:"hasPassword"`
+	}{User: masked, HasPassword: fresh.PasswordHash != ""})
+}
+
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	username := r.PathValue("username")
 	if username == "" {
@@ -301,6 +380,7 @@ func Mount(mux *http.ServeMux, users storage.UserStore, sessions storage.Session
 	mux.HandleFunc("GET /v1/auth/bootstrap-hint", sh.BootstrapHint)
 	mux.HandleFunc("POST /v1/auth/logout", sh.Logout)
 	mux.HandleFunc("GET /v1/auth/user", uh.GetCurrentUser)
+	mux.HandleFunc("PUT /v1/auth/profile", uh.UpdateProfile)
 	mux.HandleFunc("POST /v1/auth/password", sh.ChangePassword)
 	mux.HandleFunc("POST /v1/auth/apikey/rotate", sh.RotateAPIKey)
 

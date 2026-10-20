@@ -7,7 +7,7 @@ export const emptySettings: AppSettings = {
   defaultImage: 'host',
   defaultTtlSeconds: 1800,
   agentImage: '',
-  llmgwEnabled: false,
+  llmgwEnabled: true,
   llmgwPublicUrl: '',
   llmgwLogBodyMaxBytes: 0,
   llmgwVirtualKeys: '',

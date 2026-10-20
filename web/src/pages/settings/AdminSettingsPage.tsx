@@ -1,53 +1,33 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { Banner, Button, Modal, Toast } from '@douyinfe/semi-ui-19'
 import {
   adminSettings,
-  templateDisplayName,
-  templates,
   type AppSettings,
-  type SettingsResponse,
-  type Template,
 } from '../../api'
 import { useAuth } from '../../auth'
 import { useT } from '../../i18n'
 import { OAuthProvidersPanel } from '../../components/OAuthProvidersPanel'
 import { PluginsPanel } from '../../components/PluginsPanel'
 import { SETTINGS_AREAS } from '../../lib/appNav'
-import {
-  emptySettings,
-  LOG_BODY_OPTIONS,
-  SANDBOX_TTL_OPTIONS,
-} from './constants'
-import {
-  numberOptionsWithCurrent,
-  optionsWithCurrentValue,
-  templateRef,
-  ttlOptionsWithCurrent,
-} from './helpers'
+import { emptySettings } from './constants'
 import { BrowserSection } from './BrowserSection'
 import { GeneralSection } from './GeneralSection'
 import { LlmgwSection } from './LlmgwSection'
+import { EnvSection } from './EnvSection'
 import { ProxySection } from './ProxySection'
-import { SystemSection } from './SystemSection'
 import { WebtoolsSection } from './WebtoolsSection'
 
 export function AdminSettingsPage() {
   const auth = useAuth()
-  const [data, setData] = useState<SettingsResponse | null>(null)
   const [form, setForm] = useState<AppSettings>(emptySettings)
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
-  const [templateList, setTemplateList] = useState<Template[]>([])
   const { section: sectionParam } = useParams()
   const t = useT()
-  const currentSuffix = useCallback(
-    (value: string) => t('settings.currentSuffix', { value }),
-    [t],
-  )
 
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
   const section = SETTINGS_AREAS.admin.resolve(sectionParam)
@@ -56,13 +36,8 @@ export function AdminSettingsPage() {
     setLoading(true)
     setError(null)
     try {
-      const [res, tpls] = await Promise.all([
-        adminSettings.get(),
-        templates.list().catch(() => [] as Template[]),
-      ])
-      setData(res)
+      const res = await adminSettings.get()
       setForm({ ...emptySettings, ...res.settings })
-      setTemplateList(tpls.filter((t) => t.buildStatus === 'ready'))
       setDirty(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : t('settings.loadFailed'))
@@ -70,46 +45,6 @@ export function AdminSettingsPage() {
       setLoading(false)
     }
   }, [t])
-
-  const defaultImageOptions = useMemo(() => {
-    const fromTemplates = templateList.flatMap((tpl) => {
-      const ref = templateRef(tpl)
-      return [
-        {
-          value: ref,
-          label: `${templateDisplayName(tpl)} (${tpl.cpuCount}c / ${tpl.memoryMB}MiB)`,
-        },
-      ]
-    })
-    const seen = new Set<string>()
-    const unique = fromTemplates.filter((o) => {
-      if (seen.has(o.value)) return false
-      seen.add(o.value)
-      return true
-    })
-    return optionsWithCurrentValue(unique, form.defaultImage, currentSuffix)
-  }, [templateList, form.defaultImage, currentSuffix])
-
-  const sandboxTtlOptions = useMemo(
-    () =>
-      ttlOptionsWithCurrent(
-        SANDBOX_TTL_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
-        form.defaultTtlSeconds,
-        currentSuffix,
-        t,
-      ),
-    [form.defaultTtlSeconds, t, currentSuffix],
-  )
-
-  const logBodyOptions = useMemo(
-    () =>
-      numberOptionsWithCurrent(
-        LOG_BODY_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })),
-        form.llmgwLogBodyMaxBytes,
-        currentSuffix,
-      ),
-    [form.llmgwLogBodyMaxBytes, t, currentSuffix],
-  )
 
   useEffect(() => {
     void load()
@@ -125,7 +60,6 @@ export function AdminSettingsPage() {
     setSaveError(null)
     try {
       const res = await adminSettings.update(form)
-      setData(res)
       setForm({ ...emptySettings, ...res.settings })
       setDirty(false)
       Toast.success(t('settings.saveSuccess'))
@@ -149,12 +83,17 @@ export function AdminSettingsPage() {
     void load()
   }
 
-
-  const sys = data?.system
-
   if (sectionParam && sectionParam !== section) {
     return <Navigate to={`/admin/settings/${section}`} replace />
   }
+
+  // Item-only sections save themselves; hide the document save bar.
+  const itemOnly =
+    section === 'browser' ||
+    section === 'webtools' ||
+    section === 'proxy' ||
+    section === 'llmgw' ||
+    section === 'env'
 
   return (
     <div
@@ -188,8 +127,6 @@ export function AdminSettingsPage() {
           t={t}
           form={form}
           patch={patch}
-          defaultImageOptions={defaultImageOptions}
-          sandboxTtlOptions={sandboxTtlOptions}
         />
       )}
 
@@ -198,14 +135,7 @@ export function AdminSettingsPage() {
       )}
 
       {section === 'llmgw' && (
-        <LlmgwSection
-          isAdmin={isAdmin}
-          loading={loading}
-          t={t}
-          form={form}
-          patch={patch}
-          logBodyOptions={logBodyOptions}
-        />
+        <LlmgwSection isAdmin={isAdmin} loading={loading} t={t} form={form} patch={patch} />
       )}
 
       {section === 'webtools' && (
@@ -222,11 +152,9 @@ export function AdminSettingsPage() {
         <ProxySection isAdmin={isAdmin} loading={loading} t={t} form={form} patch={patch} />
       )}
 
-      {section === 'system' && (
-        <SystemSection isAdmin={isAdmin} loading={loading} t={t} sys={sys} />
-      )}
+      {section === 'env' && <EnvSection isAdmin={isAdmin} t={t} />}
 
-      {!loading && section !== 'oauth' && section !== 'plugins' && (
+      {!loading && section !== 'oauth' && section !== 'plugins' && !itemOnly && (
         <div
           style={{
             marginTop: 24,

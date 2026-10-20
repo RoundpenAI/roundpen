@@ -247,7 +247,7 @@ func main() {
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
 	routineStore := &routine.Store{DB: db.SQL}
-	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, mcpSvc, routineStore, logger)
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, mcpSvc, routineStore, userStore, logger)
 
 	pushSvc := newPushService(cfg, db, logger)
 	if pushSvc != nil {

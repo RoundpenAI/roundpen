@@ -3,8 +3,11 @@ export type User = {
   email: string
   fullname: string
   orgName: string
+  about?: string
+  timezone?: string
   apiKey: string
   role: string
+  hasPassword?: boolean
 }
 
 export type Sandbox = {

@@ -116,17 +116,39 @@ export const zh_CN: Record<MessageKey, string> = {
   'apps.gitlabPatGuide':
     '在 GitLab：头像 → Preferences → Access Tokens。创建含 api、write_repository 权限的令牌，复制一次，然后在下方填写主机与令牌。',
   'apps.openPatSettings': '打开该主机的令牌设置页',
+  'settings.section.profile': '个人资料',
   'settings.section.password': '密码',
   'settings.section.notifications': '通知',
   'settings.section.agent': 'Agent 环境',
+
+  'profile.intro':
+    '这些信息会提供给 Agent，方便它用合适的称呼、时区与背景与你协作。不会公开给其他用户。',
+  'profile.loading': '正在加载个人资料…',
+  'profile.loadFailed': '加载个人资料失败',
+  'profile.saveFailed': '保存失败',
+  'profile.saved': '个人资料已保存。',
+  'profile.save': '保存',
+  'profile.username': '用户名',
+  'profile.fullname': '称呼',
+  'profile.fullnameHint': 'Agent 优先用这个名字称呼你',
+  'profile.fullnamePlaceholder': '例如：小明',
+  'profile.orgName': '组织 / 团队',
+  'profile.orgPlaceholder': '可选',
+  'profile.timezone': '时区',
+  'profile.timezoneHint': 'IANA 名称，用于日程与定时任务，如 Asia/Shanghai',
+  'profile.about': '关于我',
+  'profile.aboutHint': '工作背景、偏好、禁忌等，Agent 会读到这段说明',
+  'profile.aboutPlaceholder':
+    '例如：我在做电商运营，偏好简短中文回复；晚上 10 点后尽量少打扰。',
   'settings.section.general': '通用',
   'settings.section.oauth': 'OAuth 登录',
   'settings.section.plugins': '插件',
   'settings.section.browser': '浏览器',
-  'settings.section.llmgw': 'LLM 网关',
-  'settings.section.webtools': 'Web 工具',
+  'settings.section.llmgw': '模型配置',
+  'settings.section.webtools': '网络搜索',
   'settings.section.automode': '自动模式',
-  'settings.section.proxy': '网络代理',
+  'settings.section.proxy': '流量出口',
+  'settings.section.env': '环境变量',
   'settings.section.system': '系统',
 
   'settings.loading': '加载中…',
@@ -163,6 +185,22 @@ export const zh_CN: Record<MessageKey, string> = {
     '服务端未能加载 Web Push 的 VAPID 密钥，请查看控制面日志。',
 
   'settings.general.allowRegistration': '允许公开注册',
+  'settings.general.envOnlyHint':
+    '默认模板、Agent 镜像与沙箱 TTL 仅通过环境变量配置，见「环境变量」页。',
+  'settings.env.howTo':
+    '在安装目录的 .env 中修改（真实环境变量优先于文件），然后重启 roundpend；飞牛上则重启 / 重装应用。密钥类当前值已掩码。',
+  'settings.env.loadFailed': '加载环境变量失败',
+  'settings.env.col.name': '变量',
+  'settings.env.col.default': '默认值',
+  'settings.env.col.value': '当前值',
+  'settings.env.col.hint': '说明',
+  'settings.env.group.core': '核心',
+  'settings.env.group.sandbox': '沙箱',
+  'settings.env.group.browser': '浏览器',
+  'settings.env.group.llm': '模型与搜索',
+  'settings.env.group.preview': '预览',
+  'settings.env.group.push': '推送',
+  'settings.env.group.advanced': '高级',
   'settings.general.defaultImage': '默认模板 / 镜像',
   'settings.general.agentImage': 'Agent 镜像',
   'settings.general.agentImageHint':
@@ -190,21 +228,22 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.logBody.256k': '256 KiB',
 
   'settings.browser.intro':
-    '浏览器工具通过 DevTools websocket 接入。每种来源一条，在下方选择默认来源；用户也可以为自己覆盖。',
+    '浏览器通过 DevTools WebSocket 接入。添加一条或多条来源，选中其中一条为默认；运行中的默认来源会显示「已启动」。',
   'settings.browser.keepMasked': '保持掩码以保留当前值',
   'settings.browser.test': '测试连接',
   'settings.browser.testOk': '连接正常',
+  'settings.browser.started': '已启动',
   'settings.browser.hint':
-    '浏览器工具通过 DevTools WebSocket 连接。NAS 与 compose 应使用 Docker Chrome 或远程/云 CDP — 不要在 NAS 系统上安装 Chrome。本机 Chrome 仅用于笔记本调试。',
+    'NAS 与 compose 应使用 Docker Chrome 或远程/云 CDP — 不要在 NAS 系统上安装 Chrome。本机 Chrome 仅用于笔记本调试。',
 
   'settings.llmgw.intro':
-    'Roundpen 转发模型调用，Agent 不持有上游密钥。DeepSeek、Kimi、GLM、OpenRouter 只需填写 API Key 并选择模型，也可以自定义接口。中继密钥只注入到 Docker 里的 Agent，不再对外发放。',
+    '添加 FREE、DeepSeek、Kimi、GLM、OpenRouter 或自定义接口，选中一条为默认即可；Agent 与对话会自动使用它。内置平台只需 API Key 和模型，自定义再填协议与地址。密钥只注入 Docker 里的 Agent，不对外发放。',
   'settings.llmgw.modeHint':
-    '默认零配置启用「免费试用」（内置 roundpen-free，按安装身份限频）。生产环境建议在系统管理 → LLM 网关改绑自己的 API Key；FREE 触发 429 时也会提示改绑。',
+    '默认零配置启用「免费试用」（内置 roundpen-free，按安装身份限频）。生产环境建议在系统管理 → 模型配置改绑自己的 API Key；FREE 触发 429 时也会提示改绑。',
   'settings.llmgw.enable': '启用中继（Agent 对话与记忆嵌入所需）',
-  'settings.llmgw.upstreamTitle': '1 · 上游提供商',
+  'settings.llmgw.upstreamTitle': '模型提供商',
   'settings.llmgw.upstreamHint':
-    '内置平台只需 API Key 和模型。自定义供应商再填写协议和接口地址。只有配置了第二个供应商后，才会按使用点分别选择；在那之前所有使用点都继承这一个。',
+    '添加 FREE、DeepSeek、Kimi、GLM、OpenRouter 或自定义接口，选中一条为默认即可；Agent 与对话会自动使用它。内置平台只需 API Key 和模型，自定义再填协议与地址。密钥只注入 Docker 里的 Agent，不对外发放。',
   'settings.llmgw.keepSecret': '保持掩码以保留已存储的密钥。',
   'settings.llmgw.agentsTitle': '2 · Agent 使用的配置',
   'settings.llmgw.agentsHint':
@@ -225,9 +264,19 @@ export const zh_CN: Record<MessageKey, string> = {
     '密钥存于 PostgreSQL 并以掩码显示。掩码字段不改则保留原值。保存立即生效，无需重启。',
 
   'settings.webtools.intro':
-    'Web 工具让 Agent 从控制面抓取网页并联网搜索。选择了 DeepSeek、Kimi、GLM 或 OpenRouter 后，WebSearch 直接使用该平台自己的联网搜索，不必再填一把搜索密钥。只有想换别的搜索后端时才在这里添加。WebFetch 无需配置。',
+    '为 Agent 配置联网搜索。若模型配置里已选 DeepSeek / Kimi / GLM / OpenRouter，会自动使用该平台的搜索；也可在此添加 Tavily 兼容后端。',
   'settings.webtools.note':
-    '对新开的 Agent 会话生效——重开会话即可看到 WebSearch 工具。endpoint 与 key 都为空时该工具不注册。',
+    '对新开的 Agent 会话生效。识别不到可用搜索时，可注册 Tavily 或到「已连接应用」启用 Exa。',
+  'settings.webtools.detecting': '正在识别已支持的搜索服务…',
+  'settings.webtools.detectedVendor': '已从模型配置识别到 {name} 的联网搜索，无需额外配置。',
+  'settings.webtools.detectedSearch': '已启用搜索后端：{name}',
+  'settings.webtools.detectedMcp': '已从连接器识别到 {name}，可用于搜索。',
+  'settings.webtools.suggestTitle': '未识别到可用搜索服务',
+  'settings.webtools.suggestHint':
+    '可注册下列服务之一，或先在「模型配置」中启用带联网搜索的平台。',
+  'settings.webtools.suggestTavily': '在下方新增一条 Tavily 兼容搜索（填 API Key）。',
+  'settings.webtools.suggestExa': '在已连接应用中注册并启用 Exa MCP。',
+  'settings.webtools.openApps': '打开已连接应用',
 
   'settings.system.title': '系统（只读）',
   'settings.system.backend': '后端',
@@ -480,7 +529,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'agentEnv.proxy.failed': '更新代理失败。',
 
   'settings.proxy.intro':
-    '可命名的出口代理，用户按环境选择。URL 可带凭证（user:pass@host），普通用户只看得到条目名称。',
+    '可命名的流量出口，用户按环境选择。URL 可带凭证（user:pass@host），普通用户只看得到条目名称。',
   'settings.proxy.urlHint': 'http / https / socks5 / socks5h。',
   'settings.proxy.note':
     'Chrome 不支持代理 URL 里的凭证，Browser 槽位请用免认证代理。',
@@ -532,6 +581,10 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.items.edit': '编辑',
   'settings.items.cancel': '取消',
   'settings.items.disabled': '已禁用',
+  'settings.items.default': '默认',
+  'settings.items.setDefault': '设为默认',
+  'settings.items.defaultSet': '已设为默认。',
+  'settings.items.defaultFailed': '设为默认失败。',
   'settings.items.newTitle': '新增条目',
   'settings.items.editTitle': '编辑条目',
   'settings.items.idLocked': '条目创建后 ID 不可修改。',

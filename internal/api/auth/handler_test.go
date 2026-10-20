@@ -142,3 +142,50 @@ func TestAdminRoutesRequireAdmin(t *testing.T) {
 		t.Fatalf("admin status = %d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestUpdateProfile_SelfServeFields(t *testing.T) {
+	users := storage.NewMemoryUserStore()
+	if err := users.Upsert(t.Context(), storage.User{
+		Username: "alice", Email: "a@b.com", APIKey: "rp-alice", Role: storage.RoleUser,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := users.GetByUsername(t.Context(), "alice")
+	h := NewUserHandler(users)
+
+	body, _ := json.Marshal(map[string]string{
+		"fullname":  "Alice",
+		"orgName":   "Acme",
+		"about":     "Prefers short replies.",
+		"timezone":  "Asia/Shanghai",
+	})
+	req := httptest.NewRequest("PUT", "/v1/auth/profile", bytes.NewReader(body))
+	req = req.WithContext(WithUser(req.Context(), stored))
+	rec := httptest.NewRecorder()
+	h.UpdateProfile(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	got, err := users.GetByUsername(t.Context(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FullName != "Alice" || got.OrgName != "Acme" || got.About != "Prefers short replies." || got.Timezone != "Asia/Shanghai" {
+		t.Fatalf("profile not saved: %+v", got)
+	}
+}
+
+func TestUpdateProfile_RejectsBadTimezone(t *testing.T) {
+	users := storage.NewMemoryUserStore()
+	_ = users.Upsert(t.Context(), storage.User{Username: "alice", APIKey: "rp-a", Role: storage.RoleUser})
+	stored, _ := users.GetByUsername(t.Context(), "alice")
+	h := NewUserHandler(users)
+	body, _ := json.Marshal(map[string]string{"timezone": "Not/AZone"})
+	req := httptest.NewRequest("PUT", "/v1/auth/profile", bytes.NewReader(body))
+	req = req.WithContext(WithUser(req.Context(), stored))
+	rec := httptest.NewRecorder()
+	h.UpdateProfile(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
