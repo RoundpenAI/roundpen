@@ -85,32 +85,26 @@ describe('resolvePersonalSection', () => {
   })
 
   it('accepts personal sections', () => {
-    assert.equal(resolvePersonalSection('git', { pushSupported: true }), 'git')
-    assert.equal(resolvePersonalSection('agent', { pushSupported: true }), 'agent')
-    assert.equal(
-      resolvePersonalSection('notifications', { pushSupported: true }),
-      'notifications',
-    )
+    assert.equal(resolvePersonalSection('git'), 'git')
+    assert.equal(resolvePersonalSection('agent'), 'agent')
+    assert.equal(resolvePersonalSection('notifications', true), 'notifications')
   })
 
   it('rejects unknown, admin, and unsupported notification sections', () => {
     assert.equal(resolvePersonalSection('nope'), 'accounts')
     assert.equal(resolvePersonalSection('general'), 'accounts')
-    assert.equal(
-      resolvePersonalSection('notifications', { pushSupported: false }),
-      'accounts',
-    )
+    assert.equal(resolvePersonalSection('notifications', false), 'accounts')
   })
 })
 
 describe('visiblePersonalSettingsSections', () => {
   it('includes notifications only when Web Push is supported', () => {
     assert.deepEqual(
-      visiblePersonalSettingsSections({ pushSupported: true }).map((s) => s.key),
+      visiblePersonalSettingsSections(true).map((s) => s.key),
       ['accounts', 'connectors', 'mcp', 'password', 'notifications', 'git', 'agent', 'slots'],
     )
     assert.deepEqual(
-      visiblePersonalSettingsSections({ pushSupported: false }).map((s) => s.key),
+      visiblePersonalSettingsSections(false).map((s) => s.key),
       ['accounts', 'connectors', 'mcp', 'password', 'git', 'agent', 'slots'],
     )
   })

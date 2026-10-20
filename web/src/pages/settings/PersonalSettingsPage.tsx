@@ -8,13 +8,14 @@ import { McpPanel } from '../../components/McpPanel'
 import { NotificationsPanel } from '../../components/NotificationsPanel'
 import { PersonalSlotsPanel } from '../../components/PersonalSlotsPanel'
 import { useAuth } from '../../auth'
-import { isAdminSectionKey, SETTINGS_AREAS } from '../../lib/appNav'
+import { isAdminSectionKey, resolvePersonalSection } from '../../lib/appNav'
+import { isPushSupported } from '../../lib/pushSupport'
 
 export function PersonalSettingsPage() {
   const { section: sectionParam } = useParams()
   const auth = useAuth()
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
-  const section = SETTINGS_AREAS.personal.resolve(sectionParam)
+  const section = resolvePersonalSection(sectionParam, isPushSupported())
 
   // Platform sections used to live under /settings; send admins following an
   // old bookmark on to the admin area, everyone else to the default section.

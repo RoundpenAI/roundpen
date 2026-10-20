@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import {
-  detectPushSupport,
-  isPushSupported,
-  urlBase64ToUint8Array,
-} from './pushNotifications.ts'
+import { detectPushSupport, isPushSupported, urlBase64ToUint8Array } from './pushSupport.ts'
 
 describe('urlBase64ToUint8Array', () => {
   it('decodes padded URL-safe base64', () => {

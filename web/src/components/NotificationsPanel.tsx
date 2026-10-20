@@ -5,9 +5,9 @@ import {
   disablePushNotifications,
   enablePushNotifications,
   fetchPushStatus,
-  isPushSupported,
   type PushStatus,
 } from '../lib/pushNotifications'
+import { isPushSupported } from '../lib/pushSupport'
 
 export function NotificationsPanel() {
   const t = useT()
