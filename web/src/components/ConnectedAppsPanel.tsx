@@ -17,6 +17,7 @@ import {
   IconKey,
 } from '@douyinfe/semi-icons'
 import {
+  appPath,
   connectors,
   gitCredentials,
   identities,
@@ -32,7 +33,7 @@ import {
 import { useT } from '../i18n'
 import type { MessageKey } from '../i18n/translate'
 
-const APPS_PATH = '/settings/apps'
+const APPS_PATH = appPath('/settings/apps')
 const GIT_NEW_KEY = 'git:new'
 
 /** First-class PAT apps — host is user-supplied (not a fixed admin OAuth host). */
@@ -475,7 +476,7 @@ export function ConnectedAppsPanel() {
     setError(null)
     setNotice(null)
     try {
-      const res = await identities.linkUrl(providerId)
+      const res = await identities.linkUrl(providerId, undefined, APPS_PATH)
       window.location.assign(res.authorizeUrl)
     } catch (e) {
       setError(e instanceof Error ? e.message : t('accounts.connectFailed'))

@@ -12,7 +12,10 @@ custom_domain = true
 # Public origin of THIS worker. Must match each provider's callback origin.
 PUBLIC_BASE = "https://auth.eaxi.com"
 # Signed-in Roundpen users authorize these apps so the agent can act as them.
-GITHUB_SCOPES = "repo read:user user:email"
+GITHUB_SCOPES = "repo read:user user:email workflow"
+# Non-secret client ids (secrets are CLIENT_SECRET + STATE_SECRET via wrangler secret).
+GITHUB_CLIENT_ID = "Iv23li11t0t1iZ5ihypP"
+GOOGLE_CLIENT_ID = "551207944575-1bftnpfas6umkitckdvu2hu023f3ubdh.apps.googleusercontent.com"
 GOOGLE_SCOPES = "openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly"
 TICKET_TTL_SECONDS = "60"
 

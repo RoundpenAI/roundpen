@@ -152,6 +152,11 @@ func (s *Store) DeleteProvider(ctx context.Context, id string) error {
 	if s == nil || s.DB == nil {
 		return fmt.Errorf("oauth store not configured")
 	}
+	// Identities are not FK-cascaded (github-cloud has no provider row); mirror
+	// the old ON DELETE CASCADE behaviour in application code.
+	if _, err := s.DB.ExecContext(ctx, `DELETE FROM user_identities WHERE provider_id=$1`, id); err != nil {
+		return err
+	}
 	res, err := s.DB.ExecContext(ctx, `DELETE FROM oauth_providers WHERE id=$1`, id)
 	if err != nil {
 		return err
@@ -314,7 +319,7 @@ func (s *Store) ListExpiringIdentities(ctx context.Context, before time.Time) ([
 	}
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT `+identityCols+`
-		FROM user_identities i JOIN oauth_providers p ON p.id = i.provider_id
+		FROM user_identities i LEFT JOIN oauth_providers p ON p.id = i.provider_id
 		WHERE i.token_expires_at IS NOT NULL
 		  AND i.token_expires_at < $1
 		  AND i.refresh_token <> ''

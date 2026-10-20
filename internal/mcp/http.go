@@ -195,7 +195,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	redirectTo, serverID, err := h.Svc.HandleCallback(r.Context(), q.Get("code"), q.Get("state"), q.Get("error"))
 	if redirectTo == "" {
-		redirectTo = "/settings/apps"
+		redirectTo = httpx.ConsolePath("/settings/apps")
 	}
 	if err != nil {
 		slog.Warn("mcp connector callback", "err", err, "server", serverID)
@@ -259,7 +259,7 @@ func readJSON(r *http.Request, dest any) error {
 func withQuery(path, key, val string) string {
 	u, err := url.Parse(path)
 	if err != nil {
-		return "/settings/apps?" + url.Values{key: {val}}.Encode()
+		return httpx.ConsolePath("/settings/apps") + "?" + url.Values{key: {val}}.Encode()
 	}
 	q := u.Query()
 	q.Set(key, val)

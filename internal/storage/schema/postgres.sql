@@ -513,10 +513,12 @@ CREATE TABLE IF NOT EXISTS oauth_providers (
 
 -- user_identities: remote account linked to a local user; holds the tokens that
 -- are projected into the guest git credentials (a manual PAT wins per host).
+-- provider_id is not a FK: official relay bindings (github-cloud) are not rows
+-- in oauth_providers. DeleteProvider removes matching identities in app code.
 CREATE TABLE IF NOT EXISTS user_identities (
     id               TEXT PRIMARY KEY,
     user_id          TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
-    provider_id      TEXT NOT NULL REFERENCES oauth_providers (id) ON DELETE CASCADE,
+    provider_id      TEXT NOT NULL,
     subject          TEXT NOT NULL,
     login            TEXT NOT NULL DEFAULT '',
     name             TEXT NOT NULL DEFAULT '',
@@ -532,6 +534,8 @@ CREATE TABLE IF NOT EXISTS user_identities (
     UNIQUE (user_id, provider_id)
 );
 CREATE INDEX IF NOT EXISTS user_identities_user_idx ON user_identities (user_id);
+-- Upgrades from 0019 kept the FK; drop it so github-cloud links can insert.
+ALTER TABLE user_identities DROP CONSTRAINT IF EXISTS user_identities_provider_id_fkey;
 
 -- oauth_states: single-use authorization state (PKCE verifier + link-flow owner).
 CREATE TABLE IF NOT EXISTS oauth_states (

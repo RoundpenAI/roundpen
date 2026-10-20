@@ -26,7 +26,7 @@ npx wrangler login
 
 1. GitHub：建 **一个** GitHub App 或 OAuth App
    - Callback：`https://auth.eaxi.com/github/callback`
-   - 权限：`repo read:user user:email`（用户授权自己的仓库，不是登录 Roundpen）
+   - 权限：`repo read:user user:email workflow`（用户授权自己的仓库，不是登录 Roundpen）
 2. Google：建 **一个** Web 客户端
    - 已授权的重定向 URI：`https://auth.eaxi.com/oauth/google/callback`
    - 同意屏幕勾上 Gmail 只读、Calendar 只读、openid、email

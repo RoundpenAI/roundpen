@@ -93,6 +93,16 @@ export function appBasePath(): string {
   return (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 }
 
+/** Same-origin console path under the Vite base (e.g. '/app/roundpen/settings/apps'). */
+export function appPath(path: string): string {
+  const base = appBasePath()
+  const p = path.startsWith('/') ? path : `/${path}`
+  if (!base || p === base || p.startsWith(`${base}/`) || p.startsWith(`${base}?`)) {
+    return p
+  }
+  return `${base}${p}`
+}
+
 /**
  * Prefixes a same-origin path (e.g. '/v1/...') with the Vite base path so the
  * console works when served under a prefix like /app/roundpen/. With the

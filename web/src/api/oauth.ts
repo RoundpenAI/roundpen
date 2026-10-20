@@ -44,12 +44,16 @@ export const identities = {
   linkUrl: (
     providerId: string,
     returnOrigin = typeof window !== 'undefined' ? window.location.origin : '',
+    redirectTo?: string,
   ) =>
     api<{ authorizeUrl: string }>(
       `/v1/me/identities/link/${encodeURIComponent(providerId)}`,
       {
         method: 'POST',
-        body: JSON.stringify({ return: returnOrigin }),
+        body: JSON.stringify({
+          return: returnOrigin,
+          ...(redirectTo ? { redirectTo } : {}),
+        }),
       },
     ),
   remove: (id: string) =>
