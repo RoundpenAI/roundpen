@@ -23,7 +23,7 @@ type Store struct {
 // issueCols, taskCols and docCols keep select lists and the write paths'
 // RETURNING clauses in one place, in scan order.
 const issueCols = `id, key, user_id, COALESCE(assistant_id, ''), session_id, COALESCE(project_id, ''),
-	title, summary, status, origin, created_at, updated_at, closed_at`
+	title, summary, COALESCE(pr_url, ''), status, origin, created_at, updated_at, closed_at`
 
 const taskCols = `id, key, issue_id, COALESCE(plan_doc_id, ''), position, title, detail,
 	status, session_id, COALESCE(assistant_id, ''), created_at, updated_at, done_at`
@@ -182,6 +182,7 @@ type UpdateInput struct {
 	Status  *string
 	Title   *string
 	Summary *string
+	PRURL   *string
 }
 
 // Update applies an explicit change. The user (or console) has final say, so no
@@ -197,18 +198,23 @@ func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInp
 			return nil, err
 		}
 	}
+	if in.PRURL != nil {
+		u := strings.TrimSpace(*in.PRURL)
+		in.PRURL = &u
+	}
 	row := s.DB.QueryRowContext(ctx, `
 		UPDATE issues SET
 			status     = COALESCE($3, status),
 			title      = COALESCE($4, title),
 			summary    = COALESCE($5, summary),
+			pr_url     = COALESCE($6, pr_url),
 			updated_at = now(),
 			closed_at  = CASE
 				WHEN COALESCE($3, status) IN ('done', 'cancelled') THEN COALESCE(closed_at, now())
 				ELSE NULL END
 		WHERE (id = $2 OR key = $2) AND user_id = $1
 		RETURNING `+issueCols,
-		userID, keyOrID, in.Status, in.Title, in.Summary)
+		userID, keyOrID, in.Status, in.Title, in.Summary, in.PRURL)
 	return scanIssue(row)
 }
 
@@ -595,7 +601,7 @@ func (s *Store) ResolveID(ctx context.Context, userID, keyOrID string) (string, 
 func scanIssue(row rowScanner) (*Issue, error) {
 	var it Issue
 	err := row.Scan(&it.ID, &it.Key, &it.UserID, &it.AssistantID, &it.SessionID, &it.ProjectID,
-		&it.Title, &it.Summary, &it.Status, &it.Origin,
+		&it.Title, &it.Summary, &it.PRURL, &it.Status, &it.Origin,
 		&it.CreatedAt, &it.UpdatedAt, &it.ClosedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

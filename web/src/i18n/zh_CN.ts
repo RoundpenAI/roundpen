@@ -774,6 +774,11 @@ export const zh_CN: Record<MessageKey, string> = {
   'issues.task.markCancelled': '取消任务',
   'issues.task.reopen': '重新打开',
 
+  'chat.delivery.label': '交付变更',
+  'chat.delivery.hint':
+    '默认总是开 GitHub PR，不要直推默认分支。推送 / 开 PR / 合并都会征求确认。',
+  'chat.delivery.openPR': '提交 · 推送 · 开 PR',
+  'chat.delivery.mergePR': '合并 PR',
   'chat.perm.label': '工具权限',
   'chat.perm.edit': '允许编辑',
   'chat.perm.decide': '模型决策',

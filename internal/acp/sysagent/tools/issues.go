@@ -103,14 +103,14 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 	r.Register(Tool{
 		Name: "UpdateIssue",
 		Description: "Update an issue by key (ISS-12): status is one of drafting, specced, planned, in_progress, " +
-			"done, cancelled; title and summary are also editable. The status usually advances on its own when a " +
-			"current spec/plan is written or a task starts — set it explicitly to cancel the issue or to close it " +
-			"early. Send only the fields you mean to change.",
+			"done, cancelled; title, summary, and optional prUrl (GitHub PR link) are also editable. " +
+			"Remote PR discussion stays on GitHub — prUrl is only a pointer. Send only the fields you mean to change.",
 		Parameters: objectSchema(map[string]any{
 			"key":     map[string]any{"type": "string", "description": "Issue key, e.g. ISS-12"},
 			"status":  map[string]any{"type": "string", "description": "drafting, specced, planned, in_progress, done or cancelled"},
 			"title":   map[string]any{"type": "string"},
 			"summary": map[string]any{"type": "string"},
+			"prUrl":   map[string]any{"type": "string", "description": "GitHub pull request URL after CreatePullRequest"},
 		}, "key"),
 		Mutating: true,
 		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
@@ -119,6 +119,7 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 				Status  *string `json:"status"`
 				Title   *string `json:"title"`
 				Summary *string `json:"summary"`
+				PRURL   *string `json:"prUrl"`
 			}
 			if err := json.Unmarshal(raw, &a); err != nil {
 				return "", err
@@ -132,6 +133,9 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 			}
 			if a.Summary != nil {
 				body["summary"] = *a.Summary
+			}
+			if a.PRURL != nil {
+				body["prUrl"] = *a.PRURL
 			}
 			return api.do(ctx, actor, http.MethodPatch, "/v1/issues/"+url.PathEscape(a.Key), body)
 		},

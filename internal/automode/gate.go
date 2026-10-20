@@ -9,7 +9,9 @@ import (
 // under Auto even when the classifier would Allow.
 func RequiresConfirm(toolName string) bool {
 	switch normalizeToolName(toolName) {
-	case "bash", "browser_type", "browser_click", "browser_evaluate":
+	case "bash", "browser_type", "browser_click", "browser_evaluate",
+		// Git delivery tools: always SoftDeny→人审 (never silent push/merge).
+		"gitpush", "createpullrequest", "mergepullrequest":
 		return true
 	default:
 		return false

@@ -33,6 +33,7 @@ import { useOpenAppMenu } from '../components/AppShell'
 import { useAssistantLayout } from '../components/AssistantLayout'
 import { SessionTabs } from '../components/SessionTabs'
 import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
+import { DeliveryActionBar } from '../components/DeliveryActionBar'
 import { LlmSetupChooser } from '../components/LlmSetupChooser'
 import { useAuth } from '../auth'
 import { useT } from '../i18n'
@@ -900,6 +901,19 @@ export function ChatSessionPage() {
               {chats.length === 0 && !composerHasText && !busy && (
                 <RoutineSuggestions onPick={fillSuggestion} />
               )}
+              <DeliveryActionBar
+                disabled={!wsCanSendProp(wsStatus)}
+                onSend={(text) => {
+                  const clientMsgId = `${Date.now()}-delivery`
+                  if (busy) {
+                    appendLocalUser(text, clientMsgId)
+                    sendAction({ type: 'prompt', text, clientMsgId })
+                    setStatusHint('已排队')
+                    return
+                  }
+                  sendPrompt(text, clientMsgId)
+                }}
+              />
               <AIChatInput
                 ref={composerRef}
                 keepSkillAfterSend={false}

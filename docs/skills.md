@@ -74,7 +74,8 @@ frontmatter 字段：
 
 - 会话里 Agent 的 `Edit` / `Write` 会汇总成 **ChangeSet**（文件列表 + unified diff）；点路径可打开「文件」预览。
 - Project 的 **reviewer** Worker 应输出结构化 JSON（`verdict` + `findings`）；用户在项目页 **通过 / 要求修改**。
-- **远程 PR 讨论线程仍在 GitHub**（评论、required checks、branch protection）。Roundpen 不替代 GitHub 的 PR 审阅 UI；合并与开 PR 走后续一流工具（总是开 PR）。
+- **远程 PR 讨论线程仍在 GitHub**（评论、required checks、branch protection）。Roundpen 不替代 GitHub 的 PR 审阅 UI。
+- 交付路径（P1）：一流工具 `GitCommit` → `GitPush` → `CreatePullRequest` →（确认后）`MergePullRequest`；聊天动作条默认 **总是开 PR**，禁止以直推默认分支为主路径。GitHub 优先；Gitea/GitLab 仅扩展点。
 
 ## 安装示例
 

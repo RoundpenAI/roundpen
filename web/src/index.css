@@ -599,6 +599,26 @@ html.keyboard-open .chat-composer-dock {
   color: var(--semi-color-danger);
 }
 
+.rp-delivery-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 8px;
+  padding: 6px 2px;
+}
+
+.rp-delivery-hint {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.rp-delivery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .rp-changeset {
   margin-top: 8px;
   border: 1px solid var(--semi-color-border);
