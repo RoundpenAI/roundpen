@@ -271,7 +271,7 @@ func TestAuthorizeURLStoresStateWithVerifierAndRedirect(t *testing.T) {
 	f := newFlowFixture(t, &fakeRemote{t: t, tokenOK: func(map[string]string) (int, string) {
 		return 200, `{"access_token":"at"}`
 	}})
-	raw := f.start(t, StartInput{RedirectTo: "/settings/accounts"})
+	raw := f.start(t, StartInput{RedirectTo: "/settings/apps"})
 	state := stateFromURL(t, raw)
 	if state == "" {
 		t.Fatal("authorize url has no state")
@@ -286,7 +286,7 @@ func TestAuthorizeURLStoresStateWithVerifierAndRedirect(t *testing.T) {
 	if want := f.prov.CallbackURL("https", "console.test"); st.RedirectURI != want {
 		t.Errorf("redirect uri = %q, want %q", st.RedirectURI, want)
 	}
-	if st.RedirectTo != "/settings/accounts" {
+	if st.RedirectTo != "/settings/apps" {
 		t.Errorf("redirect to = %q", st.RedirectTo)
 	}
 }
@@ -415,13 +415,13 @@ func TestCallbackLinkFlow(t *testing.T) {
 	f.addUser(t, storage.User{Username: "alice", Email: "alice@example.test"})
 
 	// The flow was started in alice's session.
-	state := stateFromURL(t, f.start(t, StartInput{LinkUser: "alice", RedirectTo: "/settings/accounts"}))
+	state := stateFromURL(t, f.start(t, StartInput{LinkUser: "alice", RedirectTo: "/settings/apps"}))
 
 	if _, err := callback(t, f, state, "bob"); !errors.Is(err, ErrStateUserMismatch) {
 		t.Fatalf("err = %v, want ErrStateUserMismatch", err)
 	}
 
-	state = stateFromURL(t, f.start(t, StartInput{LinkUser: "alice", RedirectTo: "/settings/accounts"}))
+	state = stateFromURL(t, f.start(t, StartInput{LinkUser: "alice", RedirectTo: "/settings/apps"}))
 	res, err := callback(t, f, state, "alice")
 	if err != nil {
 		t.Fatal(err)
@@ -429,7 +429,7 @@ func TestCallbackLinkFlow(t *testing.T) {
 	if !res.Linked || res.User.Username != "alice" {
 		t.Errorf("result = %+v", res)
 	}
-	if res.RedirectTo != "/settings/accounts" {
+	if res.RedirectTo != "/settings/apps" {
 		t.Errorf("redirect = %q", res.RedirectTo)
 	}
 }
@@ -732,7 +732,7 @@ func TestUnlinkReportsIdentityChange(t *testing.T) {
 
 func TestSafeRedirect(t *testing.T) {
 	cases := map[string]string{
-		"/settings/accounts":        "/settings/accounts",
+		"/settings/apps":        "/settings/apps",
 		"/a?tab=1":                  "/a?tab=1",
 		"":                          "/",
 		"//evil.test":               "/",
@@ -741,7 +741,7 @@ func TestSafeRedirect(t *testing.T) {
 		"/\\evil.test":              "/",
 		"relative/path":             "/",
 		"javascript:alert(1)":       "/",
-		"/settings/accounts?ok=1#x": "/settings/accounts?ok=1",
+		"/settings/apps?ok=1#x": "/settings/apps?ok=1",
 	}
 	for in, want := range cases {
 		if got := safeRedirect(in); got != want {

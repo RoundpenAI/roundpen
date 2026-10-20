@@ -163,7 +163,7 @@ func TestPgStoreStateSingleUse(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	err := s.CreateState(ctx, State{
 		State: "st-1", UserID: user, ServerID: "notion",
-		Verifier: "v", RedirectURI: "https://app.test/cb", RedirectTo: "/settings/mcp",
+		Verifier: "v", RedirectURI: "https://app.test/cb", RedirectTo: "/settings/apps",
 		Resource: "https://mcp.notion.com",
 		AuthorizationEndpoint: "https://as.test/auth", TokenEndpoint: "https://as.test/token",
 		ClientID: "cid", ClientSecret: "cs-secret", Scopes: "read",

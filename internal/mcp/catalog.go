@@ -37,9 +37,8 @@ type Server struct {
 }
 
 // MCP servers from docs/mcp-catalog.md (P0). Endpoints verified 2026-10;
-// official docs are the source of truth. GitLab is pinned to gitlab.com for
-// now — self-hosted hosts need an admission policy before they can be
-// connected.
+// official docs are the source of truth. GitHub / GitLab are omitted: Connected
+// apps already cover git / gh / glab via OAuth or personal access tokens.
 var servers = []Server{
 	{
 		ID: "notion", Name: "Notion", Endpoint: "https://mcp.notion.com",
@@ -64,18 +63,6 @@ var servers = []Server{
 		Auth: AuthOAuth, Group: "collab",
 		Description: "Search and update Jira issues, Confluence pages and Bitbucket in one server.",
 		DocsURL:     "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/",
-	},
-	{
-		ID: "github", Name: "GitHub", Endpoint: "https://api.githubcopilot.com/mcp/",
-		Auth: AuthBoth, Group: "dev",
-		Description: "Repositories, issues, pull requests, and code search on GitHub.",
-		DocsURL:     "https://github.com/github/github-mcp-server",
-	},
-	{
-		ID: "gitlab", Name: "GitLab", Endpoint: "https://gitlab.com/api/v4/mcp",
-		Auth: AuthOAuth, Group: "dev",
-		Description: "Projects, merge requests and issues on GitLab.",
-		DocsURL:     "https://docs.gitlab.com/user/model_context_protocol/mcp_server/",
 	},
 	{
 		ID: "sentry", Name: "Sentry", Endpoint: "https://mcp.sentry.dev",

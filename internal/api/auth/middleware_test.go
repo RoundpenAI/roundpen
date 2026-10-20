@@ -26,7 +26,7 @@ func TestIsPublicPath(t *testing.T) {
 		{http.MethodGet, "/v1/connectors/google/cloud/callback"},
 		{http.MethodGet, "/v1/connectors/mcp/callback"},
 		{http.MethodPost, "/v1/hooks/github/PSUB-1"},
-		{http.MethodGet, "/settings/accounts"},
+		{http.MethodGet, "/settings/apps"},
 	}
 	for _, tc := range public {
 		req := httptest.NewRequest(tc.method, tc.path, nil)

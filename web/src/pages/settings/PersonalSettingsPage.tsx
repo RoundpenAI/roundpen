@@ -1,10 +1,7 @@
 import { Navigate, useParams } from 'react-router-dom'
 import { AgentEnvironmentPanel } from '../../components/AgentEnvironmentPanel'
 import { ChangePasswordForm } from '../../components/ChangePasswordForm'
-import { ConnectorsPanel } from '../../components/ConnectorsPanel'
-import { GitCredentialsPanel } from '../../components/GitCredentialsPanel'
-import { LinkedAccountsPanel } from '../../components/LinkedAccountsPanel'
-import { McpPanel } from '../../components/McpPanel'
+import { ConnectedAppsPanel } from '../../components/ConnectedAppsPanel'
 import { NotificationsPanel } from '../../components/NotificationsPanel'
 import { PersonalSlotsPanel } from '../../components/PersonalSlotsPanel'
 import { useAuth } from '../../auth'
@@ -24,7 +21,8 @@ export function PersonalSettingsPage() {
   }
 
   if (sectionParam && sectionParam !== section) {
-    return <Navigate to={`/settings/${section}`} replace />
+    const qs = window.location.search
+    return <Navigate to={`/settings/${section}${qs}`} replace />
   }
 
   return (
@@ -37,13 +35,7 @@ export function PersonalSettingsPage() {
         boxSizing: 'border-box',
       }}
     >
-      {section === 'git' && <GitCredentialsPanel />}
-
-      {section === 'accounts' && <LinkedAccountsPanel />}
-
-      {section === 'connectors' && <ConnectorsPanel />}
-
-      {section === 'mcp' && <McpPanel />}
+      {section === 'apps' && <ConnectedAppsPanel />}
 
       {section === 'password' && <ChangePasswordForm />}
 

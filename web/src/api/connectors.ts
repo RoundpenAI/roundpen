@@ -28,9 +28,10 @@ export const connectors = {
     }),
   deleteGoogleClient: () =>
     api<void>('/v1/me/connectors/google/client', { method: 'DELETE' }),
-  connectGoogle: () =>
+  connectGoogle: (returnOrigin = typeof window !== 'undefined' ? window.location.origin : '') =>
     api<{ authorizeUrl: string }>('/v1/me/connectors/google/connect', {
       method: 'POST',
+      body: JSON.stringify({ return: returnOrigin }),
     }),
   disconnectGoogle: () =>
     api<void>('/v1/me/connectors/google', { method: 'DELETE' }),

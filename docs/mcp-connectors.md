@@ -92,5 +92,5 @@ endpoint.
 - BYO OAuth clients (pre-registered client id/secret) for servers without DCR.
 - P1/P2 servers from `docs/mcp-catalog.md`, stdio transports, and health
   polling (status updates come from real calls).
-- Self-hosted GitLab hosts — the catalog pins `gitlab.com` (host admission
-  policy pending).
+- GitHub / GitLab as MCP servers — use Connected apps (OAuth or host + PAT)
+  and `gh` / `glab` in the agent sandbox instead.

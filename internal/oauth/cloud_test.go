@@ -82,7 +82,7 @@ func TestCloudGitHubLinkInjectsRepoToken(t *testing.T) {
 	raw, err := svc.AuthorizeURL(context.Background(), StartInput{
 		ProviderID:    CloudGitHubProviderID,
 		LinkUser:      "alice",
-		RedirectTo:    "/settings/accounts",
+		RedirectTo:    "/settings/apps",
 		ConsoleScheme: "https",
 		ConsoleHost:   "console.test",
 	})
@@ -99,7 +99,7 @@ func TestCloudGitHubLinkInjectsRepoToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Linked || res.User.Username != "alice" || res.RedirectTo != "/settings/accounts" {
+	if !res.Linked || res.User.Username != "alice" || res.RedirectTo != "/settings/apps" {
 		t.Fatalf("callback %+v", res)
 	}
 

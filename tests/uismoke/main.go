@@ -394,7 +394,7 @@ func main() {
 	mux.HandleFunc("POST /v1/me/mcp/connections/{serverId}/oauth/start", func(w http.ResponseWriter, r *http.Request) {
 		// A real flow leaves the origin; the stub returns a same-site URL with
 		// the callback params a completed consent produces.
-		writeJSON(w, map[string]any{"authorizeUrl": "/settings/mcp?mcpResult=linked&mcp=" + r.PathValue("serverId")})
+		writeJSON(w, map[string]any{"authorizeUrl": "/settings/apps?mcpResult=linked&mcp=" + r.PathValue("serverId")})
 	})
 
 	// Test hook: drop every live agent stream so clients have to reconnect.

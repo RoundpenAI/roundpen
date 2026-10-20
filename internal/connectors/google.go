@@ -113,14 +113,14 @@ func authorizeURL(clientID, state, challenge, redirectURI string) string {
 func safeRedirect(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "/settings/connectors"
+		return "/settings/apps"
 	}
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
-		return "/settings/connectors"
+		return "/settings/apps"
 	}
 	u, err := url.Parse(path)
 	if err != nil || u.Host != "" || u.Scheme != "" {
-		return "/settings/connectors"
+		return "/settings/apps"
 	}
 	return u.RequestURI()
 }

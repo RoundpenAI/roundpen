@@ -1178,6 +1178,21 @@ html.keyboard-open .chat-composer-dock {
   }
 }
 
+/* Semi modal content is a flex column with overflow:hidden. That clips the
+   last child's margin-bottom (footer or body-wrapper), so action buttons sit
+   flush on the dialog border. Move the bottom breathing room onto padding. */
+.semi-modal-content {
+  padding-bottom: 24px;
+}
+
+.semi-modal-footer {
+  margin-bottom: 0;
+}
+
+.semi-modal-body-wrapper:last-child {
+  margin-bottom: 0;
+}
+
 /* Workspace file manager: context menu, rows, name cells */
 .rp-app-content {
   -webkit-overflow-scrolling: touch;

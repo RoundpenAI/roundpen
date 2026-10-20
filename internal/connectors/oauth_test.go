@@ -69,7 +69,7 @@ func TestClientGrantAndConnectState(t *testing.T) {
 	if err := store.CreateState(ctx, State{
 		State: "st-1", UserID: user.Username, Verifier: "ver",
 		RedirectURI: "https://example.test/v1/connectors/google/callback",
-		RedirectTo:  "/settings/connectors",
+		RedirectTo:  "/settings/apps",
 		ExpiresAt:   now.Add(10 * time.Minute),
 		CreatedAt:   now,
 	}); err != nil {
@@ -197,13 +197,13 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestSafeRedirect(t *testing.T) {
-	if got := safeRedirect(""); got != "/settings/connectors" {
+	if got := safeRedirect(""); got != "/settings/apps" {
 		t.Fatalf("empty = %q", got)
 	}
-	if got := safeRedirect("https://evil.example/"); got != "/settings/connectors" {
+	if got := safeRedirect("https://evil.example/"); got != "/settings/apps" {
 		t.Fatalf("absolute = %q", got)
 	}
-	if got := safeRedirect("/settings/connectors?x=1"); got != "/settings/connectors?x=1" {
+	if got := safeRedirect("/settings/apps?x=1"); got != "/settings/apps?x=1" {
 		t.Fatalf("ok = %q", got)
 	}
 }
@@ -269,7 +269,7 @@ func TestRelayConnectAndRefresh(t *testing.T) {
 		HTTP:    relay.Client(),
 		Now:     func() time.Time { return now },
 	}
-	raw, err := svc.StartConnect(ctx, user.Username, "https", "console.test", "/settings/connectors")
+	raw, err := svc.StartConnect(ctx, user.Username, "https", "console.test", "/settings/apps")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestRelayConnectAndRefresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if redirectTo != "/settings/connectors" {
+	if redirectTo != "/settings/apps" {
 		t.Fatalf("redirect %q", redirectTo)
 	}
 	g, err := store.GetGrant(ctx, user.Username, KindGoogle)

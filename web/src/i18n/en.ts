@@ -80,9 +80,46 @@ export const en = {
   'settings.group.integrations': 'Integrations',
   'settings.group.sandbox': 'Sandbox & runtime',
   'settings.section.git': 'Git personal tokens',
+  'settings.section.apps': 'Connected apps',
   'settings.section.accounts': 'Linked accounts',
   'settings.section.connectors': 'Connectors',
   'settings.section.mcp': 'MCP',
+
+  'apps.title': 'Connected apps',
+  'apps.desc':
+    'Connect third-party services for the agent—Git hosts, Google, MCP, and more. Authorize with OAuth or a personal token; installed apps appear above.',
+  'apps.loading': 'Loading apps…',
+  'apps.loadFailed': 'failed to load apps',
+  'apps.installedCount': '{count} apps installed',
+  'apps.installedEmpty': 'No apps connected yet.',
+  'apps.catalogEmpty': 'No apps available to connect.',
+  'apps.add': 'Add',
+  'apps.added': 'Added',
+  'apps.reauth': 'Re-authorize',
+  'apps.uninstall': 'Uninstall',
+  'apps.confirmUninstall':
+    'Uninstall this app? Its authorization and tokens will be removed.',
+  'apps.detailAccount': 'Connected account',
+  'apps.connect': 'Connect',
+  'apps.disconnect': 'Disconnect',
+  'apps.linked': 'App connected.',
+  'apps.disconnected': 'Disconnected.',
+  'apps.oauthHelp':
+    'After authorizing, tokens are injected into the agent sandbox for git / gh.',
+  'apps.gitHost': 'Other Git host (token)',
+  'apps.gitHelp':
+    'Personal access token for a Git host (override or uncommon provider). Injected into the agent sandbox for git / gh / glab / tea. On the same host, a token overrides OAuth.',
+  'apps.gitSaved': 'Git host token saved.',
+  'apps.gitHostPlaceholder': 'git.example.com',
+  'apps.giteaHelp':
+    'Self-hosted Gitea via personal access token. Injected for git and tea in the agent sandbox.',
+  'apps.gitlabHelp':
+    'GitLab (self-hosted or gitlab.com) via personal access token. Injected for git and glab in the agent sandbox.',
+  'apps.giteaPatGuide':
+    'On your Gitea: avatar → Settings → Applications → Generate New Token. Grant repository (and issue if needed) read/write, copy the token once, then enter the host and token below.',
+  'apps.gitlabPatGuide':
+    'On GitLab: avatar → Preferences → Access Tokens. Create a token with api and write_repository, copy it once, then enter the host and token below.',
+  'apps.openPatSettings': 'Open token settings on this host',
   'settings.section.password': 'Password',
   'settings.section.notifications': 'Notifications',
   'settings.section.agent': 'Agent environment',
@@ -257,7 +294,7 @@ export const en = {
 
   'connectors.title': 'Connectors',
   'connectors.desc':
-    'Connect personal services for the agent. Google is bring-your-own OAuth: create a Web application in Google Cloud, enable Gmail API and Google Calendar API, then paste the Client ID and Secret here. Access is read-only (search/read mail, list/read calendar).',
+    'Connect personal services for the agent. Google (read-only Gmail / Calendar) uses the shared official OAuth app—just connect.',
   'connectors.loading': 'Loading connectors…',
   'connectors.loadFailed': 'failed to load connectors',
   'connectors.saveFailed': 'failed to save Google client',
@@ -273,7 +310,7 @@ export const en = {
   'connectors.googleHelp':
     'Authorized redirect URI must match exactly. Scopes requested: gmail.readonly and calendar.readonly.',
   'connectors.officialHelp':
-    'This Roundpen uses the shared Google app (read-only Gmail and Calendar). Connect directly, or save your own Client ID and Secret to use a private OAuth client instead.',
+    'Uses the shared official Google app (read-only Gmail and Calendar). Connect to authorize.',
   'connectors.callbackUrl': 'Authorized redirect URI',
   'connectors.callbackHint': 'Paste this into your Google Cloud OAuth client.',
   'connectors.clientId': 'Client ID',
@@ -827,8 +864,10 @@ export const en = {
   'issues.task.reopen': 'Reopen',
 
   'chat.delivery.label': 'Deliver changes',
-  'chat.delivery.hint':
-    'Always open a GitHub PR — never push straight to the default branch. Push/PR/merge ask for confirmation.',
+  'chat.delivery.hintOpen':
+    'Open a pull request — never push straight to the default branch. Push and PR ask for confirmation.',
+  'chat.delivery.hintMerge':
+    'An open pull request is ready. Merge asks for confirmation.',
   'chat.delivery.openPR': 'Commit · Push · Open PR',
   'chat.delivery.mergePR': 'Merge PR',
   'chat.perm.label': 'Tool permission',

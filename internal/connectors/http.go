@@ -167,9 +167,19 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	raw, err := h.Svc.StartConnect(r.Context(), user.Username,
-		httpx.DefaultTrust.Scheme(r), httpx.DefaultTrust.Host(r),
-		"/settings/connectors")
+	var payload struct {
+		Return string `json:"return"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &payload)
+	}
+	scheme, host, err := httpx.ConsoleOrigin(r, payload.Return)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	raw, err := h.Svc.StartConnect(r.Context(), user.Username, scheme, host, "/settings/apps")
 	if err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrNoClient) {
@@ -207,7 +217,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("google connector callback", "err", err)
 		target := redirectTo
 		if target == "" {
-			target = "/settings/connectors"
+			target = "/settings/apps"
 		}
 		http.Redirect(w, r, withQuery(target, "google", errorCode(err)), http.StatusFound)
 		return
@@ -228,7 +238,7 @@ func (h *Handler) cloudCallback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("google cloud callback", "err", err)
 		target := redirectTo
 		if target == "" {
-			target = "/settings/connectors"
+			target = "/settings/apps"
 		}
 		http.Redirect(w, r, withQuery(target, "google", errorCode(err)), http.StatusFound)
 		return
@@ -237,7 +247,7 @@ func (h *Handler) cloudCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func connectorsErrorPath(code string) string {
-	return withQuery("/settings/connectors", "google", code)
+	return withQuery("/settings/apps", "google", code)
 }
 
 func errorCode(err error) string {
@@ -256,7 +266,7 @@ func errorCode(err error) string {
 func withQuery(path, key, val string) string {
 	u, err := url.Parse(path)
 	if err != nil {
-		return "/settings/connectors?" + url.Values{key: {val}}.Encode()
+		return "/settings/apps?" + url.Values{key: {val}}.Encode()
 	}
 	q := u.Query()
 	q.Set(key, val)

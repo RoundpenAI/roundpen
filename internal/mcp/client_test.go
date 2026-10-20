@@ -104,9 +104,24 @@ func TestBearerRTRecordsStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	status, retryAfter := rt.snapshot()
+	status, retryAfter, _ := rt.snapshot()
 	if status != 429 || retryAfter != 7*time.Second {
 		t.Fatalf("status=%d retryAfter=%v", status, retryAfter)
+	}
+}
+
+func TestClassifyErrorUsesBodyHint(t *testing.T) {
+	rt := &bearerRT{
+		lastStatus:   http.StatusForbidden,
+		lastBodyHint: "403 Forbidden - MCP server not enabled for any of your groups",
+	}
+	got := classifyError(errors.New("sdk boom"), rt)
+	var me *MCPError
+	if !errors.As(got, &me) || me.Class != ClassAuth {
+		t.Fatalf("got %#v", got)
+	}
+	if !strings.Contains(me.Msg, "not enabled for any of your groups") {
+		t.Fatalf("msg = %q", me.Msg)
 	}
 }
 

@@ -61,11 +61,11 @@ func TestPickTokenAuthMethod(t *testing.T) {
 
 func TestSafeRedirect(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"", "/settings/mcp"},
-		{"/settings/mcp?x=1", "/settings/mcp?x=1"},
-		{"//evil.test", "/settings/mcp"},
-		{"https://evil.test", "/settings/mcp"},
-		{"relative", "/settings/mcp"},
+		{"", "/settings/apps"},
+		{"/settings/apps?x=1", "/settings/apps?x=1"},
+		{"//evil.test", "/settings/apps"},
+		{"https://evil.test", "/settings/apps"},
+		{"relative", "/settings/apps"},
 	}
 	for _, tc := range cases {
 		if got := safeRedirect(tc.in); got != tc.want {
