@@ -208,8 +208,8 @@ func SlugID(kind, host string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// splitHost accepts "git.eaxi.com", "git.eaxi.com:3000" or a pasted URL and
-// returns the bare lowercased host plus any scheme it carried.
+// splitHost accepts "git.example.com", "git.example.com:3000" or a pasted URL
+// and returns the bare lowercased host plus any scheme it carried.
 func splitHost(raw string) (host, scheme string, err error) {
 	s := strings.TrimSpace(raw)
 	if u, perr := url.Parse(s); perr == nil && u.Host != "" {

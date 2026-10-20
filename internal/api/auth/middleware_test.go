@@ -23,9 +23,10 @@ func TestIsPublicPath(t *testing.T) {
 		{http.MethodGet, "/v1/auth/oauth/gitea-git-eaxi-com/callback"},
 		{http.MethodGet, "/v1/auth/oauth/github/manifest/callback"},
 		{http.MethodGet, "/v1/connectors/google/callback"},
+		{http.MethodGet, "/v1/connectors/google/cloud/callback"},
 		{http.MethodGet, "/v1/connectors/mcp/callback"},
 		{http.MethodPost, "/v1/hooks/github/PSUB-1"},
-		{http.MethodGet, "/settings/accounts"},
+		{http.MethodGet, "/settings/apps"},
 	}
 	for _, tc := range public {
 		req := httptest.NewRequest(tc.method, tc.path, nil)

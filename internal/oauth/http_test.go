@@ -46,6 +46,9 @@ func (h *httpFixture) user(t *testing.T, name string) *storage.User {
 func (h *httpFixture) do(t *testing.T, method, path string, as *storage.User) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
+	// Prefer browser Origin over httptest's default Host (example.com) when
+	// minting OAuth return URLs for the shared relay / callbacks.
+	req.Header.Set("Origin", "http://127.0.0.1:19000")
 	if as != nil {
 		req = req.WithContext(auth.WithUser(req.Context(), as))
 	}
@@ -86,7 +89,7 @@ func TestHTTPListEnabledProviders(t *testing.T) {
 
 func TestHTTPStartRedirectsToAuthorizeURL(t *testing.T) {
 	f := newHTTPFixture(t, &fakeRemote{t: t})
-	rr := f.do(t, http.MethodGet, "/v1/auth/oauth/"+f.prov.ID+"/start?redirect=/settings/accounts", nil)
+	rr := f.do(t, http.MethodGet, "/v1/auth/oauth/"+f.prov.ID+"/start?redirect=/settings/apps", nil)
 	if rr.Code != http.StatusFound {
 		t.Fatalf("status = %d, body %s", rr.Code, rr.Body)
 	}
@@ -105,7 +108,7 @@ func TestHTTPStartRedirectsToAuthorizeURL(t *testing.T) {
 	if !ok {
 		t.Fatal("state was not persisted")
 	}
-	if st.RedirectTo != "/settings/accounts" {
+	if st.RedirectTo != "/settings/apps" {
 		t.Errorf("redirect_to = %q", st.RedirectTo)
 	}
 }
@@ -153,7 +156,7 @@ func TestHTTPCallbackErrorsRedirect(t *testing.T) {
 		t.Errorf("anonymous location = %q", got)
 	}
 	rr = f.do(t, http.MethodGet, "/v1/auth/oauth/"+f.prov.ID+"/callback?code=c&state=bogus", f.user(t, "alice"))
-	if got := rr.Header().Get("Location"); got != "/settings/accounts?oauth_error=state" {
+	if got := rr.Header().Get("Location"); got != "/settings/apps?oauth_error=state" {
 		t.Errorf("signed-in location = %q", got)
 	}
 }
@@ -179,7 +182,7 @@ func TestHTTPLinkFlow(t *testing.T) {
 	if st.LinkUser != "alice" {
 		t.Errorf("link_user = %q", st.LinkUser)
 	}
-	if st.RedirectTo != "/settings/accounts" {
+	if st.RedirectTo != "/settings/apps" {
 		t.Errorf("redirect_to = %q", st.RedirectTo)
 	}
 }

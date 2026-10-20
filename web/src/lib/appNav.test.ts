@@ -42,7 +42,7 @@ describe('settings sections', () => {
   it('personal sections keep their grouped order', () => {
     assert.deepEqual(
       PERSONAL_SETTINGS_SECTIONS.map((s) => s.key),
-      ['accounts', 'connectors', 'mcp', 'password', 'notifications', 'git', 'agent', 'slots'],
+      ['apps', 'password', 'notifications', 'agent', 'slots'],
     )
   })
 
@@ -79,21 +79,28 @@ describe('settings sections', () => {
 })
 
 describe('resolvePersonalSection', () => {
-  it('defaults to accounts', () => {
-    assert.equal(resolvePersonalSection(undefined), 'accounts')
-    assert.equal(resolvePersonalSection(''), 'accounts')
+  it('defaults to apps', () => {
+    assert.equal(resolvePersonalSection(undefined), 'apps')
+    assert.equal(resolvePersonalSection(''), 'apps')
   })
 
   it('accepts personal sections', () => {
-    assert.equal(resolvePersonalSection('git'), 'git')
     assert.equal(resolvePersonalSection('agent'), 'agent')
+    assert.equal(resolvePersonalSection('apps'), 'apps')
     assert.equal(resolvePersonalSection('notifications', true), 'notifications')
   })
 
+  it('maps legacy accounts/connectors/mcp/git to apps', () => {
+    assert.equal(resolvePersonalSection('accounts'), 'apps')
+    assert.equal(resolvePersonalSection('connectors'), 'apps')
+    assert.equal(resolvePersonalSection('mcp'), 'apps')
+    assert.equal(resolvePersonalSection('git'), 'apps')
+  })
+
   it('rejects unknown, admin, and unsupported notification sections', () => {
-    assert.equal(resolvePersonalSection('nope'), 'accounts')
-    assert.equal(resolvePersonalSection('general'), 'accounts')
-    assert.equal(resolvePersonalSection('notifications', false), 'accounts')
+    assert.equal(resolvePersonalSection('nope'), 'apps')
+    assert.equal(resolvePersonalSection('general'), 'apps')
+    assert.equal(resolvePersonalSection('notifications', false), 'apps')
   })
 })
 
@@ -101,11 +108,11 @@ describe('visiblePersonalSettingsSections', () => {
   it('includes notifications only when Web Push is supported', () => {
     assert.deepEqual(
       visiblePersonalSettingsSections(true).map((s) => s.key),
-      ['accounts', 'connectors', 'mcp', 'password', 'notifications', 'git', 'agent', 'slots'],
+      ['apps', 'password', 'notifications', 'agent', 'slots'],
     )
     assert.deepEqual(
       visiblePersonalSettingsSections(false).map((s) => s.key),
-      ['accounts', 'connectors', 'mcp', 'password', 'git', 'agent', 'slots'],
+      ['apps', 'password', 'agent', 'slots'],
     )
   })
 })
@@ -157,6 +164,6 @@ describe('matchPrimaryMenu', () => {
 
   it('matches the admin area ahead of the settings area', () => {
     assert.equal(matchPrimaryMenu('/admin/settings/oauth'), 'admin')
-    assert.equal(matchPrimaryMenu('/settings/accounts'), 'settings')
+    assert.equal(matchPrimaryMenu('/settings/apps'), 'settings')
   })
 })

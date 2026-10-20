@@ -136,7 +136,8 @@ func (s *Service) HandleCloudCallback(ctx context.Context, in CloudCallbackInput
 		return nil, fmt.Errorf("github relay ticket is missing")
 	}
 	var body relayTicket
-	if err := s.relayJSON(ctx, http.MethodGet, "/tickets/"+url.PathEscape(ticket), nil, &body); err != nil {
+	ticketPath := "/tickets/" + url.PathEscape(ticket) + "?state=" + url.QueryEscape(in.State)
+	if err := s.relayJSON(ctx, http.MethodGet, ticketPath, nil, &body); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(body.Login) == "" || strings.TrimSpace(body.AccessToken) == "" {
@@ -220,13 +221,13 @@ func (s *Service) relayJSON(ctx context.Context, method, path string, payload an
 		return err
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("github relay %s: http %d", path, res.StatusCode)
+		return fmt.Errorf("oauth relay %s: http %d", path, res.StatusCode)
 	}
 	if dest == nil {
 		return nil
 	}
 	if err := json.Unmarshal(raw, dest); err != nil {
-		return fmt.Errorf("github relay %s: %w", path, err)
+		return fmt.Errorf("oauth relay %s: %w", path, err)
 	}
 	return nil
 }

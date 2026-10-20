@@ -5,28 +5,30 @@ test('mcp settings connects an API key server and manages the connection', async
   skipIfNoLivePassword()
   await loginViaApi(page)
   await resetSmoke(page)
-  await page.goto('/settings/mcp')
+  await page.goto('/settings/apps')
 
-  await expect(page.getByText('MCP 服务器')).toBeVisible()
+  await expect(page.getByText('连接应用')).toBeVisible()
   await expect(page.getByTestId('mcp-server-notion')).toBeVisible()
   await expect(page.getByTestId('mcp-server-exa')).toBeVisible()
   await expect(page.getByTestId('mcp-server-linear')).toBeVisible()
 
-  // Exa is key-only: its inline key form is the only connect path.
+  // Exa is key-only: open detail, paste key, save.
   const exa = page.getByTestId('mcp-server-exa')
-  await expect(exa.getByRole('button', { name: '使用 OAuth 连接' })).toHaveCount(0)
-  await exa.getByPlaceholder('粘贴 API key').fill('demo-key')
-  await exa.getByRole('button', { name: '保存 key' }).click()
+  await exa.click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('button', { name: '使用 OAuth 连接' })).toHaveCount(0)
+  await dialog.getByPlaceholder('粘贴 API key').fill('demo-key')
+  await dialog.getByRole('button', { name: '保存 key' }).click()
 
   const conn = page.getByTestId('mcp-conn-exa')
   await expect(conn).toBeVisible()
   await expect(conn).toContainText('2 个工具')
+  await expect(conn.getByRole('button', { name: '已添加' })).toBeDisabled()
 
-  await conn.getByRole('button', { name: '刷新工具' }).click()
-  await expect(page.getByText('工具列表已刷新（3 个工具）。')).toBeVisible()
-  await expect(conn).toContainText('3 个工具')
-
-  await conn.getByRole('button', { name: '断开连接' }).click()
+  await conn.click()
+  const installed = page.getByRole('dialog')
+  await installed.getByRole('button', { name: '卸载' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'confirm' }).click()
   await expect(page.getByText('已断开连接。')).toBeVisible()
   await expect(page.getByTestId('mcp-conn-exa')).toHaveCount(0)
 })
@@ -35,11 +37,12 @@ test('mcp settings rejects a bad API key', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   await resetSmoke(page)
-  await page.goto('/settings/mcp')
+  await page.goto('/settings/apps')
 
-  const exa = page.getByTestId('mcp-server-exa')
-  await exa.getByPlaceholder('粘贴 API key').fill('bad')
-  await exa.getByRole('button', { name: '保存 key' }).click()
+  await page.getByTestId('mcp-server-exa').click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByPlaceholder('粘贴 API key').fill('bad')
+  await dialog.getByRole('button', { name: '保存 key' }).click()
 
   await expect(page.getByText(/authentication with the MCP server failed/)).toBeVisible()
   await expect(page.getByTestId('mcp-conn-exa')).toHaveCount(0)
@@ -49,31 +52,31 @@ test('mcp dual-auth server switches between OAuth and API key', async ({ page })
   skipIfNoLivePassword()
   await loginViaApi(page)
   await resetSmoke(page)
-  await page.goto('/settings/mcp')
+  await page.goto('/settings/apps')
 
-  const linear = page.getByTestId('mcp-server-linear')
-  await expect(linear.getByRole('button', { name: '使用 OAuth 连接' })).toBeVisible()
-  await expect(linear.getByPlaceholder('粘贴 API key')).toHaveCount(0)
+  await page.getByTestId('mcp-server-linear').click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('button', { name: '使用 OAuth 连接' })).toBeVisible()
+  await expect(dialog.getByPlaceholder('粘贴 API key')).toHaveCount(0)
 
-  await linear.getByRole('button', { name: '改用 API key' }).click()
-  await expect(linear.getByPlaceholder('粘贴 API key')).toBeVisible()
+  await dialog.getByRole('button', { name: '改用 API key' }).click()
+  await expect(dialog.getByPlaceholder('粘贴 API key')).toBeVisible()
 
-  await linear.getByRole('button', { name: '改用 OAuth' }).click()
-  await expect(linear.getByPlaceholder('粘贴 API key')).toHaveCount(0)
-  await expect(linear.getByRole('button', { name: '使用 OAuth 连接' })).toBeVisible()
+  await dialog.getByRole('button', { name: '改用 OAuth' }).click()
+  await expect(dialog.getByPlaceholder('粘贴 API key')).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: '使用 OAuth 连接' })).toBeVisible()
 })
 
 test('mcp oauth connect round-trips to the settings banner', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   await resetSmoke(page)
-  await page.goto('/settings/mcp')
+  await page.goto('/settings/apps')
 
-  await page.getByTestId('mcp-server-notion').getByRole('button', { name: '使用 OAuth 连接' }).click()
-
-  // The smoke authorize stub bounces straight back with the callback params.
+  const notion = page.getByTestId('mcp-server-notion')
+  await notion.getByRole('button', { name: '添加' }).click()
+  // Add on OAuth MCP opens authorize immediately
   await page.waitForURL(/mcpResult=linked/)
-  await expect(page.getByText('MCP 服务器已连接。')).toBeVisible()
-  // The callback params are cleaned from the URL after the banner shows.
-  await expect(page).toHaveURL(/\/settings\/mcp$/)
+  await expect(page.getByText('应用已连接。')).toBeVisible()
+  await expect(page).toHaveURL(/\/settings\/apps$/)
 })

@@ -171,12 +171,18 @@ func (h *Handler) oauthStart(w http.ResponseWriter, r *http.Request) {
 	serverID := r.PathValue("serverId")
 	var payload struct {
 		RedirectTo string `json:"redirectTo"`
+		Return     string `json:"return"`
 	}
 	if r.Body != nil {
 		_ = readJSON(r, &payload) // an empty body is fine
 	}
+	scheme, host, err := httpx.ConsoleOrigin(r, payload.Return)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	raw, err := h.Svc.StartOAuth(r.Context(), user.Username, serverID,
-		httpx.DefaultTrust.Scheme(r), httpx.DefaultTrust.Host(r), payload.RedirectTo)
+		scheme, host, payload.RedirectTo)
 	if err != nil {
 		writeConnectError(w, r, err)
 		return
@@ -189,7 +195,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	redirectTo, serverID, err := h.Svc.HandleCallback(r.Context(), q.Get("code"), q.Get("state"), q.Get("error"))
 	if redirectTo == "" {
-		redirectTo = "/settings/mcp"
+		redirectTo = "/settings/apps"
 	}
 	if err != nil {
 		slog.Warn("mcp connector callback", "err", err, "server", serverID)
@@ -253,7 +259,7 @@ func readJSON(r *http.Request, dest any) error {
 func withQuery(path, key, val string) string {
 	u, err := url.Parse(path)
 	if err != nil {
-		return "/settings/mcp?" + url.Values{key: {val}}.Encode()
+		return "/settings/apps?" + url.Values{key: {val}}.Encode()
 	}
 	q := u.Query()
 	q.Set(key, val)

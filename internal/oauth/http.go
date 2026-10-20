@@ -83,11 +83,17 @@ func (h *Handler) listEnabled(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
+	scheme, host, err := httpx.ConsoleOrigin(r, r.URL.Query().Get("return"))
+	if err != nil {
+		slog.Warn("oauth start origin", "provider", r.PathValue("provider"), "err", err)
+		http.Redirect(w, r, loginErrorPath("", "failed"), http.StatusFound)
+		return
+	}
 	raw, err := h.Svc.AuthorizeURL(r.Context(), StartInput{
 		ProviderID:    r.PathValue("provider"),
 		RedirectTo:    r.URL.Query().Get("redirect"),
-		ConsoleScheme: httpx.DefaultTrust.Scheme(r),
-		ConsoleHost:   httpx.DefaultTrust.Host(r),
+		ConsoleScheme: scheme,
+		ConsoleHost:   host,
 	})
 	if err != nil {
 		slog.Warn("oauth start", "provider", r.PathValue("provider"), "err", err)
@@ -164,12 +170,23 @@ func (h *Handler) link(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	var payload struct {
+		Return string `json:"return"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload)
+	}
+	scheme, host, err := httpx.ConsoleOrigin(r, payload.Return)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	raw, err := h.Svc.AuthorizeURL(r.Context(), StartInput{
 		ProviderID:    r.PathValue("provider"),
 		LinkUser:      user.Username,
-		RedirectTo:    "/settings/accounts",
-		ConsoleScheme: httpx.DefaultTrust.Scheme(r),
-		ConsoleHost:   httpx.DefaultTrust.Host(r),
+		RedirectTo:    "/settings/apps",
+		ConsoleScheme: scheme,
+		ConsoleHost:   host,
 	})
 	if err != nil {
 		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
@@ -401,7 +418,7 @@ func errorCode(err error) string {
 // back to the settings page that started a link flow.
 func loginErrorPath(sessionUser, code string) string {
 	if sessionUser != "" {
-		return withQuery("/settings/accounts", "oauth_error", code)
+		return withQuery("/settings/apps", "oauth_error", code)
 	}
 	return withQuery("/login", "oauth_error", code)
 }

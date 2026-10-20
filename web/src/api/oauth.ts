@@ -41,10 +41,16 @@ export type Identity = {
 
 export const identities = {
   list: () => api<{ identities: Identity[] }>('/v1/me/identities'),
-  linkUrl: (providerId: string) =>
+  linkUrl: (
+    providerId: string,
+    returnOrigin = typeof window !== 'undefined' ? window.location.origin : '',
+  ) =>
     api<{ authorizeUrl: string }>(
       `/v1/me/identities/link/${encodeURIComponent(providerId)}`,
-      { method: 'POST' },
+      {
+        method: 'POST',
+        body: JSON.stringify({ return: returnOrigin }),
+      },
     ),
   remove: (id: string) =>
     api<void>(`/v1/me/identities/${encodeURIComponent(id)}`, {

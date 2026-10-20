@@ -45,6 +45,9 @@ func TestCloudGitHubLinkInjectsRepoToken(t *testing.T) {
 				"authorizeUrl": "https://github.com/login/oauth/authorize?state=" + body.State,
 			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/tickets/"):
+			if r.URL.Query().Get("state") == "" {
+				t.Errorf("ticket redeem missing state")
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"login": "octocat", "name": "Octo", "email": "octo@example.test",
 				"accessToken": "gho_operate", "scope": "repo,read:user,user:email",
@@ -79,7 +82,7 @@ func TestCloudGitHubLinkInjectsRepoToken(t *testing.T) {
 	raw, err := svc.AuthorizeURL(context.Background(), StartInput{
 		ProviderID:    CloudGitHubProviderID,
 		LinkUser:      "alice",
-		RedirectTo:    "/settings/accounts",
+		RedirectTo:    "/settings/apps",
 		ConsoleScheme: "https",
 		ConsoleHost:   "console.test",
 	})
@@ -96,7 +99,7 @@ func TestCloudGitHubLinkInjectsRepoToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Linked || res.User.Username != "alice" || res.RedirectTo != "/settings/accounts" {
+	if !res.Linked || res.User.Username != "alice" || res.RedirectTo != "/settings/apps" {
 		t.Fatalf("callback %+v", res)
 	}
 

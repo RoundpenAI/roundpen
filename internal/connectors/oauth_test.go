@@ -69,7 +69,7 @@ func TestClientGrantAndConnectState(t *testing.T) {
 	if err := store.CreateState(ctx, State{
 		State: "st-1", UserID: user.Username, Verifier: "ver",
 		RedirectURI: "https://example.test/v1/connectors/google/callback",
-		RedirectTo:  "/settings/connectors",
+		RedirectTo:  "/settings/apps",
 		ExpiresAt:   now.Add(10 * time.Minute),
 		CreatedAt:   now,
 	}); err != nil {
@@ -197,14 +197,107 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestSafeRedirect(t *testing.T) {
-	if got := safeRedirect(""); got != "/settings/connectors" {
+	if got := safeRedirect(""); got != "/settings/apps" {
 		t.Fatalf("empty = %q", got)
 	}
-	if got := safeRedirect("https://evil.example/"); got != "/settings/connectors" {
+	if got := safeRedirect("https://evil.example/"); got != "/settings/apps" {
 		t.Fatalf("absolute = %q", got)
 	}
-	if got := safeRedirect("/settings/connectors?x=1"); got != "/settings/connectors?x=1" {
+	if got := safeRedirect("/settings/apps?x=1"); got != "/settings/apps?x=1" {
 		t.Fatalf("ok = %q", got)
+	}
+}
+
+type relayInstall struct{}
+
+func (relayInstall) MintToken() (string, error) { return "rp1.test.1.sig", nil }
+func (relayInstall) PublicKeyHex() string       { return strings.Repeat("ab", 32) }
+
+func TestRelayConnectAndRefresh(t *testing.T) {
+	ctx := context.Background()
+	store, db := pgStore(t)
+	userStore := storage.NewUserStore(db)
+	user := storage.User{Username: "conn-relay-user", Email: "conn-relay@example.com", APIKey: "rp-conn-relay", Role: storage.RoleUser}
+	if err := userStore.Upsert(ctx, user); err != nil {
+		t.Fatalf("upsert user: %v", err)
+	}
+	t.Cleanup(func() { _ = userStore.Delete(ctx, user.Username) })
+
+	var sawState string
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer rp1.test.1.sig" {
+			t.Errorf("auth = %q", r.Header.Get("Authorization"))
+		}
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/oauth/google/start":
+			var body struct {
+				Return string `json:"return"`
+				State  string `json:"state"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+				return
+			}
+			sawState = body.State
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth?state=sealed",
+			})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/tickets/"):
+			if r.URL.Query().Get("state") != sawState {
+				t.Errorf("ticket state = %q", r.URL.Query().Get("state"))
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"provider": "google", "subject": "sub-relay", "email": "a@gmail.com",
+				"accessToken": "ya29.access", "refreshToken": "1//refresh",
+				"scope": DefaultScopes, "expiresIn": 3600,
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/oauth/google/refresh":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"accessToken": "ya29.new", "expiresIn": 3600,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(relay.Close)
+
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	svc := &Service{
+		Store:   store,
+		Relay:   relay.URL,
+		Install: relayInstall{},
+		HTTP:    relay.Client(),
+		Now:     func() time.Time { return now },
+	}
+	raw, err := svc.StartConnect(ctx, user.Username, "https", "console.test", "/settings/apps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, "accounts.google.com") || sawState == "" {
+		t.Fatalf("authorize %q state %q", raw, sawState)
+	}
+	redirectTo, err := svc.HandleCloudCallback(ctx, "abc", sawState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if redirectTo != "/settings/apps" {
+		t.Fatalf("redirect %q", redirectTo)
+	}
+	g, err := store.GetGrant(ctx, user.Username, KindGoogle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Source != GrantSourceRelay || g.Subject != "sub-relay" || g.AccessToken != "ya29.access" {
+		t.Fatalf("grant %+v", g)
+	}
+
+	svc.Now = func() time.Time { return now.Add(2 * time.Hour) }
+	tok, err := svc.AccessToken(ctx, user.Username)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok != "ya29.new" {
+		t.Fatalf("refreshed %q", tok)
 	}
 }
 

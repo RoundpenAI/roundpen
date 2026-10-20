@@ -10,7 +10,7 @@ export function browserError(title: string, detail: string): Response {
 </style>
 <h1>${safe(title)}</h1>
 <p>${safe(detail)}</p>
-<p>Close this tab and try GitHub login again from Roundpen.</p>`
+<p>Close this tab and try again from Roundpen.</p>`
   return new Response(html, {
     status: 400,
     headers: { 'content-type': 'text/html; charset=utf-8' },

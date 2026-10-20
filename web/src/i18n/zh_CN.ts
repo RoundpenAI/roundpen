@@ -78,9 +78,44 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.group.integrations': '能力接入',
   'settings.group.sandbox': '沙箱与运行时',
   'settings.section.git': 'Git 个人令牌',
+  'settings.section.apps': '连接应用',
   'settings.section.accounts': '关联账号',
   'settings.section.connectors': '连接器',
   'settings.section.mcp': 'MCP',
+
+  'apps.title': '连接应用',
+  'apps.desc':
+    '为助手接入第三方服务：Git 主机、Google、MCP 等。可用 OAuth 或个人令牌授权，已连接的应用列在上方。',
+  'apps.loading': '正在加载应用…',
+  'apps.loadFailed': '加载应用失败',
+  'apps.installedCount': '已安装 {count} 个应用',
+  'apps.installedEmpty': '还没有已连接的应用。',
+  'apps.catalogEmpty': '暂无可连接的应用。',
+  'apps.add': '添加',
+  'apps.added': '已添加',
+  'apps.reauth': '重新授权',
+  'apps.uninstall': '卸载',
+  'apps.confirmUninstall': '确定卸载此应用？相关授权与令牌会被移除。',
+  'apps.detailAccount': '已连接账号',
+  'apps.connect': '连接',
+  'apps.disconnect': '断开',
+  'apps.linked': '应用已连接。',
+  'apps.disconnected': '已断开连接。',
+  'apps.oauthHelp': '授权后，令牌会注入 Agent 沙箱，用于 git / gh 等操作。',
+  'apps.gitHost': '其他 Git 主机（令牌）',
+  'apps.gitHelp':
+    '为非常见 Git 主机填写个人令牌，或覆盖同 host 的 OAuth。令牌会注入 Agent 沙箱，供 git / gh / glab / tea 使用；同一 host 上手填令牌优先。',
+  'apps.gitSaved': '已保存 Git 主机令牌。',
+  'apps.gitHostPlaceholder': 'git.example.com',
+  'apps.giteaHelp':
+    '用个人访问令牌连接自建 Gitea。令牌会注入 Agent 沙箱，供 git / tea 使用。',
+  'apps.gitlabHelp':
+    '用个人访问令牌连接 GitLab（自建或 gitlab.com）。令牌会注入 Agent 沙箱，供 git / glab 使用。',
+  'apps.giteaPatGuide':
+    '在你的 Gitea：头像 → 设置 → 应用 → 生成新令牌。勾选仓库（以及需要的 issue）读写权限，复制一次令牌，然后在下方填写主机与令牌。',
+  'apps.gitlabPatGuide':
+    '在 GitLab：头像 → Preferences → Access Tokens。创建含 api、write_repository 权限的令牌，复制一次，然后在下方填写主机与令牌。',
+  'apps.openPatSettings': '打开该主机的令牌设置页',
   'settings.section.password': '密码',
   'settings.section.notifications': '通知',
   'settings.section.agent': 'Agent 环境',
@@ -254,7 +289,7 @@ export const zh_CN: Record<MessageKey, string> = {
 
   'connectors.title': '连接器',
   'connectors.desc':
-    '为助手接入个人服务。Google 采用自备 OAuth：在 Google Cloud 创建 Web 应用，启用 Gmail API 与 Google Calendar API，再把 Client ID / Secret 填到这里。当前仅只读（搜/读邮件、列/读日历）。',
+    '为助手接入个人服务。Google（Gmail / 日历，只读）使用官方共享 OAuth，点连接即可授权。',
   'connectors.loading': '正在加载连接器…',
   'connectors.loadFailed': '加载连接器失败',
   'connectors.saveFailed': '保存 Google 客户端失败',
@@ -269,6 +304,8 @@ export const zh_CN: Record<MessageKey, string> = {
   'connectors.google': 'Google（Gmail + 日历）',
   'connectors.googleHelp':
     '授权回调 URI 必须完全一致。申请的权限：gmail.readonly 与 calendar.readonly。',
+  'connectors.officialHelp':
+    '使用官方共享 Google 应用（只读 Gmail 与日历）。点连接即可授权。',
   'connectors.callbackUrl': '授权回调 URI',
   'connectors.callbackHint': '复制到 Google Cloud OAuth 客户端的「已授权的重定向 URI」。',
   'connectors.clientId': '客户端 ID',
@@ -802,8 +839,9 @@ export const zh_CN: Record<MessageKey, string> = {
   'issues.task.reopen': '重新打开',
 
   'chat.delivery.label': '交付变更',
-  'chat.delivery.hint':
-    '默认总是开 GitHub PR，不要直推默认分支。推送 / 开 PR / 合并都会征求确认。',
+  'chat.delivery.hintOpen':
+    '通过 Pull Request 交付，不要直推默认分支。推送和开 PR 都会征求确认。',
+  'chat.delivery.hintMerge': '已有待合并的 Pull Request，合并会征求确认。',
   'chat.delivery.openPR': '提交 · 推送 · 开 PR',
   'chat.delivery.mergePR': '合并 PR',
   'chat.perm.label': '工具权限',

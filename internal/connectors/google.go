@@ -21,10 +21,10 @@ const (
 	gmailAPIBase    = "https://gmail.googleapis.com/gmail/v1"
 	calendarAPIBase = "https://www.googleapis.com/calendar/v3"
 
-	defaultStateTTL  = 10 * time.Minute
-	refreshWindow    = 5 * time.Minute
-	httpTimeout      = 20 * time.Second
-	maxMessageBytes  = 64 << 10 // 64 KiB body cap for GmailGet
+	defaultStateTTL   = 10 * time.Minute
+	refreshWindow     = 5 * time.Minute
+	httpTimeout       = 20 * time.Second
+	maxMessageBytes   = 64 << 10 // 64 KiB body cap for GmailGet
 	defaultMaxResults = 10
 	hardMaxResults    = 50
 )
@@ -64,9 +64,16 @@ type Grant struct {
 	RefreshToken   string     `json:"-"`
 	TokenExpiresAt *time.Time `json:"-"`
 	Scopes         string     `json:"scopes"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	UpdatedAt      time.Time  `json:"updatedAt"`
+	// Source is "relay" when the shared official app issued the grant.
+	// Empty means the user's own Google client.
+	Source    string    `json:"-"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
+
+// GrantSourceRelay marks a grant whose refresh token is bound to this install
+// on the shared OAuth relay. The client secret stays on the relay.
+const GrantSourceRelay = "relay"
 
 // State is one in-flight Google connect flow.
 type State struct {
@@ -106,14 +113,14 @@ func authorizeURL(clientID, state, challenge, redirectURI string) string {
 func safeRedirect(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "/settings/connectors"
+		return "/settings/apps"
 	}
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
-		return "/settings/connectors"
+		return "/settings/apps"
 	}
 	u, err := url.Parse(path)
 	if err != nil || u.Host != "" || u.Scheme != "" {
-		return "/settings/connectors"
+		return "/settings/apps"
 	}
 	return u.RequestURI()
 }

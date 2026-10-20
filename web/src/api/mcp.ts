@@ -41,10 +41,17 @@ export const mcp = {
       method: 'POST',
       body: JSON.stringify({ serverId, apiKey }),
     }),
-  startOAuth: (serverId: string, redirectTo?: string) =>
+  startOAuth: (
+    serverId: string,
+    redirectTo?: string,
+    returnOrigin = typeof window !== 'undefined' ? window.location.origin : '',
+  ) =>
     api<{ authorizeUrl: string }>(
       `/v1/me/mcp/connections/${encodeURIComponent(serverId)}/oauth/start`,
-      { method: 'POST', body: JSON.stringify({ redirectTo }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({ redirectTo, return: returnOrigin }),
+      },
     ),
   refreshTools: (serverId: string) =>
     api<{ connection: McpConnection; tools: McpToolSummary[] }>(

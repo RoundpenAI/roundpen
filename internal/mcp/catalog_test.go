@@ -7,8 +7,14 @@ import (
 
 func TestCatalogShape(t *testing.T) {
 	list := Catalog()
-	if len(list) != 14 {
-		t.Fatalf("catalog size = %d, want 14", len(list))
+	if len(list) != 12 {
+		t.Fatalf("catalog size = %d, want 12", len(list))
+	}
+	if _, ok := Lookup("github"); ok {
+		t.Fatal("GitHub MCP must stay out of the catalog (Connected apps OAuth / PAT covers it)")
+	}
+	if _, ok := Lookup("gitlab"); ok {
+		t.Fatal("GitLab MCP must stay out of the catalog (Connected apps PAT + glab covers it)")
 	}
 	ids := map[string]bool{}
 	endpoints := map[string]bool{}

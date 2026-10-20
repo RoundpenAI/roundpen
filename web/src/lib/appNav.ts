@@ -25,11 +25,8 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
 ]
 
 export type SettingsSectionKey =
-  | 'accounts'
-  | 'connectors'
-  | 'mcp'
+  | 'apps'
   | 'password'
-  | 'git'
   | 'agent'
   | 'slots'
   | 'notifications'
@@ -70,15 +67,20 @@ export const PERSONAL_SETTINGS_GROUPS: SettingsGroup[] = [
 ]
 
 export const PERSONAL_SETTINGS_SECTIONS: SettingsSection[] = [
-  { key: 'accounts', labelKey: 'settings.section.accounts', group: 'account' },
-  { key: 'connectors', labelKey: 'settings.section.connectors', group: 'account' },
-  { key: 'mcp', labelKey: 'settings.section.mcp', group: 'account' },
+  { key: 'apps', labelKey: 'settings.section.apps', group: 'account' },
   { key: 'password', labelKey: 'settings.section.password', group: 'account' },
   { key: 'notifications', labelKey: 'settings.section.notifications', group: 'account' },
-  { key: 'git', labelKey: 'settings.section.git', group: 'workspace' },
   { key: 'agent', labelKey: 'settings.section.agent', group: 'workspace' },
   { key: 'slots', labelKey: 'settings.section.slots', group: 'workspace' },
 ]
+
+/** Old settings URLs that now live under Connected apps. */
+const LEGACY_PERSONAL_SECTIONS: Record<string, SettingsSectionKey> = {
+  accounts: 'apps',
+  connectors: 'apps',
+  mcp: 'apps',
+  git: 'apps',
+}
 
 export const ADMIN_SETTINGS_GROUPS: SettingsGroup[] = [
   { key: 'access', labelKey: 'settings.group.access' },
@@ -97,7 +99,7 @@ export const ADMIN_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'system', labelKey: 'settings.section.system', group: 'sandbox' },
 ]
 
-export const PERSONAL_SETTINGS_FALLBACK: SettingsSectionKey = 'accounts'
+export const PERSONAL_SETTINGS_FALLBACK: SettingsSectionKey = 'apps'
 export const ADMIN_SETTINGS_FALLBACK: SettingsSectionKey = 'general'
 
 export const PRIMARY_COLLAPSED_KEY = 'roundpen.app.primaryCollapsed'
@@ -127,6 +129,8 @@ export function resolvePersonalSection(
   raw: string | undefined,
   pushSupported = true,
 ): SettingsSectionKey {
+  const legacy = LEGACY_PERSONAL_SECTIONS[(raw ?? '').trim()]
+  if (legacy) return legacy
   return resolveSection(
     raw,
     visiblePersonalSettingsSections(pushSupported),

@@ -7,27 +7,27 @@ access. This is separate from GitHub/Gitea OAuth login (`docs/auth.md`).
 
 | Piece | Who configures it |
 |-------|-------------------|
-| Google Cloud OAuth client (Client ID + Secret) | Each Roundpen user (bring your own) |
-| Consent + tokens | User connects under **Settings → Connectors** |
+| Shared Google OAuth client | Official relay (`ROUNDPEN_OAUTH_RELAY`, default `https://auth.eaxi.com`) |
+| Consent + tokens | User connects under **Settings → Connected apps** |
 | Agent tools | System Agent: `GmailSearch`, `GmailGet`, `CalendarListEvents`, `CalendarGetEvent` |
 
-There is **no** instance-wide Google OAuth app and **no** send-mail / write-calendar
-tools in this MVP.
+There are **no** send-mail / write-calendar tools in this MVP.
+
+**Connect Google** starts at `POST /oauth/google/start`. The browser returns to
+`/v1/connectors/google/cloud/callback`. The grant's `source` is `relay`, and
+access-token refresh goes to `POST /oauth/google/refresh` so the client secret
+stays on the worker. The relay binds the one-time ticket to this install and to
+the NAS CSRF state, and binds the refresh token to this install.
+`ROUNDPEN_GITHUB_OAUTH_RELAY` is still accepted as a legacy alias for the same
+origin. Set `ROUNDPEN_OAUTH_RELAY=off` to disable the shared Google app.
 
 ## Setup (per user)
 
-1. In [Google Cloud Console](https://console.cloud.google.com/), create (or reuse) a project.
-2. Enable **Gmail API** and **Google Calendar API**.
-3. Create an OAuth client of type **Web application**.
-4. Under **Authorized redirect URIs**, add the URI shown in Roundpen
-   **Settings → Connectors** (shape:
-   `{scheme}://{host}/v1/connectors/google/callback`).
-5. Paste Client ID and Client secret into Roundpen and save.
-6. Click **Connect Google**, approve `gmail.readonly` and `calendar.readonly`
-   (plus `openid` / `email` for the account label).
+1. Open **Settings → Connected apps**.
+2. Click **Connect** on Google and approve read-only Gmail / Calendar
+   (`gmail.readonly`, `calendar.readonly`, plus `openid` / `email`).
 
-If the OAuth client is in “Testing” mode, only test users listed in the consent
-screen can connect.
+No Google Cloud project is required on the NAS.
 
 ## Scopes
 
@@ -67,3 +67,4 @@ user removes the client.
 | POST | `/v1/me/connectors/google/connect` |
 | DELETE | `/v1/me/connectors/google` |
 | GET | `/v1/connectors/google/callback` (public; PKCE state binds the user) |
+| GET | `/v1/connectors/google/cloud/callback` (public; relay ticket + NAS state) |

@@ -31,7 +31,19 @@ describe('isLocalOrPrivateHost', () => {
 
 describe('nasCloudCallback', () => {
   it('lands on the cloud callback path', () => {
-    const u = nasCloudCallback('http://192.168.1.8:9527', { ticket: 'abc', state: 's' })
+    const u = nasCloudCallback('http://192.168.1.8:9527', '/v1/auth/oauth/github/cloud/callback', {
+      ticket: 'abc',
+      state: 's',
+    })
     assert.equal(u, 'http://192.168.1.8:9527/v1/auth/oauth/github/cloud/callback?ticket=abc&state=s')
+    const g = nasCloudCallback('https://roundpen.example', '/v1/connectors/google/cloud/callback', {
+      ticket: 'abc',
+      state: 's',
+    })
+    assert.equal(g, 'https://roundpen.example/v1/connectors/google/cloud/callback?ticket=abc&state=s')
+  })
+
+  it('rejects a callback path outside the registry', () => {
+    assert.throws(() => nasCloudCallback('https://roundpen.example', '/v1/elsewhere', { ticket: 'abc' }), /registered/)
   })
 })

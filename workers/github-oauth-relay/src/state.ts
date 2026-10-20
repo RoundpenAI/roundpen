@@ -25,6 +25,8 @@ export async function openState(secret: string, raw: string, nowUnix: number): P
   if (parsed.v !== 1 || !parsed.inst || !parsed.ret || !parsed.cv) {
     throw new Error('oauth state is malformed')
   }
+  if (!parsed.pv) parsed.pv = 'github'
+  if (!parsed.cb) parsed.cb = '/v1/auth/oauth/github/cloud/callback'
   if (nowUnix > parsed.exp) {
     throw new Error('oauth state expired')
   }

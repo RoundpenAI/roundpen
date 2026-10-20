@@ -25,59 +25,62 @@ test('login page surfaces oauth_error from the callback', async ({ page }) => {
   )
 })
 
-test('linked accounts binds, re-authorizes and unbinds', async ({ page }) => {
+test('connected apps binds, re-authorizes and unbinds oauth', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   await resetSmoke(page)
-  await page.goto('/settings/accounts')
+  await page.goto('/settings/apps')
 
-  const row = page
-    .getByRole('listitem')
-    .filter({ hasText: 'Gitea · git.eaxi.com' })
+  await expect(page.getByText('连接应用').first()).toBeVisible()
+  const row = page.getByTestId('app-installed-oauth-gitea-git-eaxi-com')
+  await expect(row).toContainText('Gitea')
   await expect(row).toContainText('octocat')
+  await expect(row.getByRole('button', { name: '已添加' })).toBeDisabled()
 
-  // A bound provider offers re-authorization for that same provider.
-  await row.getByRole('button', { name: '重新授权' }).click()
+  // Detail sheet: re-authorize
+  await row.click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole('button', { name: '重新授权' }).click()
   await expect(page.locator('#oauth-authorize-stub')).toBeVisible()
   expect(page.url()).toContain('provider=gitea-git-eaxi-com')
 
-  await page.goto('/settings/accounts')
-  await row.getByRole('button', { name: '解除绑定' }).click()
+  await page.goto('/settings/apps')
+  await row.click()
+  await page.getByRole('dialog').getByRole('button', { name: '卸载' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'confirm' }).click()
 
-  await expect(page.getByText('账号已解绑。')).toBeVisible()
-  await expect(page.getByText('octocat', { exact: false })).toHaveCount(0)
+  await expect(page.getByText('已断开连接。')).toBeVisible()
+  await expect(page.getByTestId('app-installed-oauth-gitea-git-eaxi-com')).toHaveCount(0)
 
-  // The row stays in place, now offering an entry to bind an account again.
-  await expect(row).toContainText('未绑定')
-  await row.getByRole('button', { name: '去绑定' }).click()
-  await expect(page.locator('#oauth-authorize-stub')).toBeVisible()
+  // Gitea is added via host + PAT (not admin-pinned OAuth).
+  const available = page.getByTestId('app-available-git-gitea')
+  await expect(available).toBeVisible()
+  await available.getByRole('button', { name: '添加' }).click()
+  const addDialog = page.getByRole('dialog')
+  await expect(addDialog.getByText(/头像 → 设置 → 应用/)).toBeVisible()
+  await expect(addDialog.getByPlaceholder('git.example.com')).toBeVisible()
+  await expect(addDialog.getByPlaceholder(/仓库/)).toBeVisible()
 })
 
-test('linked accounts keeps an entry when no account can be bound yet', async ({
+test('connected apps keeps oauth entry when its provider is disabled', async ({
   page,
 }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   await resetSmoke(page)
   await setSmokeProviders(page, [])
-  await page.goto('/settings/accounts')
+  await page.goto('/settings/apps')
 
-  // The binding outlives its provider being switched off: no re-authorization
-  // (the provider is gone) but the unbind entry stays.
-  const row = page
-    .getByRole('listitem')
-    .filter({ hasText: 'Gitea · git.eaxi.com' })
+  const row = page.getByTestId('app-installed-oauth-gitea-git-eaxi-com')
   await expect(row).toContainText('octocat')
-  await expect(row.getByRole('button', { name: '重新授权' })).toHaveCount(0)
-  await row.getByRole('button', { name: '解除绑定' }).click()
+  await row.click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog.getByRole('button', { name: '重新授权' })).toHaveCount(0)
+  await dialog.getByRole('button', { name: '卸载' }).click()
   await page.getByRole('dialog').getByRole('button', { name: 'confirm' }).click()
-  await expect(page.getByText('账号已解绑。')).toBeVisible()
-
-  // Nothing left to bind, so the page points an admin at provider setup.
-  await expect(page.getByText('还没有可绑定的账号类型。')).toBeVisible()
-  await page.getByRole('button', { name: '配置 OAuth 登录' }).click()
-  await expect(page).toHaveURL(/\/admin\/settings\/oauth$/)
+  await expect(page.getByText('已断开连接。')).toBeVisible()
+  await expect(page.getByTestId('app-installed-oauth-gitea-git-eaxi-com')).toHaveCount(0)
 })
 
 test('admin can add an oauth provider after enabling the plugin', async ({

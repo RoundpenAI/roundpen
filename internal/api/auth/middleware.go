@@ -79,7 +79,7 @@ func isPublicPath(r *http.Request) bool {
 		return true
 	}
 	// Per-user Google connector OAuth callback (PKCE state binds the user).
-	if r.Method == http.MethodGet && path == "/v1/connectors/google/callback" {
+	if r.Method == http.MethodGet && (path == "/v1/connectors/google/callback" || path == "/v1/connectors/google/cloud/callback") {
 		return true
 	}
 	// Per-user MCP connector OAuth callback (state row binds the user).

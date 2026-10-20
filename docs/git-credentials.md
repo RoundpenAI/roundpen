@@ -32,7 +32,7 @@ Settings → **Git personal tokens**（所有登录用户）：
 | 字段 | 说明 |
 |------|------|
 | Provider | `gitea` / `github` / `gitlab` / `generic` |
-| Host | 如 `git.eaxi.com`、`github.com` |
+| Host | 如 `git.example.com`、`github.com`、`gitlab.com` |
 | Username | Gitea 建议填账号名。GitHub 默认 `x-access-token`，GitLab 默认 `oauth2`，Gitea 默认 `git` |
 | Token | PAT / access token（GET 时脱敏） |
 

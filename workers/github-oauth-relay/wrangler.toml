@@ -2,16 +2,18 @@ name = "roundpen"
 main = "src/index.ts"
 compatibility_date = "2026-10-18"
 
-# Register this origin + /github/callback on the official GitHub App.
+# Register this origin + /github/callback on the official GitHub App,
+# and this origin + /oauth/google/callback on the official Google client.
 [[routes]]
 pattern = "auth.eaxi.com"
 custom_domain = true
 
 [vars]
-# Public origin of THIS worker. Must match the GitHub App callback origin.
+# Public origin of THIS worker. Must match each provider's callback origin.
 PUBLIC_BASE = "https://auth.eaxi.com"
-# Signed-in Roundpen users authorize this app so the agent can git/gh as them.
+# Signed-in Roundpen users authorize these apps so the agent can act as them.
 GITHUB_SCOPES = "repo read:user user:email"
+GOOGLE_SCOPES = "openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly"
 TICKET_TTL_SECONDS = "60"
 
 [[durable_objects.bindings]]

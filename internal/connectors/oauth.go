@@ -1,6 +1,7 @@
 package connectors
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -18,12 +19,23 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
+// InstallSigner mints the rp1 credential the shared relay uses to recognize this install.
+type InstallSigner interface {
+	MintToken() (string, error)
+	PublicKeyHex() string
+}
+
 // Service runs Google connector OAuth and token access for tools.
 type Service struct {
 	Store *Store
 	HTTP  *http.Client
 	Now   func() time.Time
 	TTL   time.Duration
+	// Relay is the shared OAuth relay origin. Empty leaves Google to a client
+	// the user configured themselves.
+	Relay string
+	// Install authenticates this NAS to the relay.
+	Install InstallSigner
 }
 
 func (s *Service) now() time.Time {
@@ -98,15 +110,32 @@ func (s *Service) Disconnect(ctx context.Context, userID string) error {
 	return err
 }
 
+func (s *Service) relayOn() bool {
+	return s != nil && strings.TrimSpace(s.Relay) != "" && s.Install != nil
+}
+
+// Official reports whether connect can use the shared Google app.
+func (s *Service) Official() bool {
+	return s.relayOn()
+}
+
 // StartConnect begins PKCE authorization; returns the Google authorize URL.
+// A user-owned client wins. Otherwise the shared relay is used when configured.
 func (s *Service) StartConnect(ctx context.Context, userID, consoleScheme, consoleHost, redirectTo string) (string, error) {
 	c, err := s.GetClient(ctx, userID)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrNoClient) {
 		return "", err
 	}
-	if strings.TrimSpace(c.ClientSecret) == "" {
-		return "", ErrNoClient
+	if c != nil && strings.TrimSpace(c.ClientSecret) != "" {
+		return s.startLocal(ctx, userID, c, consoleScheme, consoleHost, redirectTo)
 	}
+	if s.relayOn() {
+		return s.startRelay(ctx, userID, consoleScheme, consoleHost, redirectTo)
+	}
+	return "", ErrNoClient
+}
+
+func (s *Service) startLocal(ctx context.Context, userID string, c *GoogleClient, consoleScheme, consoleHost, redirectTo string) (string, error) {
 	state, err := randomHex(32)
 	if err != nil {
 		return "", err
@@ -129,6 +158,166 @@ func (s *Service) StartConnect(ctx context.Context, userID, consoleScheme, conso
 		return "", err
 	}
 	return authorizeURL(c.ClientID, state, s256Challenge(verifier), redirectURI), nil
+}
+
+func (s *Service) startRelay(ctx context.Context, userID, consoleScheme, consoleHost, redirectTo string) (string, error) {
+	state, err := randomHex(32)
+	if err != nil {
+		return "", err
+	}
+	scheme := strings.TrimSpace(consoleScheme)
+	host := strings.TrimSpace(consoleHost)
+	if scheme == "" {
+		scheme = "https"
+	}
+	origin := scheme + "://" + host
+	now := s.now()
+	if err := s.Store.CreateState(ctx, State{
+		State:       state,
+		UserID:      userID,
+		RedirectURI: origin,
+		RedirectTo:  safeRedirect(redirectTo),
+		ExpiresAt:   now.Add(s.stateTTL()),
+		CreatedAt:   now,
+	}); err != nil {
+		return "", err
+	}
+	var resp struct {
+		AuthorizeURL string `json:"authorizeUrl"`
+	}
+	if err := s.relayJSON(ctx, http.MethodPost, "/oauth/google/start", map[string]string{
+		"return": origin,
+		"state":  state,
+	}, &resp); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(resp.AuthorizeURL) == "" {
+		return "", fmt.Errorf("oauth relay returned no authorize url")
+	}
+	return resp.AuthorizeURL, nil
+}
+
+// HandleCloudCallback redeems a one-time relay ticket into the user's Google grant.
+// The NAS state row binds the user; the relay also requires that same state to release the ticket.
+func (s *Service) HandleCloudCallback(ctx context.Context, ticket, state string) (redirectTo string, err error) {
+	st, err := s.Store.TakeState(ctx, state)
+	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return "", ErrStateInvalid
+		}
+		return "", err
+	}
+	if st.ExpiresAt.Before(s.now()) {
+		return "", ErrStateInvalid
+	}
+	ticket = strings.TrimSpace(ticket)
+	if ticket == "" {
+		return st.RedirectTo, ErrMissingCode
+	}
+	var body struct {
+		Subject      string `json:"subject"`
+		Email        string `json:"email"`
+		AccessToken  string `json:"accessToken"`
+		RefreshToken string `json:"refreshToken"`
+		Scope        string `json:"scope"`
+		ExpiresIn    int    `json:"expiresIn"`
+	}
+	path := "/tickets/" + url.PathEscape(ticket) + "?state=" + url.QueryEscape(state)
+	if err := s.relayJSON(ctx, http.MethodGet, path, nil, &body); err != nil {
+		return st.RedirectTo, err
+	}
+	if strings.TrimSpace(body.Subject) == "" || strings.TrimSpace(body.AccessToken) == "" {
+		return st.RedirectTo, fmt.Errorf("oauth relay ticket is incomplete")
+	}
+	var exp *time.Time
+	if body.ExpiresIn > 0 {
+		t := s.now().Add(time.Duration(body.ExpiresIn) * time.Second)
+		exp = &t
+	}
+	if _, err := s.Store.UpsertGrant(ctx, Grant{
+		UserID:         st.UserID,
+		Kind:           KindGoogle,
+		Subject:        body.Subject,
+		Email:          body.Email,
+		AccessToken:    body.AccessToken,
+		RefreshToken:   body.RefreshToken,
+		TokenExpiresAt: exp,
+		Scopes:         body.Scope,
+		Source:         GrantSourceRelay,
+	}); err != nil {
+		return st.RedirectTo, err
+	}
+	return st.RedirectTo, nil
+}
+
+func (s *Service) refreshRelay(ctx context.Context, refreshToken string) (*tokenResult, error) {
+	var body struct {
+		AccessToken  string `json:"accessToken"`
+		RefreshToken string `json:"refreshToken"`
+		Scope        string `json:"scope"`
+		ExpiresIn    int    `json:"expiresIn"`
+	}
+	if err := s.relayJSON(ctx, http.MethodPost, "/oauth/google/refresh", map[string]string{
+		"refreshToken": refreshToken,
+	}, &body); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(body.AccessToken) == "" {
+		return nil, fmt.Errorf("oauth relay refresh returned no access token")
+	}
+	out := &tokenResult{AccessToken: body.AccessToken, RefreshToken: body.RefreshToken, Scopes: body.Scope}
+	if body.ExpiresIn > 0 {
+		t := s.now().Add(time.Duration(body.ExpiresIn) * time.Second)
+		out.ExpiresAt = &t
+	}
+	return out, nil
+}
+
+func (s *Service) relayJSON(ctx context.Context, method, path string, payload any, dest any) error {
+	if !s.relayOn() {
+		return ErrNoClient
+	}
+	token, err := s.Install.MintToken()
+	if err != nil {
+		return err
+	}
+	var body io.Reader
+	if payload != nil {
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(raw)
+	}
+	base := strings.TrimRight(strings.TrimSpace(s.Relay), "/")
+	req, err := http.NewRequestWithContext(ctx, method, base+path, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Roundpen-Install-Pub", s.Install.PublicKeyHex())
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	res, err := s.httpClient().Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("oauth relay %s: http %d", path, res.StatusCode)
+	}
+	if dest == nil {
+		return nil
+	}
+	if err := json.Unmarshal(raw, dest); err != nil {
+		return fmt.Errorf("oauth relay %s: %w", path, err)
+	}
+	return nil
 }
 
 // HandleCallback exchanges the code and upserts the grant.
@@ -167,6 +356,7 @@ func (s *Service) HandleCallback(ctx context.Context, code, state string) (redir
 		RefreshToken:   tok.RefreshToken,
 		TokenExpiresAt: tok.ExpiresAt,
 		Scopes:         tok.Scopes,
+		Source:         "",
 	}); err != nil {
 		return st.RedirectTo, err
 	}
@@ -292,6 +482,19 @@ func (s *Service) AccessToken(ctx context.Context, userID string) (string, error
 			return g.AccessToken, nil
 		}
 		return "", ErrNotConnected
+	}
+	if g.Source == GrantSourceRelay {
+		tok, err := s.refreshRelay(ctx, g.RefreshToken)
+		if err != nil {
+			if g.AccessToken != "" {
+				return g.AccessToken, nil
+			}
+			return "", fmt.Errorf("refresh google token: %w", err)
+		}
+		if err := s.Store.SaveGrantTokens(ctx, g.ID, tok.AccessToken, tok.RefreshToken, tok.ExpiresAt); err != nil {
+			return "", err
+		}
+		return tok.AccessToken, nil
 	}
 	c, err := s.GetClient(ctx, userID)
 	if err != nil {

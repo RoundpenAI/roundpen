@@ -34,6 +34,7 @@ import { useAssistantLayout } from '../components/AssistantLayout'
 import { SessionTabs } from '../components/SessionTabs'
 import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
 import { DeliveryActionBar } from '../components/DeliveryActionBar'
+import { inferDeliveryNeed } from '../lib/deliveryNeed'
 import { LlmSetupChooser } from '../components/LlmSetupChooser'
 import { useAuth } from '../auth'
 import { useT } from '../i18n'
@@ -220,6 +221,8 @@ export function ChatSessionPage() {
     () => agentMessagesToSemi(messages.filter(shouldShowInDialogue)),
     [messages],
   )
+
+  const deliveryNeed = useMemo(() => inferDeliveryNeed(messages), [messages])
 
   const skillItems = useMemo(() => commands.map(toSkillItem), [commands])
 
@@ -902,6 +905,7 @@ export function ChatSessionPage() {
                 <RoutineSuggestions onPick={fillSuggestion} />
               )}
               <DeliveryActionBar
+                need={deliveryNeed}
                 disabled={!wsCanSendProp(wsStatus)}
                 onSend={(text) => {
                   const clientMsgId = `${Date.now()}-delivery`

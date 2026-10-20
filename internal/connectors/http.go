@@ -30,15 +30,19 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/me/connectors/google/connect", h.connect)
 	mux.HandleFunc("DELETE /v1/me/connectors/google", h.disconnect)
 	mux.HandleFunc("GET /v1/connectors/google/callback", h.callback)
+	mux.HandleFunc("GET /v1/connectors/google/cloud/callback", h.cloudCallback)
 }
 
 type connectorStatusView struct {
 	Kind      string `json:"kind"`
 	Connected bool   `json:"connected"`
 	HasClient bool   `json:"hasClient"`
-	Email     string `json:"email,omitempty"`
-	Subject   string `json:"subject,omitempty"`
-	Scopes    string `json:"scopes,omitempty"`
+	// Official is true when this install can connect through the shared relay
+	// without a user-owned Google client.
+	Official bool   `json:"official"`
+	Email    string `json:"email,omitempty"`
+	Subject  string `json:"subject,omitempty"`
+	Scopes   string `json:"scopes,omitempty"`
 }
 
 type clientView struct {
@@ -59,7 +63,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErrOrInternal(w, r, err, nil)
 		return
 	}
-	view := connectorStatusView{Kind: KindGoogle, HasClient: hasClient}
+	view := connectorStatusView{Kind: KindGoogle, HasClient: hasClient, Official: h.Svc.Official()}
 	if grant != nil {
 		view.Connected = true
 		view.Email = grant.Email
@@ -163,9 +167,19 @@ func (h *Handler) connect(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	raw, err := h.Svc.StartConnect(r.Context(), user.Username,
-		httpx.DefaultTrust.Scheme(r), httpx.DefaultTrust.Host(r),
-		"/settings/connectors")
+	var payload struct {
+		Return string `json:"return"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if len(body) > 0 {
+		_ = json.Unmarshal(body, &payload)
+	}
+	scheme, host, err := httpx.ConsoleOrigin(r, payload.Return)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	raw, err := h.Svc.StartConnect(r.Context(), user.Username, scheme, host, "/settings/apps")
 	if err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrNoClient) {
@@ -203,7 +217,28 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("google connector callback", "err", err)
 		target := redirectTo
 		if target == "" {
-			target = "/settings/connectors"
+			target = "/settings/apps"
+		}
+		http.Redirect(w, r, withQuery(target, "google", errorCode(err)), http.StatusFound)
+		return
+	}
+	http.Redirect(w, r, withQuery(redirectTo, "google", "linked"), http.StatusFound)
+}
+
+func (h *Handler) cloudCallback(w http.ResponseWriter, r *http.Request) {
+	if e := r.URL.Query().Get("error"); e != "" {
+		http.Redirect(w, r, connectorsErrorPath("denied"), http.StatusFound)
+		return
+	}
+	redirectTo, err := h.Svc.HandleCloudCallback(r.Context(),
+		r.URL.Query().Get("ticket"),
+		r.URL.Query().Get("state"),
+	)
+	if err != nil {
+		slog.Warn("google cloud callback", "err", err)
+		target := redirectTo
+		if target == "" {
+			target = "/settings/apps"
 		}
 		http.Redirect(w, r, withQuery(target, "google", errorCode(err)), http.StatusFound)
 		return
@@ -212,7 +247,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 }
 
 func connectorsErrorPath(code string) string {
-	return withQuery("/settings/connectors", "google", code)
+	return withQuery("/settings/apps", "google", code)
 }
 
 func errorCode(err error) string {
@@ -231,7 +266,7 @@ func errorCode(err error) string {
 func withQuery(path, key, val string) string {
 	u, err := url.Parse(path)
 	if err != nil {
-		return "/settings/connectors?" + url.Values{key: {val}}.Encode()
+		return "/settings/apps?" + url.Values{key: {val}}.Encode()
 	}
 	q := u.Query()
 	q.Set(key, val)

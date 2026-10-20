@@ -431,7 +431,7 @@ export function OAuthProvidersPanel() {
                 aria-label={t('oauthAdmin.host')}
                 value={form.host}
                 onChange={(v) => patch({ host: v })}
-                placeholder="git.eaxi.com"
+                placeholder="git.example.com"
               />
             </div>
             <div>

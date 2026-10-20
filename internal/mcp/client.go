@@ -1,10 +1,12 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -195,7 +197,7 @@ func contentText(res *sdk.CallToolResult) string {
 
 // bearerRT injects the Authorization header and records the last response
 // status so failures can be classified even though the SDK folds HTTP errors
-// into strings.
+// into strings. On 4xx/5xx it also peeks a short JSON message for the UI.
 type bearerRT struct {
 	base   http.RoundTripper
 	bearer func(ctx context.Context) (string, error)
@@ -203,6 +205,7 @@ type bearerRT struct {
 	mu             sync.Mutex
 	lastStatus     int
 	lastRetryAfter time.Duration
+	lastBodyHint   string
 }
 
 func (t *bearerRT) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -218,17 +221,43 @@ func (t *bearerRT) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	hint := ""
+	if resp.StatusCode >= 400 {
+		hint = peekJSONMessage(resp)
+	}
 	t.mu.Lock()
 	t.lastStatus = resp.StatusCode
 	t.lastRetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
+	t.lastBodyHint = hint
 	t.mu.Unlock()
 	return resp, nil
 }
 
-func (t *bearerRT) snapshot() (int, time.Duration) {
+func (t *bearerRT) snapshot() (status int, retryAfter time.Duration, bodyHint string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.lastStatus, t.lastRetryAfter
+	return t.lastStatus, t.lastRetryAfter, t.lastBodyHint
+}
+
+// peekJSONMessage reads a small prefix of an error body for {"message":"..."}
+// without consuming the stream for the SDK (TeeReader + NopCloser restore).
+func peekJSONMessage(resp *http.Response) string {
+	const max = 2048
+	buf := make([]byte, max)
+	n, _ := io.ReadFull(resp.Body, buf)
+	buf = buf[:n]
+	resp.Body = io.NopCloser(io.MultiReader(bytes.NewReader(buf), resp.Body))
+	var payload struct {
+		Message string `json:"message"`
+		Error   string `json:"error"`
+	}
+	if err := json.Unmarshal(buf, &payload); err != nil {
+		return ""
+	}
+	if m := strings.TrimSpace(payload.Message); m != "" {
+		return m
+	}
+	return strings.TrimSpace(payload.Error)
 }
 
 // classifyError wraps err with the best class we can infer. The recorded HTTP
@@ -242,16 +271,20 @@ func classifyError(err error, rt *bearerRT) error {
 	if errors.As(err, &me) {
 		return err
 	}
-	status, retryAfter := 0, time.Duration(0)
+	status, retryAfter, bodyHint := 0, time.Duration(0), ""
 	if rt != nil {
-		status, retryAfter = rt.snapshot()
+		status, retryAfter, bodyHint = rt.snapshot()
 	}
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		msg := "authentication with the MCP server failed or expired"
+		if bodyHint != "" {
+			msg = bodyHint
+		}
 		return &MCPError{
 			Class:  ClassAuth,
 			Status: status,
-			Msg:    "authentication with the MCP server failed or expired",
+			Msg:    msg,
 			err:    err,
 		}
 	case status == http.StatusTooManyRequests:
