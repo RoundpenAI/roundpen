@@ -273,12 +273,13 @@ func main() {
 		Assistants: assistantStore,
 	}
 	projectRunner := &project.Runner{
-		Store:   projectStore,
-		Users:   userStore,
-		Starter: projectWorkerStarter{H: agentHandler},
-		ACP:     acpMgr,
-		Notes:   agentStore,
-		Log:     logger,
+		Store:    projectStore,
+		Users:    userStore,
+		Starter:  projectWorkerStarter{H: agentHandler},
+		ACP:      acpMgr,
+		Notes:    agentStore,
+		Messages: agentStore,
+		Log:      logger,
 	}
 	(&issue.Handler{
 		Store:    issueStore,

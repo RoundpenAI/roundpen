@@ -70,6 +70,12 @@ frontmatter 字段：
 - `remove`：删除已安装技能；内置技能不可删。
 - 每轮（reply）最多调用 3 次，超出后让用户新开消息继续。
 
+## 代码审查与 GitHub 的边界
+
+- 会话里 Agent 的 `Edit` / `Write` 会汇总成 **ChangeSet**（文件列表 + unified diff）；点路径可打开「文件」预览。
+- Project 的 **reviewer** Worker 应输出结构化 JSON（`verdict` + `findings`）；用户在项目页 **通过 / 要求修改**。
+- **远程 PR 讨论线程仍在 GitHub**（评论、required checks、branch protection）。Roundpen 不替代 GitHub 的 PR 审阅 UI；合并与开 PR 走后续一流工具（总是开 PR）。
+
 ## 安装示例
 
 ```

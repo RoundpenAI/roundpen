@@ -18,6 +18,19 @@ export type Project = {
 
 export type ProjectWorkerRole = 'implementer' | 'reviewer' | 'tester'
 
+export type ReviewFinding = {
+  severity: string
+  path?: string
+  line?: number
+  note: string
+}
+
+export type ReviewResult = {
+  verdict: 'approve' | 'request_changes' | string
+  summary?: string
+  findings?: ReviewFinding[]
+}
+
 export type ProjectWorker = {
   id: string
   key: string
@@ -30,6 +43,8 @@ export type ProjectWorker = {
   role: ProjectWorkerRole
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   error?: string
+  review?: ReviewResult
+  userDecision?: '' | 'passed' | 'changes_requested'
   createdAt: string
   updatedAt: string
   startedAt?: string
@@ -86,4 +101,20 @@ export const projects = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  getWorker: (key: string, workerKey: string) =>
+    api<{ worker: ProjectWorker }>(
+      `/v1/projects/${key}/workers/${encodeURIComponent(workerKey)}`,
+    ),
+  decideWorker: (
+    key: string,
+    workerKey: string,
+    decision: 'passed' | 'changes_requested',
+  ) =>
+    api<{ worker: ProjectWorker; followUp?: ProjectWorker }>(
+      `/v1/projects/${key}/workers/${encodeURIComponent(workerKey)}/decision`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      },
+    ),
 }

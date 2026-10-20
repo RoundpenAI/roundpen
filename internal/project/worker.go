@@ -20,21 +20,24 @@ const (
 
 // Worker is one delegated execution unit inside a Project.
 type Worker struct {
-	ID         string     `json:"id"`
-	Key        string     `json:"key"`
-	ProjectID  string     `json:"projectId"`
-	UserID     string     `json:"userId"`
-	SessionID  string     `json:"sessionId,omitempty"`
-	IssueID    string     `json:"issueId,omitempty"`
-	Title      string     `json:"title"`
-	Brief      string     `json:"brief"`
-	Role       string     `json:"role"`
-	Status     string     `json:"status"`
-	Error      string     `json:"error,omitempty"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	UpdatedAt  time.Time  `json:"updatedAt"`
-	StartedAt  *time.Time `json:"startedAt,omitempty"`
-	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	ID           string        `json:"id"`
+	Key          string        `json:"key"`
+	ProjectID    string        `json:"projectId"`
+	UserID       string        `json:"userId"`
+	SessionID    string        `json:"sessionId,omitempty"`
+	IssueID      string        `json:"issueId,omitempty"`
+	Title        string        `json:"title"`
+	Brief        string        `json:"brief"`
+	Role         string        `json:"role"`
+	Status       string        `json:"status"`
+	Error        string        `json:"error,omitempty"`
+	ReviewJSON   string        `json:"-"`
+	Review       *ReviewResult `json:"review,omitempty"`
+	UserDecision string        `json:"userDecision,omitempty"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	UpdatedAt    time.Time     `json:"updatedAt"`
+	StartedAt    *time.Time    `json:"startedAt,omitempty"`
+	FinishedAt   *time.Time    `json:"finishedAt,omitempty"`
 }
 
 type DelegateInput struct {
@@ -127,6 +130,11 @@ func RenderWorkerPrompt(p *Project, w *Worker) string {
 	switch role {
 	case RoleReviewer:
 		b.WriteString("\nInspect the relevant diffs and paths. Return severity-ordered findings and a verdict.\n")
+		b.WriteString("End your final message with a fenced JSON block (and nothing after it) using this shape:\n")
+		b.WriteString("```json\n")
+		b.WriteString(`{"verdict":"approve"|"request_changes","summary":"one sentence","findings":[{"severity":"error"|"warning"|"info","path":"relative/path","line":0,"note":"concrete issue"}]}`)
+		b.WriteString("\n```\n")
+		b.WriteString("Remote PR review threads stay on GitHub; this JSON is for the Roundpen console only.\n")
 	case RoleTester:
 		b.WriteString("\nRun the verification steps. Report commands, expected vs actual, and pass/fail.\n")
 	default:
@@ -157,6 +165,16 @@ func RenderWorkerDoneNotice(w *Worker, status string) string {
 		b.WriteString("\nError: ")
 		b.WriteString(strings.TrimSpace(w.Error))
 	}
+	if w.Review != nil {
+		b.WriteString("\nReviewer verdict: ")
+		b.WriteString(w.Review.Verdict)
+		if strings.TrimSpace(w.Review.Summary) != "" {
+			b.WriteString(" — ")
+			b.WriteString(strings.TrimSpace(w.Review.Summary))
+		}
+		b.WriteString(".")
+	}
 	b.WriteString("\nSummarize for the user, or ListProjectWorkers / open the worker session for details. Delegate follow-ups if needed.")
+	b.WriteString("\nRemote PR discussion (if any) stays on GitHub; use the project page Pass / Request changes controls for local acceptance.")
 	return b.String()
 }
