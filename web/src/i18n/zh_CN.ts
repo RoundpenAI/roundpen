@@ -68,7 +68,9 @@ export const zh_CN: Record<MessageKey, string> = {
   'workspace.previewUnsupported': '该类型暂不支持预览',
   'workspace.previewTooLarge': '文件过大，无法预览',
   'workspace.previewFailed': '文件加载失败',
+  'workspace.previewPickFile': '在左侧选择文件以预览',
   'workspace.close': '关闭',
+  'workspace.backToList': '返回列表',
 
   'settings.title': '设置',
   'settings.adminTitle': '系统管理',

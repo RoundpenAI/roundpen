@@ -19,6 +19,8 @@ const globalID = "global"
 // (LLM providers, proxies, search backends, browser sources) live as setting
 // items instead; see internal/settingitems.
 type AppSettings struct {
+	// AllowPublicRegistration is retained for document compatibility; the live
+	// gate is ROUNDPEN_ALLOW_PUBLIC_REGISTRATION only (see ApplyToConfig).
 	AllowPublicRegistration bool   `json:"allowPublicRegistration"`
 	DefaultImage            string `json:"defaultImage"`
 	DefaultTtlSeconds       int    `json:"defaultTtlSeconds"`

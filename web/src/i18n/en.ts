@@ -70,7 +70,9 @@ export const en = {
   'workspace.previewUnsupported': 'Preview is not available for this file type',
   'workspace.previewTooLarge': 'This file is too large to preview',
   'workspace.previewFailed': 'Failed to load the file',
+  'workspace.previewPickFile': 'Select a file on the left to preview',
   'workspace.close': 'Close',
+  'workspace.backToList': 'Back to list',
 
   'settings.title': 'Settings',
   'settings.adminTitle': 'Administration',

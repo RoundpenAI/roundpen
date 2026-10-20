@@ -86,8 +86,9 @@ func TestBootstrapLoadsDBOverrides(t *testing.T) {
 		PreviewTokenTTL: 15 * time.Minute,
 	}
 	want := settings.AppSettings{
-		DefaultImage:      "python",
-		DefaultTtlSeconds: 1200,
+		AllowPublicRegistration: true,
+		DefaultImage:            "python",
+		DefaultTtlSeconds:       1200,
 	}
 	if err := store.Upsert(ctx, want); err != nil {
 		t.Fatal(err)

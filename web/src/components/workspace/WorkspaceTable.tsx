@@ -61,7 +61,7 @@ type Props = {
   cutPaths: ReadonlySet<string>
   renaming: string | null
   onSelectionChange: (keys: string[]) => void
-  onRowClick: (name: string, e: React.MouseEvent) => void
+  onRowClick: (name: string) => void
   onRowDoubleClick: (entry: DirEntry) => void
   onRowContextMenu: (entry: DirEntry, e: React.MouseEvent) => void
   onRenameSubmit: (name: string, next: string) => void
@@ -199,7 +199,7 @@ export function WorkspaceTable({
         const abs = joinPath(path, entry.name)
         return {
           style: cutPaths.has(abs) ? { opacity: 0.5 } : undefined,
-          onClick: (e: React.MouseEvent) => onRowClick(entry.name, e),
+          onClick: () => onRowClick(entry.name),
         }
       }}
       columns={columns}

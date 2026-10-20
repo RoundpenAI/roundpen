@@ -682,11 +682,15 @@ CREATE TABLE IF NOT EXISTS routine_runs (
         CHECK (tokens_used >= 0),
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Long-task segments: CREATE TABLE IF NOT EXISTS will not widen an existing table.
+-- Long-task columns: CREATE TABLE IF NOT EXISTS will not widen an existing table.
+ALTER TABLE routines
+    ADD COLUMN IF NOT EXISTS max_tokens INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE routine_runs
     ADD COLUMN IF NOT EXISTS segment_index INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE routine_runs
     ADD COLUMN IF NOT EXISTS continue_from TEXT NOT NULL DEFAULT '';
+ALTER TABLE routine_runs
+    ADD COLUMN IF NOT EXISTS tokens_used INTEGER NOT NULL DEFAULT 0;
 DO $$
 BEGIN
     ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_max_duration_sec_check;
@@ -704,10 +708,28 @@ EXCEPTION
 END $$;
 DO $$
 BEGIN
+    ALTER TABLE routines DROP CONSTRAINT IF EXISTS routines_max_tokens_ck;
+    ALTER TABLE routines
+        ADD CONSTRAINT routines_max_tokens_ck
+        CHECK (max_tokens >= 0);
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+DO $$
+BEGIN
     ALTER TABLE routine_runs DROP CONSTRAINT IF EXISTS routine_runs_segment_index_ck;
     ALTER TABLE routine_runs
         ADD CONSTRAINT routine_runs_segment_index_ck
         CHECK (segment_index >= 1 AND segment_index <= 48);
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+DO $$
+BEGIN
+    ALTER TABLE routine_runs DROP CONSTRAINT IF EXISTS routine_runs_tokens_used_ck;
+    ALTER TABLE routine_runs
+        ADD CONSTRAINT routine_runs_tokens_used_ck
+        CHECK (tokens_used >= 0);
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;

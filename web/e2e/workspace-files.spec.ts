@@ -71,8 +71,8 @@ test('file manager lists four columns, navigates via breadcrumbs and batch-delet
   await expect(page.getByText('2.00 KB')).toBeVisible()
   await expect(page.getByText('文本', { exact: true })).toBeVisible()
 
-  // Double-click enters a directory and the breadcrumb walks back.
-  await page.getByText('docs').dblclick()
+  // Click enters a directory and the breadcrumb walks back.
+  await page.getByText('docs').click()
   await expect.poll(() => calls.filter((c) => c.method === 'GET').at(-1)?.path).toBe('docs')
   await expect(page.getByText('inner.md')).toBeVisible()
   await page.getByRole('button', { name: '工作区' }).click()
@@ -103,7 +103,7 @@ test('file manager lists four columns, navigates via breadcrumbs and batch-delet
     .toEqual(['blob.bin', 'notes.txt'])
 })
 
-test('file manager renames inline and multi-selects with modifiers', async ({ page }) => {
+test('file manager renames inline and selects via checkbox only', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   const calls = await mockWorkspace(page)
@@ -122,12 +122,22 @@ test('file manager renames inline and multi-selects with modifiers', async ({ pa
     .poll(() => calls.find((c) => c.method === 'POST' && c.path === 'notes.txt'))
     .toMatchObject({ dest: 'renamed.txt' })
 
-  // Plain click replaces the selection; Ctrl+click adds a row.
+  // Row click opens preview; selection is checkbox-only.
   await page.getByText('blob.bin').click()
-  await expect(page.getByText('已选 1 项')).toBeVisible()
-  await page.getByText('pic.png').click({ modifiers: ['Control'] })
+  await expect(page.locator('.rp-ws-split')).toBeVisible()
+  await expect(page.getByText('已选 1 项')).toHaveCount(0)
+  await page.getByRole('button', { name: '关闭' }).click()
+
+  const checkboxFor = (name: string) =>
+    page
+      .locator('.rp-ws-table .semi-table-row')
+      .filter({ hasText: name })
+      .locator('.semi-checkbox')
+      .first()
+  await checkboxFor('blob.bin').click()
+  await checkboxFor('pic.png').click()
   await expect(page.getByText('已选 2 项')).toBeVisible()
-})
+}
 
 test('file manager cuts, pastes, and previews through the context menu', async ({ page }) => {
   skipIfNoLivePassword()
@@ -159,12 +169,25 @@ test('file manager cuts, pastes, and previews through the context menu', async (
     .poll(() => calls.find((c) => c.method === 'POST' && c.path === 'notes.txt'))
     .toMatchObject({ dest: '.' })
 
-  // Double-click a previewable file → dialog; unsupported type → hint.
-  await page.getByText('pic.png').dblclick()
-  await expect(page.locator('.semi-modal img')).toHaveAttribute('src', /pic\.png/)
-  await page.getByRole('button', { name: '关闭' }).click()
-  await expect(page.locator('.semi-modal')).not.toBeVisible()
+  // Click a previewable file → split layout with left tree + right preview.
+  await page.getByText('pic.png').click()
+  await expect(page.locator('.rp-ws-split')).toBeVisible()
+  await expect(page.locator('.rp-ws-sidebar')).toBeVisible()
+  await expect(page.locator('.rp-ws-preview-img')).toHaveAttribute('src', /pic\.png/)
 
-  await page.getByText('blob.bin').dblclick()
+  // Folder click expands in place (lazy-loads children); root siblings stay visible.
+  await page.locator('.rp-ws-sidebar').getByText('docs').click()
+  await expect.poll(() => calls.filter((c) => c.method === 'GET').at(-1)?.path).toBe('docs')
+  await expect(page.locator('.rp-ws-split')).toBeVisible()
+  await expect(page.locator('.rp-ws-sidebar').getByText('inner.md')).toBeVisible()
+  await expect(page.locator('.rp-ws-sidebar').getByText('pic.png')).toBeVisible()
+  await page.locator('.rp-ws-sidebar').getByText('inner.md').click()
+  await expect(page.locator('.rp-ws-preview-text')).toContainText('hello from docs/inner.md')
+
+  await page.getByRole('button', { name: '关闭' }).click()
+  await expect(page.locator('.rp-ws-split')).toHaveCount(0)
+  await page.getByRole('button', { name: '工作区' }).click()
+
+  await page.getByText('blob.bin').click()
   await expect(page.getByText('该类型暂不支持预览')).toBeVisible()
 })
