@@ -49,6 +49,7 @@ export DATABASE_URL="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/${
     echo "ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD=RoundpenAdmin1"
     echo "ROUNDPEN_BOOTSTRAP_ADMIN_PIN_PASSWORD=true"
     echo "ROUNDPEN_IM_ENABLED=true"
+    echo "ROUNDPEN_IM_DATA_DIR=${TRIM_PKGVAR}/data/im"
     echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
     echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
     echo "ROUNDPEN_BROWSER_IMAGE=ghcr.io/browserless/chrome:v2.56.7"

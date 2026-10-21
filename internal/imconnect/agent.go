@@ -548,6 +548,11 @@ func optionSummary(opts []acp.PermissionOption) map[string]any {
 }
 
 func (s *agentSession) emit(ev core.Event) {
+	switch ev.Type {
+	case core.EventText, core.EventResult:
+		// Feishu card markdown mangles pipe-tables; flatten before delivery.
+		ev.Content = flattenMarkdownTables(ev.Content)
+	}
 	if ev.Done {
 		// Terminal events (EventResult, EventError) must reach the engine —
 		// dropping them leaves processInteractiveEvents blocked forever.

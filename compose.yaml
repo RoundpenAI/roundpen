@@ -52,6 +52,7 @@ services:
       ROUNDPEN_DATA_ROOT: /data
       ROUNDPEN_BOOTSTRAP_ADMIN: "true"
       ROUNDPEN_IM_ENABLED: "true"
+      ROUNDPEN_IM_DATA_DIR: /data/im
       ROUNDPEN_PREVIEW_PUBLIC_URL: "${ROUNDPEN_PREVIEW_PUBLIC_URL:-http://127.0.0.1:9527}"
       # Optional wildcard zone for per-port preview origins, e.g. rp.mk
       ROUNDPEN_PREVIEW_DOMAIN: "${ROUNDPEN_PREVIEW_DOMAIN:-}"
