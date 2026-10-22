@@ -4,10 +4,13 @@ import '../api/client.dart';
 import '../api/types.dart';
 import '../chat/chat_items.dart';
 import '../chat/chat_reducer.dart';
+import '../chat/delivery_need.dart';
+import '../chat/tool_stats.dart';
 import '../session/session_controller.dart';
 import '../widgets/activity_block.dart';
 import '../widgets/composer.dart';
 import '../widgets/connection_chip.dart';
+import '../widgets/delivery_action_bar.dart';
 import '../widgets/message_bubble.dart';
 import '../widgets/permission_sheet.dart';
 import '../ws/frames.dart';
@@ -164,11 +167,24 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
           AssistantItem(text: state.streamingReply, streaming: state.busy),
       ];
 
+  List<ToolCall> _allToolCalls(ChatState state) {
+    final out = <ToolCall>[];
+    for (final item in state.items) {
+      if (item is ActivityItem) out.addAll(item.toolCalls);
+    }
+    for (final entry in state.liveEntries) {
+      if (entry is ToolActivity) out.add(entry.call);
+    }
+    return out;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final state = _reducer.state;
     final items = _visibleItems(state);
+    final delivery = inferDeliveryNeed(_allToolCalls(state));
+    final webBase = widget.session.api.baseUrl;
 
     return Scaffold(
       appBar: AppBar(
@@ -211,8 +227,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
                     controller: _scroll,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     itemCount: items.length,
-                    itemBuilder: (context, i) => _buildItem(items[i]),
+                    itemBuilder: (context, i) =>
+                        _buildItem(items[i], webBaseUrl: webBase),
                   ),
+          ),
+          DeliveryActionBar(
+            need: delivery,
+            disabled: state.busy,
+            onSend: _send,
           ),
           Composer(
             busy: state.busy,
@@ -225,14 +247,14 @@ class _ChatPageState extends State<ChatPage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildItem(ChatItem item) {
+  Widget _buildItem(ChatItem item, {required String webBaseUrl}) {
     switch (item) {
       case UserItem(:final text, :final display):
         return MessageBubble(text: display ?? text, fromUser: true);
       case AssistantItem(:final text, :final streaming):
         return MessageBubble(text: text, fromUser: false, streaming: streaming);
       case ActivityItem():
-        return ActivityBlock(item: item);
+        return ActivityBlock(item: item, webBaseUrl: webBaseUrl);
       case DividerItem(:final label):
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
