@@ -44,7 +44,10 @@ export DATABASE_URL="postgres://${PG0_USER}:${PG0_PASS}@127.0.0.1:${PG0_PORT}/${
     echo "ROUNDPEN_HTTP_ADDR=:${PORT}"
     echo "ROUNDPEN_BACKEND=docker"
     echo "ROUNDPEN_BOOTSTRAP_ADMIN=true"
+    # Fixed console credentials (documented in app store desc). Desktop SSO
+    # uses the fnOS account; PIN keeps admin at RoundpenAdmin1 across restarts.
     echo "ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD=RoundpenAdmin1"
+    echo "ROUNDPEN_BOOTSTRAP_ADMIN_PIN_PASSWORD=true"
     echo "ROUNDPEN_IM_ENABLED=true"
     echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
     echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"

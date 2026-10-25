@@ -41,6 +41,7 @@ if [ ! -f "${ENVFILE}" ]; then
         echo "ROUNDPEN_BACKEND=docker"
         echo "ROUNDPEN_BOOTSTRAP_ADMIN=true"
         echo "ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD=RoundpenAdmin1"
+        echo "ROUNDPEN_BOOTSTRAP_ADMIN_PIN_PASSWORD=true"
         echo "ROUNDPEN_IM_ENABLED=true"
         echo "ROUNDPEN_AGENT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
         echo "ROUNDPEN_DEFAULT_IMAGE=ghcr.io/roundpenai/code-agent:0.1.0"
@@ -65,6 +66,8 @@ append_env_if_missing() { # append_env_if_missing <KEY> <VALUE>
 append_env_if_missing ROUNDPEN_FNOS_GATEWAY_SOCKET "${TRIM_APPDEST}/app.sock"
 append_env_if_missing ROUNDPEN_FNOS_GATEWAY_PREFIX "/app/roundpen"
 append_env_if_missing ROUNDPEN_BROWSER_IMAGE "ghcr.io/browserless/chrome:v2.56.7"
+append_env_if_missing ROUNDPEN_BOOTSTRAP_ADMIN_PASSWORD "RoundpenAdmin1"
+append_env_if_missing ROUNDPEN_BOOTSTRAP_ADMIN_PIN_PASSWORD "true"
 
 export ROUNDPEN_PG0_BIN="${BIN_DIR}/pg0"
 export ROUNDPEN_ENSURE_PG0_ENV_FILE="${ENVFILE}"

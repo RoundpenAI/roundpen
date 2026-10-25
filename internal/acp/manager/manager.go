@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -95,6 +96,8 @@ type Runtime struct {
 	Provider  providers.Provider
 	// Profile is the session persona used at Start (coordinator / worker role / "").
 	Profile string
+	// Cwd is the guest absolute working directory used at Start (empty = /workspace).
+	Cwd string
 	// RunKey is the standing-routine firing bound at Start (empty for chat).
 	RunKey string
 
@@ -191,6 +194,13 @@ type RoutineStart struct {
 // Empty Profile keeps the default System Agent surface.
 type ProjectStart struct {
 	Profile string // coordinator | implementer | reviewer | tester | ""
+	// Cwd is the guest absolute working directory (e.g. /workspace/projects/foo).
+	// Empty keeps the default /workspace root.
+	Cwd string
+	// Key / Name / RepoPath bind the session to a Project (coordinator + workers).
+	Key      string // PRJ-n
+	Name     string
+	RepoPath string // workspace-relative, e.g. projects/foo
 }
 
 // StartOpts configures Start.
@@ -279,6 +289,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Slots: agentSlots,
 			Exec:  m.sandboxes,
 			Files: m.sandboxes,
+			Cwd:   strings.TrimSpace(opts.Project.Cwd),
 		}
 		if m.sys.HostFiles != nil {
 			binder.Host = m.sys.HostFiles(sessionID)
@@ -300,6 +311,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			RunKey:      opts.Routine.RunKey,
 			Autonomy:    opts.Routine.Autonomy,
 			Profile:     opts.Project.Profile,
+			ProjectKey:  strings.TrimSpace(opts.Project.Key),
 			Browser:     &tools.BrowserBinder{Hub: m.sys.BrowserHub, Slots: m.sys.BrowserSlots, SessionID: sessionID},
 			Agent:       binder,
 			PreviewZone: m.sys.PreviewZone,
@@ -348,6 +360,10 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			AssistantID:  opts.AssistantID,
 			Evaluator:    m.sys.AutoMode,
 			Profile:      opts.Project.Profile,
+			Cwd:          strings.TrimSpace(opts.Project.Cwd),
+			ProjectKey:   strings.TrimSpace(opts.Project.Key),
+			ProjectName:  strings.TrimSpace(opts.Project.Name),
+			RepoPath:     strings.TrimSpace(opts.Project.RepoPath),
 			UserContext:  userCtx,
 			TokenBudget:  opts.Routine.TokenBudget,
 			OnTokens:     onTokens,
@@ -414,8 +430,14 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		return nil, fmt.Errorf("acp initialize: %w", err)
 	}
 	cwd := "/workspace"
+	if projectCwd := strings.TrimSpace(opts.Project.Cwd); projectCwd != "" {
+		cwd = projectCwd
+	}
 	if p.Mode == "sysadmin" || p.Mode == "mock" || p.Mode == "" {
-		cwd = "."
+		// In-process sysagent treats "." as host cwd; project Cwd still wins above.
+		if strings.TrimSpace(opts.Project.Cwd) == "" {
+			cwd = "."
+		}
 	}
 	sess, err := conn.NewSession(initCtx, acp.NewSessionRequest{
 		Cwd:        cwd,
@@ -431,6 +453,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 		SandboxID:   sandboxID,
 		Provider:    p,
 		Profile:     opts.Project.Profile,
+		Cwd:         strings.TrimSpace(opts.Project.Cwd),
 		RunKey:      opts.Routine.RunKey,
 		bridge:      bridge,
 		conn:        conn,

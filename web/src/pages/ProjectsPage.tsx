@@ -14,7 +14,12 @@ import {
 } from '@douyinfe/semi-ui-19'
 import { IconRefresh } from '@douyinfe/semi-icons'
 import type { ColumnProps } from '@douyinfe/semi-ui-19/lib/es/table'
-import { projects, type Project } from '../api'
+import {
+  gitCredentials,
+  projects,
+  type GitRemoteRepo,
+  type Project,
+} from '../api'
 import { useT, type MessageKey } from '../i18n'
 import { useMatchMedia } from '../lib/useMatchMedia'
 
@@ -67,6 +72,9 @@ export function ProjectsPage() {
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
   const [repoUrl, setRepoUrl] = useState('')
+  const [ghConnected, setGhConnected] = useState(false)
+  const [ghRepos, setGhRepos] = useState<GitRemoteRepo[]>([])
+  const [ghReposLoading, setGhReposLoading] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -89,12 +97,45 @@ export function ProjectsPage() {
     }
   }, [filter, t, reloadToken])
 
+  useEffect(() => {
+    if (!createOpen) return
+    let cancelled = false
+    setGhReposLoading(true)
+    gitCredentials
+      .listRepos()
+      .then((res) => {
+        if (cancelled) return
+        setGhConnected(Boolean(res.connected))
+        setGhRepos(res.repos ?? [])
+      })
+      .catch(() => {
+        if (cancelled) return
+        setGhConnected(false)
+        setGhRepos([])
+      })
+      .finally(() => {
+        if (!cancelled) setGhReposLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [createOpen])
+
   const filterOptions = useMemo(
     () => [
       { label: t('projects.filter.all'), value: ALL },
       ...PROJECT_STATUSES.map((s) => ({ label: t(statusKey(s)), value: s })),
     ],
     [t],
+  )
+
+  const repoSelectOptions = useMemo(
+    () =>
+      ghRepos.map((r) => ({
+        value: r.cloneUrl,
+        label: r.private ? `${r.fullName} (private)` : r.fullName,
+      })),
+    [ghRepos],
   )
 
   const openCreate = () => {
@@ -332,15 +373,33 @@ export function ProjectsPage() {
           </div>
           <div>
             <Typography.Text size="small">
-              {t('projects.field.repoUrl')}
+              {ghConnected
+                ? t('projects.field.repoUrlSelect')
+                : t('projects.field.repoUrl')}
             </Typography.Text>
-            <Input
-              value={repoUrl}
-              onChange={setRepoUrl}
-              placeholder={t('projects.field.repoUrlPlaceholder')}
-            />
+            {ghConnected ? (
+              <Select
+                filter
+                allowCreate
+                showClear
+                loading={ghReposLoading}
+                style={{ width: '100%' }}
+                value={repoUrl || undefined}
+                onChange={(v) => setRepoUrl(typeof v === 'string' ? v : '')}
+                optionList={repoSelectOptions}
+                placeholder={t('projects.field.repoUrlSelectPlaceholder')}
+              />
+            ) : (
+              <Input
+                value={repoUrl}
+                onChange={setRepoUrl}
+                placeholder={t('projects.field.repoUrlPlaceholder')}
+              />
+            )}
             <Typography.Text size="small" type="tertiary">
-              {t('projects.field.repoUrlHint')}
+              {ghConnected
+                ? t('projects.field.repoUrlHintConnected')
+                : t('projects.field.repoUrlHint')}
             </Typography.Text>
           </div>
         </div>

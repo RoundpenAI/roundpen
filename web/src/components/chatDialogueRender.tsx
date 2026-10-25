@@ -5,7 +5,7 @@ import {
   ToolCallGroup,
   type ToolCallData,
 } from '../components/ToolCallCard'
-import { buildChangeSet } from '../lib/changeSet'
+import { buildChangeSet, isChangeSetTool } from '../lib/changeSet'
 import {
   isActivityMessage,
   isClearDivider,
@@ -84,6 +84,18 @@ function activityFromMessage(message: DialogueMessage): {
 export function renderActivityContent(message: DialogueMessage): ReactNode {
   const { thoughts, tools } = activityFromMessage(message)
   const changeSet = buildChangeSet(tools)
+  // ChangeSet already surfaces completed Edit/Write; keep other tools (and
+  // still-running / failed edits) so cards do not repeat the same diffs.
+  const otherTools = changeSet
+    ? tools.filter((t) => {
+        if (!isChangeSetTool(t)) return true
+        return (
+          t.status === 'pending' ||
+          t.status === 'in_progress' ||
+          t.status === 'failed'
+        )
+      })
+    : tools
   return (
     <div className="chat-activity">
       {thoughts.map((t, i) =>
@@ -97,7 +109,9 @@ export function renderActivityContent(message: DialogueMessage): ReactNode {
           />
         ) : null,
       )}
-      {tools.length > 0 ? <ToolCallGroup calls={tools} alwaysStats /> : null}
+      {otherTools.length > 0 ? (
+        <ToolCallGroup calls={otherTools} alwaysStats />
+      ) : null}
       {changeSet ? <ChangeSetCard changeSet={changeSet} /> : null}
     </div>
   )

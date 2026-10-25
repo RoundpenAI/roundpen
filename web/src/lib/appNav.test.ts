@@ -115,6 +115,20 @@ describe('visiblePersonalSettingsSections', () => {
       ['profile', 'apps', 'password', 'slots'],
     )
   })
+
+  it('hides password when allowPassword is false (fnOS app)', () => {
+    assert.deepEqual(
+      visiblePersonalSettingsSections({
+        pushSupported: true,
+        allowPassword: false,
+      }).map((s) => s.key),
+      ['profile', 'apps', 'notifications', 'slots'],
+    )
+    assert.equal(
+      resolvePersonalSection('password', { allowPassword: false }),
+      'apps',
+    )
+  })
 })
 
 describe('resolveAdminSection', () => {

@@ -7,6 +7,9 @@ desc                  = """
 <p><font color="#0F766E"><b>开箱即用</b></font><br/>
 装好即可对话，内置免费模型会自动启用，不用先填 Key。<br/>
 额度用尽或需要更强模型时，到 <b>系统管理 → LLM 网关</b> 接自己的 OpenAI / Anthropic 兼容上游。</p>
+<p><font color="#0F766E"><b>登录说明</b></font><br/>
+桌面入口用当前飞牛账号打开（管理员即应用管理员），无需单独密码。<br/>
+控制台直连（端口 9527 / API / 移动端）固定账号：<b>admin</b> / <b>RoundpenAdmin1</b>。</p>
 <p><font color="#0F766E"><b>能做什么</b></font></p>
 <p>
 · <b>多助手</b>：各自设定与会话，按场景分开用<br/>
@@ -28,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = true
-changelog             = 0.4.3：OAuth 回调回到带 /app/roundpen 前缀的设置页，避免白屏。
+changelog             = 0.4.5：飞牛桌面账号连接 GitHub 时，若该账号曾绑到 admin，自动转移到当前用户。

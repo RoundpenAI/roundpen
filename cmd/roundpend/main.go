@@ -283,6 +283,7 @@ func main() {
 		Users:    userStore,
 		Starter:  projectWorkerStarter{H: agentHandler},
 		ACP:      acpMgr,
+		Turns:    agentHandler,
 		Notes:    agentStore,
 		Messages: agentStore,
 		Log:      logger,
@@ -299,7 +300,7 @@ func main() {
 		Workers:    agentHandler,
 		Issues:     issueIDResolver{Store: issueStore},
 		Runner:     projectRunner,
-		Dirs:       projectDirSeeder{Envs: envSvc, Paths: sbSvc},
+		Dirs:       projectDirSeeder{Envs: envSvc, Paths: sbSvc, Exec: sbSvc},
 		GitCreds:   &gitcred.Store{DB: db.SQL},
 		Log:        logger,
 	}).Mount(mux)

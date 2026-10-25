@@ -11,6 +11,17 @@ export type GitCredential = {
   hasToken: boolean
 }
 
+export type GitRemoteRepo = {
+  fullName: string
+  name: string
+  owner: string
+  cloneUrl: string
+  htmlUrl?: string
+  private: boolean
+  description?: string
+  updatedAt?: string
+}
+
 export const gitCredentials = {
   list: () => api<{ credentials: GitCredential[] }>('/v1/me/git-credentials'),
   upsert: (body: {
@@ -27,4 +38,8 @@ export const gitCredentials = {
     }),
   remove: (id: string) =>
     api<void>(`/v1/me/git-credentials/${id}`, { method: 'DELETE' }),
+  listRepos: (host?: string) =>
+    api<{ connected: boolean; host?: string; repos: GitRemoteRepo[] }>(
+      `/v1/me/git-repos${host ? `?host=${encodeURIComponent(host)}` : ''}`,
+    ),
 }

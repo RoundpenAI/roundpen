@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Banner, Button, Input, Typography } from '@douyinfe/semi-ui-19'
 import { auth as authApi } from '../api'
+import { isFnOSApp } from '../api/client'
 import { doLogin, useAuth } from '../auth'
 import { useT, type MessageKey } from '../i18n'
 import { LocaleToggle } from '../components/LocaleToggle'
@@ -42,13 +43,16 @@ export function LoginPage() {
     username: string
     password: string
   } | null>(null)
+  const [fnosGateway, setFnosGateway] = useState(isFnOSApp())
 
   useEffect(() => {
     let alive = true
     authApi
       .bootstrapHint()
       .then((hint) => {
-        if (!alive || !hint.username || !hint.password) return
+        if (!alive) return
+        if (hint.authMode === 'fnos-gateway') setFnosGateway(true)
+        if (!hint.username || !hint.password) return
         setDefaultCreds({ username: hint.username, password: hint.password })
         setUser(hint.username)
         setPassword(hint.password)
@@ -98,8 +102,8 @@ export function LoginPage() {
       <div
         style={{
           position: 'absolute',
-          top: 16,
-          right: 16,
+          top: 'max(16px, env(safe-area-inset-top, 0px))',
+          right: 'max(16px, env(safe-area-inset-right, 0px))',
           display: 'flex',
           alignItems: 'center',
           gap: 8,
@@ -124,7 +128,13 @@ export function LoginPage() {
             type="info"
             closeIcon={null}
             style={{ marginBottom: 16 }}
-            description={`首次安装默认账号 ${defaultCreds.username} / ${defaultCreds.password}（登录后请尽快修改密码）`}
+            description={t(
+              fnosGateway ? 'login.defaultCredsFnos' : 'login.defaultCreds',
+              {
+                user: defaultCreds.username,
+                password: defaultCreds.password,
+              },
+            )}
           />
         )}
         <form

@@ -9,9 +9,9 @@
 - 应用中心 → 手动安装 → 选 `.fpk`
 - 或：`appcenter-cli install-fpk roundpen-<version>-fnos-x86.fpk`
 
-首次默认账号 **admin / RoundpenAdmin1**（只写一次，改密后重启不会盖回去；默认密码仍有效时登录页会提示）。
+桌面入口走飞牛统一网关（SSO）：飞牛用户映射为 `fnos-<uid>`，飞牛管理员映射为 Roundpen 管理员；应用内不提供「修改密码」（跟飞牛账号走）。
 
-桌面入口走飞牛统一网关（SSO）：飞牛用户映射为 `fnos-<uid>`，飞牛管理员映射为 Roundpen 管理员。也可用浏览器打开设备的 `:9527`，用 admin 密码进控制台（给 API / 移动端 / CLI 用）。
+控制台直连（`:9527` / API / 移动端）固定账号 **admin / RoundpenAdmin1**（安装脚本写入并 PIN，重启保持；应用商店说明与登录页也会写明）。
 
 ### 模型
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
+	"github.com/RoundpenAI/roundpen/internal/project"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
@@ -74,6 +76,16 @@ type Handler struct {
 // SessionProfiler maps a persisted agent session to an ACP Start profile.
 type SessionProfiler interface {
 	ProfileFor(ctx context.Context, userID string, sess *agentsession.Session) string
+}
+
+// SessionCwdResolver optionally supplies a guest absolute cwd for project sessions.
+type SessionCwdResolver interface {
+	CwdFor(ctx context.Context, userID string, sess *agentsession.Session) string
+}
+
+// SessionProjectResolver optionally supplies Project metadata for ACP Start.
+type SessionProjectResolver interface {
+	ProjectFor(ctx context.Context, userID string, sess *agentsession.Session) *project.Project
 }
 
 // Mount registers routes.
@@ -183,16 +195,19 @@ func (h *Handler) StartCoordinator(ctx context.Context, user *storage.User, assi
 // session when the in-process runtime is missing or was started without that
 // profile (e.g. after process restart or a bare stream reconnect).
 func (h *Handler) EnsureCoordinatorRuntime(ctx context.Context, user *storage.User, sessionID string) error {
-	if rt, ok := h.ACP.Get(sessionID); ok && rt.Profile == "coordinator" {
+	var sess *agentsession.Session
+	assistantID := ""
+	if s, err := h.Store.Get(ctx, sessionID); err == nil && s != nil {
+		sess = s
+		assistantID = s.AssistantID
+	}
+	want := h.projectStart(ctx, user, sess, "coordinator")
+	if rt, ok := h.ACP.Get(sessionID); ok && rt.Profile == "coordinator" && rt.Cwd == want.Cwd {
 		return nil
 	}
 	if _, ok := h.ACP.Get(sessionID); ok {
 		h.deleteRunner(sessionID)
 		h.ACP.Stop(sessionID)
-	}
-	assistantID := ""
-	if sess, err := h.Store.Get(ctx, sessionID); err == nil && sess != nil {
-		assistantID = sess.AssistantID
 	}
 	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
@@ -201,7 +216,7 @@ func (h *Handler) EnsureCoordinatorRuntime(ctx context.Context, user *storage.Us
 			APIKey:   user.APIKey,
 		},
 		AssistantID: assistantID,
-		Project:     manager.ProjectStart{Profile: "coordinator"},
+		Project:     want,
 	})
 	return err
 }
@@ -231,6 +246,27 @@ func (h *Handler) CreateWorkerSession(ctx context.Context, user *storage.User, a
 	return h.Store.CreateKind(ctx, user.Username, title, DefaultAssistantProvider, "", assistantID, "worker")
 }
 
+// PromptTurn runs one chat turn through the session runner so transcripts and
+// SSE clients see the same stream as an interactive conversation. Used by the
+// project worker queue (raw ACP.Prompt skips persistence and live attach).
+func (h *Handler) PromptTurn(ctx context.Context, user *storage.User, sessionID, text string) error {
+	if h == nil || user == nil {
+		return fmt.Errorf("agent handler not configured")
+	}
+	sess, err := h.Store.Get(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if sess.UserID != user.Username && user.Role != "admin" {
+		return fmt.Errorf("forbidden")
+	}
+	run, err := h.runnerFor(sess, user)
+	if err != nil {
+		return err
+	}
+	return run.promptAndWait(ctx, text)
+}
+
 // StartWorkerRuntime starts (or restarts) the System Agent for a worker session
 // with a code-dev role profile (implementer|reviewer|tester).
 func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error {
@@ -240,16 +276,19 @@ func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, se
 	default:
 		profile = "implementer"
 	}
-	if rt, ok := h.ACP.Get(sessionID); ok && rt.Profile == profile {
+	var sess *agentsession.Session
+	assistantID := ""
+	if s, err := h.Store.Get(ctx, sessionID); err == nil && s != nil {
+		sess = s
+		assistantID = s.AssistantID
+	}
+	want := h.projectStart(ctx, user, sess, profile)
+	if rt, ok := h.ACP.Get(sessionID); ok && rt.Profile == profile && rt.Cwd == want.Cwd {
 		return nil
 	}
 	if _, ok := h.ACP.Get(sessionID); ok {
 		h.deleteRunner(sessionID)
 		h.ACP.Stop(sessionID)
-	}
-	assistantID := ""
-	if sess, err := h.Store.Get(ctx, sessionID); err == nil && sess != nil {
-		assistantID = sess.AssistantID
 	}
 	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
@@ -258,7 +297,7 @@ func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, se
 			APIKey:   user.APIKey,
 		},
 		AssistantID: assistantID,
-		Project:     manager.ProjectStart{Profile: profile},
+		Project:     want,
 	})
 	return err
 }
@@ -268,6 +307,32 @@ func (h *Handler) profileFor(ctx context.Context, user *storage.User, sess *agen
 		return ""
 	}
 	return h.Profiles.ProfileFor(ctx, user.Username, sess)
+}
+
+func (h *Handler) cwdFor(ctx context.Context, user *storage.User, sess *agentsession.Session) string {
+	if user == nil || sess == nil {
+		return ""
+	}
+	r, ok := h.Profiles.(SessionCwdResolver)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(r.CwdFor(ctx, user.Username, sess))
+}
+
+func (h *Handler) projectStart(ctx context.Context, user *storage.User, sess *agentsession.Session, profile string) manager.ProjectStart {
+	out := manager.ProjectStart{
+		Profile: profile,
+		Cwd:     h.cwdFor(ctx, user, sess),
+	}
+	if r, ok := h.Profiles.(SessionProjectResolver); ok && user != nil {
+		if p := r.ProjectFor(ctx, user.Username, sess); p != nil {
+			out.Key = p.Key
+			out.Name = p.Name
+			out.RepoPath = p.RepoPath
+		}
+	}
+	return out
 }
 
 // ResumeRoutine starts the runtime again for an existing run session.
@@ -357,7 +422,7 @@ func (h *Handler) startSession(ctx context.Context, user *storage.User, title, p
 	if _, err := h.ACP.Start(ctx, sess.ID, sandboxID, providerID, manager.StartOpts{
 		Actor:       actor,
 		AssistantID: sess.AssistantID,
-		Project:     manager.ProjectStart{Profile: profile},
+		Project:     h.projectStart(ctx, user, sess, profile),
 	}); err != nil {
 		return nil, &sessionStartError{Code: http.StatusBadGateway, Msg: "start agent: " + err.Error()}
 	}

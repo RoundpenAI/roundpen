@@ -1,6 +1,7 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Layout, Typography } from '@douyinfe/semi-ui-19'
 import { useT } from '../i18n'
+import { isFnOSApp } from '../api/client'
 import {
   SETTINGS_AREAS,
   resolvePersonalSection,
@@ -16,12 +17,19 @@ export function SettingsLayout({ area }: { area: SettingsArea }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { basePath, titleKey, groups, sections: allSections, resolve } = SETTINGS_AREAS[area]
-  const pushSupported = isPushSupported()
+  const personalVisibility = {
+    pushSupported: isPushSupported(),
+    allowPassword: !isFnOSApp(),
+  }
   const sections =
-    area === 'personal' ? visiblePersonalSettingsSections(pushSupported) : allSections
+    area === 'personal'
+      ? visiblePersonalSettingsSections(personalVisibility)
+      : allSections
   const rawSection = location.pathname.slice(basePath.length).replace(/^\//, '')
   const active =
-    area === 'personal' ? resolvePersonalSection(rawSection, pushSupported) : resolve(rawSection)
+    area === 'personal'
+      ? resolvePersonalSection(rawSection, personalVisibility)
+      : resolve(rawSection)
 
   return (
     <div

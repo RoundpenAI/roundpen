@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, consoleReturnOrigin } from './client'
 
 export type McpAuthMode = 'oauth' | 'api_key' | 'both'
 
@@ -44,13 +44,16 @@ export const mcp = {
   startOAuth: (
     serverId: string,
     redirectTo?: string,
-    returnOrigin = typeof window !== 'undefined' ? window.location.origin : '',
+    returnOrigin = consoleReturnOrigin(),
   ) =>
     api<{ authorizeUrl: string }>(
       `/v1/me/mcp/connections/${encodeURIComponent(serverId)}/oauth/start`,
       {
         method: 'POST',
-        body: JSON.stringify({ redirectTo, return: returnOrigin }),
+        body: JSON.stringify({
+          redirectTo,
+          return: returnOrigin || consoleReturnOrigin(),
+        }),
       },
     ),
   refreshTools: (serverId: string) =>

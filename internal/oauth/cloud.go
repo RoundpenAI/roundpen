@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 )
 
 // CloudGitHubProviderID is the official relay binding. It is not a row in
@@ -80,11 +82,16 @@ func (s *Service) cloudAuthorize(ctx context.Context, in StartInput) (string, er
 		return "", err
 	}
 	now := s.now()
-	origin := in.ConsoleScheme + "://" + in.ConsoleHost
+	// Include the SPA mount prefix (e.g. /app/roundpen) so the relay's browser
+	// bounce hits the fnOS gateway route for this app, not bare /v1/... on the NAS.
+	returnBase := httpx.ConsoleReturnBase(in.ConsoleScheme, in.ConsoleHost)
+	if returnBase == "" {
+		returnBase = in.ConsoleScheme + "://" + in.ConsoleHost
+	}
 	if err := s.Store.CreateState(ctx, State{
 		State:       state,
 		ProviderID:  CloudGitHubProviderID,
-		RedirectURI: origin,
+		RedirectURI: returnBase,
 		RedirectTo:  safeRedirect(in.RedirectTo),
 		LinkUser:    in.LinkUser,
 		ExpiresAt:   now.Add(s.stateTTL()),
@@ -96,7 +103,7 @@ func (s *Service) cloudAuthorize(ctx context.Context, in StartInput) (string, er
 		AuthorizeURL string `json:"authorizeUrl"`
 	}
 	if err := s.relayJSON(ctx, http.MethodPost, "/github/start", map[string]string{
-		"return": origin,
+		"return": returnBase,
 		"state":  state,
 	}, &resp); err != nil {
 		return "", err

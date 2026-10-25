@@ -411,11 +411,43 @@ func (r *runner) beginTurnLocked(text string) {
 }
 
 func (r *runner) runTurn(text string) {
+	ctx, cancel := context.WithTimeout(r.ctx, turnTimeout)
+	defer cancel()
+	_ = r.executeTurn(ctx, text)
+	r.finishTurn()
+}
+
+// promptAndWait persists a user turn and runs it synchronously so callers
+// (project workers) can wait for completion while SSE clients see the same
+// stream as an interactive chat.
+func (r *runner) promptAndWait(ctx context.Context, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	r.persistUser(text, map[string]string{"type": "user"})
+	r.mu.Lock()
+	if r.busy {
+		r.mu.Unlock()
+		return fmt.Errorf("session busy")
+	}
+	r.busy = true
+	r.reply.Reset()
+	r.thought.Reset()
+	r.thinkAt = time.Time{}
+	r.mu.Unlock()
+
+	runCtx, cancel := context.WithTimeout(ctx, turnTimeout)
+	defer cancel()
+	err := r.executeTurn(runCtx, text)
+	r.finishTurn()
+	return err
+}
+
+func (r *runner) executeTurn(ctx context.Context, text string) error {
 	// Tell connected clients a turn started (queued turn, other tabs) so the
 	// composer locks immediately, not on the first streamed event.
 	r.broadcast(r.snapshot())
-	ctx, cancel := context.WithTimeout(r.ctx, turnTimeout)
-	defer cancel()
 	stop, err := r.acp.Prompt(ctx, r.session.ID, text)
 	if err != nil {
 		r.flushThought()
@@ -425,22 +457,22 @@ func (r *runner) runTurn(text string) {
 		msg := turnErrorMessage(err)
 		r.persist(agentsession.RoleEvent, msg, map[string]string{"type": "error"})
 		r.broadcast(streamOut{Type: "error", Message: msg})
-	} else {
-		r.flushThought()
-		r.mu.Lock()
-		assistant := strings.TrimSpace(r.reply.String())
-		r.mu.Unlock()
-		if assistant == "" {
-			assistant = "(no response)"
-		}
-		r.persist(agentsession.RoleAssistant, assistant, map[string]string{
-			"type":       "assistant",
-			"stopReason": string(stop),
-		})
-		r.broadcast(streamOut{Type: "done", StopReason: string(stop)})
-		r.notifyTurnDone()
+		return err
 	}
-	r.finishTurn()
+	r.flushThought()
+	r.mu.Lock()
+	assistant := strings.TrimSpace(r.reply.String())
+	r.mu.Unlock()
+	if assistant == "" {
+		assistant = "(no response)"
+	}
+	r.persist(agentsession.RoleAssistant, assistant, map[string]string{
+		"type":       "assistant",
+		"stopReason": string(stop),
+	})
+	r.broadcast(streamOut{Type: "done", StopReason: string(stop)})
+	r.notifyTurnDone()
+	return nil
 }
 
 // finishTurn clears busy state and optionally starts a queued turn. A pending
@@ -1102,7 +1134,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	rt, startErr := h.ACP.Start(context.Background(), sess.ID, sess.SandboxID, sess.ProviderID, manager.StartOpts{
 		Actor:       actor,
 		AssistantID: sess.AssistantID,
-		Project:     manager.ProjectStart{Profile: profile},
+		Project:     h.projectStart(context.Background(), user, sess, profile),
 	})
 	if startErr != nil {
 		if existing, ok := h.ACP.Get(sess.ID); ok {

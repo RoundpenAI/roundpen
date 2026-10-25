@@ -15,6 +15,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -297,15 +298,15 @@ func (s *Service) HandleCallback(ctx context.Context, in CallbackInput) (*Callba
 // resolveUser applies the account-mapping rules: an existing binding wins,
 // then an explicit link, then a verified-email match, then (only when public
 // registration is on) a brand-new account. A link flow replaces the remote
-// account the user had bound to that provider.
+// account the user had bound to that provider. Completing OAuth proves
+// ownership of the remote account, so a link also moves a binding that
+// previously belonged to another local user (e.g. fnOS desktop vs admin).
 func (s *Service) resolveUser(ctx context.Context, p Provider, st *State, prof Profile) (*storage.User, bool, error) {
 	ident, err := s.Store.GetIdentityBySubject(ctx, p.ID, prof.Subject)
 	switch {
 	case err == nil:
-		// Signed in as someone else: linking never reassigns the identity, and
-		// it must not sign this session in as its owner either.
 		if st.LinkUser != "" && ident.UserID != st.LinkUser {
-			return nil, false, ErrLinkedElsewhere
+			return s.reassignLinkedIdentity(ctx, p, st.LinkUser, ident)
 		}
 		user, uerr := s.Users.GetByUsername(ctx, ident.UserID)
 		if uerr != nil {
@@ -363,6 +364,27 @@ func (s *Service) resolveUser(ctx context.Context, p Provider, st *State, prof P
 		return nil, false, err
 	}
 	return user, false, nil
+}
+
+// reassignLinkedIdentity moves a remote binding from another local user onto
+// the account that just completed the link OAuth. The prior owner loses the
+// binding; the linker drops any previous binding on the same provider.
+func (s *Service) reassignLinkedIdentity(ctx context.Context, p Provider, linkUser string, ident *Identity) (*storage.User, bool, error) {
+	user, err := s.Users.GetByUsername(ctx, linkUser)
+	if err != nil {
+		return nil, false, err
+	}
+	prevOwner := ident.UserID
+	if derr := s.Store.DeleteIdentity(ctx, prevOwner, ident.ID); derr != nil && !errors.Is(derr, storage.ErrNotFound) {
+		return nil, false, derr
+	}
+	if derr := s.Store.DeleteIdentityForProvider(ctx, user.Username, p.ID); derr != nil && !errors.Is(derr, storage.ErrNotFound) {
+		return nil, false, derr
+	}
+	if prevOwner != "" && prevOwner != user.Username {
+		s.identityChanged(ctx, prevOwner)
+	}
+	return user, true, nil
 }
 
 // CredsForUser projects the user's identities into git credentials, refreshing
@@ -479,15 +501,17 @@ func (s *Service) provider(ctx context.Context, id string) (*Provider, error) {
 }
 
 // safeRedirect keeps post-callback navigation inside the console: absolute
-// URLs, protocol-relative URLs and backslash tricks all fall back to "/".
+// URLs, protocol-relative URLs and backslash tricks fall back to the apps page
+// (with the fnOS UI base when configured — never bare "/" which lands on another app).
 func safeRedirect(raw string) string {
+	fallback := httpx.ConsolePath("/settings/apps")
 	raw = strings.TrimSpace(raw)
 	if raw == "" || strings.Contains(raw, "\\") {
-		return "/"
+		return fallback
 	}
 	u, err := url.Parse(raw)
 	if err != nil || u.IsAbs() || u.Host != "" || !strings.HasPrefix(u.Path, "/") {
-		return "/"
+		return fallback
 	}
 	return u.RequestURI()
 }

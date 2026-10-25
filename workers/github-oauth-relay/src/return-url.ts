@@ -1,4 +1,6 @@
-/** NAS console origin. Browser will be sent back here; the worker never dials it. */
+/** NAS console base. Browser will be sent back here; the worker never dials it.
+ *  May include a path prefix (e.g. https://nas.example/app/roundpen) so fnOS
+ *  unified-gateway routes land on the right micro-app. */
 
 const PRIVATE_HOST = new Set(['localhost', 'localhost.'])
 
@@ -20,6 +22,13 @@ export function parseReturnOrigin(raw: string): string {
   }
   if (u.protocol === 'http:' && !isLocalOrPrivateHost(u.hostname)) {
     throw new Error('http return is only allowed for localhost / LAN / .local hosts')
+  }
+  // fnOS unified gateway mounts each micro-app at /app/<name>/… — keep only
+  // that prefix so /v1/... callbacks stay inside the right app. Any other path
+  // (or :9527 direct console) collapses to origin.
+  const app = /^(\/app\/[A-Za-z0-9._~-]+)/.exec(u.pathname || '')
+  if (app) {
+    return u.origin + app[1]
   }
   return u.origin
 }
@@ -51,11 +60,15 @@ const NAS_CALLBACKS = new Set([
   '/v1/connectors/google/cloud/callback',
 ])
 
-export function nasCloudCallback(origin: string, callbackPath: string, query: Record<string, string>): string {
+export function nasCloudCallback(base: string, callbackPath: string, query: Record<string, string>): string {
   if (!NAS_CALLBACKS.has(callbackPath)) {
     throw new Error('callback path is not registered')
   }
-  const u = new URL(callbackPath, origin + '/')
+  // Join base (origin or origin+/app/roundpen) with an absolute callback path.
+  // new URL('/v1/...', 'https://host/app/roundpen/') would drop the prefix —
+  // so concatenate explicitly.
+  const root = base.replace(/\/+$/, '')
+  const u = new URL(root + callbackPath)
   for (const [k, v] of Object.entries(query)) {
     if (v) u.searchParams.set(k, v)
   }

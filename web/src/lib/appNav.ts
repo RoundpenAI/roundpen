@@ -117,21 +117,42 @@ function resolveSection(
     : fallback
 }
 
-/** Personal settings that should appear for this browser's Web Push support. */
-export function visiblePersonalSettingsSections(pushSupported: boolean): SettingsSection[] {
-  if (pushSupported) return PERSONAL_SETTINGS_SECTIONS
-  return PERSONAL_SETTINGS_SECTIONS.filter((s) => s.key !== 'notifications')
+export type PersonalSettingsVisibility = {
+  pushSupported?: boolean
+  /** When false, hide the change-password section (fnOS SSO app). */
+  allowPassword?: boolean
+}
+
+/** Personal settings visible for this deployment / browser. */
+export function visiblePersonalSettingsSections(
+  pushSupportedOrOpts: boolean | PersonalSettingsVisibility = true,
+): SettingsSection[] {
+  const opts: PersonalSettingsVisibility =
+    typeof pushSupportedOrOpts === 'boolean'
+      ? { pushSupported: pushSupportedOrOpts }
+      : pushSupportedOrOpts
+  const pushSupported = opts.pushSupported !== false
+  const allowPassword = opts.allowPassword !== false
+  return PERSONAL_SETTINGS_SECTIONS.filter((s) => {
+    if (s.key === 'notifications' && !pushSupported) return false
+    if (s.key === 'password' && !allowPassword) return false
+    return true
+  })
 }
 
 export function resolvePersonalSection(
   raw: string | undefined,
-  pushSupported = true,
+  pushSupportedOrOpts: boolean | PersonalSettingsVisibility = true,
 ): SettingsSectionKey {
   const legacy = LEGACY_PERSONAL_SECTIONS[(raw ?? '').trim()]
   if (legacy) return legacy
+  const opts: PersonalSettingsVisibility =
+    typeof pushSupportedOrOpts === 'boolean'
+      ? { pushSupported: pushSupportedOrOpts }
+      : pushSupportedOrOpts
   return resolveSection(
     raw,
-    visiblePersonalSettingsSections(pushSupported),
+    visiblePersonalSettingsSections(opts),
     PERSONAL_SETTINGS_FALLBACK,
   )
 }

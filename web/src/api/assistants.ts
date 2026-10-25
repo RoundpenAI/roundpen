@@ -24,7 +24,7 @@ export type Assistant = {
   networkAllowlist: string[]
   directoryGrants: AssistantDirectoryGrant[]
   status: 'active' | 'disabled'
-  kind?: 'user' | 'system'
+  kind?: 'user' | 'system' | 'coordinator'
   imChannels?: ImChannels
   primarySessionId?: string
   createdAt: string

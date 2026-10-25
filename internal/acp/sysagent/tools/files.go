@@ -21,7 +21,7 @@ func RegisterExploreFiles(r *Registry, binder *AgentBinder) {
 			"directory the assistant is granted (absolute path, e.g. /vol1/share/notes.md — use Glob to list one). " +
 			"Paths outside granted directories are refused; the user can grant access when asked.",
 		Parameters: objectSchema(map[string]any{
-			"file_path": map[string]any{"type": "string", "description": "Absolute path under /workspace or a granted host directory, or a path relative to /workspace"},
+			"file_path": map[string]any{"type": "string", "description": "Absolute path under /workspace or a granted host directory, or a path relative to the session cwd"},
 			"offset":    map[string]any{"type": "integer", "description": "1-based start line (optional)"},
 			"limit":     map[string]any{"type": "integer", "description": "Max number of lines to return (optional)"},
 		}, "file_path"),
@@ -50,7 +50,7 @@ func RegisterFiles(r *Registry, binder *AgentBinder) {
 		Description: "Create or overwrite a text file in the Agent workspace (/workspace).",
 		Mutating:    true,
 		Parameters: objectSchema(map[string]any{
-			"file_path": map[string]any{"type": "string", "description": "Absolute path under /workspace, or relative to /workspace"},
+			"file_path": map[string]any{"type": "string", "description": "Absolute path under /workspace, or relative to the session cwd"},
 			"content":   map[string]any{"type": "string", "description": "Full file contents"},
 		}, "file_path", "content"),
 		Call: func(ctx context.Context, actor Actor, args json.RawMessage) (string, error) {
@@ -69,7 +69,7 @@ func RegisterFiles(r *Registry, binder *AgentBinder) {
 		Description: "Make an exact string replacement in a file in the Agent workspace. old_string must match uniquely unless replace_all is true.",
 		Mutating:    true,
 		Parameters: objectSchema(map[string]any{
-			"file_path":   map[string]any{"type": "string", "description": "Absolute path under /workspace, or relative to /workspace"},
+			"file_path":   map[string]any{"type": "string", "description": "Absolute path under /workspace, or relative to the session cwd"},
 			"old_string":  map[string]any{"type": "string", "description": "Exact text to find"},
 			"new_string":  map[string]any{"type": "string", "description": "Replacement text"},
 			"replace_all": map[string]any{"type": "boolean", "description": "Replace every occurrence (default false)"},
@@ -95,7 +95,7 @@ func (b *AgentBinder) readFile(ctx context.Context, actor Actor, filePath string
 	} else if isHost {
 		return b.readHostFile(ctx, actor, abs, offset, limit)
 	}
-	rel, err := ResolveWorkspacePath(filePath)
+	rel, err := b.resolveRel(filePath)
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +122,7 @@ func (b *AgentBinder) readFile(ctx context.Context, actor Actor, filePath string
 }
 
 func (b *AgentBinder) writeFile(ctx context.Context, actor Actor, filePath, content string) (string, error) {
-	rel, err := ResolveWorkspacePath(filePath)
+	rel, err := b.resolveRel(filePath)
 	if err != nil {
 		return "", err
 	}
@@ -140,7 +140,7 @@ func (b *AgentBinder) writeFile(ctx context.Context, actor Actor, filePath, cont
 }
 
 func (b *AgentBinder) editFile(ctx context.Context, actor Actor, filePath, oldString, newString string, replaceAll bool) (string, error) {
-	rel, err := ResolveWorkspacePath(filePath)
+	rel, err := b.resolveRel(filePath)
 	if err != nil {
 		return "", err
 	}

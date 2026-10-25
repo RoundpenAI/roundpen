@@ -27,6 +27,20 @@ const (
 // system + prior user/assistant/tool pairs from the database + this turn's user text.
 func (a *Agent) buildPromptMessages(ctx context.Context, userText string) []chatMessage {
 	system := systemPromptForProfile(a.deps.Profile)
+	if cwd := strings.TrimSpace(a.deps.Cwd); cwd != "" {
+		system += "\n\nWorking directory for this session: " + cwd +
+			". Relative tool paths start there. Absolute paths under /workspace still work."
+	}
+	if key := strings.TrimSpace(a.deps.ProjectKey); key != "" {
+		system += "\n\nProject binding: key=" + key
+		if name := strings.TrimSpace(a.deps.ProjectName); name != "" {
+			system += ", name=" + name
+		}
+		if repo := strings.TrimSpace(a.deps.RepoPath); repo != "" {
+			system += ", repoPath=" + repo
+		}
+		system += ". Prefer DelegateProjectWork for this project (projectKey may be omitted)."
+	}
 	if ctx := strings.TrimSpace(a.deps.UserContext); ctx != "" {
 		system += "\n\n" + ctx
 	}

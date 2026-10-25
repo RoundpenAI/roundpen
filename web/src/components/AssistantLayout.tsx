@@ -346,18 +346,7 @@ export function AssistantLayout() {
 
         <Layout>
           {!isChat && (
-          <Header
-            className="rp-assistant-header"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '0 8px',
-              height: 40,
-              background: 'var(--semi-color-bg-1)',
-              borderBottom: '1px solid var(--semi-color-border)',
-            }}
-          >
+          <Header className="rp-assistant-header">
             <Button
               theme="borderless"
               type="tertiary"

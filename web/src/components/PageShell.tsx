@@ -1,6 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Layout, Nav, Typography } from '@douyinfe/semi-ui-19'
+import { isFnOSApp } from '../api/client'
 import { doLogout, useAuth } from '../auth'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
 import { ThemeToggle } from './ThemeToggle'
@@ -54,6 +55,7 @@ export function PageShell({
   const navigate = useNavigate()
   const user = authState.status === 'ok' ? authState.user : null
   const [changePasswordOpen, setChangePasswordOpen] = useState(false)
+  const allowPassword = !isFnOSApp()
   const maxWidth = MAX_WIDTH[maxWidthClass] ?? 768
 
   const navItems = NAV.filter((item) => {
@@ -69,7 +71,8 @@ export function PageShell({
         minHeight: '100%',
         maxWidth: maxWidth ?? '100%',
         margin: '0 auto',
-        padding: '24px 16px max(2rem, env(safe-area-inset-bottom))',
+        padding:
+          'max(24px, env(safe-area-inset-top, 0px)) 16px max(2rem, env(safe-area-inset-bottom, 0px))',
         background: 'var(--semi-color-bg-0)',
         ...style,
       }}
@@ -110,7 +113,7 @@ export function PageShell({
           )}
           <LocaleToggle />
           <ThemeToggle />
-          {user && (
+          {user && allowPassword && (
             <Button type="tertiary" onClick={() => setChangePasswordOpen(true)}>
               Change password
             </Button>
@@ -144,10 +147,12 @@ export function PageShell({
 
       <Layout.Content>{children}</Layout.Content>
 
-      <ChangePasswordDialog
-        open={changePasswordOpen}
-        onClose={() => setChangePasswordOpen(false)}
-      />
+      {allowPassword ? (
+        <ChangePasswordDialog
+          open={changePasswordOpen}
+          onClose={() => setChangePasswordOpen(false)}
+        />
+      ) : null}
     </Layout>
   )
 }

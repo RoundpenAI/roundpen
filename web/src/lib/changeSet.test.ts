@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   buildChangeSet,
+  isChangeSetTool,
   shouldFoldDiff,
   toUnifiedDiff,
   workspacePreviewHref,
@@ -60,6 +61,15 @@ describe('buildChangeSet', () => {
     assert.ok(cs)
     assert.equal(cs!.files.length, 1)
     assert.ok(cs!.files[0]!.unified.includes('+c'))
+  })
+})
+
+describe('isChangeSetTool', () => {
+  it('recognizes edit/write tools', () => {
+    assert.equal(isChangeSetTool({ title: 'Edit', status: 'completed' }), true)
+    assert.equal(isChangeSetTool({ title: 'Write', status: 'completed' }), true)
+    assert.equal(isChangeSetTool({ title: 'Read', status: 'completed' }), false)
+    assert.equal(isChangeSetTool({ title: 'Bash', status: 'completed' }), false)
   })
 })
 

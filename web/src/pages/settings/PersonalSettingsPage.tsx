@@ -4,6 +4,7 @@ import { ConnectedAppsPanel } from '../../components/ConnectedAppsPanel'
 import { NotificationsPanel } from '../../components/NotificationsPanel'
 import { PersonalSlotsPanel } from '../../components/PersonalSlotsPanel'
 import { ProfilePanel } from '../../components/ProfilePanel'
+import { isFnOSApp } from '../../api/client'
 import { useAuth } from '../../auth'
 import { isAdminSectionKey, resolvePersonalSection } from '../../lib/appNav'
 import { isPushSupported } from '../../lib/pushSupport'
@@ -12,7 +13,10 @@ export function PersonalSettingsPage() {
   const { section: sectionParam } = useParams()
   const auth = useAuth()
   const isAdmin = auth.status === 'ok' && auth.user.role === 'admin'
-  const section = resolvePersonalSection(sectionParam, isPushSupported())
+  const section = resolvePersonalSection(sectionParam, {
+    pushSupported: isPushSupported(),
+    allowPassword: !isFnOSApp(),
+  })
 
   // Platform sections used to live under /settings; send admins following an
   // old bookmark on to the admin area, everyone else to the default section.
@@ -39,7 +43,7 @@ export function PersonalSettingsPage() {
 
       {section === 'apps' && <ConnectedAppsPanel />}
 
-      {section === 'password' && <ChangePasswordForm />}
+      {section === 'password' && !isFnOSApp() && <ChangePasswordForm />}
 
       {section === 'notifications' && <NotificationsPanel />}
 

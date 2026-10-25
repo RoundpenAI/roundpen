@@ -68,7 +68,7 @@ Content-Type: application/json
 {"return":"http://192.168.1.8:9527","state":"<NAS 自己的 CSRF>"}
 ```
 
-`scopes` 可选，只能是该供应商允许列表的子集；省略则用默认 scope。`return` 只取 origin。`http` 仅允许 localhost / 局域网 / `.local`；公网必须 `https`。
+`scopes` 可选，只能是该供应商允许列表的子集；省略则用默认 scope。`return` 取 origin，**可带路径前缀**（飞牛统一网关必须带，如 `https://nas.example/app/roundpen`，否则回跳 `/v1/...` 会落到别的应用）。`http` 仅允许 localhost / 局域网 / `.local`；公网必须 `https`。
 
 响应：`{"authorizeUrl":"https://accounts.google.com/o/oauth2/v2/auth?…"}`  
 NAS **302 浏览器到这个 URL**（不要把 rp1 放进浏览器地址栏）。
@@ -79,7 +79,7 @@ NAS **302 浏览器到这个 URL**（不要把 rp1 放进浏览器地址栏）�
 {return}/v1/connectors/google/cloud/callback?ticket=<32 hex>&state=<原 state>
 ```
 
-GitHub 则是 `{return}/v1/auth/oauth/github/cloud/callback?ticket=&state=`。
+GitHub 则是 `{return}/v1/auth/oauth/github/cloud/callback?ticket=&state=`。若 `return` 带前缀（如 `…/app/roundpen`），回调为 `{return}/v1/auth/...`。
 
 失败：`?error=denied|failed&state=`。
 

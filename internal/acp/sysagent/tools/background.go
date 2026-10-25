@@ -142,15 +142,18 @@ func bgNewID() string {
 
 func bgJobDirFor(id string) string { return bgJobDir + "/" + id }
 
-// bgWorkdir normalizes a relative workdir against the workspace root the same
-// way the rest of the workspace tools resolve paths.
-func bgWorkdir(workdir string) string {
+// bgWorkdir normalizes a relative workdir against the session default cwd.
+func (b *AgentBinder) bgWorkdir(workdir string) string {
 	workdir = strings.TrimSpace(workdir)
+	base := WorkspaceRoot
+	if b != nil {
+		base = b.DefaultCwd()
+	}
 	if workdir == "" {
-		return WorkspaceRoot
+		return base
 	}
 	if !strings.HasPrefix(workdir, "/") {
-		return strings.TrimSuffix(WorkspaceRoot, "/") + "/" + workdir
+		return strings.TrimSuffix(base, "/") + "/" + workdir
 	}
 	return workdir
 }
@@ -242,7 +245,7 @@ func (b *AgentBinder) startBackground(ctx context.Context, actor Actor, command,
 	}
 	res, err := b.execRequest(ctx, sbID, bgScript(bgLaunchScript, id), WorkspaceRoot, map[string]string{
 		"ROUNDPEN_BG_CMD":     command,
-		"ROUNDPEN_BG_WORKDIR": bgWorkdir(workdir),
+		"ROUNDPEN_BG_WORKDIR": b.bgWorkdir(workdir),
 	}, bgLaunchTimeout)
 	if err != nil {
 		return "", fmt.Errorf("start background job: %w", err)

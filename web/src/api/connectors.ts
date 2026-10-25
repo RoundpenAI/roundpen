@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, consoleReturnOrigin } from './client'
 
 export type ConnectorStatus = {
   kind: string
@@ -28,10 +28,10 @@ export const connectors = {
     }),
   deleteGoogleClient: () =>
     api<void>('/v1/me/connectors/google/client', { method: 'DELETE' }),
-  connectGoogle: (returnOrigin = typeof window !== 'undefined' ? window.location.origin : '') =>
+  connectGoogle: (returnOrigin = consoleReturnOrigin()) =>
     api<{ authorizeUrl: string }>('/v1/me/connectors/google/connect', {
       method: 'POST',
-      body: JSON.stringify({ return: returnOrigin }),
+      body: JSON.stringify({ return: returnOrigin || consoleReturnOrigin() }),
     }),
   disconnectGoogle: () =>
     api<void>('/v1/me/connectors/google', { method: 'DELETE' }),

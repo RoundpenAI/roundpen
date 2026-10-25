@@ -1,4 +1,4 @@
-import { api, apiUrl } from './client'
+import { api, apiUrl, consoleReturnOrigin } from './client'
 
 export type OAuthProviderOption = {
   id: string
@@ -43,7 +43,7 @@ export const identities = {
   list: () => api<{ identities: Identity[] }>('/v1/me/identities'),
   linkUrl: (
     providerId: string,
-    returnOrigin = typeof window !== 'undefined' ? window.location.origin : '',
+    returnOrigin = consoleReturnOrigin(),
     redirectTo?: string,
   ) =>
     api<{ authorizeUrl: string }>(
@@ -51,7 +51,7 @@ export const identities = {
       {
         method: 'POST',
         body: JSON.stringify({
-          return: returnOrigin,
+          return: returnOrigin || consoleReturnOrigin(),
           ...(redirectTo ? { redirectTo } : {}),
         }),
       },

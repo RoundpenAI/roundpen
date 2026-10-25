@@ -285,6 +285,11 @@ func (h *SessionHandler) ChangePassword(w http.ResponseWriter, r *http.Request) 
 		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	// fnOS desktop SSO maps NAS accounts; local password change is disabled.
+	if FnosGatewayActive() {
+		httpx.WriteErr(w, http.StatusForbidden, "password change is disabled on fnOS")
+		return
+	}
 	var req changePasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpx.WriteErr(w, http.StatusBadRequest, "invalid request body")

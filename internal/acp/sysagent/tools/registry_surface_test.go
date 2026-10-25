@@ -90,6 +90,31 @@ func TestIssueToolSurface(t *testing.T) {
 	}
 }
 
+func TestCoordinatorToolSurface(t *testing.T) {
+	reg := tools.NewRegistry()
+	api := &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}
+	tools.RegisterSession(reg, tools.SessionSurface{
+		API:        api,
+		SessionID:  "coord-1",
+		Profile:    tools.ProfileCoordinator,
+		ProjectKey: "PRJ-1",
+		Agent:      &tools.AgentBinder{},
+	})
+	for _, name := range []string{
+		"DelegateProjectWork", "ListProjectWorkers", "GetProject", "ListProjects",
+		"Read", "Glob", "Grep", "AskUserQuestion",
+	} {
+		if _, ok := reg.Get(name); !ok {
+			t.Fatalf("coordinator missing %q", name)
+		}
+	}
+	for _, banned := range []string{"Bash", "Write", "Edit", "BashOutput", "KillShell"} {
+		if _, ok := reg.Get(banned); ok {
+			t.Fatalf("coordinator must not have %q", banned)
+		}
+	}
+}
+
 func TestRoutineToolSurface(t *testing.T) {
 	api := &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}
 	chat := tools.NewRegistry()

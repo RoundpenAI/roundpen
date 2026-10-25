@@ -30,6 +30,11 @@ export function shouldFoldDiff(unified: string): boolean {
   return unified.split(/\r?\n/).length > FOLD_LINE_THRESHOLD
 }
 
+/** True when a tool call is represented by a ChangeSet card (Edit/Write/…). */
+export function isChangeSetTool(call: ToolCallLike): boolean {
+  return isEditLike(call)
+}
+
 /** Build a ChangeSet from completed Edit/Write tool calls in an activity group. */
 export function buildChangeSet(calls: ToolCallLike[]): ChangeSet | null {
   const byPath = new Map<string, FileChange>()
@@ -37,7 +42,7 @@ export function buildChangeSet(calls: ToolCallLike[]): ChangeSet | null {
     if (call.status === 'failed' || call.status === 'pending' || call.status === 'in_progress') {
       continue
     }
-    if (!isEditLike(call)) continue
+    if (!isChangeSetTool(call)) continue
     const change = fileChangeFromCall(call)
     if (!change) continue
     const prev = byPath.get(change.path)
