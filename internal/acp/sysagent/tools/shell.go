@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -41,6 +42,30 @@ type AgentBinder struct {
 	Files WorkspaceFiles
 	// Host serves reads of granted host directories (NAS shares); nil disables them.
 	Host HostFiles
+	// Cwd is the guest absolute default working directory (e.g. /workspace/projects/foo).
+	// Empty means WorkspaceRoot (/workspace).
+	Cwd string
+}
+
+// DefaultCwd returns the guest absolute directory used when Bash/Glob omit a path.
+func (b *AgentBinder) DefaultCwd() string {
+	if b == nil {
+		return WorkspaceRoot
+	}
+	cwd := strings.TrimSpace(b.Cwd)
+	if cwd == "" {
+		return WorkspaceRoot
+	}
+	cwd = path.Clean(cwd)
+	if cwd != WorkspaceRoot && !strings.HasPrefix(cwd, WorkspaceRoot+"/") {
+		return WorkspaceRoot
+	}
+	return cwd
+}
+
+// resolveRel maps a tool path to a workspace-relative path using DefaultCwd.
+func (b *AgentBinder) resolveRel(filePath string) (string, error) {
+	return ResolveWorkspacePathFrom(b.DefaultCwd(), filePath)
 }
 
 func (b *AgentBinder) ensure(ctx context.Context, actor Actor) (*sandbox.Sandbox, error) {
@@ -92,7 +117,9 @@ func (b *AgentBinder) execRequest(ctx context.Context, sbID string, cmd []string
 		timeout = defaultExecTimeout
 	}
 	if workDir == "" {
-		workDir = WorkspaceRoot
+		workDir = b.DefaultCwd()
+	} else if !strings.HasPrefix(workDir, "/") {
+		workDir = path.Join(b.DefaultCwd(), workDir)
 	}
 	merged := map[string]string{
 		"GIT_TERMINAL_PROMPT": "0",
@@ -142,14 +169,14 @@ func RegisterShell(r *Registry, binder *AgentBinder) {
 	}
 	r.Register(Tool{
 		Name: "Bash",
-		Description: "Run a shell command in the Agent workspace (default cwd /workspace). " +
+		Description: "Run a shell command in the Agent workspace (default cwd is the session working directory, usually /workspace or a project path). " +
 			"Use for git, builds, tests, and other command-line work. " +
 			"Set run_in_background to start a long command without blocking and get a job id back. " +
 			"The Browser cannot run shell commands.",
 		Mutating: true,
 		Parameters: objectSchema(map[string]any{
 			"command":           map[string]any{"type": "string", "description": "Shell command (passed to /bin/sh -c)"},
-			"workdir":           map[string]any{"type": "string", "description": "Working directory (default /workspace)"},
+			"workdir":           map[string]any{"type": "string", "description": "Working directory (default: session cwd)"},
 			"timeout":           map[string]any{"type": "integer", "description": "Timeout in seconds (default 180; ignored when run_in_background is true)"},
 			"run_in_background": map[string]any{"type": "boolean", "description": "Start the command in the background and return a job id immediately (default false)"},
 		}, "command"),

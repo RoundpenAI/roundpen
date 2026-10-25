@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -52,6 +53,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/template"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
 	"github.com/RoundpenAI/roundpen/internal/userworkspace"
+	"github.com/RoundpenAI/roundpen/internal/vcs"
 	"github.com/RoundpenAI/roundpen/internal/webpush"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
@@ -178,7 +180,7 @@ func mountEnvStack(mux *http.ServeMux, db *storage.DB, cfg *config.Config, mgr s
 		Envs:  envSvc,
 		Files: sbSvc,
 	}).Mount(mux)
-	(&gitcred.Handler{Store: gitStore, OnChange: reinject}).Mount(mux)
+	(&gitcred.Handler{Store: gitStore, Identities: oauthSvc, OnChange: reinject}).Mount(mux)
 	(&oauth.Handler{Svc: oauthSvc, Sessions: sessionStore}).Mount(mux)
 	(&connectors.Handler{Svc: connectorsSvc}).Mount(mux)
 	(&mcp.Handler{Svc: mcpSvc}).Mount(mux)
@@ -641,13 +643,16 @@ func newAgentAPI(cfg *config.Config, db *storage.DB, logger *slog.Logger, agentS
 }
 
 // projectDirSeeder creates projects/<slug>/ and Shared Context on the host
-// workspace after EnsureAgent. Failures are non-fatal at the API layer.
+// workspace after EnsureAgent, and clones the remote when needed.
 type projectDirSeeder struct {
 	Envs interface {
 		EnsureAgent(ctx context.Context, userID string) (*sandbox.Sandbox, error)
 	}
 	Paths interface {
 		WorkspaceHostPath(ctx context.Context, id string) (string, error)
+	}
+	Exec interface {
+		Exec(ctx context.Context, id string, req sandbox.ExecRequest) (*sandbox.ExecResult, error)
 	}
 }
 
@@ -666,10 +671,59 @@ func (s projectDirSeeder) EnsureProjectTree(ctx context.Context, userID, slug st
 	return workspace.SeedProject(host, slug)
 }
 
+func (s projectDirSeeder) EnsureProjectRepo(ctx context.Context, userID, slug, repoURL string) error {
+	if err := s.EnsureProjectTree(ctx, userID, slug); err != nil {
+		return err
+	}
+	repoURL = vcs.NormalizeCloneURL(repoURL)
+	if repoURL == "" {
+		return nil
+	}
+	if err := workspace.ValidateCloneArgs(slug, repoURL); err != nil {
+		return err
+	}
+	sb, err := s.Envs.EnsureAgent(ctx, userID)
+	if err != nil {
+		return err
+	}
+	host, err := s.Paths.WorkspaceHostPath(ctx, sb.ID)
+	if err != nil {
+		return err
+	}
+	if workspace.HasGitRepo(host, slug) {
+		return nil
+	}
+	if s.Exec == nil {
+		return fmt.Errorf("workspace exec not configured")
+	}
+	res, err := s.Exec.Exec(ctx, sb.ID, sandbox.ExecRequest{
+		Cmd:     []string{"/bin/sh", "-c", workspace.CloneScript(), "rp-clone", slug, repoURL},
+		WorkDir: "/workspace",
+		Timeout: 10 * time.Minute,
+	})
+	if err != nil {
+		return fmt.Errorf("clone: %w", err)
+	}
+	if res != nil && res.ExitCode != 0 {
+		msg := strings.TrimSpace(string(res.Stderr))
+		if msg == "" {
+			msg = strings.TrimSpace(string(res.Stdout))
+		}
+		if msg == "" {
+			msg = fmt.Sprintf("exit %d", res.ExitCode)
+		}
+		return fmt.Errorf("clone failed: %s", msg)
+	}
+	return nil
+}
+
 // projectSessionProfiler restores coordinator / worker personas on reconnect.
 type projectSessionProfiler struct {
 	Projects interface {
 		GetWorkerBySession(ctx context.Context, userID, sessionID string) (*project.Worker, error)
+		Get(ctx context.Context, userID, keyOrID string) (*project.Project, error)
+		GetByCoordinatorSession(ctx context.Context, userID, sessionID string) (*project.Project, error)
+		GetByCoordinatorAssistant(ctx context.Context, userID, assistantID string) (*project.Project, error)
 	}
 	Assistants interface {
 		Get(ctx context.Context, id string) (*assistant.Assistant, error)
@@ -695,6 +749,50 @@ func (p projectSessionProfiler) ProfileFor(ctx context.Context, userID string, s
 		}
 	}
 	return ""
+}
+
+// CwdFor returns the guest absolute project repo path for coordinator / worker sessions.
+func (p projectSessionProfiler) CwdFor(ctx context.Context, userID string, sess *agentsession.Session) string {
+	proj := p.ProjectFor(ctx, userID, sess)
+	if proj == nil || strings.TrimSpace(proj.RepoPath) == "" {
+		return ""
+	}
+	return path.Join("/workspace", proj.RepoPath)
+}
+
+// ProjectFor resolves the Project bound to a coordinator or worker session.
+func (p projectSessionProfiler) ProjectFor(ctx context.Context, userID string, sess *agentsession.Session) *project.Project {
+	return p.projectFor(ctx, userID, sess)
+}
+
+func (p projectSessionProfiler) projectFor(ctx context.Context, userID string, sess *agentsession.Session) *project.Project {
+	if sess == nil || p.Projects == nil {
+		return nil
+	}
+	if sess.Kind == "worker" {
+		w, err := p.Projects.GetWorkerBySession(ctx, userID, sess.ID)
+		if err != nil || w == nil {
+			return nil
+		}
+		proj, err := p.Projects.Get(ctx, userID, w.ProjectID)
+		if err != nil {
+			return nil
+		}
+		return proj
+	}
+	if sess.Kind == "chat" {
+		if sess.ID != "" {
+			if proj, err := p.Projects.GetByCoordinatorSession(ctx, userID, sess.ID); err == nil && proj != nil {
+				return proj
+			}
+		}
+		if sess.AssistantID != "" {
+			if proj, err := p.Projects.GetByCoordinatorAssistant(ctx, userID, sess.AssistantID); err == nil && proj != nil {
+				return proj
+			}
+		}
+	}
+	return nil
 }
 
 // projectWorkerStarter adapts agentapi.Handler to project.WorkerStarter.

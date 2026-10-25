@@ -137,7 +137,7 @@ func TestHTTPCallbackIssuesSession(t *testing.T) {
 	if rr.Code != http.StatusFound {
 		t.Fatalf("status = %d, body %s", rr.Code, rr.Body)
 	}
-	if got := rr.Header().Get("Location"); got != "/" {
+	if got := rr.Header().Get("Location"); got != "/settings/apps" {
 		t.Errorf("location = %q", got)
 	}
 	cookie := rr.Result().Cookies()

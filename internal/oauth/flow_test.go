@@ -499,7 +499,7 @@ func TestCallbackLinkFlowRefreshesExistingAccount(t *testing.T) {
 	}
 }
 
-func TestCallbackLinkFlowRejectsSomeoneElsesAccount(t *testing.T) {
+func TestCallbackLinkFlowTransfersSomeoneElsesAccount(t *testing.T) {
 	f := newFlowFixture(t, &fakeRemote{
 		t:      t,
 		user:   `{"id":5,"login":"octo"}`,
@@ -509,21 +509,50 @@ func TestCallbackLinkFlowRejectsSomeoneElsesAccount(t *testing.T) {
 	f.addUser(t, storage.User{Username: "bob"})
 	if _, err := f.store.UpsertIdentity(context.Background(), IdentityUpsert{
 		UserID: "alice", ProviderID: f.prov.ID, Subject: "5", Login: "octo",
+		AccessToken: "alice-token",
 	}); err != nil {
 		t.Fatal(err)
 	}
+	var changed []string
+	f.svc.OnIdentityChange = func(_ context.Context, userID string) { changed = append(changed, userID) }
 	state := stateFromURL(t, f.start(t, StartInput{LinkUser: "bob"}))
 
-	// A link flow must not hand bob alice's session, nor steal alice's binding.
-	if _, err := callback(t, f, state, "bob"); !errors.Is(err, ErrLinkedElsewhere) {
-		t.Fatalf("err = %v, want ErrLinkedElsewhere", err)
+	// OAuth proves bob owns octo; the binding moves off alice onto bob.
+	res, err := callback(t, f, state, "bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Linked || res.User.Username != "bob" {
+		t.Fatalf("result = %+v", res)
 	}
 	got, err := f.store.GetIdentityBySubject(context.Background(), f.prov.ID, "5")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.UserID != "alice" {
-		t.Errorf("identity moved to %q", got.UserID)
+	if got.UserID != "bob" {
+		t.Errorf("identity user = %q, want bob", got.UserID)
+	}
+	if got.AccessToken == "alice-token" {
+		t.Errorf("token not refreshed: %q", got.AccessToken)
+	}
+	aliceIdents, err := f.store.ListIdentities(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aliceIdents) != 0 {
+		t.Fatalf("alice still has identities: %+v", aliceIdents)
+	}
+	sawAlice, sawBob := false, false
+	for _, u := range changed {
+		if u == "alice" {
+			sawAlice = true
+		}
+		if u == "bob" {
+			sawBob = true
+		}
+	}
+	if !sawAlice || !sawBob {
+		t.Errorf("OnIdentityChange = %v, want alice and bob", changed)
 	}
 }
 
@@ -732,16 +761,16 @@ func TestUnlinkReportsIdentityChange(t *testing.T) {
 
 func TestSafeRedirect(t *testing.T) {
 	cases := map[string]string{
-		"/settings/apps":        "/settings/apps",
+		"/settings/apps":            "/settings/apps",
 		"/a?tab=1":                  "/a?tab=1",
-		"":                          "/",
-		"//evil.test":               "/",
-		"https://evil.test/":        "/",
-		"http://evil.test/x":        "/",
-		"/\\evil.test":              "/",
-		"relative/path":             "/",
-		"javascript:alert(1)":       "/",
-		"/settings/apps?ok=1#x": "/settings/apps?ok=1",
+		"":                          "/settings/apps",
+		"//evil.test":               "/settings/apps",
+		"https://evil.test/":        "/settings/apps",
+		"http://evil.test/x":        "/settings/apps",
+		"/\\evil.test":              "/settings/apps",
+		"relative/path":             "/settings/apps",
+		"javascript:alert(1)":       "/settings/apps",
+		"/settings/apps?ok=1#x":     "/settings/apps?ok=1",
 	}
 	for in, want := range cases {
 		if got := safeRedirect(in); got != want {

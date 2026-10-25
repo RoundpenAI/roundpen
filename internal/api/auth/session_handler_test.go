@@ -422,6 +422,55 @@ func TestHealthIsPublic(t *testing.T) {
 	}
 }
 
+func TestChangePasswordDisabledOnFnOS(t *testing.T) {
+	SetFnosGatewayActive(true)
+	t.Cleanup(func() { SetFnosGatewayActive(false) })
+
+	h, users := newSessionTestMux(t, false)
+	hash, err := HashPassword("old-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Upsert(t.Context(), storage.User{
+		Username:     "fnos-user",
+		Email:        "fnos@example.com",
+		APIKey:       "rp-fnos",
+		Role:         storage.RoleUser,
+		PasswordHash: hash,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	loginBody, _ := json.Marshal(map[string]string{
+		"user": "fnos-user", "password": "old-secret",
+	})
+	req := httptest.NewRequest("POST", "/v1/auth/login", bytes.NewReader(loginBody))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login status = %d", rec.Code)
+	}
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected session cookie")
+	}
+	body, _ := json.Marshal(map[string]string{
+		"current_password": "old-secret", "new_password": "new-secret1",
+	})
+	req = httptest.NewRequest("POST", "/v1/auth/password", bytes.NewReader(body))
+	req.AddCookie(sessionCookie)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestChangePassword(t *testing.T) {
 	h, users := newSessionTestMux(t, false)
 	hash, err := HashPassword("old-secret")

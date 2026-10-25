@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -170,12 +171,15 @@ func (s *Service) startRelay(ctx context.Context, userID, consoleScheme, console
 	if scheme == "" {
 		scheme = "https"
 	}
-	origin := scheme + "://" + host
+	returnBase := httpx.ConsoleReturnBase(scheme, host)
+	if returnBase == "" {
+		returnBase = scheme + "://" + host
+	}
 	now := s.now()
 	if err := s.Store.CreateState(ctx, State{
 		State:       state,
 		UserID:      userID,
-		RedirectURI: origin,
+		RedirectURI: returnBase,
 		RedirectTo:  safeRedirect(redirectTo),
 		ExpiresAt:   now.Add(s.stateTTL()),
 		CreatedAt:   now,
@@ -186,7 +190,7 @@ func (s *Service) startRelay(ctx context.Context, userID, consoleScheme, console
 		AuthorizeURL string `json:"authorizeUrl"`
 	}
 	if err := s.relayJSON(ctx, http.MethodPost, "/oauth/google/start", map[string]string{
-		"return": origin,
+		"return": returnBase,
 		"state":  state,
 	}, &resp); err != nil {
 		return "", err

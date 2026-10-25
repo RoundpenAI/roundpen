@@ -33,7 +33,7 @@ describe('resolveAppViewport', () => {
     })
   })
 
-  it('shrinks height for the keyboard without pinning offsetTop', () => {
+  it('pins offsetTop when the keyboard is open in a Safari tab', () => {
     const got = resolveAppViewport({
       innerHeight: 800,
       vvHeight: 500,
@@ -42,7 +42,7 @@ describe('resolveAppViewport', () => {
     })
     assert.equal(got.keyboardOpen, true)
     assert.equal(got.height, 500)
-    assert.equal(got.offsetTop, 0)
+    assert.equal(got.offsetTop, 50)
     assert.equal(got.keyboardInset, 250)
   })
 

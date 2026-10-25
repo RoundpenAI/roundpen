@@ -87,6 +87,13 @@ type Deps struct {
 	// Profile selects system prompt + is mirrored in tools.SessionSurface.
 	// Empty means the default System Agent persona.
 	Profile string
+	// Cwd is the guest absolute working directory for this session
+	// (e.g. /workspace/projects/foo). Empty means /workspace.
+	Cwd string
+	// ProjectKey / ProjectName / RepoPath bind coordinator & workers to a Project.
+	ProjectKey  string
+	ProjectName string
+	RepoPath    string
 	// UserContext is a short "about the human" block appended to the system
 	// prompt (empty = skip). Built from the user's profile settings.
 	UserContext string

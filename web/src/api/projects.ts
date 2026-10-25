@@ -114,6 +114,11 @@ export const projects = {
       `/v1/projects/${key}/ensure-session`,
       { method: 'POST' },
     ),
+  ensureRepo: (key: string) =>
+    api<{ project: Project; ok: boolean; cloned: boolean }>(
+      `/v1/projects/${key}/ensure-repo`,
+      { method: 'POST' },
+    ),
   listWorkers: (key: string) =>
     api<{ workers: ProjectWorker[] }>(`/v1/projects/${key}/workers`),
   delegate: (
@@ -132,6 +137,11 @@ export const projects = {
   getWorker: (key: string, workerKey: string) =>
     api<{ worker: ProjectWorker }>(
       `/v1/projects/${key}/workers/${encodeURIComponent(workerKey)}`,
+    ),
+  cancelWorker: (key: string, workerKey: string) =>
+    api<{ worker: ProjectWorker }>(
+      `/v1/projects/${key}/workers/${encodeURIComponent(workerKey)}/cancel`,
+      { method: 'POST' },
     ),
   decideWorker: (
     key: string,

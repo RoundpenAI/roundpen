@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -18,9 +19,17 @@ type WorkerStarter interface {
 	StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error
 }
 
-// Prompter sends a turn to a live session.
+// Prompter sends a turn to a live session and can cancel an in-flight turn.
 type Prompter interface {
 	Prompt(ctx context.Context, sessionID, text string) (acp.StopReason, error)
+	Cancel(ctx context.Context, sessionID string) error
+}
+
+// TurnRunner runs a turn through the chat session runner (persist + SSE).
+// When set, workers use this instead of raw ACP.Prompt so "open live" shows
+// the same transcript as an interactive assistant chat.
+type TurnRunner interface {
+	PromptTurn(ctx context.Context, user *storage.User, sessionID, text string) error
 }
 
 // UserLookup loads the account a worker acts as.
@@ -44,6 +53,7 @@ type Runner struct {
 	Users    UserLookup
 	Starter  WorkerStarter
 	ACP      Prompter
+	Turns    TurnRunner // optional; preferred over ACP.Prompt for workers
 	Notes    Transcript
 	Messages MessageSource
 	Log      *slog.Logger
@@ -92,7 +102,20 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 	// Align with chat turnTimeout / routine segment budget (2h).
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Hour)
 	defer cancel()
-	_, err = r.ACP.Prompt(runCtx, w.SessionID, RenderWorkerPrompt(p, w))
+	prompt := RenderWorkerPrompt(p, w)
+	if r.Turns != nil {
+		err = r.Turns.PromptTurn(runCtx, user, w.SessionID, prompt)
+	} else if r.ACP != nil {
+		_, err = r.ACP.Prompt(runCtx, w.SessionID, prompt)
+	} else {
+		err = fmt.Errorf("no prompt backend")
+	}
+	if fresh, getErr := r.Store.GetWorker(ctx, w.UserID, w.ID); getErr == nil &&
+		fresh.Status == WorkerCancelled {
+		// User stop already marked cancelled + notified; just free the slot.
+		r.Kick(ctx, w.UserID)
+		return
+	}
 	status := WorkerSucceeded
 	errMsg := ""
 	if err != nil {
@@ -113,8 +136,45 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 		w.Status = status
 		w.Error = errMsg
 	}
-	r.notifyCoordinator(ctx, p, w, status)
+	r.notifyCoordinator(ctx, p, w, w.Status)
 	r.Kick(ctx, w.UserID)
+}
+
+// CancelWorker stops a queued or running worker. Running workers get an ACP
+// cancel on their session so the execute goroutine unwinds.
+func (r *Runner) CancelWorker(ctx context.Context, userID, keyOrID string) (*Worker, error) {
+	if r == nil || r.Store == nil {
+		return nil, fmt.Errorf("worker runner not configured")
+	}
+	w, err := r.Store.GetWorker(ctx, userID, keyOrID)
+	if err != nil {
+		return nil, err
+	}
+	switch w.Status {
+	case WorkerQueued, WorkerRunning:
+	default:
+		return nil, fmt.Errorf("worker is not active")
+	}
+	wasRunning := w.Status == WorkerRunning
+	sessionID := w.SessionID
+	ok, err := r.Store.CancelWorker(ctx, w.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("worker is not active")
+	}
+	if wasRunning && sessionID != "" && r.ACP != nil {
+		_ = r.ACP.Cancel(ctx, sessionID)
+	}
+	fresh, err := r.Store.GetWorker(ctx, userID, w.ID)
+	if err != nil {
+		return nil, err
+	}
+	p, _ := r.Store.Get(ctx, userID, w.ProjectID)
+	r.notifyCoordinator(ctx, p, fresh, WorkerCancelled)
+	r.Kick(ctx, userID)
+	return fresh, nil
 }
 
 func (r *Runner) extractReview(ctx context.Context, sessionID string) *ReviewResult {

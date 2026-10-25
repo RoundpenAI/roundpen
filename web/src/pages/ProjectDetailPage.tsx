@@ -92,6 +92,8 @@ export function ProjectDetailPage() {
   const [newSecret, setNewSecret] = useState<string | null>(null)
   const [ci, setCi] = useState<ProjectCIStatus | null>(null)
   const [ciLoading, setCiLoading] = useState(false)
+  const [cloning, setCloning] = useState(false)
+  const [cloneError, setCloneError] = useState<string | null>(null)
 
   const loadWorkers = useCallback(async (projectKey: string) => {
     setWorkersLoading(true)
@@ -170,6 +172,7 @@ export function ProjectDetailPage() {
   useEffect(() => {
     let cancelled = false
     setLoading(true)
+    setCloneError(null)
     projects
       .get(key)
       .then(async (res) => {
@@ -177,11 +180,33 @@ export function ProjectDetailPage() {
         setProject(res.project)
         setError(null)
         setSubRepo(res.project.repoUrl || '')
-        await Promise.all([
+        const sideLoads = Promise.all([
           loadWorkers(res.project.key),
           loadSubscriptions(res.project.key),
           loadCI(res.project.key),
         ])
+        if (
+          res.project.status === 'active' &&
+          res.project.repoUrl?.trim()
+        ) {
+          setCloning(true)
+          try {
+            await projects.ensureRepo(res.project.key)
+            if (!cancelled) setCloneError(null)
+          } catch (e: unknown) {
+            if (!cancelled) {
+              const message =
+                e instanceof Error ? e.message : t('projects.repo.cloneFailed')
+              setCloneError(message)
+              Toast.error(message)
+            }
+          } finally {
+            if (!cancelled) setCloning(false)
+          }
+        } else {
+          setCloning(false)
+        }
+        await sideLoads
       })
       .catch((e: unknown) => {
         if (cancelled) return
@@ -438,6 +463,28 @@ export function ProjectDetailPage() {
       <Typography.Paragraph type="tertiary" style={{ marginTop: 16 }}>
         {t('projects.detail.guide')}
       </Typography.Paragraph>
+
+      {cloning ? (
+        <Banner
+          type="info"
+          description={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Spin size="small" />
+              {t('projects.repo.cloning')}
+            </span>
+          }
+          closeIcon={null}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
+      {cloneError ? (
+        <Banner
+          type="danger"
+          description={cloneError}
+          closeIcon={null}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
 
       <div className="rp-projects-meta">
         <MetaRow label={t('projects.field.slug')} value={project.slug} code />

@@ -93,6 +93,29 @@ export function appBasePath(): string {
   return (import.meta.env.BASE_URL || '/').replace(/\/$/, '')
 }
 
+/**
+ * True when this SPA was built for the fnOS package (served under /app/roundpen/).
+ * Desktop SSO uses the fnOS account; local password change is not offered.
+ */
+export function isFnOSApp(): boolean {
+  const base = appBasePath()
+  return base === '/app/roundpen' || base.endsWith('/app/roundpen')
+}
+
+/**
+ * Browser-facing base for OAuth relay return URLs: origin + SPA mount
+ * (e.g. https://nas.example/app/roundpen). Bare origin alone breaks fnOS
+ * gateway routing for /v1/... cloud callbacks.
+ */
+export function consoleReturnOrigin(
+  win: Pick<Window, 'location'> | undefined = typeof window !== 'undefined'
+    ? window
+    : undefined,
+): string {
+  if (!win?.location?.origin) return ''
+  return `${win.location.origin}${appBasePath()}`
+}
+
 /** Same-origin console path under the Vite base (e.g. '/app/roundpen/settings/apps'). */
 export function appPath(path: string): string {
   const base = appBasePath()

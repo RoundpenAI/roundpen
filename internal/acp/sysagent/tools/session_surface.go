@@ -21,6 +21,7 @@ type SessionSurface struct {
 	RunKey      string
 	Autonomy    string
 	Profile     string
+	ProjectKey  string // PRJ-n; default for DelegateProjectWork when omitted
 	Browser     *BrowserBinder
 	Agent       *AgentBinder
 	PreviewZone string
@@ -45,12 +46,12 @@ func RegisterSession(reg *Registry, s SessionSurface) {
 	if s.API != nil {
 		RegisterIssues(reg, s.API, s.SessionID)
 		if profile == ProfileCoordinator {
-			RegisterProjects(reg, s.API, s.SessionID)
+			RegisterProjects(reg, s.API, s.SessionID, s.ProjectKey)
 		} else if !routine {
 			// Non-coordinator chats keep project tools for visibility; workers skip
 			// delegate to avoid nested queues.
 			if profile == "" {
-				RegisterProjects(reg, s.API, s.SessionID)
+				RegisterProjects(reg, s.API, s.SessionID, s.ProjectKey)
 				RegisterRoutines(reg, s.API, s.SessionID)
 			}
 		}
@@ -110,11 +111,11 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 }
 
 func registerCoordinatorTools(reg *Registry, s SessionSurface) {
-	// Plan + delegate only: explore the tree, no Write/Edit.
+	// Plan + delegate only: read/search the tree. No Bash/Write/Edit — cloning,
+	// installs, builds, and edits must go through DelegateProjectWork.
 	if s.Agent != nil {
 		RegisterExploreFiles(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
-		RegisterShell(reg, s.Agent) // short inspect commands; prompt forbids implementing via Bash
 	}
 	RegisterInteractive(reg)
 	if s.Web != nil {

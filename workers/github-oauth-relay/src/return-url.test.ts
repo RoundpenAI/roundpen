@@ -13,6 +13,21 @@ describe('parseReturnOrigin', () => {
     assert.equal(parseReturnOrigin('https://roundpen.example:443'), 'https://roundpen.example')
   })
 
+  it('keeps an fnOS app path prefix', () => {
+    assert.equal(
+      parseReturnOrigin('https://nas.example/app/roundpen/settings/apps'),
+      'https://nas.example/app/roundpen',
+    )
+    assert.equal(
+      parseReturnOrigin('http://10.10.1.3:8000/app/roundpen/'),
+      'http://10.10.1.3:8000/app/roundpen',
+    )
+    assert.equal(
+      parseReturnOrigin('https://nas.example/app/roundpen'),
+      'https://nas.example/app/roundpen',
+    )
+  })
+
   it('rejects public http and credentials', () => {
     assert.throws(() => parseReturnOrigin('http://example.com'), /LAN/)
     assert.throws(() => parseReturnOrigin('https://user:pass@example.com'), /credentials/)
@@ -41,6 +56,18 @@ describe('nasCloudCallback', () => {
       state: 's',
     })
     assert.equal(g, 'https://roundpen.example/v1/connectors/google/cloud/callback?ticket=abc&state=s')
+  })
+
+  it('keeps the fnOS gateway prefix in front of /v1/...', () => {
+    const u = nasCloudCallback(
+      'https://nas.example/app/roundpen',
+      '/v1/auth/oauth/github/cloud/callback',
+      { ticket: 'abc', state: 's' },
+    )
+    assert.equal(
+      u,
+      'https://nas.example/app/roundpen/v1/auth/oauth/github/cloud/callback?ticket=abc&state=s',
+    )
   })
 
   it('rejects a callback path outside the registry', () => {

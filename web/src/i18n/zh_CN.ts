@@ -20,6 +20,10 @@ export const zh_CN: Record<MessageKey, string> = {
   'login.subtitle': '登录你的 Agent 沙箱',
   'login.userLabel': '用户名或邮箱',
   'login.passwordLabel': '密码',
+  'login.defaultCreds':
+    '首次安装默认账号 {user} / {password}。登录后请尽快修改密码。',
+  'login.defaultCredsFnos':
+    '控制台直连（:9527 / API）默认账号 {user} / {password}。桌面入口用飞牛账号登录，无需单独的 Roundpen 密码。',
   'login.submit': '登录',
   'login.failed': '登录失败',
   'login.orContinue': '或使用以下方式继续',
@@ -748,15 +752,23 @@ export const zh_CN: Record<MessageKey, string> = {
   'projects.field.slugHint': '工作区路径：{path}',
   'projects.field.repoUrl': '远程地址（可选）',
   'projects.field.repoUrlPlaceholder': 'https://github.com/org/repo.git',
+  'projects.field.repoUrlSelect': 'GitHub 仓库',
+  'projects.field.repoUrlSelectPlaceholder': '选择仓库或粘贴地址',
   'projects.field.repoUrlHint':
     '可留空，直接用本地目录或已有 git 仓库。凭据就绪后再 clone。',
+  'projects.field.repoUrlHintConnected':
+    '从已连接的 GitHub 选仓库，或直接输入 clone 地址。进入项目时会自动下载到工作区。',
   'projects.field.repoUrlEmpty': '无 — 仅本地路径',
+  'projects.repo.cloning': '正在把仓库克隆到项目工作区…',
+  'projects.repo.cloneFailed': '克隆仓库失败',
+  'projects.repo.cloned': '仓库已就绪',
   'projects.field.path': '仓库路径',
   'projects.field.context': '共享上下文',
   'projects.back': '返回项目列表',
   'projects.detail.guide':
     '把需求告诉协调者。它会澄清、拆任务，再按角色派 Worker（实现 / 审查 / 测试）。本机同一时间只跑一个。',
   'projects.openChat': '打开协调者对话',
+  'projects.openFromChat': '打开项目',
   'projects.openFiles': '在文件中打开',
   'projects.archive': '归档',
   'projects.restore': '恢复',
@@ -766,6 +778,15 @@ export const zh_CN: Record<MessageKey, string> = {
   'projects.workers.guide':
     '本项目按角色派发的执行会话。排队中的 Worker 会等当前任务结束后再跑（串行队列）。',
   'projects.workers.empty': '还没有 Worker。让协调者派活即可。',
+  'projects.workers.liveEntry': '工作现场',
+  'projects.workers.liveGuide':
+    '点「进入现场」打开 Worker 会话，可看实时工具调用与输出（与协调者同一套对话界面）。',
+  'projects.workers.openLive': '进入现场',
+  'projects.workers.viewing': '当前',
+  'projects.workers.noSession': '会话未就绪',
+  'projects.workers.backCoordinator': '协调者',
+  'projects.workers.stop': '停止',
+  'projects.workers.workingHint': '{key} 工作中 · 点停止可喊停',
   'projects.delegate.title': '手动派活',
   'projects.delegate.guide':
     '测试用快捷入口。正式流程仍建议让协调者澄清需求并拆任务。',

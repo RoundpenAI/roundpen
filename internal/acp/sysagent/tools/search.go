@@ -20,7 +20,7 @@ func RegisterSearch(r *Registry, binder *AgentBinder) {
 			"directories; a pattern without / matches file names at any depth.",
 		Parameters: objectSchema(map[string]any{
 			"pattern": map[string]any{"type": "string", "description": "Glob pattern (e.g. **/*.ts)"},
-			"path":    map[string]any{"type": "string", "description": "Search root (default /workspace; a granted host directory works too)"},
+			"path":    map[string]any{"type": "string", "description": "Search root (default: session cwd; a granted host directory works too)"},
 		}, "pattern"),
 		Call: func(ctx context.Context, actor Actor, args json.RawMessage) (string, error) {
 			var in struct {
@@ -38,7 +38,7 @@ func RegisterSearch(r *Registry, binder *AgentBinder) {
 		Description: "Search file contents with ripgrep in the Agent workspace.",
 		Parameters: objectSchema(map[string]any{
 			"pattern":          map[string]any{"type": "string", "description": "Regex pattern to search for"},
-			"path":             map[string]any{"type": "string", "description": "Search root (default /workspace)"},
+			"path":             map[string]any{"type": "string", "description": "Search root (default: session cwd)"},
 			"glob":             map[string]any{"type": "string", "description": "Optional file glob filter"},
 			"case_insensitive": map[string]any{"type": "boolean", "description": "Case-insensitive search"},
 			"output_mode":      map[string]any{"type": "string", "description": "content | files_with_matches | count (default content)"},
@@ -59,11 +59,11 @@ func RegisterSearch(r *Registry, binder *AgentBinder) {
 	})
 }
 
-func resolveGuestAbs(p string) (string, error) {
+func (b *AgentBinder) resolveGuestAbs(p string) (string, error) {
 	if strings.TrimSpace(p) == "" {
-		return WorkspaceRoot, nil
+		return b.DefaultCwd(), nil
 	}
-	rel, err := ResolveWorkspacePath(p)
+	rel, err := b.resolveRel(p)
 	if err != nil {
 		return "", err
 	}
@@ -79,7 +79,7 @@ func (b *AgentBinder) glob(ctx context.Context, actor Actor, pattern, root strin
 	} else if isHost {
 		return b.globHost(ctx, actor, abs, pattern)
 	}
-	abs, err := resolveGuestAbs(root)
+	abs, err := b.resolveGuestAbs(root)
 	if err != nil {
 		return "", err
 	}
@@ -105,7 +105,7 @@ fi`
 }
 
 func (b *AgentBinder) grep(ctx context.Context, actor Actor, pattern, root, fileGlob string, caseInsensitive bool, outputMode string) (string, error) {
-	abs, err := resolveGuestAbs(root)
+	abs, err := b.resolveGuestAbs(root)
 	if err != nil {
 		return "", err
 	}

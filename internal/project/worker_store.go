@@ -171,6 +171,22 @@ func (s *Store) FinishWorker(ctx context.Context, id, status, errMsg string) err
 	return err
 }
 
+// CancelWorker marks a queued or running worker cancelled. Returns false when
+// the row was already terminal (or missing).
+func (s *Store) CancelWorker(ctx context.Context, id string) (bool, error) {
+	now := time.Now().UTC()
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE project_workers SET
+			status = $2, error = $3, finished_at = $4, updated_at = $4
+		WHERE id = $1 AND status IN ($5, $6)`,
+		id, WorkerCancelled, "cancelled by user", now, WorkerQueued, WorkerRunning)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 func (s *Store) SetWorkerSession(ctx context.Context, id, sessionID string) error {
 	_, err := s.DB.ExecContext(ctx, `
 		UPDATE project_workers SET session_id = $2, updated_at = $3 WHERE id = $1`,

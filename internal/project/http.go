@@ -44,9 +44,11 @@ type IssueResolver interface {
 	LookupID(ctx context.Context, userID, keyOrID string) (string, error)
 }
 
-// DirSeeder best-effort creates projects/<slug>/ and Shared Context on disk.
+// DirSeeder best-effort creates projects/<slug>/ and Shared Context on disk,
+// and clones repoURL into that path when the tree has no .git yet.
 type DirSeeder interface {
 	EnsureProjectTree(ctx context.Context, userID, slug string) error
+	EnsureProjectRepo(ctx context.Context, userID, slug, repoURL string) error
 }
 
 // GitCreds looks up stored host tokens for optional CI status refresh.
@@ -76,9 +78,11 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/projects/{key}", h.get)
 	mux.HandleFunc("PATCH /v1/projects/{key}", h.patch)
 	mux.HandleFunc("POST /v1/projects/{key}/ensure-session", h.ensureSession)
+	mux.HandleFunc("POST /v1/projects/{key}/ensure-repo", h.ensureRepo)
 	mux.HandleFunc("GET /v1/projects/{key}/workers", h.listWorkers)
 	mux.HandleFunc("POST /v1/projects/{key}/workers", h.delegate)
 	mux.HandleFunc("GET /v1/projects/{key}/workers/{workerKey}", h.getWorker)
+	mux.HandleFunc("POST /v1/projects/{key}/workers/{workerKey}/cancel", h.cancelWorker)
 	mux.HandleFunc("POST /v1/projects/{key}/workers/{workerKey}/decision", h.workerDecision)
 	mux.HandleFunc("GET /v1/projects/{key}/subscriptions", h.listSubscriptions)
 	mux.HandleFunc("POST /v1/projects/{key}/subscriptions", h.createSubscription)
@@ -171,9 +175,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.Dirs != nil {
-		if err := h.Dirs.EnsureProjectTree(r.Context(), user.Username, p.Slug); err != nil {
+		if err := h.Dirs.EnsureProjectRepo(r.Context(), user.Username, p.Slug, p.RepoURL); err != nil {
 			if h.Log != nil {
-				h.Log.Warn("seed project dirs", "slug", p.Slug, "err", err)
+				h.Log.Warn("ensure project repo", "slug", p.Slug, "err", err)
 			}
 		}
 	}
@@ -225,7 +229,44 @@ func (h *Handler) patch(w http.ResponseWriter, r *http.Request) {
 		active := assistant.StatusActive
 		_, _ = h.Assistants.Update(r.Context(), p.CoordinatorAssistantID, assistant.UpdateInput{Status: &active})
 	}
+	if body.RepoURL != nil && h.Dirs != nil && p.Status == StatusActive {
+		if err := h.Dirs.EnsureProjectRepo(r.Context(), user.Username, p.Slug, p.RepoURL); err != nil {
+			if h.Log != nil {
+				h.Log.Warn("ensure project repo after patch", "slug", p.Slug, "err", err)
+			}
+		}
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"project": p})
+}
+
+func (h *Handler) ensureRepo(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	p, err := h.Store.Get(r.Context(), user.Username, r.PathValue("key"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if p.Status != StatusActive {
+		httpx.WriteErr(w, http.StatusConflict, "project is archived")
+		return
+	}
+	cloned := false
+	if h.Dirs != nil {
+		if err := h.Dirs.EnsureProjectRepo(r.Context(), user.Username, p.Slug, p.RepoURL); err != nil {
+			httpx.WriteErr(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		cloned = strings.TrimSpace(p.RepoURL) != ""
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"project": p,
+		"ok":      true,
+		"cloned":  cloned,
+	})
 }
 
 func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
@@ -246,6 +287,14 @@ func (h *Handler) ensureSession(w http.ResponseWriter, r *http.Request) {
 	if p.Status != StatusActive {
 		httpx.WriteErr(w, http.StatusConflict, "project is archived")
 		return
+	}
+
+	// Clone before opening chat so the coordinator sees the repo immediately.
+	if h.Dirs != nil {
+		if err := h.Dirs.EnsureProjectRepo(r.Context(), user.Username, p.Slug, p.RepoURL); err != nil {
+			httpx.WriteErr(w, http.StatusBadGateway, err.Error())
+			return
+		}
 	}
 
 	if h.Starter == nil {
@@ -327,6 +376,38 @@ func (h *Handler) getWorker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"worker": wk})
+}
+
+func (h *Handler) cancelWorker(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	p, err := h.Store.Get(r.Context(), user.Username, r.PathValue("key"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	wk, err := h.Store.GetWorker(r.Context(), user.Username, r.PathValue("workerKey"))
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	if wk.ProjectID != p.ID {
+		httpx.WriteErr(w, http.StatusNotFound, "worker not found")
+		return
+	}
+	if h.Runner == nil {
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "worker runner unavailable")
+		return
+	}
+	fresh, err := h.Runner.CancelWorker(r.Context(), user.Username, wk.Key)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"worker": fresh})
 }
 
 func (h *Handler) delegate(w http.ResponseWriter, r *http.Request) {

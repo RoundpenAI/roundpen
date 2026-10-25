@@ -18,6 +18,10 @@ export const en = {
   'login.subtitle': 'Sign in to your agent sandbox',
   'login.userLabel': 'Username or email',
   'login.passwordLabel': 'Password',
+  'login.defaultCreds':
+    'First install default: {user} / {password}. Change it after sign-in if you can.',
+  'login.defaultCredsFnos':
+    'Console login (port 9527 / API): {user} / {password}. Desktop entry uses your fnOS account — no separate Roundpen password.',
   'login.submit': 'Sign in',
   'login.failed': 'login failed',
   'login.orContinue': 'or continue with',
@@ -772,15 +776,23 @@ export const en = {
   'projects.field.slugHint': 'Workspace path: {path}',
   'projects.field.repoUrl': 'Remote URL (optional)',
   'projects.field.repoUrlPlaceholder': 'https://github.com/org/repo.git',
+  'projects.field.repoUrlSelect': 'GitHub repository',
+  'projects.field.repoUrlSelectPlaceholder': 'Select a repo or paste a URL',
   'projects.field.repoUrlHint':
     'Leave empty to work with a local directory or existing git checkout. Clone later when credentials are ready.',
+  'projects.field.repoUrlHintConnected':
+    'Pick a connected GitHub repo, or type any clone URL. The workspace clones it when you open the project.',
   'projects.field.repoUrlEmpty': 'None — local path only',
+  'projects.repo.cloning': 'Cloning repository into the project workspace…',
+  'projects.repo.cloneFailed': 'Failed to clone repository',
+  'projects.repo.cloned': 'Repository ready in the project workspace',
   'projects.field.path': 'Repo path',
   'projects.field.context': 'Shared context',
   'projects.back': 'Back to projects',
   'projects.detail.guide':
     'Tell the coordinator the requirement. It clarifies, splits work, then delegates role-specific workers (implementer / reviewer / tester). Workers run one at a time.',
   'projects.openChat': 'Open coordinator chat',
+  'projects.openFromChat': 'Open project',
   'projects.openFiles': 'Open in Files',
   'projects.archive': 'Archive',
   'projects.restore': 'Restore',
@@ -790,6 +802,15 @@ export const en = {
   'projects.workers.guide':
     'Role-specific agents for this project. Queued workers wait until the current one finishes (serial queue).',
   'projects.workers.empty': 'No workers yet. Ask the coordinator to delegate a task.',
+  'projects.workers.liveEntry': 'Live workers',
+  'projects.workers.liveGuide':
+    'Open a worker session to watch tool calls and output live (same chat UI as the coordinator).',
+  'projects.workers.openLive': 'Open live',
+  'projects.workers.viewing': 'Viewing',
+  'projects.workers.noSession': 'Session pending',
+  'projects.workers.backCoordinator': 'Coordinator',
+  'projects.workers.stop': 'Stop',
+  'projects.workers.workingHint': '{key} working · tap stop to cancel',
   'projects.delegate.title': 'Delegate manually',
   'projects.delegate.guide':
     'Optional shortcut for testing. Prefer asking the coordinator to clarify and split work.',

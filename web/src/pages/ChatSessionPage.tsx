@@ -21,20 +21,27 @@ import type { MessageContent } from '@douyinfe/semi-ui-19/lib/es/aiChatInput/int
 import {
   agents,
   assistantsApi,
+  projects,
   setupApi,
   type AgentCommand,
   type AgentMessage,
   type AgentSession,
   type LlmReady,
+  type ProjectWorker,
   ApiError,
 } from '../api'
 import { AgentBrowserPanel } from '../components/AgentBrowserPanel'
 import { useOpenAppMenu } from '../components/AppShell'
 import { useAssistantLayout } from '../components/AssistantLayout'
+import { CoordinatorWorkersSheet } from '../components/CoordinatorWorkersSheet'
 import { SessionTabs } from '../components/SessionTabs'
 import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
 import { DeliveryActionBar } from '../components/DeliveryActionBar'
 import { inferDeliveryNeed } from '../lib/deliveryNeed'
+import {
+  loadProjectChatContext,
+  type ProjectChatContext,
+} from '../lib/projectChatContext'
 import { LlmSetupChooser } from '../components/LlmSetupChooser'
 import { useAuth } from '../auth'
 import { useT } from '../i18n'
@@ -82,6 +89,7 @@ import {
   type QueueItem,
 } from './chat/sessionQueue'
 import { RoutineSuggestions } from './chat/RoutineSuggestions'
+import { syncVisualViewportInsets } from '../lib/visualViewport'
 import { clearComposer, composerEditorBridge } from './chat/editorBridge'
 import { connectChatSocket } from './chat/sessionSocket'
 import {
@@ -144,6 +152,8 @@ export function ChatSessionPage() {
   const [browserSeen, setBrowserSeen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
+  const [projectCtx, setProjectCtx] = useState<ProjectChatContext | null>(null)
+  const [activeWorker, setActiveWorker] = useState<ProjectWorker | undefined>()
   useEffect(() => {
     if (!moreOpen) return
     const onDoc = (e: MouseEvent) => {
@@ -159,6 +169,23 @@ export function ChatSessionPage() {
       document.removeEventListener('keydown', onKey)
     }
   }, [moreOpen])
+
+  const chatAssistantId = assistantIdParam || session?.assistantId || ''
+  useEffect(() => {
+    let cancelled = false
+    setProjectCtx(null)
+    setActiveWorker(undefined)
+    if (!chatAssistantId) return
+    void loadProjectChatContext(chatAssistantId, id).then((ctx) => {
+      if (!cancelled) setProjectCtx(ctx)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [chatAssistantId, id])
+  const onActiveWorkerChange = useCallback((w: ProjectWorker | undefined) => {
+    setActiveWorker(w)
+  }, [])
   const wsRef = useRef<ChatStreamHandle | null>(null)
 
   const sendAction = (body: Record<string, unknown>) => {
@@ -214,8 +241,36 @@ export function ChatSessionPage() {
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
-  const composerIdle = !composerHasText && !busy
-  const showComposerSend = busy || composerHasText
+  const workerBusy = Boolean(activeWorker) && !projectCtx?.worker
+  const generating = busy || workerBusy
+  const composerIdle = !composerHasText && !generating
+  const showComposerSend = generating || composerHasText
+
+  const handleStopGenerate = useCallback(() => {
+    if (busy) {
+      sendAction({ type: 'cancel' })
+      // Worker live view: also mark WRK cancelled so the queue advances.
+      const self = projectCtx?.worker
+      if (self && projectCtx) {
+        void projects.cancelWorker(projectCtx.project.key, self.key).catch(() => undefined)
+      }
+      return
+    }
+    if (!projectCtx || !activeWorker) return
+    void projects
+      .cancelWorker(projectCtx.project.key, activeWorker.key)
+      .then((res) => {
+        setActiveWorker(
+          res.worker.status === 'running' || res.worker.status === 'queued'
+            ? res.worker
+            : undefined,
+        )
+        setStatusHint(null)
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+  }, [busy, projectCtx, activeWorker, id])
 
   const chats: SemiChatMessage[] = useMemo(
     () => agentMessagesToSemi(messages.filter(shouldShowInDialogue)),
@@ -667,28 +722,42 @@ export function ChatSessionPage() {
               className="rp-assistant-menu-mobile"
               onClick={openAssistantList}
             />
-            {(assistantIdParam || session?.assistantId) && (
-              <button
-                type="button"
-                className="rp-chat-assistant-name"
-                title={
-                  assistants.find(
-                    (a) =>
-                      a.id === (assistantIdParam || session?.assistantId),
-                  )?.name
-                }
-                aria-label="切换助手"
-                onClick={openAssistantList}
-              >
-                {assistants.find(
-                  (a) => a.id === (assistantIdParam || session?.assistantId),
-                )?.name || '助手'}
-              </button>
-            )}
+            {chatAssistantId &&
+              (projectCtx ? (
+                <Link
+                  to={`/projects/${projectCtx.project.key}`}
+                  className="rp-chat-assistant-name is-project"
+                  title={projectCtx.title}
+                  aria-label={t('projects.openFromChat')}
+                >
+                  {projectCtx.label}
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  className="rp-chat-assistant-name"
+                  title={
+                    assistants.find((a) => a.id === chatAssistantId)?.name
+                  }
+                  aria-label="切换助手"
+                  onClick={openAssistantList}
+                >
+                  {assistants.find((a) => a.id === chatAssistantId)?.name ||
+                    '助手'}
+                </button>
+              ))}
           </>
         }
         trailing={
           <div className="rp-session-tabs-tools" ref={moreRef}>
+            {projectCtx && id ? (
+              <CoordinatorWorkersSheet
+                project={projectCtx.project}
+                sessionId={id}
+                isWorkerSession={Boolean(projectCtx.worker)}
+                onActiveChange={onActiveWorkerChange}
+              />
+            ) : null}
             <Button
               theme="borderless"
               type="tertiary"
@@ -865,7 +934,7 @@ export function ChatSessionPage() {
               {chats.length > 0 && (
                 <AIChatDialogue
                   align="leftRight"
-                  mode="bubble"
+                  mode="userBubble"
                   chats={chats}
                   roleConfig={ROLE_CONFIG}
                   dialogueRenderConfig={dialogueRender}
@@ -901,7 +970,7 @@ export function ChatSessionPage() {
               .join(' ')}
           >
             <div className="chat-composer-dock-inner">
-              {chats.length === 0 && !composerHasText && !busy && (
+              {chats.length === 0 && !composerHasText && !generating && (
                 <RoutineSuggestions onPick={fillSuggestion} />
               )}
               <DeliveryActionBar
@@ -921,7 +990,7 @@ export function ChatSessionPage() {
               <AIChatInput
                 ref={composerRef}
                 keepSkillAfterSend={false}
-                generating={busy}
+                generating={generating}
                 canSend={wsCanSendProp(wsStatus) && composerHasText}
                 showUploadButton={false}
                 showUploadFile={false}
@@ -929,7 +998,13 @@ export function ChatSessionPage() {
                 round
                 extensions={composerExtensions}
                 clearContentOnGenerating={false}
-                placeholder={wsInputPlaceholder(wsStatus)}
+                placeholder={
+                  workerBusy && activeWorker
+                    ? t('projects.workers.workingHint', {
+                        key: activeWorker.key,
+                      })
+                    : wsInputPlaceholder(wsStatus)
+                }
                 renderConfigureArea={() => null}
                 renderActionArea={({ menuItem, className }) => {
                   if (!showComposerSend) return null
@@ -973,14 +1048,18 @@ export function ChatSessionPage() {
                   setComposerFocused(true)
                   stickToBottomRef.current = true
                   // After the keyboard animation, visualViewport shrinks; pin
-                  // the thread to the bottom so the composer sits on the keyboard.
+                  // the shell to that viewport and keep the thread on the bottom
+                  // so the composer sits on the keyboard.
                   const pin = () => {
+                    syncVisualViewportInsets()
+                    window.scrollTo(0, 0)
                     const el = scrollRef.current
                     if (el) el.scrollTop = el.scrollHeight
                   }
                   requestAnimationFrame(pin)
                   window.setTimeout(pin, 50)
                   window.setTimeout(pin, 300)
+                  window.setTimeout(pin, 600)
                 }}
                 onBlur={() => setComposerFocused(false)}
                 onContentChange={(contents) => {
@@ -988,7 +1067,7 @@ export function ChatSessionPage() {
                   setComposerHasText(contentsHaveSendableText(contents))
                 }}
                 onMessageSend={handleMessageSend}
-                onStopGenerate={() => sendAction({ type: 'cancel' })}
+                onStopGenerate={handleStopGenerate}
               />
             </div>
           </div>

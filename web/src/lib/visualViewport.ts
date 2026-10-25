@@ -42,12 +42,14 @@ export type AppViewport = {
 /**
  * Resolve CSS viewport vars.
  *
- * Never pin the fixed shell to visualViewport.offsetTop. On short pages
- * (settings forms, etc.) overscroll / URL-bar motion updates offsetTop while
- * the inner scroller has nothing to move — applying it as `top` makes the UI
- * travel opposite the finger. Height still tracks the visual viewport so the
- * keyboard and URL bar resize correctly; standalone idle uses innerHeight to
- * ignore Safari's residual URL-bar metrics.
+ * Idle: never pin to visualViewport.offsetTop — short pages (settings forms)
+ * rubber-band / URL-bar motion would make a fixed shell travel opposite the
+ * finger. Height still tracks the visual viewport; standalone idle uses
+ * innerHeight to ignore Safari's residual URL-bar metrics.
+ *
+ * Keyboard open (Safari tab): pin top to offsetTop so the fixed shell rides
+ * the visual viewport above the keyboard. Standalone keeps top at 0 — Safari
+ * already shrinks the layout there and offsetTop would double-count.
  */
 export function resolveAppViewport(m: ViewportMetrics): AppViewport {
   const inset = keyboardInset(m.innerHeight, m.vvHeight, m.vvOffsetTop)
@@ -62,7 +64,7 @@ export function resolveAppViewport(m: ViewportMetrics): AppViewport {
   }
   return {
     height: m.vvHeight,
-    offsetTop: 0,
+    offsetTop: m.standalone ? 0 : m.vvOffsetTop,
     keyboardInset: inset,
     keyboardOpen: true,
   }
@@ -87,6 +89,12 @@ export function syncVisualViewportInsets(
   root.style.setProperty('--vv-offset-top', `${resolved.offsetTop}px`)
   root.style.setProperty('--keyboard-inset', `${resolved.keyboardInset}px`)
   root.classList.toggle('keyboard-open', resolved.keyboardOpen)
+
+  // iOS Safari scrolls the layout viewport to reveal the focused field; with a
+  // fixed shell that leaves a blank band you can drag. Keep the document pinned.
+  if (resolved.keyboardOpen && (win.scrollY !== 0 || win.scrollX !== 0)) {
+    win.scrollTo(0, 0)
+  }
 }
 
 /** Bind visualViewport listeners; call once at app boot. Returns cleanup. */

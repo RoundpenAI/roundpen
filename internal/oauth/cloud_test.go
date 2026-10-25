@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
+	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -101,6 +102,39 @@ func TestCloudGitHubLinkInjectsRepoToken(t *testing.T) {
 	}
 	if !res.Linked || res.User.Username != "alice" || res.RedirectTo != "/settings/apps" {
 		t.Fatalf("callback %+v", res)
+	}
+
+	httpx.SetUIBase("/app/roundpen")
+	t.Cleanup(func() { httpx.SetUIBase("") })
+	var returnWithPrefix string
+	relayPrefixed := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/github/start" {
+			var body struct {
+				Return string `json:"return"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			returnWithPrefix = body.Return
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"authorizeUrl": "https://github.com/login/oauth/authorize?state=x",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer relayPrefixed.Close()
+	svc.GitHubRelay = relayPrefixed.URL
+	svc.HTTP = relayPrefixed.Client()
+	if _, err := svc.AuthorizeURL(context.Background(), StartInput{
+		ProviderID:    CloudGitHubProviderID,
+		LinkUser:      "alice",
+		RedirectTo:    "/app/roundpen/settings/apps",
+		ConsoleScheme: "https",
+		ConsoleHost:   "nas.example",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if returnWithPrefix != "https://nas.example/app/roundpen" {
+		t.Fatalf("fnOS return = %q", returnWithPrefix)
 	}
 
 	creds, err := svc.CredsForUser(context.Background(), "alice")

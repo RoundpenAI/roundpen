@@ -24,7 +24,8 @@ body.chat-lock {
 }
 
 /* Pin the shell to the visual viewport so iOS Safari's keyboard does not
-   leave a dead band under the composer (layout viewport stays tall). */
+   leave a dead band under the composer (layout viewport stays tall).
+   --vv-offset-top tracks visualViewport.offsetTop while the keyboard is open. */
 body.chat-lock #root {
   position: fixed;
   top: var(--vv-offset-top, 0px);
@@ -33,6 +34,17 @@ body.chat-lock #root {
   width: 100%;
   height: var(--app-height, 100dvh);
   max-height: var(--app-height, 100dvh);
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Keyboard open: only the message thread may pan; keep the document still. */
+html.keyboard-open body.chat-lock {
+  touch-action: none;
+}
+
+html.keyboard-open body.chat-lock .chat-pane-scroll {
+  touch-action: pan-y;
 }
 
 /* Home-screen PWA: status bar is translucent; top chrome absorbs the inset. */
@@ -48,9 +60,33 @@ html.display-standalone .rp-app-mobile-bar {
   min-height: calc(48px + env(safe-area-inset-top, 0px));
 }
 
+.rp-assistant-header {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 8px;
+  background: var(--semi-color-bg-1);
+  border-bottom: 1px solid var(--semi-color-border);
+}
+
 html.display-standalone .rp-assistant-header {
+  padding-top: env(safe-area-inset-top, 0px);
   padding-left: max(12px, env(safe-area-inset-left, 0px));
   padding-right: max(12px, env(safe-area-inset-right, 0px));
+  height: calc(40px + env(safe-area-inset-top, 0px));
+}
+
+html.display-standalone .rp-session-tabs {
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  height: calc(36px + env(safe-area-inset-top, 0px));
+}
+
+/* SideSheet / drawer title sits under the notch in standalone. */
+html.display-standalone .semi-sidesheet-header {
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
 }
 
 input,
@@ -337,24 +373,52 @@ html.keyboard-open .chat-composer-dock {
   }
 }
 
-/* Compact chat: more room for bubbles, quiet activity rows */
+/* Compact chat: assistant replies are plain page text (userBubble mode);
+   user messages keep a light bubble. Quiet activity rows, no avatars. */
 .chat-pane-scroll .semi-ai-chat-dialogue-avatar,
 .chat-pane-scroll .semi-ai-chat-dialogue-title,
 .chat-pane-scroll .semi-ai-chat-dialogue-action {
   display: none !important;
 }
 
+.chat-pane-scroll .semi-ai-chat-dialogue-wrapper {
+  padding: 4px 0;
+  margin-top: 0;
+  column-gap: 0;
+}
+
+/* Assistant / system: full-width prose, no card chrome. */
+.chat-pane-scroll .semi-ai-chat-dialogue-content-no-bubble {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 0;
+  padding: 0.15rem 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+/* User bubble: keep a soft chip, less padding than Semi default. */
+.chat-pane-scroll .semi-ai-chat-dialogue-content-userBubble {
+  margin-top: 0;
+  padding: 8px 12px;
+  max-width: min(100%, 36rem);
+}
+
 .chat-pane-scroll .semi-ai-chat-dialogue-content-bubble:has(.chat-activity-wrap),
-.chat-pane-scroll .semi-ai-chat-dialogue-content-userBubble:has(.chat-activity-wrap) {
+.chat-pane-scroll .semi-ai-chat-dialogue-content-userBubble:has(.chat-activity-wrap),
+.chat-pane-scroll .semi-ai-chat-dialogue-content-no-bubble:has(.chat-activity-wrap) {
   background: transparent;
   border: none;
   box-shadow: none;
   padding: 0.15rem 0;
   max-width: 100%;
+  width: 100%;
 }
 
 /* /clear boundary: a divider, not a bubble */
-.chat-pane-scroll .semi-ai-chat-dialogue-content-bubble:has(.chat-clear-divider) {
+.chat-pane-scroll .semi-ai-chat-dialogue-content-bubble:has(.chat-clear-divider),
+.chat-pane-scroll .semi-ai-chat-dialogue-content-no-bubble:has(.chat-clear-divider) {
   background: transparent;
   border: none;
   box-shadow: none;
@@ -399,11 +463,7 @@ html.keyboard-open .chat-composer-dock {
   font-size: 0.72rem;
 }
 
-.chat-pane-scroll .semi-ai-chat-dialogue-content-bubble {
-  max-width: 100%;
-}
-
-/* Let bubbles shrink below their min-content on narrow screens. Semi's flex
+/* Let rows shrink below their min-content on narrow screens. Semi's flex
    chain defaults to min-width:auto, so a long unbreakable token prevents the
    whole row from shrinking and overflow-x:hidden clips the right edge. */
 .chat-pane-scroll .semi-ai-chat-dialogue-wrapper,
@@ -418,11 +478,26 @@ html.keyboard-open .chat-composer-dock {
 
 .chat-pane-scroll .semi-ai-chat-dialogue-content-bubble,
 .chat-pane-scroll .semi-ai-chat-dialogue-content-userBubble,
+.chat-pane-scroll .semi-ai-chat-dialogue-content-no-bubble,
 .chat-pane-scroll .semi-ai-chat-dialogue .semi-markdownRender,
 .chat-pane-scroll .chat-activity-wrap,
 .chat-pane-scroll .chat-activity {
   min-width: 0;
   overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Long tokens / paths inside assistant markdown must wrap, not blow the row. */
+.chat-pane-scroll .semi-markdownRender pre,
+.chat-pane-scroll .semi-markdownRender code,
+.chat-pane-scroll .semi-markdownRender-simple-code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-pane-scroll .semi-markdownRender pre {
+  white-space: pre-wrap;
 }
 
 .chat-activity-wrap,
@@ -682,6 +757,7 @@ html.keyboard-open .chat-composer-dock {
 }
 
 .rp-changeset-path {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -709,7 +785,9 @@ html.keyboard-open .chat-composer-dock {
   font-family: var(--semi-font-family-code, ui-monospace, monospace);
   font-size: 11px;
   line-height: 1.45;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .rp-diff-add {
@@ -858,6 +936,42 @@ html.keyboard-open .chat-composer-dock {
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
+}
+
+/* Project coordinator / worker: show "项目 · 角色" in the assistant slot. */
+.rp-chat-assistant-name.is-project {
+  max-width: min(14rem, 42vw);
+}
+
+.rp-coord-worker-item {
+  align-items: flex-start;
+}
+
+.rp-coord-worker-item.is-current {
+  background: var(--semi-color-fill-0);
+  border-radius: 8px;
+}
+
+.rp-coord-worker-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 8px;
+}
+
+.rp-coord-worker-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.rp-coord-worker-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
 }
 
 .rp-assistant-header .rp-assistant-title {
