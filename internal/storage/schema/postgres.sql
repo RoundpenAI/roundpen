@@ -294,7 +294,7 @@ CREATE TABLE IF NOT EXISTS assistants (
     bio             TEXT NOT NULL DEFAULT '',
     identity_mode   TEXT NOT NULL DEFAULT 'proxy_user'
         CHECK (identity_mode IN ('proxy_user', 'independent')),
-    capabilities    JSONB NOT NULL DEFAULT '{"shell":true,"browser":false,"mobile":false,"desktop":false}',
+    capabilities    JSONB NOT NULL DEFAULT '{"shell":true,"browser":true,"mobile":false,"desktop":false}',
     network_tier    TEXT NOT NULL DEFAULT 'dev_sites'
         CHECK (network_tier IN ('none', 'dev_sites', 'all')),
     network_allowlist JSONB NOT NULL DEFAULT '[]',
@@ -994,3 +994,20 @@ ALTER TABLE project_subscriptions
     ADD COLUMN IF NOT EXISTS last_status TEXT NOT NULL DEFAULT '';
 ALTER TABLE project_subscriptions
     ADD COLUMN IF NOT EXISTS last_summary TEXT NOT NULL DEFAULT '';
+
+-- Browser capability on by default for every assistant. One-shot data flip so
+-- later schema replays do not undo an intentional detail-page toggle off.
+ALTER TABLE assistants
+    ALTER COLUMN capabilities SET DEFAULT '{"shell":true,"browser":true,"mobile":false,"desktop":false}';
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM schema_migrations WHERE id = 'assistant_browser_default_v1'
+    ) THEN
+        UPDATE assistants
+        SET capabilities = jsonb_set(COALESCE(capabilities, '{}'::jsonb), '{browser}', 'true'::jsonb, true)
+        WHERE COALESCE(capabilities->>'browser', 'false') <> 'true';
+        INSERT INTO schema_migrations (id, hash, applied_at)
+        VALUES ('assistant_browser_default_v1', 'applied', now());
+    END IF;
+END $$;

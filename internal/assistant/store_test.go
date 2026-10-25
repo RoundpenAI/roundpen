@@ -48,6 +48,48 @@ func insertUser(t *testing.T, db *storage.DB, user string) {
 	})
 }
 
+func TestStore_CreateDefaultsBrowserOn(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	user := "asst-bdef-" + uuid.NewString()[:8]
+	insertUser(t, db, user)
+
+	store := &Store{DB: db.SQL}
+	for _, preset := range []string{"writing", "code", "code_browser"} {
+		a, err := store.Create(ctx, user, CreateInput{
+			Name:         "Asst-" + preset,
+			IdentityMode: IdentityProxyUser,
+			Preset:       preset,
+		})
+		if err != nil {
+			t.Fatalf("create %s: %v", preset, err)
+		}
+		got, err := store.Get(ctx, a.ID)
+		if err != nil {
+			t.Fatalf("get %s: %v", preset, err)
+		}
+		if !got.Capabilities.Browser {
+			t.Fatalf("preset %s: browser should default on after create/read: %+v", preset, got.Capabilities)
+		}
+	}
+
+	off, err := store.Create(ctx, user, CreateInput{
+		Name:         "ExplicitOff",
+		IdentityMode: IdentityProxyUser,
+		Capabilities: &Capabilities{Shell: true, Browser: false},
+	})
+	if err != nil {
+		t.Fatalf("create off: %v", err)
+	}
+	got, err := store.Get(ctx, off.ID)
+	if err != nil {
+		t.Fatalf("get off: %v", err)
+	}
+	if got.Capabilities.Browser {
+		t.Fatalf("explicit browser false must persist: %+v", got.Capabilities)
+	}
+}
+
 func TestStore_CreateListUpdate(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()

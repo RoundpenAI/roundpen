@@ -70,16 +70,39 @@ type CreateInput struct {
 }
 
 func ApplyPreset(preset string) Capabilities {
+	// Browser is on by default for every preset; users can turn it off in detail.
 	switch strings.TrimSpace(preset) {
 	case "writing":
-		return Capabilities{}
-	case "code":
-		return Capabilities{Shell: true}
-	case "code_browser":
+		return Capabilities{Browser: true}
+	case "code", "code_browser":
 		return Capabilities{Shell: true, Browser: true}
 	default:
-		return Capabilities{Shell: true}
+		return Capabilities{Shell: true, Browser: true}
 	}
+}
+
+// UnmarshalJSON defaults a missing browser key to on so older rows without the
+// field stay effective after the product default flipped. Explicit false stays off.
+func (c *Capabilities) UnmarshalJSON(data []byte) error {
+	type rawCaps struct {
+		Shell   bool  `json:"shell"`
+		Browser *bool `json:"browser"`
+		Mobile  bool  `json:"mobile"`
+		Desktop bool  `json:"desktop"`
+	}
+	var raw rawCaps
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	c.Shell = raw.Shell
+	c.Mobile = raw.Mobile
+	c.Desktop = raw.Desktop
+	if raw.Browser == nil {
+		c.Browser = true
+	} else {
+		c.Browser = *raw.Browser
+	}
+	return nil
 }
 
 func ValidateCreate(in CreateInput) error {

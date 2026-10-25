@@ -32,7 +32,7 @@ func TestApplyPermanent_CapabilityTargetEnablesBrowser(t *testing.T) {
 	a, err := store.Create(ctx, user, CreateInput{
 		Name:         "NoBrowser",
 		IdentityMode: IdentityProxyUser,
-		Preset:       "code", // shell only
+		Capabilities: &Capabilities{Shell: true, Browser: false},
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -86,7 +86,7 @@ func TestApplyPermanent_CapabilityLegacyField(t *testing.T) {
 	a, err := store.Create(ctx, user, CreateInput{
 		Name:         "Legacy",
 		IdentityMode: IdentityProxyUser,
-		Preset:       "writing",
+		Capabilities: &Capabilities{Browser: false},
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -133,7 +133,7 @@ func TestApplyPermanent_CapabilityMissingTarget(t *testing.T) {
 	a, err := store.Create(ctx, user, CreateInput{
 		Name:         "Miss",
 		IdentityMode: IdentityProxyUser,
-		Preset:       "code",
+		Capabilities: &Capabilities{Shell: true, Browser: false},
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
