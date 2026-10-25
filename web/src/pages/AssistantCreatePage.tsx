@@ -23,17 +23,17 @@ const PRESETS: { id: string; label: string; hint: string }[] = [
   {
     id: 'writing',
     label: '写作与文件',
-    hint: '读写工作区文件，不默认开终端/浏览器',
+    hint: '读写工作区文件；浏览器默认开启，可不默认开终端',
   },
   {
     id: 'code',
     label: '代码（含终端）',
-    hint: '适合编程、构建与仓库操作',
+    hint: '适合编程、构建与仓库操作；浏览器默认开启',
   },
   {
     id: 'code_browser',
     label: '代码 + 浏览器',
-    hint: '编程并可用浏览器访问网页',
+    hint: '编程并可用浏览器访问网页（与默认一致，可在详情关闭）',
   },
 ]
 
