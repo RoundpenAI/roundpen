@@ -292,7 +292,8 @@ func (h *Handler) applyPermanent(r *http.Request, t *assistticket.Ticket) error 
 		Dimension string `json:"dimension"`
 		Target    string `json:"target"`
 		Mode      string `json:"mode"`
-		Cap       string `json:"capability"`
+		// Cap is a legacy alias; Decision / policyCheck put the name in target.
+		Cap string `json:"capability"`
 	}
 	if len(t.Payload) > 0 {
 		_ = json.Unmarshal(t.Payload, &payload)
@@ -318,12 +319,18 @@ func (h *Handler) applyPermanent(r *http.Request, t *assistticket.Ticket) error 
 		grants = append(grants, DirectoryGrant{Path: payload.Target, Mode: mode, CreatedAt: time.Now().UTC().Format(time.RFC3339)})
 		in.DirectoryGrants = &grants
 	case "capability":
+		name := capabilityGrantName(payload.Target, payload.Cap)
+		if name == "" {
+			return errors.New("capability grant missing target")
+		}
 		caps := a.Capabilities
-		switch payload.Cap {
-		case "shell":
+		switch name {
+		case "shell", "terminal":
 			caps.Shell = true
 		case "browser":
 			caps.Browser = true
+		default:
+			return errors.New("unknown capability: " + name)
 		}
 		in.Capabilities = &caps
 	default:
@@ -332,6 +339,15 @@ func (h *Handler) applyPermanent(r *http.Request, t *assistticket.Ticket) error 
 	}
 	_, err = h.Store.Update(r.Context(), a.ID, in)
 	return err
+}
+
+// capabilityGrantName prefers Decision.target; accepts legacy payload.capability.
+func capabilityGrantName(target, cap string) string {
+	name := strings.ToLower(strings.TrimSpace(target))
+	if name == "" {
+		name = strings.ToLower(strings.TrimSpace(cap))
+	}
+	return name
 }
 
 func (h *Handler) pendingTickets(w http.ResponseWriter, r *http.Request) {

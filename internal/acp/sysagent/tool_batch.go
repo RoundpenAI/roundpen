@@ -380,7 +380,7 @@ func (a *Agent) invokePrepared(ctx context.Context, sid string, prep preparedCal
 		Name:        prep.name,
 		Args:        prep.args,
 		AutoVerdict: prep.autoVerdict,
-		Policy:      a.deps.Policy,
+		Policy:      a.effectivePolicy(ctx),
 	})
 	result := inv.Content
 	status := acp.ToolCallStatusCompleted

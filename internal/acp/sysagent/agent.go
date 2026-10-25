@@ -74,8 +74,12 @@ type Deps struct {
 	Gateway *toolgw.Gateway
 	// Policy is the optional assistant constitution enforced inside toolgw
 	// (nil = NAS zero-config: only L3 HardDeny, no soft policy friction).
-	Policy      *policy.Profile
-	Actor       tools.Actor
+	// Prefer PolicyLookup when the constitution can change mid-session
+	// (capability grants, detail toggles); Policy alone is a static snapshot.
+	Policy *policy.Profile
+	// PolicyLookup reloads the constitution on each tool invoke when set.
+	PolicyLookup func(ctx context.Context) *policy.Profile
+	Actor        tools.Actor
 	History     MessageSource
 	SessionID   string // Roundpen agent session id (for history replay)
 	AssistantID string
@@ -119,6 +123,15 @@ func New(deps Deps) *Agent {
 
 // SetAgentConnection receives the connection after construction.
 func (a *Agent) SetAgentConnection(conn *acp.AgentSideConnection) { a.conn = conn }
+
+// effectivePolicy returns the live constitution when PolicyLookup is set,
+// otherwise the static Policy snapshot.
+func (a *Agent) effectivePolicy(ctx context.Context) *policy.Profile {
+	if a.deps.PolicyLookup != nil {
+		return a.deps.PolicyLookup(ctx)
+	}
+	return a.deps.Policy
+}
 
 // SetTokenBudget updates the remaining token ceiling for subsequent turns.
 func (a *Agent) SetTokenBudget(n int) {

@@ -316,9 +316,13 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Google: &tools.GoogleBinder{API: m.sys.Google},
 			MCP:    m.mcpBinder(opts.Actor.Username, opts.Routine.RunKey != ""),
 		})
-		var pol *policy.Profile
-		if m.sys.PolicyFor != nil && opts.AssistantID != "" {
-			pol = m.sys.PolicyFor(ctx, opts.Actor.Username, opts.AssistantID)
+		userID := opts.Actor.Username
+		assistantID := opts.AssistantID
+		var policyLookup func(context.Context) *policy.Profile
+		if m.sys.PolicyFor != nil && assistantID != "" {
+			policyLookup = func(c context.Context) *policy.Profile {
+				return m.sys.PolicyFor(c, userID, assistantID)
+			}
 		}
 		var onTokens func(int)
 		if opts.Routine.RunKey != "" && m.sys.OnRoutineTokens != nil {
@@ -334,19 +338,19 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			userCtx = m.sys.UserContext(ctx, opts.Actor.Username)
 		}
 		agent := sysagent.New(sysagent.Deps{
-			LLM:         llmCfg,
-			Tools:       reg,
-			Gateway:     toolgw.New(reg),
-			Policy:      pol,
-			Actor:       opts.Actor,
-			History:     m.sys.History,
-			SessionID:   sessionID,
-			AssistantID: opts.AssistantID,
-			Evaluator:   m.sys.AutoMode,
-			Profile:     opts.Project.Profile,
-			UserContext: userCtx,
-			TokenBudget: opts.Routine.TokenBudget,
-			OnTokens:    onTokens,
+			LLM:          llmCfg,
+			Tools:        reg,
+			Gateway:      toolgw.New(reg),
+			PolicyLookup: policyLookup,
+			Actor:        opts.Actor,
+			History:      m.sys.History,
+			SessionID:    sessionID,
+			AssistantID:  opts.AssistantID,
+			Evaluator:    m.sys.AutoMode,
+			Profile:      opts.Project.Profile,
+			UserContext:  userCtx,
+			TokenBudget:  opts.Routine.TokenBudget,
+			OnTokens:     onTokens,
 		})
 		sysAgent = agent
 		asc := acp.NewAgentSideConnection(agent, a2cW, c2aR)
