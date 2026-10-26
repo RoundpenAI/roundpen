@@ -1011,3 +1011,11 @@ BEGIN
         VALUES ('assistant_browser_default_v1', 'applied', now());
     END IF;
 END $$;
+
+-- Proactive recall: per-user cooldown and last digest fingerprint.
+CREATE TABLE IF NOT EXISTS proactive_state (
+    user_id          TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
+    last_notified_at TIMESTAMPTZ,
+    last_digest_hash TEXT NOT NULL DEFAULT '',
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
