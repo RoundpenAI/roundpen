@@ -304,6 +304,8 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			AllowPrivate: true,
 			ProxyURL:     searchCfg.ProxyURL,
 		})
+		userID := opts.Actor.Username
+		assistantID := opts.AssistantID
 		tools.RegisterSession(reg, tools.SessionSurface{
 			Roundpen:    m.sys.Roundpen,
 			API:         controlPlane,
@@ -312,6 +314,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Autonomy:    opts.Routine.Autonomy,
 			Profile:     opts.Project.Profile,
 			ProjectKey:  strings.TrimSpace(opts.Project.Key),
+			AssistantID: assistantID,
 			Browser:     &tools.BrowserBinder{Hub: m.sys.BrowserHub, Slots: m.sys.BrowserSlots, SessionID: sessionID},
 			Agent:       binder,
 			PreviewZone: m.sys.PreviewZone,
@@ -328,8 +331,6 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Google: &tools.GoogleBinder{API: m.sys.Google},
 			MCP:    m.mcpBinder(opts.Actor.Username, opts.Routine.RunKey != ""),
 		})
-		userID := opts.Actor.Username
-		assistantID := opts.AssistantID
 		var policyLookup func(context.Context) *policy.Profile
 		if m.sys.PolicyFor != nil && assistantID != "" {
 			policyLookup = func(c context.Context) *policy.Profile {

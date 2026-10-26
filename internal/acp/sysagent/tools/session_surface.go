@@ -22,6 +22,7 @@ type SessionSurface struct {
 	Autonomy    string
 	Profile     string
 	ProjectKey  string // PRJ-n; default for DelegateProjectWork when omitted
+	AssistantID string // optional; expert deep links
 	Browser     *BrowserBinder
 	Agent       *AgentBinder
 	PreviewZone string
@@ -97,6 +98,7 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 		RegisterSearch(reg, s.Agent)
 		RegisterGitPR(reg, s.Agent)
 	}
+	registerExpertTools(reg, s)
 	RegisterInteractive(reg)
 	if s.Web != nil {
 		RegisterWebFetch(reg, s.Web)
@@ -110,6 +112,14 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 	if s.MCP != nil {
 		RegisterMCP(reg, s.MCP)
 	}
+}
+
+func registerExpertTools(reg *Registry, s SessionSurface) {
+	b := &ExpertBinder{SessionID: s.SessionID, AssistantID: s.AssistantID}
+	if s.Roundpen != nil {
+		b.Envs = s.Roundpen.Envs
+	}
+	RegisterExperts(reg, b)
 }
 
 func registerCoordinatorTools(reg *Registry, s SessionSurface) {
