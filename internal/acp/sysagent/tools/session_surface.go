@@ -68,6 +68,7 @@ func RegisterSession(reg *Registry, s SessionSurface) {
 		}
 		if s.Agent != nil {
 			RegisterFiles(reg, s.Agent)
+			RegisterReadImage(reg, s.Agent)
 			RegisterSearch(reg, s.Agent)
 		}
 	case profile == ProfileCoordinator:
@@ -92,6 +93,7 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 		RegisterShell(reg, s.Agent)
 		RegisterSkill(reg, s.Agent, s.WebHTTP)
 		RegisterFiles(reg, s.Agent)
+		RegisterReadImage(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
 		RegisterGitPR(reg, s.Agent)
 	}
@@ -115,6 +117,7 @@ func registerCoordinatorTools(reg *Registry, s SessionSurface) {
 	// installs, builds, and edits must go through DelegateProjectWork.
 	if s.Agent != nil {
 		RegisterExploreFiles(reg, s.Agent)
+		RegisterReadImage(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
 	}
 	RegisterInteractive(reg)
@@ -131,6 +134,7 @@ func registerImplementerTools(reg *Registry, s SessionSurface) {
 		RegisterShell(reg, s.Agent)
 		RegisterSkill(reg, s.Agent, s.WebHTTP)
 		RegisterFiles(reg, s.Agent)
+		RegisterReadImage(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
 		RegisterGitPR(reg, s.Agent)
 	}
@@ -143,6 +147,7 @@ func registerImplementerTools(reg *Registry, s SessionSurface) {
 func registerReviewerTools(reg *Registry, s SessionSurface) {
 	if s.Agent != nil {
 		RegisterExploreFiles(reg, s.Agent)
+		RegisterReadImage(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
 		RegisterShell(reg, s.Agent)
 	}
@@ -153,6 +158,7 @@ func registerTesterTools(reg *Registry, s SessionSurface) {
 	if s.Agent != nil {
 		RegisterShell(reg, s.Agent)
 		RegisterFiles(reg, s.Agent)
+		RegisterReadImage(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
 	}
 	RegisterInteractive(reg)

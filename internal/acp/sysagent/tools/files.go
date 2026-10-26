@@ -19,7 +19,7 @@ func RegisterExploreFiles(r *Registry, binder *AgentBinder) {
 		Name: "Read",
 		Description: "Read a text file from the Agent workspace (/workspace) or, read-only, from a host " +
 			"directory the assistant is granted (absolute path, e.g. /vol1/share/notes.md — use Glob to list one). " +
-			"Paths outside granted directories are refused; the user can grant access when asked.",
+			"For photos/images use ReadImage instead. Paths outside granted directories are refused; the user can grant access when asked.",
 		Parameters: objectSchema(map[string]any{
 			"file_path": map[string]any{"type": "string", "description": "Absolute path under /workspace or a granted host directory, or a path relative to the session cwd"},
 			"offset":    map[string]any{"type": "integer", "description": "1-based start line (optional)"},
@@ -117,6 +117,9 @@ func (b *AgentBinder) readFile(ctx context.Context, actor Actor, filePath string
 	}
 	if len(raw) == 0 {
 		return "File is empty.", nil
+	}
+	if mime := sniffImageMIME(raw, filePath); mime != "" {
+		return "", fmt.Errorf("%s looks like an image (%s) — use ReadImage with file_path=%q", filePath, mime, filePath)
 	}
 	return formatText(raw, truncated, offset, limit), nil
 }

@@ -67,6 +67,22 @@ type sessionAccess struct {
 	sessionID string
 }
 
+func (s *sessionAccess) ListGrants(ctx context.Context, actor tools.Actor) ([]tools.DirGrantView, error) {
+	a, err := s.loadAssistant(ctx, actor)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]tools.DirGrantView, 0, len(a.DirectoryGrants))
+	for _, g := range a.DirectoryGrants {
+		mode := strings.TrimSpace(g.Mode)
+		if mode == "" {
+			mode = "read"
+		}
+		out = append(out, tools.DirGrantView{Path: g.Path, Mode: mode})
+	}
+	return out, nil
+}
+
 func (s *sessionAccess) OpenHost(ctx context.Context, actor tools.Actor, absPath string) (io.ReadCloser, os.FileInfo, error) {
 	resolved, err := s.authorize(ctx, actor, absPath)
 	if err != nil {
@@ -143,6 +159,27 @@ func (s *sessionAccess) GlobHost(ctx context.Context, actor tools.Actor, rootAbs
 	return out, nil
 }
 
+func (s *sessionAccess) loadAssistant(ctx context.Context, actor tools.Actor) (*assistant.Assistant, error) {
+	sess, err := s.sessions.Get(ctx, s.sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("host read: session %s: %w", s.sessionID, err)
+	}
+	if sess == nil {
+		return nil, fmt.Errorf("host read: session %s not found", s.sessionID)
+	}
+	if actor.Username == "" || sess.UserID != actor.Username {
+		return nil, fmt.Errorf("host read denied: session belongs to another user")
+	}
+	if strings.TrimSpace(sess.AssistantID) == "" {
+		return nil, fmt.Errorf("host read denied: session has no assistant, so no directory grants apply")
+	}
+	a, err := s.assistants.Get(ctx, sess.AssistantID)
+	if err != nil {
+		return nil, fmt.Errorf("host read: assistant %s: %w", sess.AssistantID, err)
+	}
+	return a, nil
+}
+
 // authorize checks the session's assistant grants and returns the symlink-free
 // path so a link inside a granted directory cannot escape it.
 func (s *sessionAccess) authorize(ctx context.Context, actor tools.Actor, absPath string) (string, error) {
@@ -150,22 +187,9 @@ func (s *sessionAccess) authorize(ctx context.Context, actor tools.Actor, absPat
 	if !strings.HasPrefix(cleaned, "/") || cleaned == "/" {
 		return "", fmt.Errorf("host read denied: %q is not an absolute file or directory path", absPath)
 	}
-	sess, err := s.sessions.Get(ctx, s.sessionID)
+	a, err := s.loadAssistant(ctx, actor)
 	if err != nil {
-		return "", fmt.Errorf("host read: session %s: %w", s.sessionID, err)
-	}
-	if sess == nil {
-		return "", fmt.Errorf("host read: session %s not found", s.sessionID)
-	}
-	if actor.Username == "" || sess.UserID != actor.Username {
-		return "", fmt.Errorf("host read denied: session belongs to another user")
-	}
-	if strings.TrimSpace(sess.AssistantID) == "" {
-		return "", fmt.Errorf("host read denied: session has no assistant, so no directory grants apply")
-	}
-	a, err := s.assistants.Get(ctx, sess.AssistantID)
-	if err != nil {
-		return "", fmt.Errorf("host read: assistant %s: %w", sess.AssistantID, err)
+		return "", err
 	}
 	prof := assistant.PolicyProfile(a)
 	if d := policy.CheckDirectory(prof, cleaned, "read"); !d.Allowed {

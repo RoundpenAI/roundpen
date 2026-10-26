@@ -27,11 +27,58 @@ type Handler struct {
 	DataRoot string
 }
 
-// Mount registers /v1/me/workspace-root.
+// Mount registers /v1/me/workspace-root and accessible-folders.
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/me/workspace-root", h.get)
 	mux.HandleFunc("PUT /v1/me/workspace-root", h.put)
 	mux.HandleFunc("DELETE /v1/me/workspace-root", h.del)
+	mux.HandleFunc("GET /v1/me/accessible-folders", h.accessibleFolders)
+}
+
+// accessibleFolder is one fnOS path the user already authorized for this app.
+type accessibleFolder struct {
+	Path        string `json:"path"`
+	DisplayPath string `json:"displayPath"`
+}
+
+func (h *Handler) accessibleFolders(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	out := struct {
+		Enabled bool               `json:"enabled"`
+		Folders []accessibleFolder `json:"folders"`
+	}{Folders: []accessibleFolder{}}
+	if h.Files == nil || !h.Files.Enabled() {
+		httpx.WriteJSON(w, http.StatusOK, out)
+		return
+	}
+	uid, ok := FnosUID(user.AuthProvider, user.Username)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusOK, out)
+		return
+	}
+	out.Enabled = true
+	paths, err := h.Files.UserFolders(r.Context(), uid)
+	if err != nil {
+		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	lang := language(r)
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		label := filepath.Base(p)
+		if disp, err := h.Files.DisplayPath(r.Context(), p, lang); err == nil && disp != "" {
+			label = disp
+		}
+		out.Folders = append(out.Folders, accessibleFolder{Path: p, DisplayPath: label})
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 type view struct {

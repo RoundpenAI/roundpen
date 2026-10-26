@@ -24,6 +24,7 @@ import {
   type AssistantDirectoryGrant,
   type ImChannels,
 } from '../api'
+import { workspaceRoot } from '../api/environments'
 import { useAssistantLayout } from '../components/AssistantLayout'
 import { ImChannelsSection } from '../components/assistant/ImChannelsSection'
 import { Loading } from '../components/Loading'
@@ -58,10 +59,14 @@ export function AssistantDetailPage() {
   const [newPath, setNewPath] = useState('')
   const [newMode, setNewMode] = useState<'read' | 'readwrite'>('read')
   const [allowText, setAllowText] = useState('')
+  const [nasFolders, setNasFolders] = useState<
+    { path: string; displayPath: string }[]
+  >([])
+  const [nasFoldersEnabled, setNasFoldersEnabled] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const [got, act, tix] = await Promise.all([
+      const [got, act, tix, folders] = await Promise.all([
         assistantsApi.get(assistantId),
         assistantsApi.activity(assistantId).catch(() => ({
           activity: [] as ActivityItem[],
@@ -69,6 +74,10 @@ export function AssistantDetailPage() {
         })),
         assistantsApi.listTickets(assistantId, true).catch(() => ({
           tickets: [] as AssistTicket[],
+        })),
+        workspaceRoot.accessibleFolders().catch(() => ({
+          enabled: false,
+          folders: [] as { path: string; displayPath: string }[],
         })),
       ])
       setA(got)
@@ -78,6 +87,8 @@ export function AssistantDetailPage() {
       setActivity(act.activity ?? [])
       setBusyNow(Boolean(act.busy))
       setTickets(tix.tickets ?? [])
+      setNasFoldersEnabled(Boolean(folders.enabled))
+      setNasFolders(folders.folders ?? [])
       setError(null)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
@@ -444,7 +455,9 @@ export function AssistantDetailPage() {
             可见范围
           </Typography.Title>
           <Typography.Text type="tertiary" size="small">
-            默认资料在账号工作区，所有助手可共用。需要访问本机目录时在此授权。{' '}
+            默认资料在账号工作区，所有助手可共用。授权本机/NAS
+            目录后，对话里可只读列出与阅读材料、照片（Read / Glob /
+            ReadImage）。{' '}
             <Typography.Text
               link
               onClick={() => navigate('/workspace')}
@@ -484,6 +497,48 @@ export function AssistantDetailPage() {
               />
             )}
           />
+          {nasFoldersEnabled && nasFolders.length > 0 ? (
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 8,
+                alignItems: 'center',
+              }}
+            >
+              <Select
+                placeholder="选择已授权给本应用的 NAS 文件夹"
+                style={{ flex: '1 1 220px', minWidth: 0 }}
+                value={undefined}
+                onChange={(v) => {
+                  const path = String(v ?? '')
+                  if (!path) return
+                  if ((a.directoryGrants ?? []).some((g) => g.path === path)) {
+                    return
+                  }
+                  void patch({
+                    directoryGrants: [
+                      ...(a.directoryGrants ?? []),
+                      {
+                        path,
+                        mode: 'read',
+                        createdAt: new Date().toISOString(),
+                      },
+                    ],
+                  })
+                }}
+              >
+                {nasFolders.map((f) => (
+                  <Select.Option key={f.path} value={f.path}>
+                    {f.displayPath || f.path}
+                  </Select.Option>
+                ))}
+              </Select>
+              <Typography.Text type="tertiary" size="small">
+                一键添加（只读）
+              </Typography.Text>
+            </div>
+          ) : null}
           <div
             style={{
               display: 'flex',

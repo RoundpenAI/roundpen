@@ -42,9 +42,44 @@ type TokenUsage struct {
 type chatMessage struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
-	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-	Name       string     `json:"name,omitempty"`
+	// ContentParts, when set, is marshaled as the OpenAI multimodal content array
+	// (text + image_url) and Content is ignored for the wire format.
+	ContentParts []contentPart `json:"-"`
+	ToolCalls    []toolCall    `json:"tool_calls,omitempty"`
+	ToolCallID   string        `json:"tool_call_id,omitempty"`
+	Name         string        `json:"name,omitempty"`
+}
+
+type contentPart struct {
+	Type     string        `json:"type"`
+	Text     string        `json:"text,omitempty"`
+	ImageURL *imageURLPart `json:"image_url,omitempty"`
+}
+
+type imageURLPart struct {
+	URL string `json:"url"`
+}
+
+func (m chatMessage) MarshalJSON() ([]byte, error) {
+	type wire struct {
+		Role       string     `json:"role"`
+		Content    any        `json:"content,omitempty"`
+		ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+		ToolCallID string     `json:"tool_call_id,omitempty"`
+		Name       string     `json:"name,omitempty"`
+	}
+	w := wire{
+		Role:       m.Role,
+		ToolCalls:  m.ToolCalls,
+		ToolCallID: m.ToolCallID,
+		Name:       m.Name,
+	}
+	if len(m.ContentParts) > 0 {
+		w.Content = m.ContentParts
+	} else if m.Content != "" {
+		w.Content = m.Content
+	}
+	return json.Marshal(w)
 }
 
 type toolCall struct {
