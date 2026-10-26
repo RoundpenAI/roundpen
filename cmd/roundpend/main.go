@@ -32,6 +32,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/plugins"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
+	"github.com/RoundpenAI/roundpen/internal/proactive"
 	"github.com/RoundpenAI/roundpen/internal/project"
 	"github.com/RoundpenAI/roundpen/internal/routine"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
@@ -366,6 +367,58 @@ func main() {
 		routineRunner.Notify = imSup.Notify
 	}
 	go routineRunner.Loop(ctx)
+
+	gitCredStore := &gitcred.Store{DB: db.SQL}
+	proactiveRunner := &proactive.Runner{
+		Users:      userStore,
+		Assistants: assistantStore,
+		Sessions:   agentStore,
+		Quiet:      proactive.SQLQuietClock{DB: db.SQL},
+		Store:      &proactive.Store{DB: db.SQL},
+		Scanner: &proactive.Scanner{
+			Issues: issueStore,
+			GitHub: proactive.GitHubTokenFunc(func(ctx context.Context, userID string) (string, error) {
+				pats, err := gitCredStore.List(ctx, userID)
+				if err != nil {
+					pats = nil
+				}
+				idents, err := oauthSvc.CredsForUser(ctx, userID)
+				if err != nil {
+					idents = nil
+				}
+				for _, c := range gitcred.MergeCreds(pats, idents) {
+					if strings.TrimSpace(c.Token) == "" {
+						continue
+					}
+					if c.Provider == gitcred.ProviderGitHub || c.Host == "github.com" {
+						return c.Token, nil
+					}
+				}
+				return "", nil
+			}),
+			Gmail: proactive.GmailSearchFunc(func(ctx context.Context, userID, q string, maxResults int) ([]proactive.GmailHit, error) {
+				rows, err := connectorsSvc.SearchGmail(ctx, userID, q, maxResults)
+				if err != nil {
+					return nil, err
+				}
+				out := make([]proactive.GmailHit, 0, len(rows))
+				for _, r := range rows {
+					out = append(out, proactive.GmailHit{
+						ID: r.ID, Subject: r.Subject, From: r.From, Snippet: r.Snippet,
+					})
+				}
+				return out, nil
+			}),
+			OnThisDay: &proactive.OnThisDay{Grants: proactive.AssistantGrants{Assistants: assistantStore}},
+			Log:       logger,
+		},
+		Log: logger,
+	}
+	if pushSvc != nil {
+		proactiveRunner.Push = pushSvc
+	}
+	go proactiveRunner.Loop(ctx)
+	logger.Info("proactive recall enabled")
 
 	if imSup != nil {
 		if err := imSup.StartAll(ctx); err != nil {
