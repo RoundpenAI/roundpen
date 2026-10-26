@@ -149,6 +149,10 @@ func TestProviders_NeedsSandbox(t *testing.T) {
 	if !ok || !providers.NeedsSandbox(claude) || claude.TemplateID != "code-agent" || claude.Command != "claude-agent-acp" {
 		t.Fatalf("claude provider: %+v", claude)
 	}
+	codex, ok := providers.ByID(providers.Default(), "codex")
+	if !ok || !providers.NeedsSandbox(codex) || codex.TemplateID != "code-agent" || codex.Command != "codex-acp" {
+		t.Fatalf("codex provider: %+v", codex)
+	}
 }
 
 func TestStartReadsWebSearchGetter(t *testing.T) {

@@ -33,6 +33,15 @@ func Default() []Provider {
 			TemplateID:  "code-agent",
 		},
 		{
+			ID:          "codex",
+			Name:        "Codex",
+			Description: "OpenAI Codex ACP adapter in the Docker code-agent container.",
+			Enabled:     true,
+			Mode:        "stdio",
+			Command:     "codex-acp",
+			TemplateID:  "code-agent",
+		},
+		{
 			ID:          "stdio",
 			Name:        "Custom stdio ACP",
 			Description: "Run a sandbox command with --acp over AttachExec.",
@@ -43,6 +52,23 @@ func Default() []Provider {
 			TemplateID:  "code-agent",
 		},
 	}
+}
+
+// CodingExperts returns stdio providers intended as delegated coding specialists
+// (excludes sysadmin and the configurable stdio placeholder).
+func CodingExperts(list []Provider) []Provider {
+	out := make([]Provider, 0, len(list))
+	for _, p := range list {
+		switch p.ID {
+		case "sysadmin", "stdio", "mock", "":
+			continue
+		}
+		if p.Mode != "stdio" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // NeedsSandbox reports whether the provider requires a provisioned sandbox.

@@ -15,6 +15,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	acpclient "github.com/RoundpenAI/roundpen/internal/acp/client"
+	"github.com/RoundpenAI/roundpen/internal/acp/expertrun"
 	"github.com/RoundpenAI/roundpen/internal/acp/providers"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent"
 	"github.com/RoundpenAI/roundpen/internal/acp/sysagent/tools"
@@ -87,6 +88,14 @@ type SysDeps struct {
 	// UserContext returns a system-prompt block describing the human
 	// (preferred name, org, timezone, about). Empty string skips injection.
 	UserContext func(ctx context.Context, userID string) string
+
+	// ModelSourceOwn is true when the user prefers guest vendor login for
+	// coding agents (Claude own plan). Used for expert needs_auth messaging.
+	ModelSourceOwn func(ctx context.Context, userID string) bool
+
+	// ExpertRunner runs one-shot Claude AttachExec on the Agent slot.
+	// When nil, Manager builds one from AgentSlots + sandboxes.
+	ExpertRunner tools.ExpertRunner
 }
 
 // Runtime is a live ACP connection for one agent session.
@@ -149,10 +158,11 @@ type Manager struct {
 	providers []providers.Provider
 	sys       SysDeps
 
-	mu       sync.Mutex
-	runtimes map[string]*Runtime
-	gate     chan struct{}
-	nextGen  atomic.Uint64
+	mu        sync.Mutex
+	runtimes  map[string]*Runtime
+	gate      chan struct{}
+	nextGen   atomic.Uint64
+	expertRun tools.ExpertRunner
 }
 
 // New creates a Manager.
@@ -163,7 +173,7 @@ func New(log *slog.Logger, sandboxes sandbox.Manager, list []providers.Provider,
 	if list == nil {
 		list = providers.Default()
 	}
-	return &Manager{
+	m := &Manager{
 		log:       log,
 		sandboxes: sandboxes,
 		providers: list,
@@ -171,6 +181,19 @@ func New(log *slog.Logger, sandboxes sandbox.Manager, list []providers.Provider,
 		runtimes:  make(map[string]*Runtime),
 		gate:      make(chan struct{}, maxConcurrentPrompts),
 	}
+	if sys.ExpertRunner != nil {
+		m.expertRun = sys.ExpertRunner
+	} else if sys.AgentSlots != nil && sandboxes != nil {
+		m.expertRun = expertrun.New(log, sys.AgentSlots, sandboxes)
+	}
+	return m
+}
+
+func (m *Manager) expertRunner() tools.ExpertRunner {
+	if m == nil {
+		return nil
+	}
+	return m.expertRun
 }
 
 // Providers returns configured providers.
@@ -304,19 +327,24 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			AllowPrivate: true,
 			ProxyURL:     searchCfg.ProxyURL,
 		})
+		userID := opts.Actor.Username
+		assistantID := opts.AssistantID
 		tools.RegisterSession(reg, tools.SessionSurface{
-			Roundpen:    m.sys.Roundpen,
-			API:         controlPlane,
-			SessionID:   sessionID,
-			RunKey:      opts.Routine.RunKey,
-			Autonomy:    opts.Routine.Autonomy,
-			Profile:     opts.Project.Profile,
-			ProjectKey:  strings.TrimSpace(opts.Project.Key),
-			Browser:     &tools.BrowserBinder{Hub: m.sys.BrowserHub, Slots: m.sys.BrowserSlots, SessionID: sessionID},
-			Agent:       binder,
-			PreviewZone: m.sys.PreviewZone,
-			Web:         &tools.WebBinder{HTTP: webClient, Model: llmCfg},
-			WebHTTP:     webClient,
+			Roundpen:       m.sys.Roundpen,
+			API:            controlPlane,
+			SessionID:      sessionID,
+			RunKey:         opts.Routine.RunKey,
+			Autonomy:       opts.Routine.Autonomy,
+			Profile:        opts.Project.Profile,
+			ProjectKey:     strings.TrimSpace(opts.Project.Key),
+			AssistantID:    assistantID,
+			Browser:        &tools.BrowserBinder{Hub: m.sys.BrowserHub, Slots: m.sys.BrowserSlots, SessionID: sessionID},
+			Agent:          binder,
+			ExpertRun:      m.expertRunner(),
+			ModelSourceOwn: m.sys.ModelSourceOwn,
+			PreviewZone:    m.sys.PreviewZone,
+			Web:            &tools.WebBinder{HTTP: webClient, Model: llmCfg},
+			WebHTTP:        webClient,
 			Search: &tools.WebSearchBinder{
 				Endpoint: searchCfg.Endpoint,
 				APIKey:   searchCfg.APIKey,
@@ -328,8 +356,6 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Google: &tools.GoogleBinder{API: m.sys.Google},
 			MCP:    m.mcpBinder(opts.Actor.Username, opts.Routine.RunKey != ""),
 		})
-		userID := opts.Actor.Username
-		assistantID := opts.AssistantID
 		var policyLookup func(context.Context) *policy.Profile
 		if m.sys.PolicyFor != nil && assistantID != "" {
 			policyLookup = func(c context.Context) *policy.Profile {

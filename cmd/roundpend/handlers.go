@@ -564,6 +564,16 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 		History:         agentStore,
 		Google:          connectorsSvc,
 		MCP:             mcpSvc,
+		ModelSourceOwn: func(ctx context.Context, userID string) bool {
+			if users == nil {
+				return false
+			}
+			u, err := users.GetByUsername(ctx, userID)
+			if err != nil || u == nil {
+				return false
+			}
+			return agentenv.UsesOwnModels(u.ModelSource)
+		},
 		PolicyFor: func(ctx context.Context, userID, assistantID string) *policy.Profile {
 			if assistantStore == nil || assistantID == "" {
 				return nil

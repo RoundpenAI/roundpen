@@ -1,6 +1,9 @@
 package tools
 
-import "net/http"
+import (
+	"context"
+	"net/http"
+)
 
 // Profiles mirrored from sysagent — kept as strings here to avoid an import cycle.
 const (
@@ -22,14 +25,19 @@ type SessionSurface struct {
 	Autonomy    string
 	Profile     string
 	ProjectKey  string // PRJ-n; default for DelegateProjectWork when omitted
+	AssistantID string // optional; expert deep links
 	Browser     *BrowserBinder
 	Agent       *AgentBinder
-	PreviewZone string
-	Web         *WebBinder
-	WebHTTP     *http.Client
-	Search      *WebSearchBinder
-	Google      *GoogleBinder
-	MCP         *MCPBinder
+	Experts     *ExpertBinder // when set, used as-is; else built from Roundpen+Agent+ExpertRun
+	ExpertRun   ExpertRunner  // AttachExec one-shot runner (Claude)
+	// ModelSourceOwn reports guest Claude/Codex billing (needs_auth path).
+	ModelSourceOwn func(ctx context.Context, userID string) bool
+	PreviewZone    string
+	Web            *WebBinder
+	WebHTTP        *http.Client
+	Search         *WebSearchBinder
+	Google         *GoogleBinder
+	MCP            *MCPBinder
 }
 
 // RegisterSession installs the System Agent tool surface for one session.
@@ -97,6 +105,7 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 		RegisterSearch(reg, s.Agent)
 		RegisterGitPR(reg, s.Agent)
 	}
+	registerExpertTools(reg, s)
 	RegisterInteractive(reg)
 	if s.Web != nil {
 		RegisterWebFetch(reg, s.Web)
@@ -110,6 +119,23 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 	if s.MCP != nil {
 		RegisterMCP(reg, s.MCP)
 	}
+}
+
+func registerExpertTools(reg *Registry, s SessionSurface) {
+	if s.Experts != nil {
+		RegisterExperts(reg, s.Experts)
+		return
+	}
+	b := &ExpertBinder{
+		SessionID:      s.SessionID,
+		AssistantID:    s.AssistantID,
+		Runner:         s.ExpertRun,
+		ModelSourceOwn: s.ModelSourceOwn,
+	}
+	if s.Roundpen != nil {
+		b.Envs = s.Roundpen.Envs
+	}
+	RegisterExperts(reg, b)
 }
 
 func registerCoordinatorTools(reg *Registry, s SessionSurface) {

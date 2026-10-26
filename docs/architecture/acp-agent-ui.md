@@ -15,7 +15,8 @@
 | 概念 | 含义 |
 |------|------|
 | Assistant | 用户可见主体：简介、身份、能力、网络与目录授权 |
-| Provider | Agent 入口：`sysadmin`（进程内）、`claude`（QEMU `claude-agent-acp`）、或 `stdio`（自定义 AttachExec）；助手 ensure-session **当前默认 `sysadmin`**（暂不依赖沙箱） |
+| Provider | Agent 入口：`sysadmin`（进程内）、`claude` / `codex`（Docker `code-agent` 内 ACP）、或 `stdio`（自定义 AttachExec）；助手 ensure-session **当前默认 `sysadmin`** |
+| Coding experts | System Agent：`ListExperts` / `TestExpertConnection` / `DelegateToExpert`。Claude 经 `expertrun` 在 **用户 Agent 槽** AttachExec（`claude-agent-acp`，共享 `/workspace`）；one-shot brief + return contract；交付仍用 `GitCommit`/`CreatePullRequest`。Codex catalog 有、AttachExec 暂未开。MCP ≠ 专家 |
 | Agent Session | 助手下的对话会话；stdio 绑定 1 sandbox，sysadmin 可不绑沙箱 |
 | Provisioner | `internal/agentenv`：仅 NeedsSandbox 的 provider 创建沙箱并注入环境 |
 | AttachExec | 非 TTY 长驻 stdio 附着（coding ACP） |
