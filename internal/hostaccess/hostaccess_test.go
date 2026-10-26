@@ -39,6 +39,21 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func TestListGrants(t *testing.T) {
+	dir := t.TempDir()
+	access, actor := newAccess([]assistant.DirectoryGrant{
+		{Path: dir, Mode: "read"},
+		{Path: "/vol1/photos", Mode: "readwrite"},
+	})
+	got, err := access.ForSession("s1").ListGrants(context.Background(), actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[1].Path != "/vol1/photos" || got[1].Mode != "readwrite" {
+		t.Fatalf("grants = %+v", got)
+	}
+}
+
 func TestOpenHostGrantedRead(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "note.md"), "nas content")

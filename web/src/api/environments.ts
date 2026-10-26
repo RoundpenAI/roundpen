@@ -23,6 +23,11 @@ export type WorkspaceRoot = {
   rebuildError?: string
 }
 
+export type AccessibleFolders = {
+  enabled: boolean
+  folders: { path: string; displayPath: string }[]
+}
+
 export const workspaceRoot = {
   get: () => api<WorkspaceRoot>('/v1/me/workspace-root'),
   set: (path: string) =>
@@ -32,6 +37,8 @@ export const workspaceRoot = {
     }),
   clear: () =>
     api<WorkspaceRoot>('/v1/me/workspace-root', { method: 'DELETE' }),
+  accessibleFolders: () =>
+    api<AccessibleFolders>('/v1/me/accessible-folders'),
 }
 
 export const environments = {

@@ -13,6 +13,12 @@ import (
 // narrow the pattern when the cap is hit.
 const MaxHostGlobResults = 500
 
+// DirGrantView is one assistant directory grant exposed to tools.
+type DirGrantView struct {
+	Path string `json:"path"`
+	Mode string `json:"mode"` // read | readwrite
+}
+
 // HostFiles reads granted host directories (NAS shares) on the control-plane
 // host. Implementations own authorization: each call resolves the actor's
 // session assistant and checks its directory grants. Reads are read-only.
@@ -21,6 +27,8 @@ type HostFiles interface {
 	OpenHost(ctx context.Context, actor Actor, absPath string) (io.ReadCloser, os.FileInfo, error)
 	// GlobHost lists at most limit files under rootAbs matching pattern.
 	GlobHost(ctx context.Context, actor Actor, rootAbs, pattern string, limit int) ([]string, error)
+	// ListGrants returns the session assistant's directory grants (may be empty).
+	ListGrants(ctx context.Context, actor Actor) ([]DirGrantView, error)
 }
 
 // hostReservedPrefixes are virtual filesystems that never hold user data.
@@ -69,6 +77,9 @@ func (b *AgentBinder) readHostFile(ctx context.Context, actor Actor, absPath str
 	}
 	if len(raw) == 0 {
 		return "File is empty.", nil
+	}
+	if mime := sniffImageMIME(raw, absPath); mime != "" {
+		return "", fmt.Errorf("%s looks like an image (%s) — use ReadImage with file_path=%q", absPath, mime, absPath)
 	}
 	return formatText(raw, truncated, offset, limit), nil
 }

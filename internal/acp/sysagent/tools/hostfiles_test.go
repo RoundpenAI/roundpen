@@ -36,6 +36,10 @@ func (f *fakeHost) GlobHost(_ context.Context, _ tools.Actor, rootAbs, pattern s
 	return f.files, nil
 }
 
+func (f *fakeHost) ListGrants(_ context.Context, _ tools.Actor) ([]tools.DirGrantView, error) {
+	return []tools.DirGrantView{{Path: "/vol1/share", Mode: "read"}}, nil
+}
+
 type fakeInfo struct{ isDir bool }
 
 func (f fakeInfo) Name() string       { return "note.md" }

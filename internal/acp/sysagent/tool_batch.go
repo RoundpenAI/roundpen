@@ -280,14 +280,32 @@ func (a *Agent) finishOne(
 	if err := a.finishToolCall(ctx, sid, prep.tc.ID, prep.status, prep.result); err != nil {
 		return recs, messages, err
 	}
-	messages = append(messages, chatMessage{
-		Role:       "tool",
-		ToolCallID: prep.tc.ID,
-		Name:       prep.name,
-		Content:    prep.result,
-	})
+	messages = appendVisionAware(messages, prep.tc.ID, prep.name, prep.result)
 	recs = append(recs, toolCallRec{name: prep.name, args: string(prep.args), result: prep.result})
 	return recs, messages, nil
+}
+
+// appendVisionAware records the tool result and, for ReadImage, attaches a
+// multimodal user turn so vision models can see the photo without stuffing
+// base64 into the tool-role string forever.
+func appendVisionAware(messages []chatMessage, callID, name, result string) []chatMessage {
+	summary, mime, b64, ok := tools.StripVisionPayload(name, result)
+	if !ok {
+		return append(messages, chatMessage{
+			Role: "tool", ToolCallID: callID, Name: name, Content: result,
+		})
+	}
+	messages = append(messages, chatMessage{
+		Role: "tool", ToolCallID: callID, Name: name, Content: summary,
+	})
+	dataURL := "data:" + mime + ";base64," + b64
+	return append(messages, chatMessage{
+		Role: "user",
+		ContentParts: []contentPart{
+			{Type: "text", Text: "Image attached from ReadImage for analysis:"},
+			{Type: "image_url", ImageURL: &imageURLPart{URL: dataURL}},
+		},
+	})
 }
 
 func (a *Agent) finishWave(
@@ -360,12 +378,7 @@ func (a *Agent) finishWave(
 		if p.skillAfterAllow && out.status == acp.ToolCallStatusCompleted {
 			*skillInvocations++
 		}
-		messages = append(messages, chatMessage{
-			Role:       "tool",
-			ToolCallID: p.tc.ID,
-			Name:       p.name,
-			Content:    out.result,
-		})
+		messages = appendVisionAware(messages, p.tc.ID, p.name, out.result)
 		recs = append(recs, toolCallRec{name: p.name, args: string(p.args), result: out.result})
 	}
 	return recs, messages, nil
