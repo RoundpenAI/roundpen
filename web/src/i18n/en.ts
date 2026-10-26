@@ -12,6 +12,7 @@ export const en = {
   'nav.openMenu': 'Open menu',
   'nav.signOut': 'Sign out',
   'nav.signOutUser': 'Sign out ({user})',
+  'nav.version': 'v{version}',
   'nav.language': 'Language',
   'nav.theme': 'Toggle dark mode',
 
@@ -59,6 +60,7 @@ export const en = {
   'workspace.type.other': 'File',
   'workspace.preview': 'Preview',
   'workspace.download': 'Download',
+  'workspace.downloadFilesOnly': 'Select files to download (folders are skipped)',
   'workspace.cut': 'Cut',
   'workspace.copy': 'Copy',
   'workspace.paste': 'Paste',
@@ -954,6 +956,14 @@ export const en = {
   'issues.task.markBlocked': 'Block',
   'issues.task.markCancelled': 'Cancel task',
   'issues.task.reopen': 'Reopen',
+
+  'chat.changeset.fileChanged': '1 file changed',
+  'chat.changeset.filesChanged': '{count} files changed',
+  'chat.changeset.download': 'Download',
+  'chat.changeset.downloadAll': 'Download all',
+  'chat.changeset.open': 'Open',
+  'chat.changeset.openTitle': 'Open in Files',
+  'chat.changeset.fold': 'Large diff folded — show {lines} lines',
 
   'chat.delivery.label': 'Deliver changes',
   'chat.delivery.hintOpen':

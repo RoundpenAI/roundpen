@@ -44,6 +44,7 @@ export function LoginPage() {
     password: string
   } | null>(null)
   const [fnosGateway, setFnosGateway] = useState(isFnOSApp())
+  const [appVersion, setAppVersion] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -51,6 +52,7 @@ export function LoginPage() {
       .bootstrapHint()
       .then((hint) => {
         if (!alive) return
+        if (hint.version) setAppVersion(hint.version)
         if (hint.authMode === 'fnos-gateway') setFnosGateway(true)
         if (!hint.username || !hint.password) return
         setDefaultCreds({ username: hint.username, password: hint.password })
@@ -121,6 +123,20 @@ export function LoginPage() {
           style={{ display: 'block', textAlign: 'center', marginBottom: 24 }}
         >
           {t('login.subtitle')}
+          {appVersion ? (
+            <>
+              <br />
+              <span
+                style={{
+                  fontFamily: 'var(--semi-font-family-code)',
+                  fontSize: 12,
+                  opacity: 0.85,
+                }}
+              >
+                {t('nav.version', { version: appVersion })}
+              </span>
+            </>
+          ) : null}
         </Typography.Text>
         {defaultCreds && (
           <Banner

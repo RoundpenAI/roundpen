@@ -23,6 +23,7 @@ import {
   renameDest,
   sortEntries,
 } from '../lib/workspaceFiles'
+import { downloadWorkspacePaths } from '../lib/workspaceDownload'
 
 type Clipboard = { mode: 'cut' | 'copy'; paths: string[] } | null
 
@@ -242,10 +243,19 @@ export function WorkspacePage() {
     openPreview(joinPath(path, entry.name), entry)
   }
 
-  const downloadAbs = (absPaths: string[]) => {
-    for (const abs of absPaths) {
-      window.open(meWorkspace.downloadUrl(abs), '_blank', 'noopener')
+  const fileAbsOfSelected = (names: string[]) =>
+    names
+      .map((name) => entries.find((e) => e.name === name))
+      .filter((e): e is DirEntry => !!e && !e.is_dir)
+      .map((e) => absOf(e.name))
+
+  const downloadSelectedFiles = (names: string[]) => {
+    const files = fileAbsOfSelected(names)
+    if (files.length === 0) {
+      Toast.info(t('workspace.downloadFilesOnly'))
+      return
     }
+    downloadWorkspacePaths(files)
   }
 
   const handleRowContextMenu = (entry: DirEntry, e: React.MouseEvent) => {
@@ -253,6 +263,7 @@ export function WorkspacePage() {
     const active = selected.includes(entry.name) ? selected : [entry.name]
     if (!selected.includes(entry.name)) setSelected([entry.name])
     const absTargets = active.map(absOf)
+    const fileTargets = fileAbsOfSelected(active)
     const items: ContextMenuItem[] = []
     if (!entry.is_dir) {
       items.push({
@@ -260,10 +271,12 @@ export function WorkspacePage() {
         label: t('workspace.preview'),
         onClick: () => openPreview(joinPath(path, entry.name), entry),
       })
+    }
+    if (fileTargets.length > 0) {
       items.push({
         key: 'download',
         label: t('workspace.download'),
-        onClick: () => downloadAbs(absTargets),
+        onClick: () => downloadWorkspacePaths(fileTargets),
       })
     }
     items.push({
@@ -308,7 +321,7 @@ export function WorkspacePage() {
       items.push({
         key: 'download',
         label: t('workspace.download'),
-        onClick: () => downloadAbs([abs]),
+        onClick: () => downloadWorkspacePaths([abs]),
       })
     }
     items.push({
@@ -352,32 +365,42 @@ export function WorkspacePage() {
   // button, which sits in the toolbar instead of a bar of its own row.
   const openSelectionMenu = (e: React.MouseEvent<HTMLElement>) => {
     const rect = e.currentTarget.getBoundingClientRect()
+    const fileTargets = fileAbsOfSelected(selected)
+    const items: ContextMenuItem[] = []
+    if (fileTargets.length > 0) {
+      items.push({
+        key: 'download',
+        label: t('workspace.download'),
+        onClick: () => downloadWorkspacePaths(fileTargets),
+      })
+    }
+    items.push(
+      {
+        key: 'cut',
+        label: t('workspace.cut'),
+        onClick: () => cut(selected.map(absOf)),
+      },
+      {
+        key: 'copy',
+        label: t('workspace.copy'),
+        onClick: () => copy(selected.map(absOf)),
+      },
+      {
+        key: 'delete',
+        label: t('workspace.delete'),
+        danger: true,
+        onClick: () => confirmDelete(selected),
+      },
+      {
+        key: 'clear',
+        label: t('workspace.clearSelection'),
+        onClick: () => setSelected([]),
+      },
+    )
     setMenu({
       x: rect.left,
       y: rect.bottom + 4,
-      items: [
-        {
-          key: 'cut',
-          label: t('workspace.cut'),
-          onClick: () => cut(selected.map(absOf)),
-        },
-        {
-          key: 'copy',
-          label: t('workspace.copy'),
-          onClick: () => copy(selected.map(absOf)),
-        },
-        {
-          key: 'delete',
-          label: t('workspace.delete'),
-          danger: true,
-          onClick: () => confirmDelete(selected),
-        },
-        {
-          key: 'clear',
-          label: t('workspace.clearSelection'),
-          onClick: () => setSelected([]),
-        },
-      ],
+      items,
     })
   }
 
@@ -481,15 +504,26 @@ export function WorkspacePage() {
           ))}
         </div>
         {selected.length > 0 && (
-          <Button
-            type="primary"
-            theme="light"
-            icon={<IconChevronDown />}
-            iconPosition="right"
-            onClick={openSelectionMenu}
-          >
-            {t('workspace.selected', { count: selected.length })}
-          </Button>
+          <>
+            {fileAbsOfSelected(selected).length > 0 ? (
+              <Button
+                type="primary"
+                theme="solid"
+                onClick={() => downloadSelectedFiles(selected)}
+              >
+                {t('workspace.download')}
+              </Button>
+            ) : null}
+            <Button
+              type="primary"
+              theme="light"
+              icon={<IconChevronDown />}
+              iconPosition="right"
+              onClick={openSelectionMenu}
+            >
+              {t('workspace.selected', { count: selected.length })}
+            </Button>
+          </>
         )}
         <Button
           icon={<IconRefresh />}

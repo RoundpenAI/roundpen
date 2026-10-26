@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/buildinfo"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -155,7 +156,9 @@ func FnosGatewayActive() bool { return fnosGatewayActive.Load() }
 // auth mode. After the operator changes the password the credential fields are
 // omitted; authMode (when the fnOS gateway is in front) is always reported.
 func (h *SessionHandler) BootstrapHint(w http.ResponseWriter, r *http.Request) {
-	hint := map[string]string{}
+	hint := map[string]string{
+		"version": buildinfo.Current(),
+	}
 	if FnosGatewayActive() {
 		hint["authMode"] = "fnos-gateway"
 	}

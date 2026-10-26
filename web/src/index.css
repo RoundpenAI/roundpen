@@ -702,11 +702,19 @@ html.keyboard-open .chat-composer-dock {
   overflow: hidden;
 }
 
+.rp-changeset-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 10px;
+}
+
 .rp-changeset-summary {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: 8px 10px;
   border: none;
   background: transparent;
@@ -764,14 +772,18 @@ html.keyboard-open .chat-composer-dock {
   font-family: var(--semi-font-family-code, ui-monospace, monospace);
 }
 
-.rp-changeset-open {
+.rp-changeset-action {
   flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
   font-size: 12px;
   color: var(--semi-color-link);
   text-decoration: none;
+  cursor: pointer;
 }
 
-.rp-changeset-open:hover {
+.rp-changeset-action:hover {
   text-decoration: underline;
 }
 

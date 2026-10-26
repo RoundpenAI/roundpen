@@ -6,6 +6,7 @@ import {
   shouldFoldDiff,
   toUnifiedDiff,
   workspacePreviewHref,
+  workspaceRelPath,
 } from './changeSet.ts'
 
 describe('buildChangeSet', () => {
@@ -92,5 +93,16 @@ describe('toUnifiedDiff / fold / href', () => {
       '/workspace?path=projects%2Ffoo&preview=bar.ts',
     )
     assert.equal(workspacePreviewHref('README.md'), '/workspace?path=.&preview=README.md')
+    assert.equal(
+      workspacePreviewHref('/workspace/projects/foo/bar.ts'),
+      '/workspace?path=projects%2Ffoo&preview=bar.ts',
+    )
+  })
+
+  it('normalizes agent paths to workspace-relative', () => {
+    assert.equal(workspaceRelPath('/workspace/out/a.pdf'), 'out/a.pdf')
+    assert.equal(workspaceRelPath('workspace/out/a.pdf'), 'out/a.pdf')
+    assert.equal(workspaceRelPath('./out/a.pdf'), 'out/a.pdf')
+    assert.equal(workspaceRelPath('/out/a.pdf'), 'out/a.pdf')
   })
 })

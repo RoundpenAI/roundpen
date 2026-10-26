@@ -72,19 +72,22 @@ build-ui:
 	@mkdir -p internal/ui/dist
 	@touch internal/ui/dist/.gitkeep
 
+# Stamp the release into the binary (same VERSION as fpk). Override: VERSION=1.2.3 make build
+VERSION_LDFLAGS = -X github.com/RoundpenAI/roundpen/internal/buildinfo.Version=$(VERSION)
+
 build: build-ui
-	go build -o bin/roundpend ./cmd/roundpend
-	go build -o bin/roundpen ./cmd/roundpen
+	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpend ./cmd/roundpend
+	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpen ./cmd/roundpen
 
 # Cross-compile Linux binary with UI embedded (for NAS / bare metal).
 build-linux: build-ui
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/roundpend-linux-amd64 ./cmd/roundpend
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/roundpen-linux-amd64 ./cmd/roundpen
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpend-linux-amd64 ./cmd/roundpend
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpen-linux-amd64 ./cmd/roundpen
 
 # Go-only rebuild when internal/ui/dist is already populated.
 build-go:
-	go build -o bin/roundpend ./cmd/roundpend
-	go build -o bin/roundpen ./cmd/roundpen
+	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpend ./cmd/roundpend
+	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpen ./cmd/roundpen
 
 test:
 	@mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
@@ -154,7 +157,7 @@ compose-down:
 
 # fnOS app package (packaging source in deploy/fnos; needs the official fnpack,
 # see deploy/fnos/README.md). Host roundpend + bundled pg0; no Docker image.
-VERSION ?= 0.4.5
+VERSION ?= 0.4.9
 PLATFORM ?= x86
 
 fpk: setup
