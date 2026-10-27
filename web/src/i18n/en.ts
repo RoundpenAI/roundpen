@@ -982,14 +982,23 @@ export const en = {
     'A classifier allows safe tool calls and blocks destructive or outbound ones.',
   'chat.perm.allHint': 'Every tool call runs without asking. Questions still wait for you.',
 
+  'chat.suggest.defaultName': 'Assistant',
   'chat.suggest.hint':
-    'These can run on their own and come back to this chat.',
-  'chat.suggest.papers':
-    'Every Monday morning, turn the latest AI-agent papers into a digest and send it to me',
-  'chat.suggest.invest':
-    'Each week, look at where startup investment is heading and send me a summary',
-  'chat.suggest.tax':
-    'At the start of each month, remind me to file taxes and list what I need to prepare',
+    'Try these with {name} — edit before sending if you like.',
+  'chat.suggest.hintBio':
+    'Try these with {name} ({bio}) — edit before sending if you like.',
+  'chat.suggest.intro':
+    '{name}, introduce how you can help me based on your role',
+  'chat.suggest.introBio':
+    '{name}, based on your role “{bio}”, tell me how you’ll help me',
+  'chat.suggest.prioritize':
+    '{name}, help me prioritize the three things I should do next',
+  'chat.suggest.prioritizeBio':
+    '{name}, given “{bio}”, help me prioritize the three things I should do next',
+  'chat.suggest.digest':
+    'Every Monday morning, {name}, send me a short progress brief in this chat',
+  'chat.suggest.digestBio':
+    'Every Monday morning, {name}, send me a short brief for “{bio}” in this chat',
 
   'routines.section': 'Standing routines',
   'routines.empty':
