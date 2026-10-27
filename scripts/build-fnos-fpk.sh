@@ -12,7 +12,7 @@
 # download URL); put it on PATH or point FNPACK at it.
 set -euo pipefail
 
-VERSION="${VERSION:-0.4.10}"
+VERSION="${VERSION:-0.4.13}"
 PLATFORM="${PLATFORM:-x86}"
 FNPACK="${FNPACK:-fnpack}"
 # Pin pg0 so package contents stay reproducible across builds.
@@ -64,6 +64,12 @@ cp -a "${ROOT}/deploy/fnos/." "${stage}/"
 rm -rf "${stage}/dist"
 # Host binary package: no compose project.
 rm -rf "${stage}/app/docker"
+
+# run-as=package executes cmd/* as the package user. fnOS unpack often
+# strips group-write from 0775 → 0750 (root:root), which then denies exec.
+# Match store apps (e.g. xunlei): world-executable 0755 on lifecycle scripts.
+find "${stage}/cmd" -type f -exec chmod 0755 {} +
+chmod 0755 "${stage}/cmd"
 
 render() { # render <file> <sed-expr>
     sed -E "$2" "$1" >"$1.tmp"

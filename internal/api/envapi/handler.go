@@ -35,7 +35,7 @@ type Environments interface {
 	UpgradeAgent(ctx context.Context, userID string, force bool) (*userenv.UpgradeResult, error)
 	RecreateAgent(ctx context.Context, userID string) (*userenv.UpgradeResult, error)
 	RecreateBrowser(ctx context.Context, userID string) (*userenv.UpgradeResult, error)
-	BrowserProfileFor(userID string) browser.Profile
+	BrowserSourceFor(userID string) browser.Source
 }
 
 // UserPrefs persists per-user environment preferences.
@@ -49,9 +49,9 @@ type Handler struct {
 	Users UserPrefs
 	Cfg   *config.Config
 	Dial  SandboxDialer
-	// BrowserProfiles records the resolved browser source for a hub key so the
-	// browser hub attaches to the same source. nil = the hub uses config.
-	BrowserProfiles func(userID, key string)
+	// BrowserBind records Runtime source + Profile for a hub key so the
+	// browser hub attaches with the same binding. nil = the hub uses config.
+	BrowserBind func(userID, key string)
 
 	liveMu    sync.Mutex
 	liveCache map[string]liveTarget // username -> resolved browser container
@@ -162,8 +162,8 @@ func (h *Handler) ensureBrowser(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	if h.BrowserProfiles != nil {
-		h.BrowserProfiles(user.Username, target.Key)
+	if h.BrowserBind != nil {
+		h.BrowserBind(user.Username, target.Key)
 	}
 	resp := map[string]any{
 		"slot":     userenv.SlotBrowser,

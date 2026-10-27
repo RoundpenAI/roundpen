@@ -220,22 +220,42 @@ func main() {
 	setupSvc.PlanLLM = newLLMPlanner(cfg, publicURL, gw, itemsCat)
 
 	proxyForUser := wireEnvService(envSvc, publicURL, gw, userVKey, itemsCat)
-	// The hub attaches to whatever the control plane resolved for a key, so
-	// record the profile whenever a browser environment is resolved.
-	envHandler.BrowserProfiles = func(userID, key string) {
-		if key != "" {
-			browserHub.SetProfile(key, envSvc.BrowserProfileFor(userID))
+	// The hub attaches with whatever Source + Profile the control plane
+	// resolved for a key, so bind both whenever a browser environment is
+	// resolved.
+	envHandler.BrowserBind = func(userID, key string) {
+		if key == "" {
+			return
 		}
+		src := envSvc.BrowserSourceFor(userID)
+		profile, err := browser.EnsureProfile(browserHub.ProfileRoot(), userID)
+		if err != nil {
+			logger.Warn("browser profile ensure failed", "user", userID, "err", err)
+			browserHub.SetSource(key, src)
+			return
+		}
+		browserHub.Bind(key, src, profile)
 	}
-	// Safety net: when a hub key has no recorded profile (e.g. the agent tool
-	// path calls Hub.Ensure before SetProfile), resolve from the settings
-	// catalog so a user-configured remote/cloud endpoint is never silently
-	// overridden by the docker default.
-	browserHub.SetProfileResolver(func(key string) (browser.Profile, bool) {
+	// Safety net: when a hub key has no recorded source (e.g. the agent tool
+	// path calls Hub.Ensure before Bind), resolve from the settings catalog so
+	// a user-configured remote/cloud endpoint is never silently overridden by
+	// the docker default.
+	browserHub.SetSourceResolver(func(key string) (browser.Source, bool) {
 		if uid, ok := strings.CutPrefix(key, "browser-"); ok && uid != "" {
-			return envSvc.BrowserProfileFor(uid), true
+			return envSvc.BrowserSourceFor(uid), true
 		}
-		return browser.Profile{}, false
+		return browser.Source{}, false
+	})
+	browserHub.SetProfileResolver(func(key string) (browser.Profile, bool) {
+		uid := ""
+		if u, ok := strings.CutPrefix(key, "browser-"); ok {
+			uid = u
+		}
+		profile, err := browser.EnsureProfile(browserHub.ProfileRoot(), uid)
+		if err != nil {
+			return browser.Profile{}, false
+		}
+		return profile, true
 	})
 
 	agentStore := &agentsession.Store{DB: db.SQL}

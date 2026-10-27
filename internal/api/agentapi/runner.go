@@ -1181,6 +1181,9 @@ func unwrapPromptErr(err error) string {
 	if errors.Is(err, sysagent.ErrFreeQuotaExceeded) {
 		return sysagent.ErrFreeQuotaExceeded.Error()
 	}
+	if errors.Is(err, sysagent.ErrInstallAuthFailed) {
+		return sysagent.ErrInstallAuthFailed.Error()
+	}
 	var re *acp.RequestError
 	if errors.As(err, &re) && re != nil {
 		switch data := re.Data.(type) {

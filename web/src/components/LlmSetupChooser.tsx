@@ -144,7 +144,7 @@ export function LlmSetupChooser({
           <div style={cardStyle}>
             <Typography.Text strong>免费试用</Typography.Text>
             <Typography.Text type="tertiary" size="small">
-              走 Roundpen 云端入口，按安装身份限频。适合快速体验；额度用尽后请改用自己的 Key。
+              走 Roundpen 云端入口，按安装身份限频。适合快速体验；额度用尽或安装身份失效时，请改用自己的 Key。
             </Typography.Text>
             <div>
               {alreadyFree ? (

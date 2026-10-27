@@ -14,7 +14,7 @@ import (
 // BrowserSlot starts the user's Browser environment (Chrome / CDP).
 type BrowserSlot interface {
 	EnsureBrowser(ctx context.Context, userID string) (*userenv.BrowserTarget, error)
-	BrowserProfileFor(userID string) browser.Profile
+	BrowserSourceFor(userID string) browser.Source
 }
 
 // BrowserBinder attaches a browser Engine for System Agent sessions.
@@ -50,7 +50,13 @@ func (b *BrowserBinder) ensure(ctx context.Context, actor Actor) (*browser.Sessi
 		return nil, WrapBrowserEnsure(err)
 	}
 	if b.Slots != nil && strings.TrimSpace(actor.Username) != "" {
-		b.Hub.SetProfile(id, b.Slots.BrowserProfileFor(actor.Username))
+		src := b.Slots.BrowserSourceFor(actor.Username)
+		profile, err := browser.EnsureProfile(b.Hub.ProfileRoot(), actor.Username)
+		if err != nil {
+			b.Hub.SetSource(id, src)
+		} else {
+			b.Hub.Bind(id, src, profile)
+		}
 	}
 	sess, err := b.Hub.Ensure(ctx, id)
 	if err != nil {

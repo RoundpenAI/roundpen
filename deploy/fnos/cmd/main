@@ -2,9 +2,7 @@
 # Start / stop / status for the host-side roundpend process.
 # Postgres is managed by the bundled pg0 (started before roundpend).
 #
-# Lifecycle scripts run as root (config/privilege) so upgrade can chown
-# root-owned data from older Docker packages; the daemon itself is dropped
-# to the package user via runuser.
+# Lifecycle and roundpend both run as the package user (run-as=package).
 
 set -u
 
@@ -43,7 +41,7 @@ do_start() {
         exit 0
     fi
     if ! ensure_pkgvar_perms; then
-        echo "cannot fix ownership of ${TRIM_PKGVAR} (need root lifecycle to chown secret.key)" > "${TRIM_TEMP_LOGFILE:-/dev/stderr}"
+        echo "cannot prepare ${TRIM_PKGVAR} (unreadable data, e.g. root-owned secret.key from an old Docker package — run: chown -R roundpen:roundpen ${TRIM_PKGVAR})" > "${TRIM_TEMP_LOGFILE:-/dev/stderr}"
         exit 1
     fi
     if [ ! -x "${ROUNDPEND}" ]; then
@@ -108,13 +106,8 @@ do_start() {
         echo "ROUNDPEN_FNOS_GATEWAY_SOCKET=${ROUNDPEN_FNOS_GATEWAY_SOCKET}"
         echo "ROUNDPEN_FNOS_GATEWAY_PREFIX=${ROUNDPEN_FNOS_GATEWAY_PREFIX}"
     } > "${ENVFILE}"
-    if is_root; then
-        chown "$(pkg_user):$(pkg_group)" "${ENVFILE}" 2>/dev/null || true
-    fi
 
     # Roundpend loads .env from cwd; run from the data root as the package user.
-    # Record the daemon pid inside that user session — backgrounding runuser
-    # itself would leave a dead pid in the pidfile.
     cd "${TRIM_PKGVAR}" || exit 1
     # One-line credential dump so Docker sock permission issues are obvious
     # (expect groups=…,docker,… when join-groups applied).
@@ -125,9 +118,6 @@ do_start() {
         TRIM_API_TOKEN="${TRIM_API_TOKEN:-}" \
         TRIM_APPNAME="${TRIM_APPNAME:-roundpen}" \
         bash -c "nohup \"${ROUNDPEND}\" >> \"${LOGFILE}\" 2>&1 & echo \$! > \"${PIDFILE}\""
-    if is_root; then
-        chown "$(pkg_user):$(pkg_group)" "${PIDFILE}" "${LOGFILE}" 2>/dev/null || true
-    fi
 
     # Warm Browser/Agent images without blocking the health wait below.
     warm_docker_images "${TRIM_PKGVAR}/warm-images.log"

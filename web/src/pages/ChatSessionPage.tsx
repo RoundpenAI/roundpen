@@ -103,6 +103,7 @@ function looksLikeLLMNotConfigured(msg: string | null | undefined): boolean {
   return (
     msg.includes('LLM 尚未配置') ||
     msg.includes('LLM 网关未启用') ||
+    msg.includes('模型网关未启用') ||
     msg.includes('尚未配置上游') ||
     m.includes('unsupported protocol scheme') ||
     m.includes('llm gateway')
@@ -121,6 +122,26 @@ function looksLikeFreeQuotaExceeded(msg: string | null | undefined): boolean {
     m.includes('quota') ||
     /\b429\b/.test(m) ||
     m.includes('llm http 429')
+  )
+}
+
+/** FREE install identity rejected (reinstall wiped keys) — cue BYOK / maintainer. */
+function looksLikeInstallAuthFailed(msg: string | null | undefined): boolean {
+  if (!msg) return false
+  const m = msg.toLowerCase()
+  return (
+    msg.includes('安装身份已失效') ||
+    msg.includes('重新绑定本机安装公钥') ||
+    m.includes('install auth') ||
+    m.includes('public key mismatch')
+  )
+}
+
+function looksLikeLlmSetupCue(msg: string | null | undefined): boolean {
+  return (
+    looksLikeLLMNotConfigured(msg) ||
+    looksLikeFreeQuotaExceeded(msg) ||
+    looksLikeInstallAuthFailed(msg)
   )
 }
 
@@ -415,9 +436,7 @@ export function ChatSessionPage() {
   }, [id])
 
   const showLlmGuide =
-    (llmStatus != null && !llmStatus.ready) ||
-    looksLikeLLMNotConfigured(error) ||
-    looksLikeFreeQuotaExceeded(error)
+    (llmStatus != null && !llmStatus.ready) || looksLikeLlmSetupCue(error)
 
   useEffect(() => {
     initialScrollDone.current = false
@@ -853,10 +872,7 @@ export function ChatSessionPage() {
                 ? {
                     ...llmStatus,
                     reason:
-                      (looksLikeFreeQuotaExceeded(error) ||
-                      looksLikeLLMNotConfigured(error)
-                        ? error
-                        : null) ||
+                      (looksLikeLlmSetupCue(error) ? error : null) ||
                       llmStatus.reason ||
                       undefined,
                   }
@@ -865,16 +881,15 @@ export function ChatSessionPage() {
                     mode: 'none',
                     freeAvailable: true,
                     reason:
-                      (looksLikeLLMNotConfigured(error) ||
-                      looksLikeFreeQuotaExceeded(error)
-                        ? error
-                        : null) || '尚未配置模型',
+                      (looksLikeLlmSetupCue(error) ? error : null) ||
+                      '尚未配置模型',
                   }
             }
             isAdmin={isAdmin}
             onReady={(res) => {
               setLlmStatus(res)
-              // Clearing only helps cold-start misconfig; FREE quota needs BYOK.
+              // Clearing only helps cold-start misconfig; FREE quota / install
+              // auth need BYOK (or maintainer rebind) — leave the cue up.
               if (res.ready && looksLikeLLMNotConfigured(error)) {
                 setError(null)
               }
@@ -883,9 +898,7 @@ export function ChatSessionPage() {
         </div>
       )}
 
-      {error &&
-        !looksLikeLLMNotConfigured(error) &&
-        !looksLikeFreeQuotaExceeded(error) && (
+      {error && !looksLikeLlmSetupCue(error) && (
         <div role="alert" style={{ padding: '0 16px 8px' }}>
           <Banner
             fullMode={false}

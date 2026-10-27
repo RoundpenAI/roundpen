@@ -1,7 +1,8 @@
 #!/bin/bash
-# Runs after an upgrade installed the new files: keep data under var/, fix
-# ownership (root-owned secret.key from older Docker packages), ensure pg0 is
-# still reachable, and refresh roundpend.env defaults.
+# Runs after an upgrade installed the new files: keep data under var/, ensure
+# pg0 is still reachable, and refresh roundpend.env defaults.
+# Root-owned leftovers from old Docker packages cannot be chown'd here
+# (run-as=package); see README for the manual fix.
 
 set -u
 
@@ -19,9 +20,9 @@ ENVFILE="${TRIM_PKGVAR}/roundpend.env"
 PORT="${TRIM_SERVICE_PORT:-9527}"
 PG0_PORT="${PG0_PORT:-15432}"
 
-# Critical on upgrade: older packages ran roundpend in Docker as root and left
-# data/secret.key mode 0600 root:root. The daemon now runs as the package user.
-ensure_pkgvar_perms || fail "无法校正数据目录权限（secret.key 可能仍属 root）。请检查 ${TRIM_PKGVAR}/data"
+# Older Docker packages left data/secret.key as root:root 0600. With
+# run-as=package we cannot chown; fail loudly so the admin can fix manually.
+ensure_pkgvar_perms || fail "无法准备数据目录（secret.key 等可能仍属 root）。请在 NAS 执行：chown -R roundpen:roundpen ${TRIM_PKGVAR} && chmod 0600 ${TRIM_PKGVAR}/data/secret.key"
 
 [ -x "${BIN_DIR}/pg0" ] || fail "包内缺少 pg0 二进制：${BIN_DIR}/pg0"
 [ -x "${BIN_DIR}/roundpend" ] || fail "包内缺少 roundpend 二进制：${BIN_DIR}/roundpend"

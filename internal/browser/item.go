@@ -8,8 +8,10 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/settingitems"
 )
 
-// Profile is the browser source a slot resolves to.
-type Profile struct {
+// Source is the CDP settings a browser slot resolves to (provider / endpoint /
+// token / port). It is not a Chromium user-data profile — that is Profile.
+// A Source is resolved into a Runtime at Session attach time.
+type Source struct {
 	ItemID   string
 	Provider string // auto | docker | host | remote | cloud
 	Endpoint string
@@ -19,7 +21,7 @@ type Profile struct {
 
 // EffectiveProvider maps "auto" to the managed container, the same way the
 // instance-wide config resolves it.
-func (p Profile) EffectiveProvider() string {
+func (p Source) EffectiveProvider() string {
 	provider := strings.ToLower(strings.TrimSpace(p.Provider))
 	if provider == "" || provider == config.CDPProviderAuto {
 		return config.CDPProviderDocker
@@ -27,13 +29,13 @@ func (p Profile) EffectiveProvider() string {
 	return provider
 }
 
-// DefaultProfile is the process-config browser source, used for env-seeded
+// DefaultSource is the process-config browser source, used for env-seeded
 // installs and whenever no item is selected.
-func DefaultProfile(cfg *config.Config) Profile {
+func DefaultSource(cfg *config.Config) Source {
 	if cfg == nil {
-		return Profile{Provider: config.CDPProviderAuto, Port: config.DefaultCDPPort}
+		return Source{Provider: config.CDPProviderAuto, Port: config.DefaultCDPPort}
 	}
-	return Profile{
+	return Source{
 		Provider: cfg.CDP.Provider,
 		Endpoint: cfg.CDP.Endpoint,
 		Token:    cfg.CDP.Token,
@@ -41,13 +43,13 @@ func DefaultProfile(cfg *config.Config) Profile {
 	}
 }
 
-// ProfileFromItem projects a browser item onto a Profile.
-func ProfileFromItem(it settingitems.Item) Profile {
+// SourceFromItem projects a browser item onto a Source.
+func SourceFromItem(it settingitems.Item) Source {
 	port := it.Int("port")
 	if port <= 0 {
 		port = config.DefaultCDPPort
 	}
-	return Profile{
+	return Source{
 		ItemID:   it.ID,
 		Provider: it.String("provider"),
 		Endpoint: it.String("endpoint"),
@@ -58,7 +60,7 @@ func ProfileFromItem(it settingitems.Item) Profile {
 
 // Resolve returns the browser source for a slot and user; an unset or
 // unresolvable slot keeps the supplied fallback (the config-derived default).
-func Resolve(snap *settingitems.Snapshot, slot, user string, fallback Profile) Profile {
+func Resolve(snap *settingitems.Snapshot, slot, user string, fallback Source) Source {
 	if snap == nil {
 		return fallback
 	}
@@ -66,7 +68,7 @@ func Resolve(snap *settingitems.Snapshot, slot, user string, fallback Profile) P
 	if !res.OK {
 		return fallback
 	}
-	return ProfileFromItem(res.Item)
+	return SourceFromItem(res.Item)
 }
 
 // Kind returns the browser kind definition.

@@ -19,7 +19,7 @@ PORT="${TRIM_SERVICE_PORT:-9527}"
 # Avoid clashing with a NAS-wide Postgres on :5432.
 PG0_PORT="${PG0_PORT:-15432}"
 
-ensure_pkgvar_perms || fail "无法准备数据目录 ${TRIM_PKGVAR}/data"
+ensure_pkgvar_perms || fail "无法准备数据目录 ${TRIM_PKGVAR}/data（请确认包用户可写，或对旧 root 数据执行：chown -R roundpen:roundpen ${TRIM_PKGVAR}）"
 
 [ -x "${BIN_DIR}/pg0" ] || fail "包内缺少 pg0 二进制：${BIN_DIR}/pg0"
 [ -x "${BIN_DIR}/roundpend" ] || fail "包内缺少 roundpend 二进制：${BIN_DIR}/roundpend"
@@ -61,7 +61,7 @@ export ROUNDPEN_PG0_BIN="${BIN_DIR}/pg0"
 export ROUNDPEN_ENSURE_PG0_ENV_FILE="${ENVFILE}"
 
 errfile="${TRIM_PKGVAR}/pg0-install.log"
-# Run pg0 as the package user so its data files are not root-owned.
+# pg0 runs as the package user (run-as=package); keep run_as_pkg for local root tests.
 # shellcheck disable=SC1090
 if ! run_as_pkg bash -c ". \"${ENSURE_PG0}\"" >"${errfile}" 2>&1; then
     detail="$(tail -c 1500 "${errfile}" 2>/dev/null | tr '\n' ' ')"

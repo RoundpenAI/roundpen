@@ -260,7 +260,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.llmgw.intro':
     '添加 FREE、DeepSeek、Kimi、GLM、OpenRouter 或自定义接口，选中一条为默认即可；Agent 与对话会自动使用它。内置平台只需 API Key 和模型，自定义再填协议与地址。密钥只注入 Docker 里的 Agent，不对外发放。',
   'settings.llmgw.modeHint':
-    '默认零配置启用「免费试用」（内置 roundpen-free，按安装身份限频）。生产环境建议在系统管理 → 模型配置改绑自己的 API Key；FREE 触发 429 时也会提示改绑。',
+    '默认零配置启用「免费试用」（内置 roundpen-free，按安装身份限频）。生产环境建议在系统管理 → 模型配置改绑自己的 API Key；额度用尽或重装后安装身份失效时也会提示改绑。',
   'settings.llmgw.enable': '启用中继（Agent 对话与记忆嵌入所需）',
   'settings.llmgw.upstreamTitle': '模型提供商',
   'settings.llmgw.upstreamHint':

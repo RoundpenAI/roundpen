@@ -264,7 +264,7 @@ export const en = {
   'settings.llmgw.intro':
     'Add FREE, DeepSeek, Kimi, GLM, OpenRouter, or a custom endpoint and set one as default — Agents and chat use it automatically. Built-in platforms need an API key and a model; custom also needs protocol and base URL. Keys are injected into Docker agents only.',
   'settings.llmgw.modeHint':
-    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → Model config for production; on 429 the UI cues the same path.',
+    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → Model config for production; quota exhaustion or install-identity failure after reinstall cues the same path.',
   'settings.llmgw.enable':
     'Enable relay (required for Agent Chats & memory embeddings)',
   'settings.llmgw.upstreamTitle': '1 · Upstream providers',
