@@ -12,7 +12,7 @@
 # download URL); put it on PATH or point FNPACK at it.
 set -euo pipefail
 
-VERSION="${VERSION:-0.4.9}"
+VERSION="${VERSION:-0.4.10}"
 PLATFORM="${PLATFORM:-x86}"
 FNPACK="${FNPACK:-fnpack}"
 # Pin pg0 so package contents stay reproducible across builds.
