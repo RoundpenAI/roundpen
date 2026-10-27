@@ -7,6 +7,7 @@ import {
   ensurePreviewLanguages,
   languageForFilename,
 } from '../../lib/previewHighlight'
+import { downloadWorkspacePaths } from '../../lib/workspaceDownload'
 import { formatBytes, type FileKind } from '../../lib/workspaceFiles'
 
 export type PreviewTarget = {
@@ -133,13 +134,7 @@ export function FilePreview({
           <Button
             type="tertiary"
             icon={<IconDownload />}
-            onClick={() => {
-              window.open(
-                meWorkspace.downloadUrl(target.path),
-                '_blank',
-                'noopener',
-              )
-            }}
+            onClick={() => downloadWorkspacePaths([target.path])}
           >
             {t('workspace.download')}
           </Button>

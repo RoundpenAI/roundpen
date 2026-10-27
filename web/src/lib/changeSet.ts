@@ -161,10 +161,23 @@ export function countUnified(text: string): { plus: number; minus: number } {
   return { plus, minus }
 }
 
+/**
+ * Normalize an agent/tool path to a workspace-relative path suitable for
+ * /v1/me/workspace/files and /workspace?path=… deep links.
+ */
+export function workspaceRelPath(path: string): string {
+  let p = path.trim().replace(/\\/g, '/')
+  while (p.startsWith('./')) p = p.slice(2)
+  if (p.startsWith('/workspace/')) p = p.slice('/workspace/'.length)
+  else if (p.startsWith('workspace/')) p = p.slice('workspace/'.length)
+  else if (p.startsWith('/')) p = p.slice(1)
+  return p
+}
+
 /** Workspace URL that opens the Files page and previews this path. */
 export function workspacePreviewHref(path: string): string {
-  const clean = path.replace(/^\/+/, '').replace(/\\/g, '/')
-  const parts = clean.split('/')
+  const clean = workspaceRelPath(path)
+  const parts = clean.split('/').filter(Boolean)
   const name = parts.pop() || clean
   const dir = parts.length ? parts.join('/') : '.'
   const q = new URLSearchParams()

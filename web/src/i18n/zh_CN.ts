@@ -14,6 +14,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'nav.openMenu': '打开菜单',
   'nav.signOut': '退出',
   'nav.signOutUser': '退出 ({user})',
+  'nav.version': 'v{version}',
   'nav.language': '语言',
   'nav.theme': '切换深色模式',
 
@@ -57,6 +58,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'workspace.type.other': '文件',
   'workspace.preview': '预览',
   'workspace.download': '下载',
+  'workspace.downloadFilesOnly': '请选择文件再下载（文件夹会跳过）',
   'workspace.cut': '剪切',
   'workspace.copy': '复制',
   'workspace.paste': '粘贴',
@@ -926,6 +928,14 @@ export const zh_CN: Record<MessageKey, string> = {
   'issues.task.markBlocked': '标记受阻',
   'issues.task.markCancelled': '取消任务',
   'issues.task.reopen': '重新打开',
+
+  'chat.changeset.fileChanged': '1 个文件有变更',
+  'chat.changeset.filesChanged': '{count} 个文件有变更',
+  'chat.changeset.download': '下载',
+  'chat.changeset.downloadAll': '全部下载',
+  'chat.changeset.open': '打开',
+  'chat.changeset.openTitle': '在文件管理中打开',
+  'chat.changeset.fold': '差异较大，已折叠 — 显示全部 {lines} 行',
 
   'chat.delivery.label': '交付变更',
   'chat.delivery.hintOpen':

@@ -11,6 +11,7 @@ import {
   IconSetting,
   IconUser,
 } from '@douyinfe/semi-icons'
+import { auth as authApi } from '../api'
 import { doLogout, useAuth } from '../auth'
 import { useT } from '../i18n'
 import { ThemeToggle } from './ThemeToggle'
@@ -49,6 +50,7 @@ export function AppShell() {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(readPrimaryCollapsed)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
   const active = matchPrimaryMenu(location.pathname)
   const menus = visiblePrimaryMenus(Boolean(isAdmin))
 
@@ -60,6 +62,21 @@ export function AppShell() {
   useEffect(() => {
     setMobileOpen(false)
   }, [location.pathname])
+
+  useEffect(() => {
+    let alive = true
+    authApi
+      .bootstrapHint()
+      .then((hint) => {
+        if (alive && hint.version) setAppVersion(hint.version)
+      })
+      .catch(() => {
+        /* version is decorative */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const toggleCollapsed = () => {
     setCollapsed((prev) => {
@@ -154,6 +171,24 @@ export function AppShell() {
               : t('nav.signOutUser', { user: user.username })}
           </Button>
         )}
+        {appVersion ? (
+          <Typography.Text
+            type="tertiary"
+            size="small"
+            title={t('nav.version', { version: appVersion })}
+            style={{
+              display: 'block',
+              textAlign: opts.collapsedView ? 'center' : 'left',
+              padding: opts.collapsedView ? '4px 0 0' : '4px 8px 0',
+              fontFamily: 'var(--semi-font-family-code)',
+              fontSize: 11,
+              opacity: 0.7,
+              userSelect: 'text',
+            }}
+          >
+            {opts.collapsedView ? `v${appVersion}` : t('nav.version', { version: appVersion })}
+          </Typography.Text>
+        ) : null}
       </div>
     </div>
   )

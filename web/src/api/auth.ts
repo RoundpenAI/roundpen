@@ -27,9 +27,13 @@ export const auth = {
       body: JSON.stringify({ user, password }),
     }),
   bootstrapHint: () =>
-    api<{ username?: string; password?: string; authMode?: string }>(
-      '/v1/auth/bootstrap-hint',
-    ),
+    api<{
+      username?: string
+      password?: string
+      authMode?: string
+      /** Link-time / ROUNDPEN_VERSION release string (e.g. 0.4.7). */
+      version?: string
+    }>('/v1/auth/bootstrap-hint'),
   logout: () => api<void>('/v1/auth/logout', { method: 'POST' }),
   changePassword: (currentPassword: string, newPassword: string) =>
     api<void>('/v1/auth/password', {

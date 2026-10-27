@@ -10,6 +10,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/buildinfo"
 	"github.com/RoundpenAI/roundpen/internal/config"
 )
 
@@ -119,6 +120,7 @@ type ProxyProfile struct {
 
 // SystemInfo is read-only infrastructure metadata for the settings UI.
 type SystemInfo struct {
+	Version            string `json:"version,omitempty"`
 	Backend            string `json:"backend"`
 	DockerHost         string `json:"dockerHost"`
 	DataRoot           string `json:"dataRoot"`
@@ -245,6 +247,7 @@ func validateAgentImage(ref string) error {
 // SystemFromConfig returns read-only system metadata.
 func SystemFromConfig(cfg *config.Config, llmgwMounted bool) SystemInfo {
 	return SystemInfo{
+		Version:            buildinfo.Current(),
 		Backend:            cfg.Backend,
 		DockerHost:         cfg.DockerHost,
 		DataRoot:           cfg.EffectiveDataRoot(),

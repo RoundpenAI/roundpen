@@ -12,7 +12,7 @@
 # download URL); put it on PATH or point FNPACK at it.
 set -euo pipefail
 
-VERSION="${VERSION:-0.4.5}"
+VERSION="${VERSION:-0.4.9}"
 PLATFORM="${PLATFORM:-x86}"
 FNPACK="${FNPACK:-fnpack}"
 # Pin pg0 so package contents stay reproducible across builds.
@@ -97,7 +97,9 @@ goproxy="${goproxy:-https://proxy.golang.org,direct}"
 # The fnos build tag compiles in the unified-gateway Socket listener +
 # gateway identity middleware; other channels build without it.
 GOPROXY="${goproxy}" CGO_ENABLED=0 GOOS=linux GOARCH="${GOARCH}" \
-    go build -tags fnos -o "${stage}/app/bin/roundpend" "${ROOT}/cmd/roundpend"
+    go build -tags fnos \
+      -ldflags "-X github.com/RoundpenAI/roundpen/internal/buildinfo.Version=${VERSION}" \
+      -o "${stage}/app/bin/roundpend" "${ROOT}/cmd/roundpend"
 
 # Keyed by version + asset so a pin bump downloads once, then later `make fpk`
 # copies the cached binary. PG0_CACHE overrides the directory.

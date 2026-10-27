@@ -29,6 +29,7 @@ export type AppSettings = {
 }
 
 export type SystemInfo = {
+  version?: string
   backend: string
   dockerHost: string
   dataRoot: string
