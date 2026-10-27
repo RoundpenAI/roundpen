@@ -951,13 +951,20 @@ export const zh_CN: Record<MessageKey, string> = {
   'chat.perm.decideHint': '分类器放行安全操作，拦截破坏性或对外的操作。',
   'chat.perm.allHint': '所有工具直接执行。向你提问时仍会等待回答。',
 
-  'chat.suggest.hint': '这些可以到点自己做，结果发回这条对话。',
-  'chat.suggest.papers':
-    '每周一早上，把 AI Agent 论文整理成周报发我',
-  'chat.suggest.invest':
-    '每周看一眼创业公司的投资风向，发我一份摘要',
-  'chat.suggest.tax':
-    '每月初提醒我该报税了，先把要准备的材料列出来',
+  'chat.suggest.defaultName': '助手',
+  'chat.suggest.hint': '按「{name}」试试这些问法，改完再发也可以。',
+  'chat.suggest.hintBio':
+    '按「{name}」的设定（{bio}）试试这些问法，改完再发也可以。',
+  'chat.suggest.intro': '{name}，先介绍一下你能帮我做什么',
+  'chat.suggest.introBio':
+    '{name}，按你的简介「{bio}」，先跟我说说你会怎么帮我',
+  'chat.suggest.prioritize': '{name}，帮我把接下来要办的事理一理优先级',
+  'chat.suggest.prioritizeBio':
+    '{name}，结合「{bio}」，帮我把眼下最该做的三件事排个序',
+  'chat.suggest.digest':
+    '每周一早上，请{name}汇总本周要跟进的事项发到这条对话',
+  'chat.suggest.digestBio':
+    '每周一早上，请{name}按「{bio}」给我一份简报发到这条对话',
 
   'routines.section': '常驻任务',
   'routines.empty':
