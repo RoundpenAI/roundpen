@@ -1,69 +1,101 @@
 # Roundpen
 
-在自己的机器上跑 AI 助手：隔离的 Agent / Browser 环境、对话记忆、LLM 网关，带 Web 控制台。Go 单二进制，适合 NAS 和 Linux 服务器。
+[中文](README.zh-CN.md)
 
-## 跑起来
+**Self-hosted AI workbench.** Run assistants on your own hardware — they chat, write code in Docker sandboxes, browse the web, track work, and wake up on a schedule. One Go binary; works on a laptop, a Linux server, or a home NAS (including [fnOS](deploy/fnos/README.md)).
 
-**Docker Compose（推荐）** — 不用装 Node / Go，控制台已打进镜像：
+Your data and secrets stay where you install it. Bring your own LLM keys when you want; a built-in free model is available out of the box so you can start talking immediately.
+
+## What you get today
+
+- **Assistants** — multiple personas with their own chats, skills, and capability grants
+- **Isolated Agent + Browser** — code and shell in a Docker agent sandbox; browsing via a managed browser (or your own CDP endpoint)
+- **Projects** — bind a repo, run a coordinator, and spin worker agents for larger jobs
+- **Issues & standing routines** — one-off work items plus recurring jobs that run without you watching the chat
+- **LLM gateway** — built-in FREE tier on install; OpenAI / Anthropic–compatible upstreams when you need more
+- **Web console + mobile app** — day-to-day UI in the browser; Flutter client for phone
+- **Connectors** — Git / OAuth, MCP, IM channels, web search, and more from Settings
+
+## Quick start
+
+### Docker Compose (recommended)
+
+No local Node or Go required — the console is baked into the image:
 
 ```bash
 cp .env.compose.example .env
 echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> .env
 docker compose up -d --build
-# 打开 http://127.0.0.1:9527
-# 首次 admin 密码：docker compose logs roundpend | head
+# Open http://127.0.0.1:9527
+# Initial admin password: docker compose logs roundpend | head
 ```
 
-**飞牛 fnOS** — 装 `.fpk`，见 [deploy/fnos/README.md](deploy/fnos/README.md)。飞牛登录后可直接用内置免费模型，额度用尽再去 **系统管理 → LLM 网关** 填自己的 Key。
+Details: [deploy/compose/README.md](deploy/compose/README.md).
 
-**本机开发**：
+### fnOS (飞牛)
+
+Install the `.fpk` package — see [deploy/fnos/README.md](deploy/fnos/README.md). After fnOS login you can use the built-in free model; when the quota runs out, add your own key under **System admin → LLM gateway**.
+
+### Local development
 
 ```bash
 make setup && make dev
-# API :19001，Vite 控制台 http://127.0.0.1:19000/
+# API :19001 · Vite console http://127.0.0.1:19000/
 ```
 
-环境变量见 [.env.example](.env.example) / [.env.compose.example](.env.compose.example)。Compose 细节见 [deploy/compose/README.md](deploy/compose/README.md)。
+Environment variables: [.env.example](.env.example) / [.env.compose.example](.env.compose.example).
 
-## 装好后你会用到的
+## After install
 
-| 你想做的事 | 去哪 |
+| You want to… | Go to |
 | --- | --- |
-| 对话、建助手 | 控制台 `/a` |
-| 免费模型 / 自己的 API Key | **系统管理 → LLM 网关**（未配时启动会自动启用内置 FREE） |
-| 换 Agent 镜像 | **系统管理 → 通用**（或 `ROUNDPEN_AGENT_IMAGE`） |
-| 个人 Git / 关联账号 | **设置** |
-| 事项 / 常驻任务 | `/issues`、助手详情 |
+| Chat / create assistants | Console `/a` |
+| Free model / your API keys | **System admin → LLM gateway** |
+| Change the Agent image | **System admin → General** (or `ROUNDPEN_AGENT_IMAGE`) |
+| Personal Git / linked accounts | **Settings** |
+| Issues / standing routines / projects | `/issues`, assistant detail, `/projects` |
 
-Agent、Browser 都跑在 Docker 里。首次用会拉：
+Agent and Browser both run in Docker. First use pulls:
 
-- Agent：`ghcr.io/roundpenai/code-agent:0.1.0`（可用 `ROUNDPEN_AGENT_IMAGE` 或 `docker load`）
-- Browser：`ghcr.io/browserless/chrome:v2.56.7`（可用 `ROUNDPEN_BROWSER_IMAGE`；安装/启动时后台预拉）
+- Agent: `ghcr.io/roundpenai/code-agent:0.1.0` (`ROUNDPEN_AGENT_IMAGE` or `docker load`)
+- Browser: `ghcr.io/browserless/chrome:v2.56.7` (`ROUNDPEN_BROWSER_IMAGE`; prefetched on install/start when possible)
 
-`ghcr.io` 拉不动时会自动试国内代理镜像（见 `ROUNDPEN_IMAGE_MIRRORS`），成功后打回原 tag。离线或内网也可 `docker load`，不必本机留 Dockerfile。
+If `ghcr.io` is unreachable, Roundpen tries domestic mirror registries (`ROUNDPEN_IMAGE_MIRRORS`) and retags on success. Offline / air-gapped installs can `docker load` — no Dockerfile required on the host.
 
-## 二进制
+## Binaries
 
-| 命令 | 用途 |
+| Command | Role |
 | --- | --- |
-| `roundpend` | 控制面（可嵌入 Web UI） |
+| `roundpend` | Control plane (embeds the Web UI) |
 | `roundpen` | CLI |
 
-两者都会读**当前工作目录**的 `.env`；已有环境变量优先。systemd 可用 `EnvironmentFile=`。
+Both load `.env` from the **current working directory**; real environment variables win. Under systemd, use `EnvironmentFile=`.
 
-## 更多文档
+## Where we're headed
 
-| 文档 | 内容 |
+Roundpen is evolving from “chat with an agent on my box” into a durable **personal / small-team AI workbench**:
+
+- Longer, segmented runs that survive across hours without holding a single prompt open
+- Stronger project coordination (multi-agent workers, shared project context)
+- Deeper home / NAS integration (directory grants, local services)
+- Optional desktop / phone VM slots for agents that need a full GUI environment
+
+The north star stays the same: **capable assistants that live on infrastructure you control**, not a cloud you rent by the minute.
+
+## Docs
+
+| Doc | About |
 | --- | --- |
-| [docs/architecture/project-layout.md](docs/architecture/project-layout.md) | 仓库结构 |
-| [docs/architecture/browser-env.md](docs/architecture/browser-env.md) | Browser 来源（托管 / 局域网 / 云 / 本机 Chrome） |
-| [docs/workspace-layout.md](docs/workspace-layout.md) | 工作区目录 |
-| [docs/security.md](docs/security.md) | 隔离与策略 |
-| [docs/auth.md](docs/auth.md) | 登录与 OAuth |
-| [docs/free-llm-token.md](docs/free-llm-token.md) | 内置 FREE 模型的安装身份与限频 |
-| [docs/connectors.md](docs/connectors.md) / [docs/mcp-connectors.md](docs/mcp-connectors.md) | Google / MCP 连接器 |
-| [mobile/](mobile/) | 手机上的控制台 App（Flutter） |
+| [docs/architecture/project-layout.md](docs/architecture/project-layout.md) | Repository layout |
+| [docs/architecture/browser-env.md](docs/architecture/browser-env.md) | Browser sources (managed / LAN / cloud / host Chrome) |
+| [docs/workspace-layout.md](docs/workspace-layout.md) | Workspace directories |
+| [docs/security.md](docs/security.md) | Isolation and policy |
+| [docs/auth.md](docs/auth.md) | Login and OAuth |
+| [docs/free-llm-token.md](docs/free-llm-token.md) | Built-in FREE model identity and rate limits |
+| [docs/connectors.md](docs/connectors.md) / [docs/mcp-connectors.md](docs/mcp-connectors.md) | Google / MCP connectors |
+| [docs/skills.md](docs/skills.md) | Reusable skill workflows |
+| [mobile/](mobile/) | Mobile console (Flutter) |
 
 ## License
 
-Apache License 2.0，见 [LICENSE](LICENSE)。
+Apache License 2.0 — see [LICENSE](LICENSE).
