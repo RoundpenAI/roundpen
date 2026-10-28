@@ -30,5 +30,5 @@ desktop_applaunchname = roundpen.main
 service_port          = 9527
 checkport             = true
 ctl_stop              = true
-disable_authorization_path = true
+disable_authorization_path = false
 changelog             = 0.4.13：非 root 运行；FREE 安装身份失效时给出改绑模型配置的指引。

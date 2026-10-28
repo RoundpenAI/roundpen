@@ -192,6 +192,8 @@ export function ChatSessionPage() {
   }, [moreOpen])
 
   const chatAssistantId = assistantIdParam || session?.assistantId || ''
+  const chatAssistant =
+    assistants.find((a) => a.id === chatAssistantId) ?? null
   useEffect(() => {
     let cancelled = false
     setProjectCtx(null)
@@ -984,7 +986,10 @@ export function ChatSessionPage() {
           >
             <div className="chat-composer-dock-inner">
               {chats.length === 0 && !composerHasText && !generating && (
-                <RoutineSuggestions onPick={fillSuggestion} />
+                <RoutineSuggestions
+                  assistant={chatAssistant}
+                  onPick={fillSuggestion}
+                />
               )}
               <DeliveryActionBar
                 need={deliveryNeed}
