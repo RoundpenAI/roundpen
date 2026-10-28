@@ -30,5 +30,5 @@ desktop_applaunchname = roundpen.main
 service_port          = 9527
 checkport             = true
 ctl_stop              = true
-disable_authorization_path = true
+disable_authorization_path = false
 changelog             = 0.4.10：界面显示当前版本；会话变更集与文件管理可直接下载产物。
