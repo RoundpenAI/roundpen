@@ -82,26 +82,30 @@ func Kind() settingitems.KindDef {
 				Type:     settingitems.FieldEnum,
 				Label:    "Provider",
 				Required: true,
-				Options:  []string{config.CDPProviderAuto, config.CDPProviderDocker, config.CDPProviderHost, config.CDPProviderRemote, config.CDPProviderCloud},
-				Hint:     "auto/docker use the Roundpen-managed container; host runs local Chrome; remote/cloud dial an external browserless.",
+				// Settings UI offers docker (local install) or remote (URL).
+				// auto/host/cloud remain valid for legacy items and env config.
+				Options: []string{config.CDPProviderDocker, config.CDPProviderRemote},
+				Hint:    "Local Docker installs a managed browserless container; remote dials an external browserless URL.",
 			},
 			{
 				Key:   "endpoint",
 				Type:  settingitems.FieldString,
-				Label: "CDP endpoint",
-				Hint:  "Required for remote/cloud (ws://… or http://… of a browserless deployment).",
+				Label: "Browserless URL",
+				Hint:  "Required for remote (ws://… or http://… of a browserless deployment).",
 			},
 			{
-				Key:   "token",
-				Type:  settingitems.FieldSecret,
-				Label: "Endpoint token",
-				Hint:  "Optional bearer token for remote/cloud.",
+				Key:      "token",
+				Type:     settingitems.FieldSecret,
+				Label:    "Endpoint token",
+				Hint:     "Optional bearer token for remote.",
+				Advanced: true,
 			},
 			{
-				Key:   "port",
-				Type:  settingitems.FieldInt,
-				Label: "CDP port",
-				Hint:  "Guest port of the managed container (default 3000).",
+				Key:      "port",
+				Type:     settingitems.FieldInt,
+				Label:    "CDP port",
+				Hint:     "Guest port of the managed container (default 3000).",
+				Advanced: true,
 			},
 		},
 		Selectable: []string{},
@@ -111,8 +115,9 @@ func Kind() settingitems.KindDef {
 }
 
 func normalizeItem(it *settingitems.Item) error {
-	if strings.TrimSpace(it.String("provider")) == "" {
-		it.Config["provider"] = config.CDPProviderAuto
+	provider := strings.TrimSpace(it.String("provider"))
+	if provider == "" || provider == config.CDPProviderAuto {
+		it.Config["provider"] = config.CDPProviderDocker
 	}
 	if it.Int("port") <= 0 {
 		it.Config["port"] = config.DefaultCDPPort

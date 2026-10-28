@@ -249,13 +249,27 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.logBody.256k': '256 KiB',
 
   'settings.browser.intro':
-    '浏览器通过 DevTools WebSocket 接入。添加一条或多条来源，选中其中一条为默认；运行中的默认来源会显示「已启动」。',
+    '选择浏览器怎么跑：本机 Docker 安装 browserless，或填入远程 browserless 地址。选一条为默认；「已启动」表示环境已起来。',
   'settings.browser.keepMasked': '保持掩码以保留当前值',
   'settings.browser.test': '测试连接',
   'settings.browser.testOk': '连接正常',
   'settings.browser.started': '已启动',
   'settings.browser.hint':
-    'NAS 与 compose 应使用 Docker Chrome 或远程/云 CDP — 不要在 NAS 系统上安装 Chrome。本机 Chrome 仅用于笔记本调试。',
+    '优先用本机 Docker，或连远程 browserless。不要在 NAS 系统上安装 Chrome。',
+  'settings.browser.addTitle': '添加浏览器',
+  'settings.browser.editTitle': '编辑浏览器',
+  'settings.browser.mode': '运行方式',
+  'settings.browser.modeHint': '二选一即可。本机 Docker 会自动安装；远程只需填 URL。',
+  'settings.browser.mode.docker': '本机 Docker（browserless）',
+  'settings.browser.mode.remote': '远程 browserless',
+  'settings.browser.dockerHelp':
+    'Roundpen 会拉取 browserless 镜像，并为每个用户启动托管容器。需要本机已安装 Docker。',
+  'settings.browser.url': 'Browserless URL',
+  'settings.browser.urlHint':
+    'http(s)://主机:端口 或 ws(s)://…；路径可省略，token 可写在查询串里。',
+  'settings.browser.urlRequired': '请填写 browserless 地址。',
+  'settings.browser.install': '安装并启用',
+  'settings.browser.installFailed': '已保存，但本机浏览器尚未启动成功。',
 
   'settings.llmgw.intro':
     '添加 FREE、DeepSeek、Kimi、GLM、OpenRouter 或自定义接口，选中一条为默认即可；Agent 与对话会自动使用它。内置平台只需 API Key 和模型，自定义再填协议与地址。密钥只注入 Docker 里的 Agent，不对外发放。',
@@ -616,28 +630,27 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.itemFieldHint.search.apiKey': '以 Bearer 令牌发送。',
   'settings.itemFieldHint.search.proxyId': '搜索、WebFetch 与技能安装共用这条出网代理。',
   'settings.itemFieldHint.browser.provider':
-    '决定浏览器跑在哪里。每种来源要填的字段不同，下拉框下方的说明写的就是所选项。',
+    '本机 Docker 安装托管 browserless；远程则连接外部地址。',
   'settings.itemFieldHint.browser.endpoint':
-    'remote/cloud 必填；host 填了就连该地址、不再启动本机 Chrome；auto/docker 忽略。支持 http(s):// 或 ws(s)://，可带路径与查询串。',
+    '远程必填。支持 http(s):// 或 ws(s)://，可带路径与查询串。',
   'settings.itemFieldHint.browser.token':
-    'remote/cloud（以及带 endpoint 的 host）会用到：作为 ?token= 附加到 CDP 地址，并作为探测请求的 Bearer。auto/docker 用沙箱自身的令牌，留空即可。',
+    '远程可选：作为 ?token= 附加，并作为探测请求的 Bearer。Docker 用沙箱令牌，留空即可。',
   'settings.itemFieldHint.browser.port':
-    '仅 auto/docker 生效：托管容器内的 CDP 端口，browserless 默认 3000。',
-  'settings.itemOption.browser.provider.auto': '自动（推荐）',
-  'settings.itemOption.browser.provider.docker': '平台托管容器（browserless）',
+    '仅 Docker：托管容器内的 CDP 端口，browserless 默认 3000。',
+  'settings.itemOption.browser.provider.auto': '自动（旧）',
+  'settings.itemOption.browser.provider.docker': '本机 Docker（browserless）',
   'settings.itemOption.browser.provider.host': '本机 Chrome（仅调试）',
-  'settings.itemOption.browser.provider.remote': '局域网 / 自建 browserless',
+  'settings.itemOption.browser.provider.remote': '远程 browserless',
   'settings.itemOption.browser.provider.cloud': '云浏览器服务',
-  'settings.itemOptionHint.browser.provider.auto':
-    '交给平台解析，目前等同于 docker：每个用户一个托管的 browserless/chrome 容器，控制面直连其 CDP 端口，实时视图可用。\n需要 roundpend 主机上有 Docker。其余字段保持默认即可，不确定就选这个。',
+  'settings.itemOptionHint.browser.provider.auto': '旧别名，等同本机 Docker。',
   'settings.itemOptionHint.browser.provider.docker':
-    '为每个用户启动一个 Roundpen 托管的 browserless/chrome 容器（Browser 环境），控制面经沙箱通道连到容器内的 CDP 端口。\n需要 roundpend 主机上有 Docker。只有换了镜像或改了容器端口才需要改端口；endpoint 与 token 留空。',
+    '由 Roundpen 安装并启动每用户一个托管的 browserless/chrome 容器。',
   'settings.itemOptionHint.browser.provider.host':
-    '直接用 roundpend 主机上安装的 Chrome/Chromium（CHROME_PATH，或 PATH 上的 google-chrome / chromium）。仅适合笔记本本机调试：所有用户共用这一个浏览器，而且没有实时视图，只能用截图接管面板操作；NAS 上不要为此安装 Chrome。\nendpoint 留空 = 启动本机 Chrome；填了 CDP 地址则改为连接该地址（token 可选）。',
+    '仅笔记本调试 — 请优先用本机 Docker 或远程 browserless。',
   'settings.itemOptionHint.browser.provider.remote':
-    '连接局域网里自建的 browserless（browserless/chrome、chromium 等）。\nendpoint 必填：http(s)://主机:端口 或 ws(s)://…；不带路径时平台依次尝试 /chrome、/chromium、/。token 可选，会作为 ?token= 附加到 CDP 地址。\n注意：该端点被所有选到它的用户共用，会话隔离要由那台机器自己做。',
+    '粘贴 browserless 的 CDP 地址（http(s):// 或 ws(s)://）。',
   'settings.itemOptionHint.browser.provider.cloud':
-    '连接商业云浏览器（Browserbase、Steel、Browserless 云等）。\nendpoint 必填：粘贴服务商给的 CDP / 会话地址（wss://…，可带 query，如 connect.browserbase.com/?signingKey=…）。token 可选，会追加为 ?token=。\n会话的创建、超时与计费由服务商管；该端点同样为所有选到它的用户共用。',
+    '与远程相同：粘贴服务商给的 CDP / 会话地址。',
   'settings.itemField.llm.vendor': '平台',
   'settings.itemFieldHint.llm.vendor':
     '内置平台只需 API Key 和模型。自定义则继续填写协议和接口地址。',
