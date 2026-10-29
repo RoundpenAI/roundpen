@@ -4,6 +4,9 @@
 -- Mapping: drafting→new, specced→spec_review, planned→triaged,
 -- in_progress→running, done→closed, cancelled→cancelled.
 
+-- Drop the old check first: UPDATE to the new labels would otherwise violate it.
+ALTER TABLE issues DROP CONSTRAINT IF EXISTS issues_status_check;
+
 UPDATE issues SET status = CASE status
     WHEN 'drafting'    THEN 'new'
     WHEN 'specced'     THEN 'spec_review'
@@ -14,7 +17,6 @@ UPDATE issues SET status = CASE status
 END
 WHERE status IN ('drafting', 'specced', 'planned', 'in_progress', 'done');
 
-ALTER TABLE issues DROP CONSTRAINT IF EXISTS issues_status_check;
 ALTER TABLE issues
     ADD CONSTRAINT issues_status_check
     CHECK (status IN (

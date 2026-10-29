@@ -16,6 +16,12 @@ const (
 	RoleImplementer = "implementer"
 	RoleReviewer    = "reviewer"
 	RoleTester      = "tester"
+
+	// DefaultWorkerRunTimeout matches chat turnTimeout / routine segment budget.
+	// execute() uses it as the prompt deadline; SweepStale fails rows that outlive it.
+	DefaultWorkerRunTimeout = 2 * time.Hour
+	// DefaultWorkerSweepTick is how often the runner looks for hung running workers.
+	DefaultWorkerSweepTick = time.Minute
 )
 
 // Worker is one delegated execution unit inside a Project.
@@ -38,6 +44,10 @@ type Worker struct {
 	UpdatedAt    time.Time     `json:"updatedAt"`
 	StartedAt    *time.Time    `json:"startedAt,omitempty"`
 	FinishedAt   *time.Time    `json:"finishedAt,omitempty"`
+
+	// Activity is filled by EnrichWorkerActivity (session transcript stats).
+	MessageCount  int        `json:"messageCount,omitempty"`
+	LastMessageAt *time.Time `json:"lastMessageAt,omitempty"`
 }
 
 type DelegateInput struct {

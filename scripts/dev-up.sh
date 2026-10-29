@@ -247,24 +247,70 @@ trap cleanup EXIT INT TERM
 # Clear stale listeners before bind (common after crashed make dev).
 "$ROOT/scripts/dev-stop.sh"
 
-# go run writes the binary under /tmp; that tmpfs often hits quota while Vite
-# still starts, leaving the UI up with ECONNREFUSED on :19001.
+# go build writes under GOTMPDIR; /tmp often hits quota while Vite still starts.
 export GOTMPDIR="${GOTMPDIR:-$HOME/.cache/roundpen-gotmp}"
 mkdir -p "$GOTMPDIR" bin
-echo "Building bin/roundpend ..."
-if ! go build -o bin/roundpend ./cmd/roundpend; then
-	echo "error: go build ./cmd/roundpend failed" >&2
-	exit 1
-fi
+export PATH="${HOME}/.local/bin:$(go env GOPATH 2>/dev/null)/bin:${PATH}"
 
-echo "Starting roundpend on ${ROUNDPEN_HTTP_ADDR} ..."
-# New session so Ctrl+C / cleanup can signal the whole tree.
-setsid ./bin/roundpend &
+# air watches Go sources and rebuilds/restarts bin/roundpend (see .air.toml).
+# Prefer a release binary over `go install` (install graph is heavy / flaky).
+AIR_VERSION="${ROUNDPEN_AIR_VERSION:-1.61.7}"
+ensure_air() {
+	local have ver arch url mirror
+	if need_cmd air; then
+		have="$(air -v 2>&1 || true)"
+		if [[ "$have" == *"${AIR_VERSION}"* ]]; then
+			return 0
+		fi
+		echo "note: air on PATH is not v${AIR_VERSION} (${have}); installing pinned release"
+	fi
+	local os
+	case "$(uname -s)" in
+		Linux) os=linux ;;
+		Darwin) os=darwin ;;
+		*)
+			echo "error: unsupported OS $(uname -s) for air binary" >&2
+			return 1
+			;;
+	esac
+	case "$(uname -m)" in
+		x86_64|amd64) arch=amd64 ;;
+		aarch64|arm64) arch=arm64 ;;
+		*)
+			echo "error: unsupported arch $(uname -m) for air binary" >&2
+			return 1
+			;;
+	esac
+	url="https://github.com/air-verse/air/releases/download/v${AIR_VERSION}/air_${AIR_VERSION}_${os}_${arch}"
+	mkdir -p "${HOME}/.local/bin"
+	for mirror in \
+		"https://ghfast.top/${url}" \
+		"https://mirror.ghproxy.com/${url}" \
+		"${url}"
+	do
+		echo "Installing air v${AIR_VERSION} (${os}_${arch}) ..."
+		if curl -fL --connect-timeout 10 --max-time 120 -o "${HOME}/.local/bin/air.new" "$mirror" \
+			&& chmod +x "${HOME}/.local/bin/air.new" \
+			&& "${HOME}/.local/bin/air.new" -v >/dev/null 2>&1; then
+			mv "${HOME}/.local/bin/air.new" "${HOME}/.local/bin/air"
+			return 0
+		fi
+		rm -f "${HOME}/.local/bin/air.new"
+	done
+	echo "error: failed to download air v${AIR_VERSION}" >&2
+	return 1
+}
+ensure_air
+
+echo "Starting roundpend via air on ${ROUNDPEN_HTTP_ADDR} (Go save → rebuild) ..."
+# New session so Ctrl+C / cleanup can signal air + roundpend.
+setsid air -c "${ROOT}/.air.toml" &
 API_PID=$!
 
 wait_api() {
 	local i
-	for i in $(seq 1 80); do
+	# air's first go build can take longer than a warm ./bin/roundpend start.
+	for i in $(seq 1 240); do
 		if ! kill -0 "$API_PID" 2>/dev/null; then
 			return 1
 		fi
@@ -277,8 +323,8 @@ wait_api() {
 	return 1
 }
 if ! wait_api; then
-	echo "error: roundpend did not become ready on :${API_PORT} (Vite not started)." >&2
-	echo "  hint: if the build said disk quota, /tmp is full; this script now builds to bin/." >&2
+	echo "error: roundpend (via air) did not become ready on :${API_PORT} (Vite not started)." >&2
+	echo "  hint: check air build errors above; GOTMPDIR=${GOTMPDIR} (avoid full /tmp)." >&2
 	exit 1
 fi
 
@@ -289,9 +335,9 @@ WEB_PID=$!
 echo
 echo "Dev preview (LAN bind ${DEV_BIND}, advertised as ${LAN_IP}):"
 echo "  UI  http://${LAN_IP}:${UI_PORT}/"
-echo "  API http://${LAN_IP}:${API_PORT}/"
+echo "  API http://${LAN_IP}:${API_PORT}/  (air: save Go → rebuild/restart)"
 echo "  UI  http://127.0.0.1:${UI_PORT}/  (local)"
-echo "Ctrl+C or make stop → API/Vite (pg0 stays running)."
+echo "Ctrl+C or make stop → air/API/Vite (pg0 stays running)."
 echo
 
 wait

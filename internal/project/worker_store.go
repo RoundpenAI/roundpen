@@ -104,6 +104,75 @@ func (s *Store) HasRunningWorker(ctx context.Context, userID string) (bool, erro
 	return n > 0, err
 }
 
+// EnrichWorkerActivity fills MessageCount / LastMessageAt from agent_messages.
+func (s *Store) EnrichWorkerActivity(ctx context.Context, workers []*Worker) error {
+	ids := make([]string, 0, len(workers))
+	seen := map[string]struct{}{}
+	for _, w := range workers {
+		if w == nil || w.SessionID == "" {
+			continue
+		}
+		if _, ok := seen[w.SessionID]; ok {
+			continue
+		}
+		seen[w.SessionID] = struct{}{}
+		ids = append(ids, w.SessionID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT session_id, COUNT(*)::int, MAX(created_at)
+		FROM agent_messages
+		WHERE session_id = ANY($1)
+		GROUP BY session_id`, ids)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type act struct {
+		n  int
+		at time.Time
+	}
+	by := map[string]act{}
+	for rows.Next() {
+		var sid string
+		var n int
+		var at time.Time
+		if err := rows.Scan(&sid, &n, &at); err != nil {
+			return err
+		}
+		by[sid] = act{n: n, at: at.UTC()}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, w := range workers {
+		if w == nil || w.SessionID == "" {
+			continue
+		}
+		if a, ok := by[w.SessionID]; ok {
+			w.MessageCount = a.n
+			t := a.at
+			w.LastMessageAt = &t
+		}
+	}
+	return nil
+}
+
+// HasActiveWorkerForIssue reports queued/running workers linked to the issue.
+func (s *Store) HasActiveWorkerForIssue(ctx context.Context, userID, issueID string) (bool, error) {
+	if strings.TrimSpace(issueID) == "" {
+		return false, nil
+	}
+	var n int
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT COUNT(1) FROM project_workers
+		WHERE user_id = $1 AND issue_id = $2 AND status IN ($3, $4)`,
+		userID, issueID, WorkerQueued, WorkerRunning).Scan(&n)
+	return n > 0, err
+}
+
 // ClaimNextQueued marks the oldest queued worker for the user as running, if none is running.
 func (s *Store) ClaimNextQueued(ctx context.Context, userID string) (*Worker, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
@@ -169,6 +238,96 @@ func (s *Store) FinishWorker(ctx context.Context, id, status, errMsg string) err
 		WHERE id = $1 AND status = $5`,
 		id, status, errMsg, now, WorkerRunning)
 	return err
+}
+
+// FailOrphanRunning marks every running worker failed. Execute goroutines do not
+// survive a process restart, so a leftover running row permanently blocks the
+// per-user serial queue (one_running_per_user). Call on daemon boot.
+func (s *Store) FailOrphanRunning(ctx context.Context, errMsg string) ([]*Worker, error) {
+	if strings.TrimSpace(errMsg) == "" {
+		errMsg = "interrupted by process restart"
+	}
+	return s.failRunningWhere(ctx, errMsg, 0)
+}
+
+// FailStaleRunning fails workers that have been running longer than maxAge
+// (based on started_at, falling back to updated_at). Backup for hung execute
+// goroutines that ignore the prompt context deadline.
+func (s *Store) FailStaleRunning(ctx context.Context, maxAge time.Duration, errMsg string) ([]*Worker, error) {
+	if maxAge <= 0 {
+		maxAge = DefaultWorkerRunTimeout
+	}
+	if strings.TrimSpace(errMsg) == "" {
+		errMsg = "execution timed out"
+	}
+	return s.failRunningWhere(ctx, errMsg, maxAge)
+}
+
+// ListUsersWithQueuedFreeSlot returns users that have queued workers and no
+// running worker — Kick may have been missed after a finish/cancel race.
+func (s *Store) ListUsersWithQueuedFreeSlot(ctx context.Context) ([]string, error) {
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT DISTINCT q.user_id
+		FROM project_workers q
+		WHERE q.status = $1
+		  AND NOT EXISTS (
+			SELECT 1 FROM project_workers r
+			WHERE r.user_id = q.user_id AND r.status = $2
+		  )
+		ORDER BY q.user_id`, WorkerQueued, WorkerRunning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// failRunningWhere fails running workers. If olderThan > 0, only rows whose
+// coalesce(started_at, updated_at) is older than now-olderThan are updated.
+func (s *Store) failRunningWhere(ctx context.Context, errMsg string, olderThan time.Duration) ([]*Worker, error) {
+	now := time.Now().UTC()
+	var (
+		rows *sql.Rows
+		err  error
+	)
+	if olderThan <= 0 {
+		rows, err = s.DB.QueryContext(ctx, `
+			UPDATE project_workers SET
+				status = $1, error = $2, finished_at = $3, updated_at = $3
+			WHERE status = $4
+			RETURNING `+workerCols,
+			WorkerFailed, errMsg, now, WorkerRunning)
+	} else {
+		cutoff := now.Add(-olderThan)
+		rows, err = s.DB.QueryContext(ctx, `
+			UPDATE project_workers SET
+				status = $1, error = $2, finished_at = $3, updated_at = $3
+			WHERE status = $4
+			  AND COALESCE(started_at, updated_at) <= $5
+			RETURNING `+workerCols,
+			WorkerFailed, errMsg, now, WorkerRunning, cutoff)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*Worker{}
+	for rows.Next() {
+		w, err := scanWorker(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
 }
 
 // CancelWorker marks a queued or running worker cancelled. Returns false when

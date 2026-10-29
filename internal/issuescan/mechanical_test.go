@@ -25,16 +25,21 @@ func (m *memIssues) List(_ context.Context, _ string, f issue.ListFilter) ([]iss
 
 func (m *memIssues) TransitionWith(_ context.Context, _, keyOrID string, req issue.TransitionRequest) (*issue.Issue, error) {
 	for i := range m.rows {
-		if m.rows[i].Key == keyOrID {
-			m.rows[i].Status = req.To
-			m.rows[i].UpdatedAt = time.Now().UTC()
-			if req.To == issue.StatusTriaged {
-				m.rows[i].ClaimOwner = ""
-				m.rows[i].ClaimedAt = nil
-			}
-			cp := m.rows[i]
-			return &cp, nil
+		if m.rows[i].Key != keyOrID {
+			continue
 		}
+		if !issue.CanTransition(m.rows[i].Status, req.To) {
+			return nil, issue.ErrInvalidTransition{From: m.rows[i].Status, To: req.To}
+		}
+		m.rows[i].Status = req.To
+		m.rows[i].UpdatedAt = time.Now().UTC()
+		if req.To == issue.StatusTriaged || req.To == issue.StatusFailed ||
+			req.To == issue.StatusClosed || req.To == issue.StatusCancelled {
+			m.rows[i].ClaimOwner = ""
+			m.rows[i].ClaimedAt = nil
+		}
+		cp := m.rows[i]
+		return &cp, nil
 	}
 	return nil, issue.ErrNotFound
 }
@@ -73,6 +78,45 @@ func TestRequeueStaleClaims(t *testing.T) {
 		t.Fatalf("want triaged, got %s", store.rows[0].Status)
 	}
 }
+
+func TestApplyStatusTimeouts(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	store := &memIssues{rows: []issue.Issue{
+		{Key: "ISS-c", Status: issue.StatusClaimed, ClaimedAt: ptrTime(now.Add(-3 * time.Hour))},
+		{Key: "ISS-r", Status: issue.StatusRunning, UpdatedAt: now.Add(-3 * time.Hour)},
+		{Key: "ISS-v", Status: issue.StatusVerified, UpdatedAt: now.Add(-8 * 24 * time.Hour)},
+		{Key: "ISS-f", Status: issue.StatusFailed, UpdatedAt: now.Add(-15 * 24 * time.Hour)},
+		{Key: "ISS-t", Status: issue.StatusTriaged, UpdatedAt: now.Add(-31 * 24 * time.Hour)},
+		{Key: "ISS-ok", Status: issue.StatusTriaged, UpdatedAt: now.Add(-time.Hour)},
+	}}
+	actions, err := ApplyStatusTimeouts(context.Background(), store, "u", now, TimeoutPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	did := map[string]string{}
+	for _, a := range actions {
+		if a.Did {
+			did[a.Key] = a.To
+		}
+	}
+	want := map[string]string{
+		"ISS-c": issue.StatusTriaged,
+		"ISS-r": issue.StatusFailed,
+		"ISS-v": issue.StatusClosed,
+		"ISS-f": issue.StatusCancelled,
+		"ISS-t": issue.StatusCancelled,
+	}
+	for k, to := range want {
+		if did[k] != to {
+			t.Fatalf("%s: got %q want %q (actions=%+v)", k, did[k], to, actions)
+		}
+	}
+	if _, ok := did["ISS-ok"]; ok {
+		t.Fatal("fresh triaged must not timeout")
+	}
+}
+
+func ptrTime(t time.Time) *time.Time { return &t }
 
 func TestBoardDigestSkipsCooldown(t *testing.T) {
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)

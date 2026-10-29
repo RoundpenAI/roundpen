@@ -447,6 +447,11 @@ CREATE TABLE IF NOT EXISTS issues (
 ALTER TABLE issues ADD COLUMN IF NOT EXISTS pr_url TEXT NOT NULL DEFAULT '';
 
 -- Kanban status rename (idempotent upgrade from drafting/specced/… legacy set).
+-- Drop the old check first: UPDATE to the new labels would otherwise violate it.
+DO $$
+BEGIN
+    ALTER TABLE issues DROP CONSTRAINT IF EXISTS issues_status_check;
+END $$;
 UPDATE issues SET status = CASE status
     WHEN 'drafting'    THEN 'new'
     WHEN 'specced'     THEN 'spec_review'
@@ -458,7 +463,6 @@ END
 WHERE status IN ('drafting', 'specced', 'planned', 'in_progress', 'done');
 DO $$
 BEGIN
-    ALTER TABLE issues DROP CONSTRAINT IF EXISTS issues_status_check;
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'issues_status_check'
     ) THEN

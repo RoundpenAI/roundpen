@@ -515,10 +515,6 @@ func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID string, tit
 	if isQuestionRequest(req) {
 		return acp.RequestPermissionResponse{}, false
 	}
-	// In-process agent already escalated SoftDeny/L2 — do not re-classify.
-	if askHumanMeta(req) {
-		return acp.RequestPermissionResponse{}, false
-	}
 
 	toolName := *title
 	if req.ToolCall.Title != nil && strings.TrimSpace(*req.ToolCall.Title) != "" {
@@ -527,6 +523,19 @@ func (r *runner) autoResolve(req acp.RequestPermissionRequest, reqID string, tit
 	kind := ""
 	if req.ToolCall.Kind != nil {
 		kind = string(*req.ToolCall.Kind)
+	}
+
+	// In-process agent already escalated SoftDeny/L2 — do not re-classify for
+	// interactive chats. Workers have no console operator; treat as ModeAll
+	// (L3 HardDeny still applied) so Bash is not cancelled into a fake reject.
+	if askHumanMeta(req) {
+		if r.session == nil || r.session.Kind != "worker" {
+			return acp.RequestPermissionResponse{}, false
+		}
+		if resp, denied := r.hardDenyPermission(req, reqID, *title, toolName); denied {
+			return resp, true
+		}
+		return r.allowPermission(req, reqID, *title, "worker_unattended")
 	}
 
 	switch r.permMode() {
@@ -1043,12 +1052,23 @@ func (r *runner) cancelTurn() {
 func (r *runner) permMode() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.session != nil && r.session.Kind == "worker" {
+		// Project workers run without a live console client. ModeDecide would
+		// escalate L2 tools (Bash) to a human prompt and then cancel →
+		// "Permission rejected by user.", blocking implementer/tester work.
+		// ModeAll still applies L3 HardDeny via PreCheck.
+		return automode.ModeAll
+	}
 	return automode.NormalizeMode(r.mode)
 }
 
 // setPermMode selects how tool calls are approved for this chat.
 func (r *runner) setPermMode(mode string) {
-	mode = automode.NormalizeMode(mode)
+	if r.session != nil && r.session.Kind == "worker" {
+		mode = automode.ModeAll
+	} else {
+		mode = automode.NormalizeMode(mode)
+	}
 	r.mu.Lock()
 	r.mode = mode
 	rt := r.rt
@@ -1056,6 +1076,14 @@ func (r *runner) setPermMode(mode string) {
 	if rt != nil {
 		rt.SetPermMode(mode)
 	}
+}
+
+// defaultPermMode is the starting approval policy for a new runner.
+func defaultPermMode(sess *agentsession.Session) string {
+	if sess != nil && sess.Kind == "worker" {
+		return automode.ModeAll
+	}
+	return automode.ModeDecide
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -1103,6 +1131,9 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 
 	if r, ok := h.runners[sess.ID]; ok {
 		if rt, ok := h.ACP.Get(sess.ID); ok && rt.Profile == profile {
+			if sess.Kind == "worker" {
+				r.setPermMode(automode.ModeAll)
+			}
 			return r, nil
 		}
 		// Runtime gone or wrong persona; tear down and recreate.
@@ -1149,6 +1180,7 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	mode := defaultPermMode(sess)
 	r := &runner{
 		handler: h,
 		session: sess,
@@ -1159,12 +1191,12 @@ func (h *Handler) runnerFor(sess *agentsession.Session, user *storage.User) (*ru
 		ctx:     ctx,
 		cancel:  cancel,
 		clients: make(map[*streamClient]struct{}),
-		mode:    automode.ModeDecide,
+		mode:    mode,
 		perms:   make(map[string]*permWait),
 	}
 	rt.SetEventHandler(r.onEvent)
 	rt.SetPermissionHandler(r.onPermission)
-	rt.SetPermMode(automode.ModeDecide)
+	rt.SetPermMode(mode)
 	h.runners[sess.ID] = r
 	return r, nil
 }

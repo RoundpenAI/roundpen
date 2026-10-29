@@ -12,7 +12,6 @@ import { AssistantDetailPage } from './pages/AssistantDetailPage'
 import { BrowserPage } from './pages/BrowserPage'
 import { ChatSessionPage } from './pages/ChatSessionPage'
 import { IssueDetailPage } from './pages/IssueDetailPage'
-import { IssuesPage } from './pages/IssuesPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { ProjectsPage } from './pages/ProjectsPage'
 import { LoginPage } from './pages/LoginPage'
@@ -68,7 +67,7 @@ export default function App() {
           <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/projects/:key" element={<ProjectDetailPage />} />
-          <Route path="/issues" element={<IssuesPage />} />
+          <Route path="/issues" element={<Navigate to="/projects" replace />} />
           <Route path="/issues/:key" element={<IssueDetailPage />} />
         </Route>
         <Route path="/chats" element={<Navigate to="/a" replace />} />

@@ -280,19 +280,42 @@ func main() {
 		Projects:   projectStore,
 		Assistants: assistantStore,
 	}
-	projectRunner := &project.Runner{
-		Store:    projectStore,
-		Users:    userStore,
-		Starter:  projectWorkerStarter{H: agentHandler},
-		ACP:      acpMgr,
-		Turns:    agentHandler,
-		Notes:    agentStore,
-		Messages: agentStore,
-		Log:      logger,
+	pulseRunner := &issuescan.PulseRunner{
+		Users:      userStore,
+		UserGet:    userStore,
+		Assistants: assistantStore,
+		Issues:     issuescan.IssueStoreAdapter{Store: issueStore},
+		Projects:   projectPulseLookup{Store: projectStore},
+		Workers:    projectStore,
+		Starter:    pulseSessionStarter{H: agentHandler},
+		ACP:        boardScanACP{M: acpMgr},
+		Turns:      agentHandler,
+		Log:        logger,
 	}
+	pulseHook := pulseEnqueue{R: pulseRunner}
+	projectRunner := &project.Runner{
+		Store:     projectStore,
+		Users:     userStore,
+		Starter:   projectWorkerStarter{H: agentHandler},
+		ACP:       acpMgr,
+		Turns:     agentHandler,
+		Notes:     agentStore,
+		Messages:  agentStore,
+		Log:       logger,
+		Pulse:     pulseHook,
+		IssueKeys: issueStore,
+	}
+	// Running workers only exist as in-process goroutines; a leftover DB row
+	// after crash/restart blocks the per-user serial queue forever.
+	projectRunner.RecoverOrphans(ctx)
+	go projectRunner.Loop(ctx)
+	go pulseRunner.Loop(ctx)
+	logger.Info("issue work pulse enabled")
 	(&issue.Handler{
-		Store:    issueStore,
-		Projects: projectSessionBinder{Store: projectStore},
+		Store:     issueStore,
+		Projects:  projectSessionBinder{Store: projectStore},
+		Pulse:     pulseHook,
+		Continues: taskSessionContinuer{Workers: projectStore, H: agentHandler, Log: logger},
 	}).Mount(mux)
 	(&project.Handler{
 		Store:      projectStore,

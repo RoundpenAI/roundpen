@@ -284,13 +284,15 @@ func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, se
 	}
 	want := h.projectStart(ctx, user, sess, profile)
 	if rt, ok := h.ACP.Get(sessionID); ok && rt.Profile == profile && rt.Cwd == want.Cwd {
+		// Workers run unattended: pin Auto=all so Bash is not stuck on L2 asks.
+		rt.SetPermMode(automode.ModeAll)
 		return nil
 	}
 	if _, ok := h.ACP.Get(sessionID); ok {
 		h.deleteRunner(sessionID)
 		h.ACP.Stop(sessionID)
 	}
-	_, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
+	rt, err := h.ACP.Start(ctx, sessionID, "", DefaultAssistantProvider, manager.StartOpts{
 		Actor: manager.Actor{
 			Username: user.Username,
 			Role:     string(user.Role),
@@ -299,7 +301,11 @@ func (h *Handler) StartWorkerRuntime(ctx context.Context, user *storage.User, se
 		AssistantID: assistantID,
 		Project:     want,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	rt.SetPermMode(automode.ModeAll)
+	return nil
 }
 
 func (h *Handler) profileFor(ctx context.Context, user *storage.User, sess *agentsession.Session) string {

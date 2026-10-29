@@ -8,6 +8,17 @@ func TestCheckNetwork_DevSites(t *testing.T) {
 	if !d.Allowed {
 		t.Fatalf("github should allow: %+v", d)
 	}
+	for _, u := range []string{
+		"https://go.dev/dl/",
+		"https://go.dev/dl/go1.26.0.linux-amd64.tar.gz",
+		"https://proxy.golang.org/github.com/foo/@v/list",
+		"https://dl.google.com/go/go1.26.0.linux-amd64.tar.gz",
+	} {
+		d = CheckNetwork(p, u)
+		if !d.Allowed {
+			t.Fatalf("%s should allow under dev_sites: %+v", u, d)
+		}
+	}
 	d = CheckNetwork(p, "https://evil.example")
 	if d.Allowed || !d.Appliable {
 		t.Fatalf("evil should soft-deny appliable: %+v", d)
