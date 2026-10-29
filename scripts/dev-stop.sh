@@ -79,6 +79,11 @@ log "Stopping Roundpen dev processes (UI :${UI_PORT}, API :${API_PORT})..."
 kill_port "$API_PORT"
 kill_port "$UI_PORT"
 
+# air hot-reload parent for this repo (owns roundpend child).
+kill_pattern "${ROOT}/.air.toml" 'air .air.toml'
+kill_pattern "air -c ${ROOT}/.air.toml" 'air -c .air.toml'
+kill_pattern "air -c .air.toml" 'air -c .air.toml'
+
 # Processes whose basename is roundpend (./bin/roundpend or go-run temp binary).
 while read -r pid; do
 	[[ -z "$pid" ]] && continue

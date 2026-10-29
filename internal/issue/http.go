@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
+	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
 // ProjectBinder resolves a chat session to an owning project id (optional).
@@ -18,10 +20,25 @@ type ProjectBinder interface {
 	ProjectIDForSession(ctx context.Context, userID, sessionID string) (string, error)
 }
 
+// WorkPulser wakes agents to advance an issue (work pulse). Reason is opaque
+// to this package (created|transition|tick|worker_done|task_resume).
+type WorkPulser interface {
+	EnqueueIssue(ctx context.Context, userID, issueKey, reason string)
+}
+
+// TaskSessionContinuer appends a follow-up turn to a task-linked agent session
+// so a human unblock actually resumes work (status-only patches leave the
+// transcript idle).
+type TaskSessionContinuer interface {
+	ContinueTaskSession(ctx context.Context, user *storage.User, sessionID, prompt string) error
+}
+
 // Handler serves the issue tracker: /v1/issues, their docs and tasks.
 type Handler struct {
-	Store    *Store
-	Projects ProjectBinder
+	Store     *Store
+	Projects  ProjectBinder
+	Pulse     WorkPulser
+	Continues TaskSessionContinuer
 }
 
 // Mount registers the issue tracker routes on the console API mux.
@@ -124,6 +141,9 @@ func (h *Handler) createIssue(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeStoreErr(w, err)
 		return
+	}
+	if h.Pulse != nil {
+		h.Pulse.EnqueueIssue(r.Context(), user.Username, it.Key, "created")
 	}
 	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"issue": it})
 }
@@ -240,6 +260,9 @@ func (h *Handler) transitionIssue(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeStoreErr(w, err)
 		return
+	}
+	if h.Pulse != nil && !IsClosedStatus(it.Status) {
+		h.Pulse.EnqueueIssue(r.Context(), user.Username, it.Key, "transition")
 	}
 	out := map[string]any{"issue": it}
 	if reason := strings.TrimSpace(body.Reason); reason != "" {
@@ -526,12 +549,54 @@ func (h *Handler) patchTask(w http.ResponseWriter, r *http.Request) {
 		}
 		in.SessionID = body.SessionID
 	}
-	task, err := h.Store.UpdateTask(r.Context(), user.Username, r.PathValue("key"), in)
+	keyOrID := r.PathValue("key")
+	var prevStatus string
+	if body.Status != nil {
+		if prev, err := h.Store.GetTask(r.Context(), user.Username, keyOrID); err == nil && prev != nil {
+			prevStatus = prev.Status
+		}
+	}
+	task, err := h.Store.UpdateTask(r.Context(), user.Username, keyOrID, in)
 	if err != nil {
 		writeStoreErr(w, err)
 		return
 	}
+	h.afterTaskUnblocked(r.Context(), user, prevStatus, task)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"task": task})
+}
+
+// afterTaskUnblocked resumes agent work when a human clears a blocked TSK.
+// A status-only patch left the linked worker session idle — append a turn and
+// pulse the coordinator so the queue can re-delegate if needed.
+func (h *Handler) afterTaskUnblocked(ctx context.Context, user *storage.User, prevStatus string, task *Task) {
+	if h == nil || user == nil || task == nil {
+		return
+	}
+	if prevStatus != TaskBlocked || task.Status != TaskInProgress {
+		return
+	}
+	issueKey := ""
+	if h.Store != nil {
+		if k, err := h.Store.IssueKeyForID(ctx, user.Username, task.IssueID); err == nil {
+			issueKey = k
+		}
+	}
+	if h.Pulse != nil && issueKey != "" {
+		h.Pulse.EnqueueIssue(ctx, user.Username, issueKey, "task_resume")
+	}
+	sid := strings.TrimSpace(task.SessionID)
+	if sid == "" || h.Continues == nil {
+		return
+	}
+	prompt := fmt.Sprintf(
+		"Human cleared the blocker and marked %s in_progress again.\n"+
+			"Title: %s\n"+
+			"Prior detail / blocker notes (may be stale — retry tools):\n%s\n\n"+
+			"Continue this task now. Re-try Bash / browser / build / test as the brief requires. "+
+			"UpdateTask with progress or a new blocker; do not stop solely because an earlier turn saw Permission rejected.",
+		task.Key, strings.TrimSpace(task.Title), strings.TrimSpace(task.Detail),
+	)
+	_ = h.Continues.ContinueTaskSession(ctx, user, sid, prompt)
 }
 
 // resolveSession checks that a client-supplied sessionId belongs to the caller

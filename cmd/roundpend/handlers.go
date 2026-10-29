@@ -35,6 +35,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
 	"github.com/RoundpenAI/roundpen/internal/hostaccess"
 	"github.com/RoundpenAI/roundpen/internal/hostsetup"
+	"github.com/RoundpenAI/roundpen/internal/issuescan"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/mcp"
 	"github.com/RoundpenAI/roundpen/internal/memory"
@@ -825,6 +826,46 @@ func (a projectWorkerStarter) StartWorkerRuntime(ctx context.Context, user *stor
 	return a.H.StartWorkerRuntime(ctx, user, sessionID, role)
 }
 
+// taskSessionContinuer resumes a finished/idle worker chat after a human
+// clears a blocked TSK (status patch alone left the transcript quiet).
+type taskSessionContinuer struct {
+	Workers interface {
+		GetWorkerBySession(ctx context.Context, userID, sessionID string) (*project.Worker, error)
+	}
+	H interface {
+		StartWorkerRuntime(ctx context.Context, user *storage.User, sessionID, role string) error
+		PromptTurn(ctx context.Context, user *storage.User, sessionID, text string) error
+	}
+	Log *slog.Logger
+}
+
+func (c taskSessionContinuer) ContinueTaskSession(ctx context.Context, user *storage.User, sessionID, prompt string) error {
+	if c.H == nil || user == nil || strings.TrimSpace(sessionID) == "" {
+		return fmt.Errorf("task continue not configured")
+	}
+	role := project.RoleImplementer
+	if c.Workers != nil {
+		if w, err := c.Workers.GetWorkerBySession(ctx, user.Username, sessionID); err == nil && w != nil {
+			if normalized, nerr := project.NormalizeWorkerRole(w.Role); nerr == nil {
+				role = normalized
+			}
+		}
+	}
+	if err := c.H.StartWorkerRuntime(ctx, user, sessionID, role); err != nil {
+		if c.Log != nil {
+			c.Log.Warn("task continue start runtime", "session", sessionID, "err", err)
+		}
+		// Still try PromptTurn — runnerFor may start the runtime.
+	}
+	if err := c.H.PromptTurn(ctx, user, sessionID, prompt); err != nil {
+		if c.Log != nil {
+			c.Log.Warn("task continue prompt", "session", sessionID, "err", err)
+		}
+		return err
+	}
+	return nil
+}
+
 // projectSessionBinder lets issue create auto-attach a project from the coordinator session.
 type projectSessionBinder struct {
 	Store interface {
@@ -866,6 +907,61 @@ func (b boardScanStarter) StartBoardScanSession(ctx context.Context, user *stora
 		return "", err
 	}
 	return sess.ID, nil
+}
+
+// pulseSessionStarter adapts agentapi.Handler for issuescan.PulseRunner.
+type pulseSessionStarter struct {
+	H *agentapi.Handler
+}
+
+func (p pulseSessionStarter) StartSystemSession(ctx context.Context, user *storage.User, assistantID, title string) (string, error) {
+	sess, err := p.H.StartForAssistant(ctx, user, assistantID, title)
+	if err != nil {
+		return "", err
+	}
+	return sess.ID, nil
+}
+
+func (p pulseSessionStarter) StartCoordinatorSession(ctx context.Context, user *storage.User, assistantID, title string) (string, error) {
+	sess, err := p.H.StartCoordinator(ctx, user, assistantID, title)
+	if err != nil {
+		return "", err
+	}
+	return sess.ID, nil
+}
+
+func (p pulseSessionStarter) EnsureCoordinatorRuntime(ctx context.Context, user *storage.User, sessionID string) error {
+	return p.H.EnsureCoordinatorRuntime(ctx, user, sessionID)
+}
+
+// projectPulseLookup adapts project.Store for issuescan.ProjectPulseLookup.
+type projectPulseLookup struct {
+	Store *project.Store
+}
+
+func (p projectPulseLookup) Get(ctx context.Context, userID, keyOrID string) (projectID, key, coordAssistantID, coordSessionID string, err error) {
+	pr, err := p.Store.Get(ctx, userID, keyOrID)
+	if err != nil {
+		return "", "", "", "", err
+	}
+	return pr.ID, pr.Key, pr.CoordinatorAssistantID, pr.CoordinatorSessionID, nil
+}
+
+func (p projectPulseLookup) SetCoordinatorSession(ctx context.Context, userID, keyOrID, sessionID string) error {
+	_, err := p.Store.SetCoordinatorSession(ctx, userID, keyOrID, sessionID)
+	return err
+}
+
+// pulseEnqueue adapts PulseRunner to issue/project WorkPulser hooks.
+type pulseEnqueue struct {
+	R *issuescan.PulseRunner
+}
+
+func (p pulseEnqueue) EnqueueIssue(ctx context.Context, userID, issueKey, reason string) {
+	if p.R == nil {
+		return
+	}
+	p.R.Enqueue(ctx, userID, issueKey, issuescan.PulseReason(reason))
 }
 
 // boardScanACP adapts acp manager.Manager for issuescan.Runner.

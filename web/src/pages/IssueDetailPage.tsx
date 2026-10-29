@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Banner,
   Button,
@@ -22,11 +22,16 @@ import {
   assistantsApi,
   allowedTargets,
   issues,
+  projects,
   type Issue,
   type IssueDoc,
   type IssueStatus,
   type IssueTask,
+  type Project,
+  type ProjectWorker,
 } from '../api'
+import { WorkerProgressHint } from '../components/WorkerProgressHint'
+import { formatElapsed } from '../lib/workerActivity'
 import { useT, type MessageKey } from '../i18n'
 
 type DocKind = IssueDoc['kind']
@@ -110,8 +115,30 @@ type Snapshot = {
   error: string | null
 }
 
+function workerTagColor(
+  status: ProjectWorker['status'],
+): 'grey' | 'blue' | 'orange' | 'green' | 'red' {
+  switch (status) {
+    case 'queued':
+      return 'grey'
+    case 'running':
+      return 'orange'
+    case 'succeeded':
+      return 'green'
+    case 'failed':
+      return 'red'
+    default:
+      return 'blue'
+  }
+}
+
+function workerStatusKey(status: ProjectWorker['status']): MessageKey {
+  return `projects.worker.status.${status}`
+}
+
 export function IssueDetailPage() {
   const t = useT()
+  const navigate = useNavigate()
   const { key = '' } = useParams<{ key: string }>()
 
   const [reloadToken, setReloadToken] = useState(0)
@@ -119,6 +146,8 @@ export function IssueDetailPage() {
   const [assistantNames, setAssistantNames] = useState<Record<string, string>>(
     {},
   )
+  const [project, setProject] = useState<Project | null>(null)
+  const [workers, setWorkers] = useState<ProjectWorker[]>([])
   const [savingStatus, setSavingStatus] = useState(false)
 
   const reload = () => setReloadToken((n) => n + 1)
@@ -177,6 +206,55 @@ export function IssueDetailPage() {
     }
   }, [])
 
+  useEffect(() => {
+    const pid = issue?.projectId
+    if (!pid) {
+      setProject(null)
+      setWorkers([])
+      return
+    }
+    let cancelled = false
+    projects
+      .list()
+      .then((res) => {
+        if (cancelled) return
+        setProject(res.projects?.find((p) => p.id === pid) ?? null)
+      })
+      .catch(() => {
+        if (!cancelled) setProject(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [issue?.projectId])
+
+  useEffect(() => {
+    if (!project?.key || !issue?.id) {
+      setWorkers([])
+      return
+    }
+    let cancelled = false
+    const load = () => {
+      projects
+        .listWorkers(project.key)
+        .then((res) => {
+          if (cancelled) return
+          setWorkers(
+            (res.workers ?? []).filter((w) => w.issueId === issue.id),
+          )
+        })
+        .catch(() => {
+          if (!cancelled) setWorkers([])
+        })
+    }
+    load()
+    const id = window.setInterval(load, 8_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [project?.key, issue?.id, reloadToken])
+
   const statusOptions = useMemo(() => {
     if (!issue) return []
     const opts = [
@@ -215,7 +293,7 @@ export function IssueDetailPage() {
   return (
     <div style={{ padding: '16px 20px', maxWidth: 1280, margin: '0 auto' }}>
       <Link
-        to="/issues"
+        to={project ? `/projects/${project.key}` : '/projects'}
         style={{
           color: 'var(--semi-color-link)',
           fontSize: 12,
@@ -225,7 +303,9 @@ export function IssueDetailPage() {
         }}
       >
         <IconArrowLeft size="small" />
-        {t('issues.back')}
+        {project
+          ? `${t('issues.backToProject')}: ${project.key}`
+          : t('issues.backToProjects')}
       </Link>
 
       {snapshot?.error && (
@@ -308,6 +388,27 @@ export function IssueDetailPage() {
               />
             </span>
 
+            {issue.claimOwner ? (
+              <Typography.Text type="tertiary" size="small">
+                {t('issues.column.owner')}
+                {': '}
+                {issue.claimOwner === 'human' ||
+                issue.claimOwner === 'sysadmin' ? (
+                  issue.claimOwner === 'human'
+                    ? t('issues.owner.human')
+                    : t('issues.owner.sysadmin')
+                ) : (
+                  <Link
+                    to={`/a/${issue.claimOwner}`}
+                    style={{ color: 'var(--semi-color-link)' }}
+                  >
+                    {assistantNames[issue.claimOwner] ??
+                      issue.claimOwner.slice(0, 8)}
+                  </Link>
+                )}
+              </Typography.Text>
+            ) : null}
+
             <Typography.Text type="tertiary" size="small">
               {t('issues.column.origin')}
               {': '}
@@ -361,7 +462,25 @@ export function IssueDetailPage() {
                 onChanged={reload}
               />
             </div>
-            <div style={{ flex: '2 1 320px', minWidth: 0 }}>
+            <div
+              style={{
+                flex: '2 1 320px',
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16,
+              }}
+            >
+              <WorkersPanel
+                workers={workers}
+                assistantId={project?.coordinatorAssistantId}
+                onOpenLive={(w) => {
+                  if (!project?.coordinatorAssistantId || !w.sessionId) return
+                  navigate(
+                    `/a/${project.coordinatorAssistantId}/s/${w.sessionId}`,
+                  )
+                }}
+              />
               <TasksPanel
                 issueKey={issue.key}
                 tasks={tasks}
@@ -372,6 +491,99 @@ export function IssueDetailPage() {
         </>
       )}
     </div>
+  )
+}
+
+function WorkersPanel({
+  workers,
+  assistantId,
+  onOpenLive,
+}: {
+  workers: ProjectWorker[]
+  assistantId?: string
+  onOpenLive: (w: ProjectWorker) => void
+}) {
+  const t = useT()
+  const sorted = useMemo(() => {
+    const rank = (s: ProjectWorker['status']) => {
+      if (s === 'running') return 0
+      if (s === 'queued') return 1
+      if (s === 'failed') return 2
+      if (s === 'succeeded') return 3
+      return 4
+    }
+    return [...workers].sort((a, b) => rank(a.status) - rank(b.status))
+  }, [workers])
+
+  return (
+    <Card bodyStyle={{ padding: 16 }}>
+      <Typography.Text strong>{t('issues.workers')}</Typography.Text>
+      {sorted.length === 0 ? (
+        <Typography.Text
+          type="tertiary"
+          size="small"
+          style={{ display: 'block', marginTop: 8 }}
+        >
+          {t('issues.workers.empty')}
+        </Typography.Text>
+      ) : (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            marginTop: 10,
+          }}
+        >
+          {sorted.map((w) => (
+            <div
+              key={w.id}
+              style={{
+                padding: '8px 10px',
+                border: '1px solid var(--semi-color-border)',
+                borderRadius: 'var(--semi-border-radius-medium)',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Typography.Text
+                  size="small"
+                  style={{ fontFamily: 'var(--semi-font-family-code)' }}
+                >
+                  {w.key}
+                </Typography.Text>
+                <Typography.Text strong size="small">
+                  {w.title}
+                </Typography.Text>
+                <Tag size="small" color={workerTagColor(w.status)}>
+                  {t(workerStatusKey(w.status))}
+                </Tag>
+                <div style={{ flex: 1 }} />
+                {assistantId && w.sessionId ? (
+                  <Button
+                    size="small"
+                    theme="borderless"
+                    type="primary"
+                    onClick={() => onOpenLive(w)}
+                  >
+                    {t('issues.workers.openLive')}
+                  </Button>
+                ) : null}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <WorkerProgressHint worker={w} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   )
 }
 
@@ -890,6 +1102,15 @@ function TasksPanel({
                     <Tag size="small" color={taskTagColor(task.status)}>
                       {t(taskStatusKey(task.status))}
                     </Tag>
+                    {(task.status === 'in_progress' ||
+                      task.status === 'blocked') &&
+                    task.updatedAt ? (
+                      <Typography.Text type="tertiary" size="small">
+                        {t('issues.task.age', {
+                          age: formatElapsed(task.updatedAt) || '—',
+                        })}
+                      </Typography.Text>
+                    ) : null}
                   </div>
 
                   {/* A blocked task must say why: its detail is surfaced even
@@ -956,7 +1177,9 @@ function TasksPanel({
                             void setTaskStatus(task, 'in_progress')
                           }
                         >
-                          {t('issues.task.markInProgress')}
+                          {task.status === 'blocked'
+                            ? t('issues.task.continue')
+                            : t('issues.task.markInProgress')}
                         </Button>
                       )}
                       {task.status !== 'blocked' && (

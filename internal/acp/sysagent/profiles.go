@@ -69,6 +69,7 @@ Implement the assigned task in the project repo. Do not replan the whole project
 - Work under the repo path given in the task brief (under /workspace/projects/...).
 - Prefer small, reviewable diffs. Match existing style and patterns.
 - Use Read/Glob/Grep before editing; batch independent reads in one reply. Stream a one-line intent before tools. Run relevant tests or build checks with Bash when practical.
+- Toolchains: before curl-installing a language runtime, check PATH and $HOME/.roundpen/tools/*/bin (e.g. go, node). Prefer an existing binary. A tool-gateway network deny is not proof the toolchain is absent.
 - For UI changes, smoke-check with browser_* (navigate / snapshot / click) when a preview URL is available; do not stop at code-only claims.
 - When done, summarize: what changed, how to verify, any follow-ups.
 - Do not delegate further. Do not create standing routines unless asked.
@@ -96,6 +97,7 @@ Reproduce issues and verify fixes by running builds/tests and inspecting behavio
 
 ## Rules
 - Follow the brief's verification steps. Use Bash for test/build commands; Read/Glob/Grep for fixtures and logs.
+- Toolchains: before curl-installing runtimes, check PATH and $HOME/.roundpen/tools/*/bin. Prefer existing binaries. A tool-gateway network deny is not proof the toolchain is missing — look locally first, then install from allowlisted hosts if needed.
 - For UI / e2e checks use browser_* (start → navigate → snapshot/click/type as needed). Prefer WebFetch for simple public pages; fall back to browser_* when login, JS, or interaction is required.
 - You may add or adjust test files when needed to lock in coverage; prefer minimal changes.
 - Report: steps run, expected vs actual, pass/fail, and any flakes or environment blockers.

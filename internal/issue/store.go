@@ -680,6 +680,27 @@ type TaskUpdateInput struct {
 	SessionID *string
 }
 
+// GetTask loads one task by key or id for the owning user.
+func (s *Store) GetTask(ctx context.Context, userID, keyOrID string) (*Task, error) {
+	return scanTask(s.DB.QueryRowContext(ctx, `
+		SELECT `+taskCols+` FROM tasks
+		WHERE (id = $2 OR key = $2) AND user_id = $1`, userID, keyOrID))
+}
+
+// IssueKeyForID resolves an issue UUID to its public key (ISS-n).
+func (s *Store) IssueKeyForID(ctx context.Context, userID, issueID string) (string, error) {
+	var key string
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT key FROM issues WHERE id = $1 AND user_id = $2`, issueID, userID).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
 // UpdateTask applies a partial update. A status change also drives the issue
 // status in the same transaction; done_at follows the task status.
 func (s *Store) UpdateTask(ctx context.Context, userID, keyOrID string, in TaskUpdateInput) (*Task, error) {
@@ -758,6 +779,55 @@ func (s *Store) ListTasks(ctx context.Context, userID, keyOrID string) ([]Task, 
 	return listTasks(ctx, s.DB, issueID)
 }
 
+// StaleOpenTask is an in_progress/blocked task past its idle lease, with parent issue key.
+type StaleOpenTask struct {
+	Task
+	IssueKey    string
+	IssueStatus string
+}
+
+// ListStaleOpenTasks returns open-board tasks stuck in in_progress or blocked
+// whose updated_at is before olderThan (oldest first).
+func (s *Store) ListStaleOpenTasks(ctx context.Context, userID string, olderThan time.Time, limit int) ([]StaleOpenTask, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	// Qualify columns: join with issues would otherwise make bare names ambiguous.
+	qualified := `t.id, t.key, t.issue_id, COALESCE(t.plan_doc_id, ''), t.position, t.title, t.detail,
+		t.status, t.session_id, COALESCE(t.assistant_id, ''), t.created_at, t.updated_at, t.done_at`
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT `+qualified+`, i.key, i.status
+		FROM tasks t
+		JOIN issues i ON i.id = t.issue_id
+		WHERE t.user_id = $1
+		  AND t.status IN ($2, $3)
+		  AND t.updated_at < $4
+		  AND i.status NOT IN ($5, $6)
+		ORDER BY t.updated_at ASC
+		LIMIT $7`,
+		userID, TaskInProgress, TaskBlocked, olderThan.UTC(),
+		StatusClosed, StatusCancelled, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []StaleOpenTask{}
+	for rows.Next() {
+		var row StaleOpenTask
+		err := rows.Scan(
+			&row.ID, &row.Key, &row.IssueID, &row.PlanDocID, &row.Position,
+			&row.Title, &row.Detail, &row.Status, &row.SessionID, &row.AssistantID,
+			&row.CreatedAt, &row.UpdatedAt, &row.DoneAt,
+			&row.IssueKey, &row.IssueStatus,
+		)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 // listTasks backs both ListTasks and the write path's completion check, so q is
 // either the store's DB or the write transaction's Tx.
 func listTasks(ctx context.Context, q queryer, issueID string) ([]Task, error) {
@@ -781,6 +851,17 @@ func listTasks(ctx context.Context, q queryer, issueID string) ([]Task, error) {
 
 // scanIssue reads an issueCols row. closed_at is nullable and lands on the
 // *time.Time field, which scans as nil for NULL.
+// KeyForID returns the short key (ISS-n) for an issue uuid owned by userID.
+func (s *Store) KeyForID(ctx context.Context, userID, issueID string) (string, error) {
+	var key string
+	err := s.DB.QueryRowContext(ctx, `
+		SELECT key FROM issues WHERE user_id = $1 AND id = $2`, userID, issueID).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return key, err
+}
+
 // ResolveID returns the issue uuid for a key or id owned by userID.
 func (s *Store) ResolveID(ctx context.Context, userID, keyOrID string) (string, error) {
 	return s.lookupIssueID(ctx, userID, keyOrID)

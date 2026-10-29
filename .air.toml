@@ -1,0 +1,28 @@
+# Local make-dev hot reload for roundpend (air). See scripts/dev-up.sh.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./bin/roundpend ./cmd/roundpend"
+bin = "./bin/roundpend"
+include_ext = ["go", "tpl", "tmpl", "html"]
+exclude_dir = ["web", "data", "dist", "bin", "tmp", ".git", "node_modules", "mobile", "third_party", "tests", ".worktrees", ".omo", ".docker", ".cursor", "deploy", "docs", "images", "migrations", "scripts", "workers", "internal/ui/dist"]
+exclude_regex = ["_test\\.go"]
+exclude_unchanged = true
+delay = 500
+stop_on_error = true
+send_interrupt = true
+# Give roundpend's http.Server.Shutdown time to release :19001 before rebuild.
+kill_delay = "2s"
+log = "air_roundpend.log"
+
+[log]
+time = true
+main_only = false
+
+[misc]
+clean_on_exit = true
+
+[screen]
+clear_on_rebuild = false
+keep_scroll = true
