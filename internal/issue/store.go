@@ -23,7 +23,9 @@ type Store struct {
 // issueCols, taskCols and docCols keep select lists and the write paths'
 // RETURNING clauses in one place, in scan order.
 const issueCols = `id, key, user_id, COALESCE(assistant_id, ''), session_id, COALESCE(project_id, ''),
-	title, summary, COALESCE(pr_url, ''), status, origin, created_at, updated_at, closed_at`
+	title, summary, COALESCE(pr_url, ''), status, origin, created_at, updated_at, closed_at,
+	COALESCE(discussion_round, 0), COALESCE(review_round, 0), COALESCE(claim_owner, ''),
+	claimed_at, COALESCE(last_status_from, ''), COALESCE(last_evidence, ''), last_board_scan_at`
 
 const taskCols = `id, key, issue_id, COALESCE(plan_doc_id, ''), position, title, detail,
 	status, session_id, COALESCE(assistant_id, ''), created_at, updated_at, done_at`
@@ -201,7 +203,9 @@ func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInp
 		if err := ValidateIssueStatus(*in.Status); err != nil {
 			return nil, err
 		}
-		return s.transitionAndPatch(ctx, userID, keyOrID, *in.Status, in.Title, in.Summary, in.PRURL)
+		return s.transitionAndPatch(ctx, userID, keyOrID, TransitionRequest{
+			To: *in.Status, ActorKind: ActorHuman, ActorID: userID,
+		}, in.Title, in.Summary, in.PRURL)
 	}
 	row := s.DB.QueryRowContext(ctx, `
 		UPDATE issues SET
@@ -215,15 +219,22 @@ func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInp
 	return scanIssue(row)
 }
 
-// Transition moves an issue along an allowed board edge.
+// Transition moves an issue along an allowed board edge (legacy helper: human actor).
 func (s *Store) Transition(ctx context.Context, userID, keyOrID, to string) (*Issue, error) {
-	if err := ValidateIssueStatus(to); err != nil {
-		return nil, err
-	}
-	return s.transitionAndPatch(ctx, userID, keyOrID, to, nil, nil, nil)
+	return s.TransitionWith(ctx, userID, keyOrID, TransitionRequest{
+		To: to, ActorKind: ActorHuman, ActorID: userID,
+	})
 }
 
-func (s *Store) transitionAndPatch(ctx context.Context, userID, keyOrID, to string, title, summary, prURL *string) (*Issue, error) {
+// TransitionWith applies anti-thrash policy, audits the move, and updates claim/rounds.
+func (s *Store) TransitionWith(ctx context.Context, userID, keyOrID string, req TransitionRequest) (*Issue, error) {
+	if err := ValidateIssueStatus(strings.TrimSpace(req.To)); err != nil {
+		return nil, err
+	}
+	return s.transitionAndPatch(ctx, userID, keyOrID, req, nil, nil, nil)
+}
+
+func (s *Store) transitionAndPatch(ctx context.Context, userID, keyOrID string, req TransitionRequest, title, summary, prURL *string) (*Issue, error) {
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -237,30 +248,152 @@ func (s *Store) transitionAndPatch(ctx context.Context, userID, keyOrID, to stri
 	if err != nil {
 		return nil, err
 	}
-	if !CanTransition(cur.Status, to) {
-		return nil, ErrInvalidTransition{From: cur.Status, To: to}
+
+	// Status-only PATCH from console: treat as human when actor unset.
+	if strings.TrimSpace(req.ActorKind) == "" {
+		req.ActorKind = ActorHuman
+		if strings.TrimSpace(req.ActorID) == "" {
+			req.ActorID = userID
+		}
 	}
+	if !CanTransition(cur.Status, req.To) && !(req.Force && isHuman(req.ActorKind)) {
+		// Policy may still rewrite discussion→triaged; only reject when not a discussion-cap candidate.
+		if !(isDiscussionPair(cur.Status, req.To) && cur.DiscussionRound >= MaxDiscussionRounds) {
+			return nil, ErrInvalidTransition{From: cur.Status, To: req.To}
+		}
+	}
+	pol, err := CheckTransitionPolicy(cur, req)
+	if err != nil {
+		return nil, err
+	}
+	to := pol.To
+	from := cur.Status
+
+	discussionRound := cur.DiscussionRound
+	if pol.DiscussionInc {
+		discussionRound++
+	}
+	reviewRound := cur.ReviewRound
+	if pol.ReviewInc {
+		reviewRound++
+	}
+	claimOwner := cur.ClaimOwner
+	var claimedAt any
+	claimedAt = cur.ClaimedAt
+	switch pol.SetClaimOwner {
+	case "-":
+		claimOwner = ""
+		claimedAt = nil
+	case "":
+		// unchanged
+	default:
+		claimOwner = pol.SetClaimOwner
+		claimedAt = time.Now().UTC()
+	}
+	evidence := strings.TrimSpace(req.Evidence)
+	if evidence == "" {
+		evidence = cur.LastEvidence
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if pol.ForcedTriaged && reason == "" {
+		reason = "discussion_round_limit: forced triage"
+	} else if pol.ForcedTriaged {
+		reason = reason + " [forced triage: discussion_round_limit]"
+	}
+
 	row := tx.QueryRowContext(ctx, `
 		UPDATE issues SET
-			status     = $3,
-			title      = COALESCE($4, title),
-			summary    = COALESCE($5, summary),
-			pr_url     = COALESCE($6, pr_url),
-			updated_at = now(),
-			closed_at  = CASE
+			status            = $3,
+			title             = COALESCE($4, title),
+			summary           = COALESCE($5, summary),
+			pr_url            = COALESCE($6, pr_url),
+			discussion_round  = $7,
+			review_round      = $8,
+			claim_owner       = $9,
+			claimed_at        = $10,
+			last_status_from  = $11,
+			last_evidence     = $12,
+			updated_at        = now(),
+			closed_at         = CASE
 				WHEN $3 IN ('closed', 'cancelled') THEN COALESCE(closed_at, now())
 				ELSE NULL END
 		WHERE id = $2 AND user_id = $1
 		RETURNING `+issueCols,
-		userID, cur.ID, to, title, summary, prURL)
+		userID, cur.ID, to, title, summary, prURL,
+		discussionRound, reviewRound, claimOwner, claimedAt,
+		from, evidence)
 	it, err := scanIssue(row)
 	if err != nil {
+		return nil, err
+	}
+	if err := insertTransition(ctx, tx, userID, cur.ID, from, to, req.ActorKind, req.ActorID, reason, strings.TrimSpace(req.Evidence)); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return it, nil
+}
+
+func insertTransition(ctx context.Context, tx *sql.Tx, userID, issueID, from, to, actorKind, actorID, reason, evidence string) error {
+	if actorKind == "" {
+		actorKind = ActorHuman
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO issue_transitions
+			(id, issue_id, user_id, from_status, to_status, actor_kind, actor_id, reason, evidence, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())`,
+		uuid.NewString(), issueID, userID, from, to, actorKind, actorID, reason, evidence)
+	return err
+}
+
+// MarkBoardScanned stamps last_board_scan_at so the scanner skips the issue for a while.
+func (s *Store) MarkBoardScanned(ctx context.Context, userID string, keys []string, at time.Time) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, err := s.DB.ExecContext(ctx, `
+			UPDATE issues SET last_board_scan_at = $3, updated_at = updated_at
+			WHERE user_id = $1 AND (id = $2 OR key = $2)`, userID, key, at.UTC()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ListTransitions returns recent audited moves for an issue (newest first).
+func (s *Store) ListTransitions(ctx context.Context, userID, keyOrID string, limit int) ([]Transition, error) {
+	issueID, err := s.lookupIssueID(ctx, userID, keyOrID)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	rows, err := s.DB.QueryContext(ctx, `
+		SELECT id, issue_id, user_id, from_status, to_status, actor_kind, COALESCE(actor_id, ''),
+			COALESCE(reason, ''), COALESCE(evidence, ''), created_at
+		FROM issue_transitions WHERE issue_id = $1
+		ORDER BY created_at DESC LIMIT $2`, issueID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Transition{}
+	for rows.Next() {
+		var tr Transition
+		if err := rows.Scan(&tr.ID, &tr.IssueID, &tr.UserID, &tr.From, &tr.To, &tr.ActorKind,
+			&tr.ActorID, &tr.Reason, &tr.Evidence, &tr.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, tr)
+	}
+	return out, rows.Err()
 }
 
 // ListDocs returns the issue's document index, newest version first. Bodies are
@@ -432,20 +565,30 @@ func advanceIssueStatus(ctx context.Context, tx *sql.Tx, issueID string, ev Even
 }
 
 // applyIssueStatus writes the forward-only rule's result, keeping closed_at in step.
+// Auto advances are actor=system and do not run thrash (docs/tasks are evidence of progress).
 func applyIssueStatus(ctx context.Context, tx *sql.Tx, issueID, cur string, ev Event) error {
 	next := Advance(cur, ev)
 	if next == cur {
 		return nil
 	}
+	var userID string
+	_ = tx.QueryRowContext(ctx, `SELECT user_id FROM issues WHERE id = $1`, issueID).Scan(&userID)
 	if IsClosedStatus(next) {
-		_, err := tx.ExecContext(ctx, `
-			UPDATE issues SET status = $2, updated_at = now(), closed_at = COALESCE(closed_at, now())
-			WHERE id = $1`, issueID, next)
-		return err
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE issues SET status = $2, updated_at = now(), closed_at = COALESCE(closed_at, now()),
+				last_status_from = $3, claim_owner = '', claimed_at = NULL
+			WHERE id = $1`, issueID, next, cur); err != nil {
+			return err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE issues SET status = $2, updated_at = now(), closed_at = NULL,
+				last_status_from = $3
+			WHERE id = $1`, issueID, next, cur); err != nil {
+			return err
+		}
 	}
-	_, err := tx.ExecContext(ctx, `
-		UPDATE issues SET status = $2, updated_at = now(), closed_at = NULL WHERE id = $1`, issueID, next)
-	return err
+	return insertTransition(ctx, tx, userID, issueID, cur, next, ActorSystem, "system", string(ev), "")
 }
 
 type TaskInput struct {
@@ -647,7 +790,9 @@ func scanIssue(row rowScanner) (*Issue, error) {
 	var it Issue
 	err := row.Scan(&it.ID, &it.Key, &it.UserID, &it.AssistantID, &it.SessionID, &it.ProjectID,
 		&it.Title, &it.Summary, &it.PRURL, &it.Status, &it.Origin,
-		&it.CreatedAt, &it.UpdatedAt, &it.ClosedAt)
+		&it.CreatedAt, &it.UpdatedAt, &it.ClosedAt,
+		&it.DiscussionRound, &it.ReviewRound, &it.ClaimOwner, &it.ClaimedAt,
+		&it.LastStatusFrom, &it.LastEvidence, &it.LastBoardScanAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

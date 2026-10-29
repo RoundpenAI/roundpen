@@ -106,6 +106,29 @@ type Issue struct {
 	CreatedAt   time.Time  `json:"createdAt"`
 	UpdatedAt   time.Time  `json:"updatedAt"`
 	ClosedAt    *time.Time `json:"closedAt,omitempty"`
+
+	// Anti-thrash / claim lease (Kanban).
+	DiscussionRound int        `json:"discussionRound"`
+	ReviewRound     int        `json:"reviewRound"`
+	ClaimOwner      string     `json:"claimOwner,omitempty"`
+	ClaimedAt       *time.Time `json:"claimedAt,omitempty"`
+	LastStatusFrom  string     `json:"lastStatusFrom,omitempty"`
+	LastEvidence    string     `json:"lastEvidence,omitempty"`
+	LastBoardScanAt *time.Time `json:"lastBoardScanAt,omitempty"`
+}
+
+// Transition is one audited status change.
+type Transition struct {
+	ID        string    `json:"id"`
+	IssueID   string    `json:"issueId"`
+	UserID    string    `json:"userId"`
+	From      string    `json:"from"`
+	To        string    `json:"to"`
+	ActorKind string    `json:"actorKind"`
+	ActorID   string    `json:"actorId,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	Evidence  string    `json:"evidence,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type Doc struct {

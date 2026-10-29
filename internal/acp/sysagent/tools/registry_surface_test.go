@@ -73,7 +73,7 @@ func TestWebToolSurface(t *testing.T) {
 
 func TestIssueToolSurface(t *testing.T) {
 	reg := tools.NewRegistry()
-	tools.RegisterIssues(reg, &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}, "sess-1")
+	tools.RegisterIssues(reg, &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}, "sess-1", "asst-1")
 
 	readOnly := map[string]bool{
 		"ListIssues": true, "ListIssueBoard": true, "GetIssue": true, "ReadIssueDoc": true,

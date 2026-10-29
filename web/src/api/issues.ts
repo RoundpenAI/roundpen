@@ -28,6 +28,13 @@ export type Issue = {
   createdAt: string
   updatedAt: string
   closedAt?: string
+  discussionRound?: number
+  reviewRound?: number
+  claimOwner?: string
+  claimedAt?: string
+  lastStatusFrom?: string
+  lastEvidence?: string
+  lastBoardScanAt?: string
 }
 
 export type IssueDoc = {
@@ -140,10 +147,20 @@ export const issues = {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
-  transition: (key: string, to: string, reason?: string) =>
+  transition: (
+    key: string,
+    to: string,
+    opts?: { reason?: string; evidence?: string; force?: boolean },
+  ) =>
     api<{ issue: Issue }>(`/v1/issues/${key}/transitions`, {
       method: 'POST',
-      body: JSON.stringify({ to, reason }),
+      body: JSON.stringify({
+        to,
+        reason: opts?.reason,
+        evidence: opts?.evidence,
+        force: opts?.force,
+        actorKind: 'human',
+      }),
     }),
   listDocs: (key: string, kind?: string) =>
     api<{ docs: IssueDoc[] }>(

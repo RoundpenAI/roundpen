@@ -62,11 +62,12 @@ type Runner struct {
 	ACP        Prompter
 	Log        *slog.Logger
 
-	Tick      time.Duration
-	QuietFor  time.Duration
-	Cooldown  time.Duration
-	ClaimLease time.Duration
-	Now       func() time.Time
+	Tick             time.Duration
+	QuietFor         time.Duration
+	Cooldown         time.Duration
+	ClaimLease       time.Duration
+	IssueScanCooldown time.Duration
+	Now              func() time.Time
 }
 
 // Loop polls until ctx is cancelled.
@@ -152,7 +153,11 @@ func (r *Runner) considerUser(ctx context.Context, userID string, now time.Time)
 		}
 	}
 
-	text, digestKey, err := BoardDigest(ctx, r.Issues, userID, 8)
+	issueCD := r.IssueScanCooldown
+	if issueCD <= 0 {
+		issueCD = DefaultIssueScanCooldown
+	}
+	text, digestKey, mentioned, err := BoardDigest(ctx, r.Issues, userID, now, 8, issueCD)
 	if err != nil || text == "" {
 		return err
 	}
@@ -169,6 +174,9 @@ func (r *Runner) considerUser(ctx context.Context, userID string, now time.Time)
 	}
 	if err := r.promptBoard(ctx, userID, text); err != nil {
 		return err
+	}
+	if err := r.Issues.MarkBoardScanned(ctx, userID, mentioned, now); err != nil {
+		r.log().Warn("issuescan mark scanned", "user", userID, "err", err)
 	}
 	if r.Store != nil {
 		return r.Store.MarkNotified(ctx, userID, hash, now)

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,10 +13,11 @@ import (
 // (like ListSessions), so validation and ownership live in one place — the HTTP layer.
 // sessionID binds the registration-time chat session, the way BrowserBinder does, so
 // created issues inherit their assistant and session server-side.
-func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
+func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID, assistantID string) {
 	if r == nil || api == nil {
 		return
 	}
+	asstID := strings.TrimSpace(assistantID)
 	r.Register(Tool{
 		Name: "CreateIssue",
 		Description: "Create a work item in the user's issue tracker and return its short key (ISS-12), " +
@@ -107,29 +109,36 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 	r.Register(Tool{
 		Name: "TransitionIssue",
 		Description: "Move an issue along an allowed Kanban edge (e.g. triaged→claimed, running→verified). " +
-			"Illegal jumps are rejected. Prefer this over UpdateIssue for status changes. " +
-			"Allowed edges: new→spec_review|needs_discussion|triaged; spec_review→needs_discussion|triaged; " +
-			"needs_discussion→spec_review|triaged; triaged→claimed; claimed→running; " +
-			"running→verified|needs_review|failed|triaged; verified→needs_review|closed; " +
-			"needs_review→closed|cancelled; failed→triaged; cancelled→triaged; closed→running.",
+			"Illegal jumps and thrash (discussion/review flip-flops, non-owner moves, missing reason) are rejected. " +
+			"Always pass reason (≥8 chars). Pass evidence when reversing a recent move. " +
+			"Only the claim owner (or sysadmin) may transition claimed/running issues. " +
+			"After discussion_round≥3 the only agent path out of spec_review/needs_discussion is triaged.",
 		Parameters: objectSchema(map[string]any{
-			"key":    map[string]any{"type": "string", "description": "Issue key, e.g. ISS-12"},
-			"to":     map[string]any{"type": "string", "description": "Target status"},
-			"reason": map[string]any{"type": "string", "description": "Optional short reason for the move"},
-		}, "key", "to"),
+			"key":      map[string]any{"type": "string", "description": "Issue key, e.g. ISS-12"},
+			"to":       map[string]any{"type": "string", "description": "Target status"},
+			"reason":   map[string]any{"type": "string", "description": "Required rationale (≥8 characters)"},
+			"evidence": map[string]any{"type": "string", "description": "New evidence to break hysteresis (PR SHA, user decision, …)"},
+		}, "key", "to", "reason"),
 		Mutating: true,
 		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
 			var a struct {
-				Key    string `json:"key"`
-				To     string `json:"to"`
-				Reason string `json:"reason"`
+				Key      string `json:"key"`
+				To       string `json:"to"`
+				Reason   string `json:"reason"`
+				Evidence string `json:"evidence"`
 			}
 			if err := json.Unmarshal(raw, &a); err != nil {
 				return "", err
 			}
-			body := map[string]any{"to": a.To}
-			if strings.TrimSpace(a.Reason) != "" {
-				body["reason"] = a.Reason
+			body := map[string]any{
+				"to": a.To, "reason": a.Reason, "actorKind": "agent",
+			}
+			if asstID != "" {
+				body["assistantId"] = asstID
+				body["actorId"] = asstID
+			}
+			if strings.TrimSpace(a.Evidence) != "" {
+				body["evidence"] = a.Evidence
 			}
 			return api.do(ctx, actor, http.MethodPost,
 				"/v1/issues/"+url.PathEscape(a.Key)+"/transitions", body)
@@ -155,12 +164,11 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 	})
 	r.Register(Tool{
 		Name: "UpdateIssue",
-		Description: "Update an issue by key (ISS-12): title, summary, optional prUrl (GitHub PR link), and status. " +
-			"Status changes must follow Kanban edges — prefer TransitionIssue. " +
+		Description: "Update an issue by key (ISS-12): title, summary, optional prUrl (GitHub PR link). " +
+			"Do not change status here — use TransitionIssue so anti-thrash (owner, rounds, reason) is enforced. " +
 			"Remote PR discussion stays on GitHub — prUrl is only a pointer. Send only the fields you mean to change.",
 		Parameters: objectSchema(map[string]any{
 			"key":     map[string]any{"type": "string", "description": "Issue key, e.g. ISS-12"},
-			"status":  map[string]any{"type": "string", "description": "Kanban status (must be an allowed edge from current)"},
 			"title":   map[string]any{"type": "string"},
 			"summary": map[string]any{"type": "string"},
 			"prUrl":   map[string]any{"type": "string", "description": "GitHub pull request URL after CreatePullRequest"},
@@ -169,7 +177,6 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
 			var a struct {
 				Key     string  `json:"key"`
-				Status  *string `json:"status"`
 				Title   *string `json:"title"`
 				Summary *string `json:"summary"`
 				PRURL   *string `json:"prUrl"`
@@ -178,9 +185,6 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 				return "", err
 			}
 			body := map[string]any{}
-			if a.Status != nil {
-				body["status"] = *a.Status
-			}
 			if a.Title != nil {
 				body["title"] = *a.Title
 			}
@@ -189,6 +193,9 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 			}
 			if a.PRURL != nil {
 				body["prUrl"] = *a.PRURL
+			}
+			if len(body) == 0 {
+				return "", fmt.Errorf("nothing to update; for status changes use TransitionIssue")
 			}
 			return api.do(ctx, actor, http.MethodPatch, "/v1/issues/"+url.PathEscape(a.Key), body)
 		},

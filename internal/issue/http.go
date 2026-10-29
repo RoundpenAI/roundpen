@@ -197,8 +197,13 @@ func (h *Handler) transitionIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		To     string `json:"to"`
-		Reason string `json:"reason"`
+		To          string `json:"to"`
+		Reason      string `json:"reason"`
+		Evidence    string `json:"evidence"`
+		ActorKind   string `json:"actorKind"`
+		ActorID     string `json:"actorId"`
+		AssistantID string `json:"assistantId"`
+		Force       bool   `json:"force"`
 	}
 	if !decodeBody(w, r, &body) {
 		return
@@ -216,7 +221,22 @@ func (h *Handler) transitionIssue(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
 		return
 	}
-	it, err := h.Store.Transition(r.Context(), user.Username, r.PathValue("key"), to)
+	kind := strings.TrimSpace(body.ActorKind)
+	if kind == "" {
+		kind = ActorHuman
+	}
+	actorID := strings.TrimSpace(body.ActorID)
+	if actorID == "" {
+		actorID = strings.TrimSpace(body.AssistantID)
+	}
+	if actorID == "" && kind == ActorHuman {
+		actorID = user.Username
+	}
+	req := TransitionRequest{
+		To: to, Reason: body.Reason, Evidence: body.Evidence,
+		ActorKind: kind, ActorID: actorID, Force: body.Force,
+	}
+	it, err := h.Store.TransitionWith(r.Context(), user.Username, r.PathValue("key"), req)
 	if err != nil {
 		writeStoreErr(w, err)
 		return
@@ -542,6 +562,11 @@ func writeStoreErr(w http.ResponseWriter, err error) {
 	var inv ErrInvalidTransition
 	if errors.As(err, &inv) {
 		httpx.WriteErr(w, http.StatusBadRequest, inv.Error())
+		return
+	}
+	var thrash ErrThrash
+	if errors.As(err, &thrash) {
+		httpx.WriteErr(w, http.StatusConflict, thrash.Error())
 		return
 	}
 	httpx.WriteErrOrInternal(w, nil, err, nil)
