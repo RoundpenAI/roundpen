@@ -21,21 +21,19 @@ test.describe('issues', () => {
     await page.getByLabel('标题').fill('e2e 事项')
     await page.getByRole('button', { name: '创建' }).click()
 
-    // Land on the detail page, clarifying and with no documents yet. The status
-    // assertions go through the visible copy: Semi's Select does not forward an
-    // accessible name, and what matters is the status the user reads.
+    // Land on the detail page in the ideas pool, with no documents yet.
     await expect(page).toHaveURL(/\/issues\/ISS-\d+/)
-    await expect(page.getByText('澄清中').first()).toBeVisible()
+    await expect(page.getByText('想法池').first()).toBeVisible()
     await expect(page.getByText('还没有文档。')).toBeVisible()
 
-    // Spec v1 (current) advances the issue to specced.
+    // Spec v1 (current) advances the issue to spec_review.
     await page.getByRole('button', { name: '新版本' }).click()
     await page
       .getByPlaceholder('用 Markdown 编写正文…')
       .fill('# 目标\n\n验证事项闭环。')
     await page.getByRole('button', { name: '创建' }).click()
     await expect(page.getByText('当前版本')).toBeVisible()
-    await expect(page.getByText('Spec 已定稿').first()).toBeVisible()
+    await expect(page.getByText('需求评审').first()).toBeVisible()
 
     // A second revision supersedes the first rather than overwriting it.
     await page.getByRole('button', { name: '新版本' }).click()
@@ -43,7 +41,7 @@ test.describe('issues', () => {
     await page.getByRole('button', { name: '创建' }).click()
     await expect(page.getByText('已被取代')).toBeVisible()
 
-    // One task, ticked to done: the issue closes itself.
+    // One task, ticked to done: the issue moves to verified.
     await page.getByRole('button', { name: '新增任务' }).click()
     await page.getByPlaceholder('标题').fill('验证任务闭环')
     await page.getByRole('button', { name: '创建' }).click()
@@ -55,9 +53,7 @@ test.describe('issues', () => {
       .getByRole('checkbox', { name: '验证任务闭环' })
       .press('Space')
 
-    // The issue closes itself. Assert on the issue's own status, not on any
-    // "已完成" in the task row — the loose version passed while the issue was
-    // still open.
-    await expect(page.getByTestId('issue-status')).toContainText('已完成')
+    await expect(page.getByTestId('issue-status')).toContainText('已验证')
   })
 })
+

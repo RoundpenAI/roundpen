@@ -26,6 +26,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/imconnect"
 	"github.com/RoundpenAI/roundpen/internal/installid"
 	"github.com/RoundpenAI/roundpen/internal/issue"
+	"github.com/RoundpenAI/roundpen/internal/issuescan"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
@@ -419,6 +420,20 @@ func main() {
 	}
 	go proactiveRunner.Loop(ctx)
 	logger.Info("proactive recall enabled")
+
+	boardScanRunner := &issuescan.Runner{
+		Users:      userStore,
+		UserGet:    userStore,
+		Assistants: assistantStore,
+		Quiet:      proactive.SQLQuietClock{DB: db.SQL},
+		Issues:     issueStore,
+		Store:      &issuescan.Store{DB: db.SQL},
+		Starter:    boardScanStarter{H: agentHandler},
+		ACP:        boardScanACP{M: acpMgr},
+		Log:        logger,
+	}
+	go boardScanRunner.Loop(ctx)
+	logger.Info("issue board scan enabled")
 
 	if imSup != nil {
 		if err := imSup.StartAll(ctx); err != nil {

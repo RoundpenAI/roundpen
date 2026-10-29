@@ -8,14 +8,39 @@ import (
 	"time"
 )
 
+// Kanban statuses (project board). See docs in the Project store:
+// issues-kanban-workflow.md
 const (
-	StatusDrafting   = "drafting"
-	StatusSpecced    = "specced"
-	StatusPlanned    = "planned"
-	StatusInProgress = "in_progress"
-	StatusDone       = "done"
-	StatusCancelled  = "cancelled"
+	StatusNew             = "new"
+	StatusSpecReview      = "spec_review"
+	StatusNeedsDiscussion = "needs_discussion"
+	StatusTriaged         = "triaged"
+	StatusClaimed         = "claimed"
+	StatusRunning         = "running"
+	StatusVerified        = "verified"
+	StatusNeedsReview     = "needs_review"
+	StatusFailed          = "failed"
+	StatusClosed          = "closed"
+	StatusCancelled       = "cancelled"
 )
+
+// BoardColumnOrder is the left-to-right Kanban order. Terminal columns are last.
+var BoardColumnOrder = []string{
+	StatusNew,
+	StatusSpecReview,
+	StatusNeedsDiscussion,
+	StatusTriaged,
+	StatusClaimed,
+	StatusRunning,
+	StatusVerified,
+	StatusNeedsReview,
+	StatusFailed,
+	StatusClosed,
+	StatusCancelled,
+}
+
+// TerminalStatuses are folded by default on the board.
+var TerminalStatuses = []string{StatusClosed, StatusCancelled}
 
 const (
 	TaskTodo       = "todo"
@@ -50,6 +75,21 @@ const (
 	EventTaskOpen     Event = "task_open"      // 任务进入 in_progress，或被重新打开
 	EventAllTasksDone Event = "all_tasks_done" // 全部任务 ∈ {done,cancelled} 且 ≥1 done
 )
+
+// allowedTransitions is the authoritative edge set for human + Agent transitions.
+var allowedTransitions = map[string][]string{
+	StatusNew:             {StatusSpecReview, StatusNeedsDiscussion, StatusTriaged},
+	StatusSpecReview:      {StatusNeedsDiscussion, StatusTriaged},
+	StatusNeedsDiscussion: {StatusSpecReview, StatusTriaged},
+	StatusTriaged:         {StatusClaimed},
+	StatusClaimed:         {StatusRunning},
+	StatusRunning:         {StatusVerified, StatusNeedsReview, StatusFailed, StatusTriaged},
+	StatusVerified:        {StatusNeedsReview, StatusClosed},
+	StatusNeedsReview:     {StatusClosed, StatusCancelled},
+	StatusFailed:          {StatusTriaged},
+	StatusCancelled:       {StatusTriaged},
+	StatusClosed:          {StatusRunning},
+}
 
 type Issue struct {
 	ID          string     `json:"id"`
@@ -100,37 +140,105 @@ type Task struct {
 	DoneAt      *time.Time `json:"doneAt,omitempty"`
 }
 
-// Advance returns the issue status after ev. Forward-only: a rule that does not
-// apply leaves the status unchanged, and a cancelled issue never auto-revives.
+// CanTransition reports whether from→to is an allowed board edge.
+func CanTransition(from, to string) bool {
+	if from == to {
+		return true
+	}
+	for _, next := range allowedTransitions[from] {
+		if next == to {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowedTargets returns the legal next statuses from from (excluding no-op).
+func AllowedTargets(from string) []string {
+	src := allowedTransitions[from]
+	out := make([]string, len(src))
+	copy(out, src)
+	return out
+}
+
+// ErrInvalidTransition is returned when a status change violates the board edges.
+type ErrInvalidTransition struct {
+	From, To string
+}
+
+func (e ErrInvalidTransition) Error() string {
+	return fmt.Sprintf("invalid transition %s → %s", e.From, e.To)
+}
+
+// Advance returns the issue status after ev. Forward-only within the Kanban
+// machine: a rule that does not apply leaves the status unchanged, and a
+// cancelled issue never auto-revives (reopen is an explicit transition).
 func Advance(cur string, ev Event) string {
 	if cur == StatusCancelled {
 		return cur
 	}
 	switch ev {
 	case EventSpecCurrent:
-		if cur == StatusDrafting {
-			return StatusSpecced
+		if cur == StatusNew {
+			return StatusSpecReview
 		}
 	case EventPlanCurrent:
-		if cur == StatusDrafting || cur == StatusSpecced {
-			return StatusPlanned
+		switch cur {
+		case StatusNew, StatusSpecReview, StatusNeedsDiscussion:
+			return StatusTriaged
 		}
 	case EventTaskOpen:
-		if cur != StatusInProgress {
-			return StatusInProgress
+		switch cur {
+		case StatusClosed:
+			return StatusRunning
+		case StatusTriaged, StatusClaimed, StatusVerified, StatusNeedsReview, StatusFailed:
+			return StatusRunning
+		case StatusRunning:
+			return StatusRunning
+		case StatusNew, StatusSpecReview, StatusNeedsDiscussion:
+			// Work started before triage: jump onto the execution lane.
+			return StatusRunning
 		}
 	case EventAllTasksDone:
-		// Closing does not require having passed through in_progress: ticking
-		// the last task is the same act whether or not the work was announced
-		// as started first.
-		return StatusDone
+		switch cur {
+		case StatusClosed, StatusCancelled:
+			return cur
+		default:
+			return StatusVerified
+		}
 	}
 	return cur
 }
 
+// IsClosedStatus reports whether status should stamp closed_at.
+func IsClosedStatus(status string) bool {
+	return status == StatusClosed || status == StatusCancelled
+}
+
+// IsOpenBoardStatus is true for columns the board scanner / proactive digest care about.
+func IsOpenBoardStatus(status string) bool {
+	switch status {
+	case StatusNew, StatusSpecReview, StatusNeedsDiscussion, StatusTriaged,
+		StatusClaimed, StatusRunning, StatusVerified, StatusNeedsReview, StatusFailed:
+		return true
+	}
+	return false
+}
+
+// OpenBoardStatuses lists non-terminal statuses for scanners.
+func OpenBoardStatuses() []string {
+	out := make([]string, 0, len(BoardColumnOrder))
+	for _, s := range BoardColumnOrder {
+		if IsOpenBoardStatus(s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // AllTasksDone reports whether the task list satisfies the completion rule:
 // at least one done, and nothing left in todo/in_progress/blocked. An issue whose
-// tasks were all cancelled stays in_progress for the user to decide.
+// tasks were all cancelled stays open for the user to decide.
 func AllTasksDone(tasks []Task) bool {
 	if len(tasks) == 0 {
 		return false
@@ -180,7 +288,9 @@ func ValidateTaskStatus(status string) error {
 
 func ValidateIssueStatus(status string) error {
 	switch status {
-	case StatusDrafting, StatusSpecced, StatusPlanned, StatusInProgress, StatusDone, StatusCancelled:
+	case StatusNew, StatusSpecReview, StatusNeedsDiscussion, StatusTriaged,
+		StatusClaimed, StatusRunning, StatusVerified, StatusNeedsReview,
+		StatusFailed, StatusClosed, StatusCancelled:
 		return nil
 	}
 	return fmt.Errorf("invalid issue status %q", status)

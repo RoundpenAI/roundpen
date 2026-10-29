@@ -75,9 +75,11 @@ func TestIssueToolSurface(t *testing.T) {
 	reg := tools.NewRegistry()
 	tools.RegisterIssues(reg, &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}, "sess-1")
 
-	readOnly := map[string]bool{"ListIssues": true, "GetIssue": true, "ReadIssueDoc": true}
+	readOnly := map[string]bool{
+		"ListIssues": true, "ListIssueBoard": true, "GetIssue": true, "ReadIssueDoc": true,
+	}
 	for _, name := range []string{
-		"CreateIssue", "ListIssues", "GetIssue", "UpdateIssue",
+		"CreateIssue", "ListIssues", "ListIssueBoard", "TransitionIssue", "GetIssue", "UpdateIssue",
 		"WriteIssueDoc", "ReadIssueDoc", "CreateTask", "UpdateTask",
 	} {
 		tool, ok := reg.Get(name)

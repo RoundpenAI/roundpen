@@ -64,11 +64,11 @@ func TestStore_IssueLifecycle(t *testing.T) {
 	if !strings.HasPrefix(it.Key, "ISS-") {
 		t.Fatalf("want ISS- key, got %q", it.Key)
 	}
-	if it.Status != StatusDrafting {
-		t.Fatalf("new issue must start drafting, got %s", it.Status)
+	if it.Status != StatusNew {
+		t.Fatalf("new issue must start in new, got %s", it.Status)
 	}
 
-	// spec 写入 current → specced
+	// spec 写入 current → spec_review
 	doc, err := st.WriteDoc(ctx, user, it.Key, DocInput{Kind: DocSpec, ContentMD: "# Spec v1", Status: DocCurrent})
 	if err != nil {
 		t.Fatal(err)
@@ -80,11 +80,11 @@ func TestStore_IssueLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != StatusSpecced {
-		t.Fatalf("spec current must advance to specced, got %s", got.Status)
+	if got.Status != StatusSpecReview {
+		t.Fatalf("spec current must advance to spec_review, got %s", got.Status)
 	}
 
-	// spec v2 → v1 superseded，状态保持 specced
+	// spec v2 → v1 superseded，状态保持 spec_review
 	doc2, err := st.WriteDoc(ctx, user, it.Key, DocInput{Kind: DocSpec, ContentMD: "# Spec v2", Status: DocCurrent})
 	if err != nil {
 		t.Fatal(err)
@@ -105,9 +105,13 @@ func TestStore_IssueLifecycle(t *testing.T) {
 		}
 	}
 
-	// plan → planned；任务开工 → in_progress；全部完成 → done
+	// plan → triaged；任务开工 → running；全部完成 → verified
 	if _, err := st.WriteDoc(ctx, user, it.Key, DocInput{Kind: DocPlan, ContentMD: "# Plan", Status: DocCurrent}); err != nil {
 		t.Fatal(err)
+	}
+	got, _, _, _ = st.Get(ctx, user, it.Key)
+	if got.Status != StatusTriaged {
+		t.Fatalf("plan current must advance to triaged, got %s", got.Status)
 	}
 	tk, err := st.CreateTask(ctx, user, it.Key, TaskInput{Title: "加表", Position: 1})
 	if err != nil {
@@ -120,26 +124,26 @@ func TestStore_IssueLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _, _, _ = st.Get(ctx, user, it.Key)
-	if got.Status != StatusInProgress {
-		t.Fatalf("task start must advance to in_progress, got %s", got.Status)
+	if got.Status != StatusRunning {
+		t.Fatalf("task start must advance to running, got %s", got.Status)
 	}
 	if _, err := st.UpdateTask(ctx, user, tk.Key, TaskUpdateInput{Status: ptr(TaskDone)}); err != nil {
 		t.Fatal(err)
 	}
 	got, _, tasks, _ := st.Get(ctx, user, it.Key)
-	if got.Status != StatusDone || got.ClosedAt == nil {
-		t.Fatalf("all tasks done must close the issue, got %s", got.Status)
+	if got.Status != StatusVerified || got.ClosedAt != nil {
+		t.Fatalf("all tasks done must verify the issue, got %s closed=%v", got.Status, got.ClosedAt)
 	}
 	if tasks[0].DoneAt == nil {
 		t.Fatal("done task must carry done_at")
 	}
 
-	// 重开任务 → 回到 in_progress
+	// 重开任务 → 回到 running
 	if _, err := st.UpdateTask(ctx, user, tk.Key, TaskUpdateInput{Status: ptr(TaskTodo)}); err != nil {
 		t.Fatal(err)
 	}
 	got, _, _, _ = st.Get(ctx, user, it.Key)
-	if got.Status != StatusInProgress || got.ClosedAt != nil {
+	if got.Status != StatusRunning || got.ClosedAt != nil {
 		t.Fatalf("reopening a task must reopen the issue, got %s closed=%v", got.Status, got.ClosedAt)
 	}
 }
@@ -179,28 +183,39 @@ func TestStore_Update(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// the explicit PATCH skips the status machine: drafting -> done is the
-	// user's call, and closed_at follows the status
-	got, err := st.Update(ctx, user, it.Key, UpdateInput{Status: ptr(StatusDone)})
+	// status changes must follow board edges
+	if _, err := st.Update(ctx, user, it.Key, UpdateInput{Status: ptr(StatusClosed)}); err == nil {
+		t.Fatal("new → closed must be rejected")
+	}
+	got, err := st.Update(ctx, user, it.Key, UpdateInput{Status: ptr(StatusTriaged)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != StatusDone || got.ClosedAt == nil {
-		t.Fatalf("explicit done must close the issue, got %s closed=%v", got.Status, got.ClosedAt)
+	if got.Status != StatusTriaged {
+		t.Fatalf("fast-path new → triaged, got %s", got.Status)
 	}
-	got, err = st.Update(ctx, user, it.Key, UpdateInput{Status: ptr(StatusInProgress)})
+	for _, step := range []string{StatusClaimed, StatusRunning, StatusVerified, StatusClosed} {
+		got, err = st.Update(ctx, user, it.Key, UpdateInput{Status: ptr(step)})
+		if err != nil {
+			t.Fatalf("%s: %v", step, err)
+		}
+	}
+	if got.Status != StatusClosed || got.ClosedAt == nil {
+		t.Fatalf("closed must stamp closed_at, got %s closed=%v", got.Status, got.ClosedAt)
+	}
+	got, err = st.Update(ctx, user, it.Key, UpdateInput{Status: ptr(StatusRunning)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != StatusInProgress || got.ClosedAt != nil {
-		t.Fatalf("leaving done must clear closed_at, got %s closed=%v", got.Status, got.ClosedAt)
+	if got.Status != StatusRunning || got.ClosedAt != nil {
+		t.Fatalf("reopen must clear closed_at, got %s closed=%v", got.Status, got.ClosedAt)
 	}
 	// a partial update leaves the other fields alone
 	got, err = st.Update(ctx, user, it.Key, UpdateInput{Title: ptr("改名")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != "改名" || got.Status != StatusInProgress || it.Summary != got.Summary {
+	if got.Title != "改名" || got.Status != StatusRunning || it.Summary != got.Summary {
 		t.Fatalf("partial update: %+v", got)
 	}
 	if _, err := st.Update(ctx, user, it.Key, UpdateInput{Status: ptr("weird")}); err == nil {
@@ -277,7 +292,7 @@ func TestStore_GetDoc(t *testing.T) {
 	if got.Version != 2 || got.ContentMD != "# d2" {
 		t.Fatalf("want highest draft v2, got v%d %q", got.Version, got.ContentMD)
 	}
-	if it2, _, _, err := st.Get(ctx, user, drafts.Key); err != nil || it2.Status != StatusDrafting {
+	if it2, _, _, err := st.Get(ctx, user, drafts.Key); err != nil || it2.Status != StatusNew {
 		t.Fatalf("drafts must not advance the issue, got %v %v", it2, err)
 	}
 
@@ -287,8 +302,8 @@ func TestStore_GetDoc(t *testing.T) {
 }
 
 // Ticking a task straight from todo is the console's checkbox path. It must
-// close the issue even though the task never passed through in_progress.
-func TestStore_TickingLastTaskClosesIssue(t *testing.T) {
+// verify the issue even though the task never passed through in_progress.
+func TestStore_TickingLastTaskVerifiesIssue(t *testing.T) {
 	st := newTestStore(t)
 	ctx := context.Background()
 	user := "issue-test-user"
@@ -305,8 +320,8 @@ func TestStore_TickingLastTaskClosesIssue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _, _, err := st.Get(ctx, user, it.Key); err != nil || got.Status != StatusSpecced {
-		t.Fatalf("want specced before the task is ticked, got %v %v", got, err)
+	if got, _, _, err := st.Get(ctx, user, it.Key); err != nil || got.Status != StatusSpecReview {
+		t.Fatalf("want spec_review before the task is ticked, got %v %v", got, err)
 	}
 
 	if _, err := st.UpdateTask(ctx, user, tk.Key, TaskUpdateInput{Status: ptr(TaskDone)}); err != nil {
@@ -316,8 +331,8 @@ func TestStore_TickingLastTaskClosesIssue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != StatusDone || got.ClosedAt == nil {
-		t.Fatalf("last task ticked must close the issue, got %s closed=%v", got.Status, got.ClosedAt)
+	if got.Status != StatusVerified || got.ClosedAt != nil {
+		t.Fatalf("last task ticked must verify the issue, got %s closed=%v", got.Status, got.ClosedAt)
 	}
 	if tasks[0].DoneAt == nil {
 		t.Fatal("done task must carry done_at")

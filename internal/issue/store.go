@@ -69,7 +69,7 @@ func (s *Store) Create(ctx context.Context, userID string, in CreateInput) (*Iss
 		AssistantID: in.AssistantID, SessionID: in.SessionID,
 		ProjectID: strings.TrimSpace(in.ProjectID),
 		Title:     strings.TrimSpace(in.Title), Summary: strings.TrimSpace(in.Summary),
-		Status: StatusDrafting, Origin: origin, CreatedAt: now, UpdatedAt: now,
+		Status: StatusNew, Origin: origin, CreatedAt: now, UpdatedAt: now,
 	}
 	err := s.DB.QueryRowContext(ctx, `
 		INSERT INTO issues (id, key, user_id, assistant_id, session_id, project_id, title, summary, status, origin, created_at, updated_at)
@@ -185,14 +185,9 @@ type UpdateInput struct {
 	PRURL   *string
 }
 
-// Update applies an explicit change. The user (or console) has final say, so no
-// status machine is applied here; closed_at still tracks done/cancelled.
+// Update applies an explicit change. Status changes must follow board edges
+// (same rules as Transition); closed_at tracks closed/cancelled.
 func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInput) (*Issue, error) {
-	if in.Status != nil {
-		if err := ValidateIssueStatus(*in.Status); err != nil {
-			return nil, err
-		}
-	}
 	if in.Title != nil {
 		if err := ValidateTitle(*in.Title); err != nil {
 			return nil, err
@@ -202,20 +197,70 @@ func (s *Store) Update(ctx context.Context, userID, keyOrID string, in UpdateInp
 		u := strings.TrimSpace(*in.PRURL)
 		in.PRURL = &u
 	}
+	if in.Status != nil {
+		if err := ValidateIssueStatus(*in.Status); err != nil {
+			return nil, err
+		}
+		return s.transitionAndPatch(ctx, userID, keyOrID, *in.Status, in.Title, in.Summary, in.PRURL)
+	}
 	row := s.DB.QueryRowContext(ctx, `
 		UPDATE issues SET
-			status     = COALESCE($3, status),
+			title      = COALESCE($3, title),
+			summary    = COALESCE($4, summary),
+			pr_url     = COALESCE($5, pr_url),
+			updated_at = now()
+		WHERE (id = $2 OR key = $2) AND user_id = $1
+		RETURNING `+issueCols,
+		userID, keyOrID, in.Title, in.Summary, in.PRURL)
+	return scanIssue(row)
+}
+
+// Transition moves an issue along an allowed board edge.
+func (s *Store) Transition(ctx context.Context, userID, keyOrID, to string) (*Issue, error) {
+	if err := ValidateIssueStatus(to); err != nil {
+		return nil, err
+	}
+	return s.transitionAndPatch(ctx, userID, keyOrID, to, nil, nil, nil)
+}
+
+func (s *Store) transitionAndPatch(ctx context.Context, userID, keyOrID, to string, title, summary, prURL *string) (*Issue, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	cur, err := scanIssue(tx.QueryRowContext(ctx, `
+		SELECT `+issueCols+` FROM issues
+		WHERE (id = $2 OR key = $2) AND user_id = $1
+		FOR UPDATE`, userID, keyOrID))
+	if err != nil {
+		return nil, err
+	}
+	if !CanTransition(cur.Status, to) {
+		return nil, ErrInvalidTransition{From: cur.Status, To: to}
+	}
+	row := tx.QueryRowContext(ctx, `
+		UPDATE issues SET
+			status     = $3,
 			title      = COALESCE($4, title),
 			summary    = COALESCE($5, summary),
 			pr_url     = COALESCE($6, pr_url),
 			updated_at = now(),
 			closed_at  = CASE
-				WHEN COALESCE($3, status) IN ('done', 'cancelled') THEN COALESCE(closed_at, now())
+				WHEN $3 IN ('closed', 'cancelled') THEN COALESCE(closed_at, now())
 				ELSE NULL END
-		WHERE (id = $2 OR key = $2) AND user_id = $1
+		WHERE id = $2 AND user_id = $1
 		RETURNING `+issueCols,
-		userID, keyOrID, in.Status, in.Title, in.Summary, in.PRURL)
-	return scanIssue(row)
+		userID, cur.ID, to, title, summary, prURL)
+	it, err := scanIssue(row)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return it, nil
 }
 
 // ListDocs returns the issue's document index, newest version first. Bodies are
@@ -392,7 +437,7 @@ func applyIssueStatus(ctx context.Context, tx *sql.Tx, issueID, cur string, ev E
 	if next == cur {
 		return nil
 	}
-	if next == StatusDone || next == StatusCancelled {
+	if IsClosedStatus(next) {
 		_, err := tx.ExecContext(ctx, `
 			UPDATE issues SET status = $2, updated_at = now(), closed_at = COALESCE(closed_at, now())
 			WHERE id = $1`, issueID, next)

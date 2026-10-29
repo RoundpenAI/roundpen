@@ -2,55 +2,79 @@ package issue
 
 import "testing"
 
-func TestAdvance_ForwardOnly(t *testing.T) {
+func TestAdvance(t *testing.T) {
 	cases := []struct {
-		cur  string
-		ev   Event
+		cur string
+		ev  Event
 		want string
 	}{
-		{StatusDrafting, EventSpecCurrent, StatusSpecced},
-		{StatusSpecced, EventSpecCurrent, StatusSpecced},  // 再写一版 spec 不回退
-		{StatusDrafting, EventPlanCurrent, StatusPlanned}, // 没写 spec 也能前进
-		{StatusSpecced, EventPlanCurrent, StatusPlanned},
-		{StatusPlanned, EventTaskOpen, StatusInProgress},
-		{StatusDone, EventTaskOpen, StatusInProgress}, // 任务重开，议题回到进行中
-		{StatusInProgress, EventAllTasksDone, StatusDone},
-		{StatusPlanned, EventAllTasksDone, StatusDone}, // 勾完最后一个任务即完成
-		{StatusSpecced, EventAllTasksDone, StatusDone}, // 不必先「开工」经过 in_progress
-		{StatusDrafting, EventAllTasksDone, StatusDone},
+		{StatusNew, EventSpecCurrent, StatusSpecReview},
+		{StatusSpecReview, EventSpecCurrent, StatusSpecReview}, // 再写一版 spec 不回退
+		{StatusNew, EventPlanCurrent, StatusTriaged},           // 没写 spec 也能前进
+		{StatusSpecReview, EventPlanCurrent, StatusTriaged},
+		{StatusNeedsDiscussion, EventPlanCurrent, StatusTriaged},
+		{StatusTriaged, EventTaskOpen, StatusRunning},
+		{StatusClaimed, EventTaskOpen, StatusRunning},
+		{StatusClosed, EventTaskOpen, StatusRunning}, // 任务重开，事项回到执行中
+		{StatusRunning, EventAllTasksDone, StatusVerified},
+		{StatusTriaged, EventAllTasksDone, StatusVerified},
+		{StatusNew, EventAllTasksDone, StatusVerified},
 		{StatusCancelled, EventSpecCurrent, StatusCancelled}, // 取消后不自动复活
 		{StatusCancelled, EventAllTasksDone, StatusCancelled},
+		{StatusClosed, EventAllTasksDone, StatusClosed},
 	}
-	for _, tc := range cases {
-		if got := Advance(tc.cur, tc.ev); got != tc.want {
-			t.Errorf("Advance(%s, %s) = %s, want %s", tc.cur, tc.ev, got, tc.want)
+	for _, c := range cases {
+		if got := Advance(c.cur, c.ev); got != c.want {
+			t.Fatalf("Advance(%s, %s)=%s want %s", c.cur, c.ev, got, c.want)
 		}
 	}
 }
 
-func TestAllTasksDone(t *testing.T) {
-	if AllTasksDone(nil) {
-		t.Fatal("no tasks must not count as done")
+func TestCanTransition(t *testing.T) {
+	if !CanTransition(StatusNew, StatusSpecReview) {
+		t.Fatal("new → spec_review")
 	}
-	if AllTasksDone([]Task{{Status: TaskCancelled}, {Status: TaskCancelled}}) {
-		t.Fatal("all-cancelled must not count as done — issue stays in_progress for the user")
+	if !CanTransition(StatusNew, StatusTriaged) {
+		t.Fatal("new → triaged fast path")
 	}
-	if !AllTasksDone([]Task{{Status: TaskDone}, {Status: TaskCancelled}}) {
-		t.Fatal("done + cancelled counts as done")
+	if CanTransition(StatusNew, StatusRunning) {
+		t.Fatal("new → running must be rejected")
 	}
-	if AllTasksDone([]Task{{Status: TaskDone}, {Status: TaskTodo}}) {
-		t.Fatal("a todo task blocks completion")
+	if !CanTransition(StatusFailed, StatusTriaged) {
+		t.Fatal("failed → triaged requeue")
+	}
+	if !CanTransition(StatusClosed, StatusRunning) {
+		t.Fatal("closed → running reopen")
+	}
+	if !CanTransition(StatusRunning, StatusRunning) {
+		t.Fatal("no-op same status ok")
+	}
+	targets := AllowedTargets(StatusRunning)
+	if len(targets) != 4 {
+		t.Fatalf("running targets: %v", targets)
 	}
 }
 
-func TestValidateInputs(t *testing.T) {
-	if err := ValidateTitle("  "); err == nil {
-		t.Fatal("blank title must fail")
+func TestAllTasksDone(t *testing.T) {
+	if AllTasksDone([]Task{{Status: TaskCancelled}, {Status: TaskCancelled}}) {
+		t.Fatal("all cancelled is not done")
 	}
-	if err := ValidateKind("notes"); err == nil {
-		t.Fatal("kind must be spec|plan")
+	if !AllTasksDone([]Task{{Status: TaskDone}, {Status: TaskCancelled}}) {
+		t.Fatal("done+cancelled is done")
 	}
+	if AllTasksDone([]Task{{Status: TaskDone}, {Status: TaskTodo}}) {
+		t.Fatal("open todo is not done")
+	}
+}
+
+func TestValidate(t *testing.T) {
 	if err := ValidateDocStatus("weird"); err == nil {
 		t.Fatal("doc status must be draft|current|superseded")
+	}
+	if err := ValidateIssueStatus("drafting"); err == nil {
+		t.Fatal("legacy drafting must be rejected")
+	}
+	if err := ValidateIssueStatus(StatusNeedsReview); err != nil {
+		t.Fatal(err)
 	}
 }

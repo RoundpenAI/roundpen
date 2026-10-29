@@ -94,7 +94,7 @@ func TestHandler_RequiresAuth(t *testing.T) {
 		{http.MethodGet, "/v1/issues", ""},
 		{http.MethodPost, "/v1/issues", `{"title":"x"}`},
 		{http.MethodGet, "/v1/issues/ISS-1", ""},
-		{http.MethodPatch, "/v1/issues/ISS-1", `{"status":"done"}`},
+		{http.MethodPatch, "/v1/issues/ISS-1", `{"status":"closed"}`},
 		{http.MethodGet, "/v1/issues/ISS-1/docs", ""},
 		{http.MethodPost, "/v1/issues/ISS-1/docs", `{"kind":"spec","contentMd":"x"}`},
 		{http.MethodGet, "/v1/issues/ISS-1/docs/latest", ""},
@@ -174,7 +174,7 @@ func TestHandler_NotFoundAndScoping(t *testing.T) {
 	// keys that resolve to nothing answer 404 on every key route
 	missing := []struct{ method, path, body string }{
 		{http.MethodGet, "/v1/issues/ISS-990001", ""},
-		{http.MethodPatch, "/v1/issues/ISS-990001", `{"status":"done"}`},
+		{http.MethodPatch, "/v1/issues/ISS-990001", `{"status":"closed"}`},
 		{http.MethodPost, "/v1/issues/ISS-990001/docs", `{"kind":"spec","contentMd":"x"}`},
 		{http.MethodGet, "/v1/issues/ISS-990001/docs/latest", ""},
 		{http.MethodGet, "/v1/issues/ISS-990001/tasks", ""},
@@ -362,7 +362,7 @@ func TestHandler_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(singleEnvelope(t, rec, "issue"), &it); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(it.Key, "ISS-") || it.Status != StatusDrafting || it.Origin != OriginConsole {
+	if !strings.HasPrefix(it.Key, "ISS-") || it.Status != StatusNew || it.Origin != OriginConsole {
 		t.Fatalf("new issue: %+v", it)
 	}
 	if it.Summary != "概要" {
@@ -381,7 +381,7 @@ func TestHandler_RoundTrip(t *testing.T) {
 	if len(list) != 1 || list[0].Key != it.Key {
 		t.Fatalf("list: %+v", list)
 	}
-	rec = serve(mux, request(http.MethodGet, "/v1/issues?status=drafting", "", user))
+	rec = serve(mux, request(http.MethodGet, "/v1/issues?status=new", "", user))
 	var filtered []Issue
 	if err := json.Unmarshal(singleEnvelope(t, rec, "issues"), &filtered); err != nil {
 		t.Fatal(err)
@@ -389,7 +389,7 @@ func TestHandler_RoundTrip(t *testing.T) {
 	if len(filtered) != 1 {
 		t.Fatalf("status filter dropped a match: %s", rec.Body.String())
 	}
-	rec = serve(mux, request(http.MethodGet, "/v1/issues?status=done", "", user))
+	rec = serve(mux, request(http.MethodGet, "/v1/issues?status=closed", "", user))
 	if raw := singleEnvelope(t, rec, "issues"); string(raw) != "[]" {
 		t.Fatalf("empty list must marshal as [], got %s", raw)
 	}
@@ -414,7 +414,7 @@ func TestHandler_RoundTrip(t *testing.T) {
 		t.Fatalf("empty sub-lists must marshal as [], got %s", rec.Body.String())
 	}
 
-	// write a current spec: version 1, status advances to specced
+	// write a current spec: version 1, status advances to spec_review
 	rec = serve(mux, request(http.MethodPost, "/v1/issues/"+it.Key+"/docs",
 		`{"kind":"spec","title":"规格","contentMd":"# Spec","status":"current"}`, user))
 	if rec.Code != http.StatusCreated {
@@ -429,7 +429,7 @@ func TestHandler_RoundTrip(t *testing.T) {
 	}
 	rec = serve(mux, request(http.MethodGet, "/v1/issues/"+it.Key, "", user))
 	decodeInto(t, rec, &detail)
-	if detail.Issue.Status != StatusSpecced {
+	if detail.Issue.Status != StatusSpecReview {
 		t.Fatalf("current spec must advance the issue, got %s", detail.Issue.Status)
 	}
 
@@ -507,8 +507,8 @@ func TestHandler_RoundTrip(t *testing.T) {
 	}
 	rec = serve(mux, request(http.MethodGet, "/v1/issues/"+it.Key, "", user))
 	decodeInto(t, rec, &detail)
-	if detail.Issue.Status != StatusInProgress {
-		t.Fatalf("started task must move the issue to in_progress, got %s", detail.Issue.Status)
+	if detail.Issue.Status != StatusRunning {
+		t.Fatalf("started task must move the issue to running, got %s", detail.Issue.Status)
 	}
 
 	rec = serve(mux, request(http.MethodPatch, "/v1/tasks/"+task.Key, `{"status":"done"}`, user))
@@ -517,20 +517,28 @@ func TestHandler_RoundTrip(t *testing.T) {
 	}
 	rec = serve(mux, request(http.MethodGet, "/v1/issues/"+it.Key, "", user))
 	decodeInto(t, rec, &detail)
-	if detail.Issue.Status != StatusDone || detail.Issue.ClosedAt == nil {
-		t.Fatalf("all tasks done must close the issue, got %s closed=%v", detail.Issue.Status, detail.Issue.ClosedAt)
+	if detail.Issue.Status != StatusVerified || detail.Issue.ClosedAt != nil {
+		t.Fatalf("all tasks done must verify the issue, got %s closed=%v", detail.Issue.Status, detail.Issue.ClosedAt)
 	}
 
-	// the explicit PATCH is the user's call and keeps closed_at in step
-	rec = serve(mux, request(http.MethodPatch, "/v1/issues/"+it.Key, `{"status":"in_progress"}`, user))
+	// verified → closed → reopen running; then needs_review → cancelled
+	rec = serve(mux, request(http.MethodPatch, "/v1/issues/"+it.Key, `{"status":"closed"}`, user))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("close verified: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = serve(mux, request(http.MethodPatch, "/v1/issues/"+it.Key, `{"status":"running"}`, user))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("patch issue: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	if err := json.Unmarshal(singleEnvelope(t, rec, "issue"), &it); err != nil {
 		t.Fatal(err)
 	}
-	if it.Status != StatusInProgress || it.ClosedAt != nil {
+	if it.Status != StatusRunning || it.ClosedAt != nil {
 		t.Fatalf("reopened issue: %+v", it)
+	}
+	rec = serve(mux, request(http.MethodPatch, "/v1/issues/"+it.Key, `{"status":"needs_review"}`, user))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("needs_review: want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	rec = serve(mux, request(http.MethodPatch, "/v1/issues/"+it.Key, `{"status":"cancelled","title":"改名"}`, user))
 	if rec.Code != http.StatusOK {

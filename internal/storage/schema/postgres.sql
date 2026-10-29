@@ -433,8 +433,11 @@ CREATE TABLE IF NOT EXISTS issues (
     title        TEXT NOT NULL,
     summary      TEXT NOT NULL DEFAULT '',
     pr_url       TEXT NOT NULL DEFAULT '',
-    status       TEXT NOT NULL DEFAULT 'drafting'
-        CHECK (status IN ('drafting', 'specced', 'planned', 'in_progress', 'done', 'cancelled')),
+    status       TEXT NOT NULL DEFAULT 'new'
+        CHECK (status IN (
+            'new', 'spec_review', 'needs_discussion', 'triaged', 'claimed',
+            'running', 'verified', 'needs_review', 'failed', 'closed', 'cancelled'
+        )),
     origin       TEXT NOT NULL DEFAULT 'chat'
         CHECK (origin IN ('chat', 'console')),
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -442,6 +445,33 @@ CREATE TABLE IF NOT EXISTS issues (
     closed_at    TIMESTAMPTZ
 );
 ALTER TABLE issues ADD COLUMN IF NOT EXISTS pr_url TEXT NOT NULL DEFAULT '';
+
+-- Kanban status rename (idempotent upgrade from drafting/specced/… legacy set).
+UPDATE issues SET status = CASE status
+    WHEN 'drafting'    THEN 'new'
+    WHEN 'specced'     THEN 'spec_review'
+    WHEN 'planned'     THEN 'triaged'
+    WHEN 'in_progress' THEN 'running'
+    WHEN 'done'        THEN 'closed'
+    ELSE status
+END
+WHERE status IN ('drafting', 'specced', 'planned', 'in_progress', 'done');
+DO $$
+BEGIN
+    ALTER TABLE issues DROP CONSTRAINT IF EXISTS issues_status_check;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'issues_status_check'
+    ) THEN
+        ALTER TABLE issues
+            ADD CONSTRAINT issues_status_check
+            CHECK (status IN (
+                'new', 'spec_review', 'needs_discussion', 'triaged', 'claimed',
+                'running', 'verified', 'needs_review', 'failed', 'closed', 'cancelled'
+            ));
+    END IF;
+END $$;
+ALTER TABLE issues ALTER COLUMN status SET DEFAULT 'new';
+
 CREATE INDEX IF NOT EXISTS issues_user_status_idx ON issues (user_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS issues_assistant_idx ON issues (assistant_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS issues_session_idx ON issues (session_id) WHERE session_id <> '';
@@ -1014,6 +1044,14 @@ END $$;
 
 -- Proactive recall: per-user cooldown and last digest fingerprint.
 CREATE TABLE IF NOT EXISTS proactive_state (
+    user_id          TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
+    last_notified_at TIMESTAMPTZ,
+    last_digest_hash TEXT NOT NULL DEFAULT '',
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Issue Kanban board scan cooldown (sysadmin periodic board review).
+CREATE TABLE IF NOT EXISTS issue_board_scan_state (
     user_id          TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
     last_notified_at TIMESTAMPTZ,
     last_digest_hash TEXT NOT NULL DEFAULT '',

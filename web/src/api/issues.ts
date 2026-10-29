@@ -1,5 +1,18 @@
 import { api } from './client'
 
+export type IssueStatus =
+  | 'new'
+  | 'spec_review'
+  | 'needs_discussion'
+  | 'triaged'
+  | 'claimed'
+  | 'running'
+  | 'verified'
+  | 'needs_review'
+  | 'failed'
+  | 'closed'
+  | 'cancelled'
+
 export type Issue = {
   id: string
   key: string
@@ -10,13 +23,7 @@ export type Issue = {
   title: string
   summary: string
   prUrl?: string
-  status:
-    | 'drafting'
-    | 'specced'
-    | 'planned'
-    | 'in_progress'
-    | 'done'
-    | 'cancelled'
+  status: IssueStatus
   origin: 'chat' | 'console'
   createdAt: string
   updatedAt: string
@@ -54,6 +61,50 @@ export type IssueTask = {
   doneAt?: string
 }
 
+export type BoardColumn = {
+  status: IssueStatus
+  terminal: boolean
+  issues: Issue[]
+}
+
+export const ISSUE_BOARD_ORDER: IssueStatus[] = [
+  'new',
+  'spec_review',
+  'needs_discussion',
+  'triaged',
+  'claimed',
+  'running',
+  'verified',
+  'needs_review',
+  'failed',
+  'closed',
+  'cancelled',
+]
+
+/** Allowed Kanban edges — keep in sync with internal/issue allowedTransitions. */
+export const ISSUE_TRANSITIONS: Record<IssueStatus, IssueStatus[]> = {
+  new: ['spec_review', 'needs_discussion', 'triaged'],
+  spec_review: ['needs_discussion', 'triaged'],
+  needs_discussion: ['spec_review', 'triaged'],
+  triaged: ['claimed'],
+  claimed: ['running'],
+  running: ['verified', 'needs_review', 'failed', 'triaged'],
+  verified: ['needs_review', 'closed'],
+  needs_review: ['closed', 'cancelled'],
+  failed: ['triaged'],
+  cancelled: ['triaged'],
+  closed: ['running'],
+}
+
+export function canTransition(from: IssueStatus, to: IssueStatus): boolean {
+  if (from === to) return true
+  return (ISSUE_TRANSITIONS[from] ?? []).includes(to)
+}
+
+export function allowedTargets(from: IssueStatus): IssueStatus[] {
+  return [...(ISSUE_TRANSITIONS[from] ?? [])]
+}
+
 export const issues = {
   list: (status?: string, projectId?: string) => {
     const q = new URLSearchParams()
@@ -61,6 +112,16 @@ export const issues = {
     if (projectId) q.set('projectId', projectId)
     const qs = q.toString()
     return api<{ issues: Issue[] }>(`/v1/issues${qs ? `?${qs}` : ''}`)
+  },
+  board: (projectId?: string) => {
+    const q = new URLSearchParams()
+    if (projectId) q.set('projectId', projectId)
+    const qs = q.toString()
+    return api<{
+      columns: BoardColumn[]
+      order: IssueStatus[]
+      terminal: IssueStatus[]
+    }>(`/v1/issues/board${qs ? `?${qs}` : ''}`)
   },
   create: (body: { title: string; summary?: string; projectId?: string }) =>
     api<{ issue: Issue }>('/v1/issues', {
@@ -78,6 +139,11 @@ export const issues = {
     api<{ issue: Issue }>(`/v1/issues/${key}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
+    }),
+  transition: (key: string, to: string, reason?: string) =>
+    api<{ issue: Issue }>(`/v1/issues/${key}/transitions`, {
+      method: 'POST',
+      body: JSON.stringify({ to, reason }),
     }),
   listDocs: (key: string, kind?: string) =>
     api<{ docs: IssueDoc[] }>(
