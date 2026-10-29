@@ -28,8 +28,10 @@ type Handler struct {
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/issues", h.listIssues)
 	mux.HandleFunc("POST /v1/issues", h.createIssue)
+	mux.HandleFunc("GET /v1/issues/board", h.board)
 	mux.HandleFunc("GET /v1/issues/{key}", h.getIssue)
 	mux.HandleFunc("PATCH /v1/issues/{key}", h.patchIssue)
+	mux.HandleFunc("POST /v1/issues/{key}/transitions", h.transitionIssue)
 	mux.HandleFunc("GET /v1/issues/{key}/docs", h.listDocs)
 	mux.HandleFunc("POST /v1/issues/{key}/docs", h.createDoc)
 	mux.HandleFunc("GET /v1/issues/{key}/docs/{docKey}", h.getDoc)
@@ -186,6 +188,117 @@ func (h *Handler) patchIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"issue": it})
+}
+
+func (h *Handler) transitionIssue(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var body struct {
+		To          string `json:"to"`
+		Reason      string `json:"reason"`
+		Evidence    string `json:"evidence"`
+		ActorKind   string `json:"actorKind"`
+		ActorID     string `json:"actorId"`
+		AssistantID string `json:"assistantId"`
+		Force       bool   `json:"force"`
+	}
+	if !decodeBody(w, r, &body) {
+		return
+	}
+	to := strings.TrimSpace(body.To)
+	if to == "" {
+		httpx.WriteErr(w, http.StatusBadRequest, "to is required")
+		return
+	}
+	if err := ValidateIssueStatus(to); err != nil {
+		httpx.WriteErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.Store == nil {
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		return
+	}
+	kind := strings.TrimSpace(body.ActorKind)
+	if kind == "" {
+		kind = ActorHuman
+	}
+	actorID := strings.TrimSpace(body.ActorID)
+	if actorID == "" {
+		actorID = strings.TrimSpace(body.AssistantID)
+	}
+	if actorID == "" && kind == ActorHuman {
+		actorID = user.Username
+	}
+	req := TransitionRequest{
+		To: to, Reason: body.Reason, Evidence: body.Evidence,
+		ActorKind: kind, ActorID: actorID, Force: body.Force,
+	}
+	it, err := h.Store.TransitionWith(r.Context(), user.Username, r.PathValue("key"), req)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	out := map[string]any{"issue": it}
+	if reason := strings.TrimSpace(body.Reason); reason != "" {
+		out["reason"] = reason
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *Handler) board(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if h.Store == nil {
+		httpx.WriteErr(w, http.StatusServiceUnavailable, "issue store unavailable")
+		return
+	}
+	var f ListFilter
+	if p := r.URL.Query().Get("projectId"); p != "" {
+		f.ProjectID = p
+	}
+	if lim := r.URL.Query().Get("limit"); lim != "" {
+		n, err := strconv.Atoi(lim)
+		if err != nil {
+			httpx.WriteErr(w, http.StatusBadRequest, "limit must be an integer")
+			return
+		}
+		f.Limit = n
+	}
+	if f.Limit <= 0 {
+		f.Limit = 200
+	}
+	items, err := h.Store.List(r.Context(), user.Username, f)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	columns := make([]map[string]any, 0, len(BoardColumnOrder))
+	byStatus := map[string][]Issue{}
+	for _, it := range items {
+		byStatus[it.Status] = append(byStatus[it.Status], it)
+	}
+	for _, st := range BoardColumnOrder {
+		cols := byStatus[st]
+		if cols == nil {
+			cols = []Issue{}
+		}
+		columns = append(columns, map[string]any{
+			"status":   st,
+			"terminal": IsClosedStatus(st),
+			"issues":   cols,
+		})
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"columns":  columns,
+		"order":    BoardColumnOrder,
+		"terminal": TerminalStatuses,
+	})
 }
 
 func (h *Handler) listDocs(w http.ResponseWriter, r *http.Request) {
@@ -444,6 +557,16 @@ func (h *Handler) resolveSession(w http.ResponseWriter, r *http.Request, userID,
 func writeStoreErr(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrNotFound) {
 		httpx.WriteErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	var inv ErrInvalidTransition
+	if errors.As(err, &inv) {
+		httpx.WriteErr(w, http.StatusBadRequest, inv.Error())
+		return
+	}
+	var thrash ErrThrash
+	if errors.As(err, &thrash) {
+		httpx.WriteErr(w, http.StatusConflict, thrash.Error())
 		return
 	}
 	httpx.WriteErrOrInternal(w, nil, err, nil)

@@ -15,37 +15,42 @@ import {
 } from '@douyinfe/semi-ui-19'
 import { IconRefresh } from '@douyinfe/semi-icons'
 import type { ColumnProps } from '@douyinfe/semi-ui-19/lib/es/table'
-import { assistantsApi, issues, type Issue } from '../api'
+import {
+  assistantsApi,
+  allowedTargets,
+  canTransition,
+  ISSUE_BOARD_ORDER,
+  issues,
+  type Issue,
+  type IssueStatus,
+} from '../api'
 import { useT, type MessageKey } from '../i18n'
 
 const ALL = 'all'
 
-const ISSUE_STATUSES: Issue['status'][] = [
-  'drafting',
-  'specced',
-  'planned',
-  'in_progress',
-  'done',
-  'cancelled',
-]
-
-function statusKey(status: Issue['status']): MessageKey {
+function statusKey(status: IssueStatus): MessageKey {
   return `issues.status.${status}`
 }
 
-/** Per the console spec: grey while drafting, blue once a doc exists,
- *  orange while work is underway, green when done, grey when cancelled. */
 function statusTagColor(
-  status: Issue['status'],
-): 'grey' | 'blue' | 'orange' | 'green' {
+  status: IssueStatus,
+): 'grey' | 'blue' | 'orange' | 'green' | 'red' | 'amber' {
   switch (status) {
-    case 'specced':
-    case 'planned':
+    case 'spec_review':
+    case 'needs_discussion':
+    case 'triaged':
       return 'blue'
-    case 'in_progress':
+    case 'claimed':
+    case 'running':
       return 'orange'
-    case 'done':
+    case 'verified':
+    case 'closed':
       return 'green'
+    case 'failed':
+    case 'needs_review':
+      return 'red'
+    case 'cancelled':
+      return 'grey'
     default:
       return 'grey'
   }
@@ -59,7 +64,6 @@ function formatWhen(iso?: string): string {
 }
 
 type Snapshot = {
-  filter: string
   issues: Issue[]
   error: string | null
 }
@@ -68,15 +72,20 @@ export function IssuesPage() {
   const t = useT()
   const navigate = useNavigate()
 
+  const [view, setView] = useState<'board' | 'list'>('board')
   const [filter, setFilter] = useState<string>(ALL)
+  const [showTerminal, setShowTerminal] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [assistantNames, setAssistantNames] = useState<Record<string, string>>(
     {},
   )
-  // The snapshot is keyed by filter: rows on screen for an older filter mean
-  // the current one is still loading.
-  const loading = snapshot?.filter !== filter
+  const [dragKey, setDragKey] = useState<string | null>(null)
+  const [dragFrom, setDragFrom] = useState<IssueStatus | null>(null)
+  const [dropTarget, setDropTarget] = useState<IssueStatus | null>(null)
+  const [moving, setMoving] = useState(false)
+
+  const loading = snapshot === null
   const list = snapshot?.issues ?? []
   const error = snapshot?.error ?? null
 
@@ -90,15 +99,18 @@ export function IssuesPage() {
   useEffect(() => {
     let cancelled = false
     issues
-      .list(filter === ALL ? undefined : filter)
+      .board()
       .then((res) => {
         if (cancelled) return
-        setSnapshot({ filter, issues: res.issues ?? [], error: null })
+        const flat: Issue[] = []
+        for (const col of res.columns ?? []) {
+          for (const it of col.issues ?? []) flat.push(it)
+        }
+        setSnapshot({ issues: flat, error: null })
       })
       .catch((e: unknown) => {
         if (cancelled) return
         setSnapshot({
-          filter,
           issues: [],
           error: e instanceof Error ? e.message : t('issues.loadFailed'),
         })
@@ -106,10 +118,8 @@ export function IssuesPage() {
     return () => {
       cancelled = true
     }
-  }, [filter, t, reloadToken])
+  }, [t, reloadToken])
 
-  // Names are a display nicety: without them the source column still renders
-  // the chat / console origin, so a failed lookup is not an error.
   useEffect(() => {
     let cancelled = false
     assistantsApi
@@ -129,10 +139,33 @@ export function IssuesPage() {
   const filterOptions = useMemo(
     () => [
       { label: t('issues.filter.all'), value: ALL },
-      ...ISSUE_STATUSES.map((s) => ({ label: t(statusKey(s)), value: s })),
+      ...ISSUE_BOARD_ORDER.map((s) => ({ label: t(statusKey(s)), value: s })),
     ],
     [t],
   )
+
+  const columnsByStatus = useMemo(() => {
+    const map = new Map<IssueStatus, Issue[]>()
+    for (const s of ISSUE_BOARD_ORDER) map.set(s, [])
+    for (const it of list) {
+      const bucket = map.get(it.status)
+      if (bucket) bucket.push(it)
+      else map.set(it.status, [it])
+    }
+    return map
+  }, [list])
+
+  const visibleColumns = useMemo(() => {
+    return ISSUE_BOARD_ORDER.filter((s) => {
+      if (s === 'closed' || s === 'cancelled') return showTerminal
+      return true
+    })
+  }, [showTerminal])
+
+  const filteredList = useMemo(() => {
+    if (filter === ALL) return list
+    return list.filter((it) => it.status === filter)
+  }, [list, filter])
 
   const templates: {
     id: string
@@ -201,7 +234,31 @@ export function IssuesPage() {
     }
   }
 
-  const columns: ColumnProps<Issue>[] = useMemo(
+  async function moveIssue(key: string, to: IssueStatus) {
+    if (moving) return
+    setMoving(true)
+    try {
+      const { issue } = await issues.transition(key, to)
+      setSnapshot((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          issues: prev.issues.map((it) => (it.key === key ? issue : it)),
+        }
+      })
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : t('issues.transitionFailed')
+      Toast.error(message)
+    } finally {
+      setMoving(false)
+      setDragKey(null)
+      setDragFrom(null)
+      setDropTarget(null)
+    }
+  }
+
+  const tableColumns: ColumnProps<Issue>[] = useMemo(
     () => [
       {
         title: t('issues.column.key'),
@@ -238,7 +295,7 @@ export function IssuesPage() {
         title: t('issues.column.status'),
         dataIndex: 'status',
         width: 140,
-        render: (status: Issue['status']) => (
+        render: (status: IssueStatus) => (
           <Tag size="small" color={statusTagColor(status)}>
             {t(statusKey(status))}
           </Tag>
@@ -280,10 +337,8 @@ export function IssuesPage() {
     <div
       style={{
         padding: '16px 20px',
-        // Same shell as the settings sections: an explicit width keeps the
-        // page from sizing to its content (and visibly resizing on load).
         width: '100%',
-        maxWidth: 960,
+        maxWidth: view === 'board' ? 1400 : 960,
         margin: '0 auto',
         boxSizing: 'border-box',
       }}
@@ -302,17 +357,42 @@ export function IssuesPage() {
           marginBottom: 12,
         }}
       >
-        <Select
-          style={{ width: 180 }}
-          value={filter}
-          optionList={filterOptions}
-          onChange={(v) => setFilter(typeof v === 'string' ? v : ALL)}
-        />
+        <Button
+          theme={view === 'board' ? 'solid' : 'light'}
+          type={view === 'board' ? 'primary' : 'tertiary'}
+          onClick={() => setView('board')}
+        >
+          {t('issues.view.board')}
+        </Button>
+        <Button
+          theme={view === 'list' ? 'solid' : 'light'}
+          type={view === 'list' ? 'primary' : 'tertiary'}
+          onClick={() => setView('list')}
+        >
+          {t('issues.view.list')}
+        </Button>
+        {view === 'list' ? (
+          <Select
+            style={{ width: 180 }}
+            value={filter}
+            optionList={filterOptions}
+            onChange={(v) => setFilter(typeof v === 'string' ? v : ALL)}
+          />
+        ) : (
+          <Button type="tertiary" onClick={() => setShowTerminal((v) => !v)}>
+            {showTerminal
+              ? t('issues.board.hideTerminal')
+              : t('issues.board.showTerminal')}
+          </Button>
+        )}
         <div style={{ flex: 1 }} />
         <Button
           icon={<IconRefresh />}
           type="tertiary"
-          onClick={() => setReloadToken((n) => n + 1)}
+          onClick={() => {
+            setSnapshot(null)
+            setReloadToken((n) => n + 1)
+          }}
         >
           {t('issues.refresh')}
         </Button>
@@ -336,10 +416,167 @@ export function IssuesPage() {
         <div style={{ padding: '24px 0', textAlign: 'center' }}>
           <Spin />
         </div>
+      ) : view === 'board' ? (
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            overflowX: 'auto',
+            paddingBottom: 12,
+            alignItems: 'flex-start',
+          }}
+        >
+          {visibleColumns.map((status) => {
+            const cards = columnsByStatus.get(status) ?? []
+            const accepts =
+              dragFrom != null && canTransition(dragFrom, status) && dragFrom !== status
+            const highlight = dropTarget === status && accepts
+            return (
+              <div
+                key={status}
+                onDragOver={(e) => {
+                  if (!dragFrom || !canTransition(dragFrom, status)) return
+                  e.preventDefault()
+                  setDropTarget(status)
+                }}
+                onDragLeave={() => {
+                  if (dropTarget === status) setDropTarget(null)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  if (!dragKey || !dragFrom) return
+                  if (!canTransition(dragFrom, status) || dragFrom === status) {
+                    setDragKey(null)
+                    setDragFrom(null)
+                    setDropTarget(null)
+                    return
+                  }
+                  void moveIssue(dragKey, status)
+                }}
+                style={{
+                  minWidth: 220,
+                  maxWidth: 260,
+                  flex: '0 0 220px',
+                  background: highlight
+                    ? 'var(--semi-color-primary-light-default)'
+                    : 'var(--semi-color-fill-0)',
+                  borderRadius: 8,
+                  padding: 8,
+                  border: highlight
+                    ? '1px solid var(--semi-color-primary)'
+                    : '1px solid transparent',
+                  minHeight: 120,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    marginBottom: 8,
+                    padding: '0 4px',
+                  }}
+                >
+                  <Typography.Text strong size="small">
+                    {t(statusKey(status))}
+                  </Typography.Text>
+                  <Typography.Text type="tertiary" size="small">
+                    {cards.length}
+                  </Typography.Text>
+                </div>
+                {cards.length === 0 ? (
+                  <Typography.Text
+                    type="tertiary"
+                    size="small"
+                    style={{ display: 'block', padding: '12px 4px' }}
+                  >
+                    {accepts
+                      ? t('issues.board.dropHint')
+                      : t('issues.board.emptyColumn')}
+                  </Typography.Text>
+                ) : (
+                  cards.map((it) => (
+                    <div
+                      key={it.key}
+                      draggable={!moving}
+                      onDragStart={() => {
+                        setDragKey(it.key)
+                        setDragFrom(it.status)
+                      }}
+                      onDragEnd={() => {
+                        setDragKey(null)
+                        setDragFrom(null)
+                        setDropTarget(null)
+                      }}
+                      onClick={() => navigate(`/issues/${it.key}`)}
+                      style={{
+                        background: 'var(--semi-color-bg-1)',
+                        borderRadius: 6,
+                        padding: '10px 10px 8px',
+                        marginBottom: 8,
+                        cursor: 'grab',
+                        opacity: dragKey === it.key ? 0.6 : 1,
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                      }}
+                    >
+                      <Typography.Text
+                        size="small"
+                        style={{
+                          fontFamily: 'var(--semi-font-family-code)',
+                          display: 'block',
+                        }}
+                        type="tertiary"
+                      >
+                        {it.key}
+                      </Typography.Text>
+                      <Typography.Text
+                        strong
+                        size="small"
+                        style={{ display: 'block', marginTop: 2 }}
+                      >
+                        {it.title}
+                      </Typography.Text>
+                      {it.summary ? (
+                        <Typography.Text
+                          type="tertiary"
+                          size="small"
+                          ellipsis={{ rows: 2 }}
+                          style={{ display: 'block', marginTop: 4 }}
+                        >
+                          {it.summary}
+                        </Typography.Text>
+                      ) : null}
+                      <div
+                        style={{ marginTop: 8 }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Select
+                          size="small"
+                          placeholder={t('issues.board.moveTo')}
+                          style={{ width: '100%' }}
+                          disabled={moving}
+                          optionList={allowedTargets(it.status).map((s) => ({
+                            label: t(statusKey(s)),
+                            value: s,
+                          }))}
+                          onChange={(v) => {
+                            if (typeof v === 'string') {
+                              void moveIssue(it.key, v as IssueStatus)
+                            }
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )
+          })}
+        </div>
       ) : (
         <Table
-          columns={columns}
-          dataSource={list}
+          columns={tableColumns}
+          dataSource={filteredList}
           rowKey="key"
           pagination={false}
           size="small"

@@ -52,7 +52,7 @@ func RegisterSession(reg *Registry, s SessionSurface) {
 		RegisterRoundpen(reg, s.Roundpen)
 	}
 	if s.API != nil {
-		RegisterIssues(reg, s.API, s.SessionID)
+		RegisterIssues(reg, s.API, s.SessionID, s.AssistantID)
 		if profile == ProfileCoordinator {
 			RegisterProjects(reg, s.API, s.SessionID, s.ProjectKey)
 		} else if !routine {

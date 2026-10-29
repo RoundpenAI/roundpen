@@ -66,7 +66,7 @@ func TestRunnerDeliversWhenQuiet(t *testing.T) {
 		Store:      &Store{}, // nil DB: Get/MarkNotified no-op
 		Scanner: &Scanner{
 			Issues: stubIssues{rows: []issue.Issue{{
-				Key: "ISS-1", Title: "Do thing", Status: issue.StatusInProgress,
+				Key: "ISS-1", Title: "Do thing", Status: issue.StatusRunning,
 			}}},
 			GitHub: GitHubTokenFunc(func(context.Context, string) (string, error) { return "", nil }),
 			Gmail:  stubGmail{},
@@ -98,7 +98,7 @@ func TestRunnerSkipsWhenRecentlyActive(t *testing.T) {
 		Quiet:      memQuiet{at: now.Add(-30 * time.Minute), ok: true},
 		Scanner: &Scanner{
 			Issues: stubIssues{rows: []issue.Issue{{
-				Key: "ISS-1", Title: "Do thing", Status: issue.StatusInProgress,
+				Key: "ISS-1", Title: "Do thing", Status: issue.StatusRunning,
 			}}},
 			GitHub: GitHubTokenFunc(func(context.Context, string) (string, error) { return "", nil }),
 		},

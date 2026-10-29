@@ -855,6 +855,29 @@ func (r issueIDResolver) LookupID(ctx context.Context, userID, keyOrID string) (
 	return r.Store.ResolveID(ctx, userID, keyOrID)
 }
 
+// boardScanStarter adapts agentapi.Handler for issuescan.Runner.
+type boardScanStarter struct {
+	H *agentapi.Handler
+}
+
+func (b boardScanStarter) StartBoardScanSession(ctx context.Context, user *storage.User, assistantID, title string) (string, error) {
+	sess, err := b.H.StartForAssistant(ctx, user, assistantID, title)
+	if err != nil {
+		return "", err
+	}
+	return sess.ID, nil
+}
+
+// boardScanACP adapts acp manager.Manager for issuescan.Runner.
+type boardScanACP struct {
+	M *manager.Manager
+}
+
+func (b boardScanACP) PromptBoard(ctx context.Context, sessionID, text string) error {
+	_, err := b.M.Prompt(ctx, sessionID, text)
+	return err
+}
+
 func checkBoundFolder(ctx context.Context, users storage.UserStore, files *fnosfile.Client, userID, root string, write bool) error {
 	if files == nil || !files.Enabled() {
 		return fmt.Errorf("fnOS file API is not available")

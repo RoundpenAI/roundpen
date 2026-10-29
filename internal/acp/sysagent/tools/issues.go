@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,10 +13,11 @@ import (
 // (like ListSessions), so validation and ownership live in one place — the HTTP layer.
 // sessionID binds the registration-time chat session, the way BrowserBinder does, so
 // created issues inherit their assistant and session server-side.
-func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
+func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID, assistantID string) {
 	if r == nil || api == nil {
 		return
 	}
+	asstID := strings.TrimSpace(assistantID)
 	r.Register(Tool{
 		Name: "CreateIssue",
 		Description: "Create a work item in the user's issue tracker and return its short key (ISS-12), " +
@@ -53,9 +55,10 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 	r.Register(Tool{
 		Name: "ListIssues",
 		Description: "List the user's issues, most recently updated first, with their status; pass status to " +
-			"filter (drafting, specced, planned, in_progress, done, cancelled). Optionally pass projectId to " +
-			"list only issues for one project. Check this before starting new work so you continue issues that " +
-			"are already in flight instead of duplicating them.",
+			"filter (new, spec_review, needs_discussion, triaged, claimed, running, verified, needs_review, " +
+			"failed, closed, cancelled). Optionally pass projectId to list only issues for one project. " +
+			"Check this before starting new work so you continue issues that are already in flight instead of " +
+			"duplicating them. Prefer ListIssueBoard when you need the Kanban columns.",
 		Parameters: objectSchema(map[string]any{
 			"status":    map[string]any{"type": "string", "description": "Optional status filter"},
 			"projectId": map[string]any{"type": "string", "description": "Optional project uuid filter"},
@@ -83,6 +86,65 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 		},
 	})
 	r.Register(Tool{
+		Name: "ListIssueBoard",
+		Description: "Return the issue Kanban board: columns in workflow order with issues in each. " +
+			"Use this when scanning or prioritizing work across statuses. Optional projectId scopes to one project.",
+		Parameters: objectSchema(map[string]any{
+			"projectId": map[string]any{"type": "string", "description": "Optional project uuid filter"},
+		}),
+		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
+			var a struct {
+				ProjectID string `json:"projectId"`
+			}
+			if err := json.Unmarshal(raw, &a); err != nil {
+				return "", err
+			}
+			path := "/v1/issues/board"
+			if p := strings.TrimSpace(a.ProjectID); p != "" {
+				path += "?projectId=" + url.QueryEscape(p)
+			}
+			return api.do(ctx, actor, http.MethodGet, path, nil)
+		},
+	})
+	r.Register(Tool{
+		Name: "TransitionIssue",
+		Description: "Move an issue along an allowed Kanban edge (e.g. triaged→claimed, running→verified). " +
+			"Illegal jumps and thrash (discussion/review flip-flops, non-owner moves, missing reason) are rejected. " +
+			"Always pass reason (≥8 chars). Pass evidence when reversing a recent move. " +
+			"Only the claim owner (or sysadmin) may transition claimed/running issues. " +
+			"After discussion_round≥3 the only agent path out of spec_review/needs_discussion is triaged.",
+		Parameters: objectSchema(map[string]any{
+			"key":      map[string]any{"type": "string", "description": "Issue key, e.g. ISS-12"},
+			"to":       map[string]any{"type": "string", "description": "Target status"},
+			"reason":   map[string]any{"type": "string", "description": "Required rationale (≥8 characters)"},
+			"evidence": map[string]any{"type": "string", "description": "New evidence to break hysteresis (PR SHA, user decision, …)"},
+		}, "key", "to", "reason"),
+		Mutating: true,
+		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
+			var a struct {
+				Key      string `json:"key"`
+				To       string `json:"to"`
+				Reason   string `json:"reason"`
+				Evidence string `json:"evidence"`
+			}
+			if err := json.Unmarshal(raw, &a); err != nil {
+				return "", err
+			}
+			body := map[string]any{
+				"to": a.To, "reason": a.Reason, "actorKind": "agent",
+			}
+			if asstID != "" {
+				body["assistantId"] = asstID
+				body["actorId"] = asstID
+			}
+			if strings.TrimSpace(a.Evidence) != "" {
+				body["evidence"] = a.Evidence
+			}
+			return api.do(ctx, actor, http.MethodPost,
+				"/v1/issues/"+url.PathEscape(a.Key)+"/transitions", body)
+		},
+	})
+	r.Register(Tool{
 		Name: "GetIssue",
 		Description: "Read one issue by short key (ISS-12): its fields, the spec/plan document index (DOC-n with " +
 			"version and status) and the task checklist (TSK-n). Load it before acting — the server advances the " +
@@ -102,12 +164,11 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 	})
 	r.Register(Tool{
 		Name: "UpdateIssue",
-		Description: "Update an issue by key (ISS-12): status is one of drafting, specced, planned, in_progress, " +
-			"done, cancelled; title, summary, and optional prUrl (GitHub PR link) are also editable. " +
+		Description: "Update an issue by key (ISS-12): title, summary, optional prUrl (GitHub PR link). " +
+			"Do not change status here — use TransitionIssue so anti-thrash (owner, rounds, reason) is enforced. " +
 			"Remote PR discussion stays on GitHub — prUrl is only a pointer. Send only the fields you mean to change.",
 		Parameters: objectSchema(map[string]any{
 			"key":     map[string]any{"type": "string", "description": "Issue key, e.g. ISS-12"},
-			"status":  map[string]any{"type": "string", "description": "drafting, specced, planned, in_progress, done or cancelled"},
 			"title":   map[string]any{"type": "string"},
 			"summary": map[string]any{"type": "string"},
 			"prUrl":   map[string]any{"type": "string", "description": "GitHub pull request URL after CreatePullRequest"},
@@ -116,7 +177,6 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 		Call: func(ctx context.Context, actor Actor, raw json.RawMessage) (string, error) {
 			var a struct {
 				Key     string  `json:"key"`
-				Status  *string `json:"status"`
 				Title   *string `json:"title"`
 				Summary *string `json:"summary"`
 				PRURL   *string `json:"prUrl"`
@@ -125,9 +185,6 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 				return "", err
 			}
 			body := map[string]any{}
-			if a.Status != nil {
-				body["status"] = *a.Status
-			}
 			if a.Title != nil {
 				body["title"] = *a.Title
 			}
@@ -136,6 +193,9 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 			}
 			if a.PRURL != nil {
 				body["prUrl"] = *a.PRURL
+			}
+			if len(body) == 0 {
+				return "", fmt.Errorf("nothing to update; for status changes use TransitionIssue")
 			}
 			return api.do(ctx, actor, http.MethodPatch, "/v1/issues/"+url.PathEscape(a.Key), body)
 		},
@@ -146,7 +206,7 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 			"Follow the workflow: clarify scope, direction and decisions first, then write the spec (kind=spec) " +
 			"before the plan (kind=plan) — the plan must not invent scope the spec never agreed. Every write is a " +
 			"new version, so revisions never overwrite history; status=current (the default) supersedes the previous " +
-			"current version and advances the issue status (spec → specced, plan → planned).",
+			"current version and advances the issue status (spec → spec_review, plan → triaged).",
 		Parameters: objectSchema(map[string]any{
 			"key":       map[string]any{"type": "string", "description": "Issue key, e.g. ISS-12"},
 			"kind":      map[string]any{"type": "string", "enum": []any{"spec", "plan"}},
@@ -218,7 +278,7 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 		Description: "Add one task to an issue's checklist and return its key (TSK-34). Derive one task per plan " +
 			"step — do not merge several steps into one — and pass planDocKey to record which plan version it came " +
 			"from. Tasks append to the end unless position says otherwise; creating or starting a task moves the " +
-			"issue to in_progress.",
+			"issue to running.",
 		Parameters: objectSchema(map[string]any{
 			"issueKey":   map[string]any{"type": "string", "description": "Issue key, e.g. ISS-12"},
 			"title":      map[string]any{"type": "string", "description": "Short imperative title of one plan step"},
@@ -259,7 +319,7 @@ func RegisterIssues(r *Registry, api *RoundpenHTTP, sessionID string) {
 		Description: "Update a task by key (TSK-34): status is todo, in_progress, done, blocked or cancelled; " +
 			"title and detail are also editable. Keep status current while you implement — in_progress when you " +
 			"start a step, done when you finish it, blocked when you cannot proceed — because the issue status " +
-			"follows automatically (all tasks done closes it, reopening a task reopens it).",
+			"follows automatically (all tasks done → verified; reopening a task → running).",
 		Parameters: objectSchema(map[string]any{
 			"key":    map[string]any{"type": "string", "description": "Task key, e.g. TSK-34"},
 			"status": map[string]any{"type": "string", "enum": []any{"todo", "in_progress", "done", "blocked", "cancelled"}},

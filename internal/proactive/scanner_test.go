@@ -34,7 +34,7 @@ func (s stubGmail) SearchGmail(context.Context, string, string, int) ([]GmailHit
 func TestScanUserAggregatesSources(t *testing.T) {
 	sc := &Scanner{
 		Issues: stubIssues{rows: []issue.Issue{{
-			Key: "ISS-9", Title: "Backlog", Status: issue.StatusInProgress,
+			Key: "ISS-9", Title: "Backlog", Status: issue.StatusRunning,
 		}}},
 		Gmail: stubGmail{hits: []GmailHit{{Subject: "Hello", From: "a@b.c"}}},
 		GitHub: GitHubTokenFunc(func(context.Context, string) (string, error) {

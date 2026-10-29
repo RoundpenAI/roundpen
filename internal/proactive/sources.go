@@ -49,9 +49,7 @@ func scanIssues(ctx context.Context, issues IssueLister, userID string, limit in
 	if limit <= 0 {
 		limit = 5
 	}
-	openStatuses := []string{
-		issue.StatusDrafting, issue.StatusSpecced, issue.StatusPlanned, issue.StatusInProgress,
-	}
+	openStatuses := issue.OpenBoardStatuses()
 	seen := map[string]struct{}{}
 	var out []Finding
 	for _, st := range openStatuses {

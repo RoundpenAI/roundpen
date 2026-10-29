@@ -20,9 +20,11 @@ import {
 import { IconArrowLeft, IconPlus, IconRefresh } from '@douyinfe/semi-icons'
 import {
   assistantsApi,
+  allowedTargets,
   issues,
   type Issue,
   type IssueDoc,
+  type IssueStatus,
   type IssueTask,
 } from '../api'
 import { useT, type MessageKey } from '../i18n'
@@ -31,16 +33,7 @@ type DocKind = IssueDoc['kind']
 
 const DOC_KINDS: DocKind[] = ['spec', 'plan']
 
-const ISSUE_STATUSES: Issue['status'][] = [
-  'drafting',
-  'specced',
-  'planned',
-  'in_progress',
-  'done',
-  'cancelled',
-]
-
-function statusKey(status: Issue['status']): MessageKey {
+function statusKey(status: IssueStatus): MessageKey {
   return `issues.status.${status}`
 }
 
@@ -54,16 +47,22 @@ function docStatusKey(status: IssueDoc['status']): MessageKey {
 
 /** Same mapping the list page uses, so the two pages agree on colors. */
 function statusTagColor(
-  status: Issue['status'],
-): 'grey' | 'blue' | 'orange' | 'green' {
+  status: IssueStatus,
+): 'grey' | 'blue' | 'orange' | 'green' | 'red' {
   switch (status) {
-    case 'specced':
-    case 'planned':
+    case 'spec_review':
+    case 'needs_discussion':
+    case 'triaged':
       return 'blue'
-    case 'in_progress':
+    case 'claimed':
+    case 'running':
       return 'orange'
-    case 'done':
+    case 'verified':
+    case 'closed':
       return 'green'
+    case 'failed':
+    case 'needs_review':
+      return 'red'
     default:
       return 'grey'
   }
@@ -178,16 +177,23 @@ export function IssueDetailPage() {
     }
   }, [])
 
-  const statusOptions = useMemo(
-    () => ISSUE_STATUSES.map((s) => ({ label: t(statusKey(s)), value: s })),
-    [t],
-  )
+  const statusOptions = useMemo(() => {
+    if (!issue) return []
+    const opts = [
+      { label: t(statusKey(issue.status)), value: issue.status },
+      ...allowedTargets(issue.status).map((s) => ({
+        label: t(statusKey(s)),
+        value: s,
+      })),
+    ]
+    return opts
+  }, [t, issue])
 
   async function changeStatus(next: string) {
     if (!issue || savingStatus) return
     setSavingStatus(true)
     try {
-      await issues.update(issue.key, { status: next })
+      await issues.transition(issue.key, next)
       reload()
     } catch (e) {
       Toast.error(
