@@ -385,7 +385,14 @@ func (a *Agent) turn(ctx context.Context, s *session, userText string) error {
 			msg, finish, err = streamOnce()
 		}
 		if err != nil {
-			_ = a.emitText(ctx, sid, "LLM error: "+err.Error())
+			msg := err.Error()
+			// Friendly sentinel errors already include guidance; don't prefix.
+			if !errors.Is(err, ErrLLMNotConfigured) &&
+				!errors.Is(err, ErrFreeQuotaExceeded) &&
+				!errors.Is(err, ErrInstallAuthFailed) {
+				msg = "LLM error: " + msg
+			}
+			_ = a.emitText(ctx, sid, msg)
 			return err
 		}
 		messages = append(messages, msg)

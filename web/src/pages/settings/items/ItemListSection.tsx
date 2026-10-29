@@ -14,6 +14,18 @@ import { sectionGap } from '../constants'
 import type { Translate } from '../helpers'
 import { ItemEditorModal } from './ItemEditorModal'
 
+export type ItemEditorRenderProps = {
+  kind: ItemKind
+  def: KindDef
+  refs: Record<string, SettingItem[]>
+  vendors?: LlmgwVendor[]
+  t: Translate
+  item: SettingItem | null
+  existingIds: string[]
+  onSave: (item: SettingItem) => Promise<void>
+  onClose: () => void
+}
+
 type Props = {
   kind: ItemKind
   introKey: MessageKey
@@ -31,6 +43,8 @@ type Props = {
   bindModelFromItem?: boolean
   /** Replace the default "Add" button (e.g. preset picker). */
   renderAdd?: (openCreate: (seed?: Partial<SettingItem>) => void) => ReactNode
+  /** Replace the generic item editor (e.g. browser's two-mode form). */
+  renderEditor?: (props: ItemEditorRenderProps) => ReactNode
   /** Notify parent after items reload. */
   onItemsChange?: (items: SettingItem[]) => void
 }
@@ -65,6 +79,7 @@ export function ItemListSection({
   alsoBindSlots = [],
   bindModelFromItem,
   renderAdd,
+  renderEditor,
   onItemsChange,
 }: Props) {
   const [def, setDef] = useState<KindDef | null>(null)
@@ -312,16 +327,30 @@ export function ItemListSection({
           {t(noteKey)}
         </Typography.Text>
       )}
-      <ItemEditorModal
-        kind={kind}
-        def={def}
-        refs={refs}
-        vendors={vendors}
-        t={t}
-        item={editing}
-        onSave={save}
-        onClose={() => setEditing(null)}
-      />
+      {renderEditor ? (
+        renderEditor({
+          kind,
+          def,
+          refs,
+          vendors,
+          t,
+          item: editing,
+          existingIds: items.map((i) => i.id),
+          onSave: save,
+          onClose: () => setEditing(null),
+        })
+      ) : (
+        <ItemEditorModal
+          kind={kind}
+          def={def}
+          refs={refs}
+          vendors={vendors}
+          t={t}
+          item={editing}
+          onSave={save}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   )
 }

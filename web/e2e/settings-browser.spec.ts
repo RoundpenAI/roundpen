@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures'
 import { loginViaApi, resetSmoke, skipIfNoLivePassword } from './helpers'
 
-test('browser item editor explains every provider', async ({ page }) => {
+test('browser add form is docker vs remote URL', async ({ page }) => {
   skipIfNoLivePassword()
   await loginViaApi(page)
   await resetSmoke(page)
@@ -10,19 +10,16 @@ test('browser item editor explains every provider', async ({ page }) => {
   await page.getByRole('button', { name: '新增条目' }).click()
   const dialog = page.getByRole('dialog')
 
-  // Nothing picked yet: the generic hint stands in for the per-provider text.
-  await expect(dialog.getByText('决定浏览器跑在哪里')).toBeVisible()
+  await expect(dialog.getByText('运行方式')).toBeVisible()
+  await expect(dialog.getByText('本机 Docker（browserless）')).toBeVisible()
+  await expect(dialog.getByText('远程 browserless')).toBeVisible()
+  await expect(dialog.getByText('Roundpen 会拉取 browserless 镜像')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '安装并启用' })).toBeVisible()
 
-  const select = dialog.locator('.semi-select').first()
-  await select.click()
-  // Readable names instead of the raw auto/docker/host/remote/cloud ids.
-  await expect(page.getByRole('option', { name: '平台托管容器（browserless）' })).toBeVisible()
-  await expect(page.getByRole('option', { name: '局域网 / 自建 browserless' })).toBeVisible()
-
-  await page.getByRole('option', { name: '本机 Chrome（仅调试）' }).click()
-  await expect(dialog.getByText('没有实时视图，只能用截图接管面板操作')).toBeVisible()
-
-  await select.click()
-  await page.getByRole('option', { name: '云浏览器服务' }).click()
-  await expect(dialog.getByText('endpoint 必填：粘贴服务商给的 CDP')).toBeVisible()
+  // Remote only asks for a URL — no id / name / token / port fields.
+  await dialog.getByText('远程 browserless').click()
+  await expect(dialog.getByText('Browserless URL')).toBeVisible()
+  await expect(dialog.getByPlaceholder('wss://browserless.example.com/chrome')).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '保存' })).toBeVisible()
+  await expect(dialog.getByLabel('ID')).toHaveCount(0)
 })

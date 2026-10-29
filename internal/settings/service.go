@@ -21,9 +21,9 @@ type RuntimeDeps struct {
 	Probe            *runtime.Probe
 	ReconfigureLLMGW func(context.Context) error
 	LlmgwMounted     bool
-	// BrowserProfile resolves a browser item's CDP source ("" = the global
+	// BrowserSource resolves a browser item's CDP source ("" = the global
 	// default). nil falls back to the process config.
-	BrowserProfile func(itemID string) (browser.Profile, bool)
+	BrowserSource func(itemID string) (browser.Source, bool)
 	// SetAgentImage publishes the Agent image override ("" = follow the agent
 	// template) to the environment service.
 	SetAgentImage func(image string)
@@ -138,7 +138,7 @@ func (s *Service) Response() (AppSettings, SystemInfo) {
 // System returns read-only infrastructure metadata.
 func (s *Service) System() SystemInfo {
 	info := SystemFromConfig(s.cfg, s.deps.LlmgwMounted)
-	info.CDPProviderActive = s.browserProfile("").EffectiveProvider()
+	info.CDPProviderActive = s.browserSource("").EffectiveProvider()
 	return info
 }
 
@@ -155,8 +155,8 @@ type BrowserTestResult struct {
 
 // TestBrowser probes the browser source of an item ("" = the global default).
 func (s *Service) TestBrowser(ctx context.Context, itemID string) (BrowserTestResult, error) {
-	profile := s.browserProfile(itemID)
-	res := BrowserTestResult{Provider: profile.EffectiveProvider()}
+	src := s.browserSource(itemID)
+	res := BrowserTestResult{Provider: src.EffectiveProvider()}
 	switch res.Provider {
 	case config.CDPProviderHost:
 		res.ChromePath = browser.ChromePath()
@@ -166,8 +166,8 @@ func (s *Service) TestBrowser(ctx context.Context, itemID string) (BrowserTestRe
 		}
 		return res, nil
 	case config.CDPProviderRemote, config.CDPProviderCloud:
-		res.Endpoint = profile.Endpoint
-		probe, err := browser.ProbeCDP(ctx, profile.Endpoint, profile.Token)
+		res.Endpoint = src.Endpoint
+		probe, err := browser.ProbeCDP(ctx, src.Endpoint, src.Token)
 		if probe != nil {
 			res.Path = probe.Path
 			res.Version = probe.Version
@@ -176,11 +176,11 @@ func (s *Service) TestBrowser(ctx context.Context, itemID string) (BrowserTestRe
 		return res, err
 	default: // docker / auto — Roundpen-managed container
 		if s.deps.Probe != nil {
-			if err := s.deps.Probe.RequireBrowser(profile); err != nil {
+			if err := s.deps.Probe.RequireBrowser(src); err != nil {
 				return res, err
 			}
 		}
-		port := profile.Port
+		port := src.Port
 		if port <= 0 {
 			port = config.DefaultCDPPort
 		}
@@ -189,14 +189,13 @@ func (s *Service) TestBrowser(ctx context.Context, itemID string) (BrowserTestRe
 	}
 }
 
-// browserProfile resolves an item's browser source; a miss (or no resolver
-// wired) falls back to the live process config, which settings hot-apply on
-// PUT.
-func (s *Service) browserProfile(itemID string) browser.Profile {
-	if s.deps.BrowserProfile != nil {
-		if p, ok := s.deps.BrowserProfile(itemID); ok {
+// browserSource resolves an item's CDP source; a miss (or no resolver wired)
+// falls back to the live process config, which settings hot-apply on PUT.
+func (s *Service) browserSource(itemID string) browser.Source {
+	if s.deps.BrowserSource != nil {
+		if p, ok := s.deps.BrowserSource(itemID); ok {
 			return p
 		}
 	}
-	return browser.DefaultProfile(s.cfg)
+	return browser.DefaultSource(s.cfg)
 }

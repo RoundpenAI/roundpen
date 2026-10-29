@@ -51,16 +51,15 @@
 - **Browser 镜像拉不动**：默认 `ghcr.io/browserless/chrome:v2.56.7`，可在 `var/roundpend.env` 设 `ROUNDPEN_BROWSER_IMAGE`（例如内网镜像或 offline `docker load` 后的本地 tag）。离线包太大，`.fpk` 不内嵌 OCI 层。
 - **国内访问 ghcr.io 失败/很慢**：Docker 的 `registry-mirrors` **不会**加速 ghcr。Roundpen 会按序试 `ghcr.1ms.run` → `ghcr.nju.edu.cn` → DaoCloud；若官方能通但很慢，约 15s 后会与第一个镜像源并行竞速。可用 `ROUNDPEN_IMAGE_MIRRORS` / `ROUNDPEN_IMAGE_MIRROR_RACE_DELAY` 调整（`none` / `0` 分别关闭内置源与竞速）。
 - **Docker 权限**：包用户 `roundpen` 加入 `docker` 组（`config/privilege` → `join-groups`）；组名不同就按设备改。
+- **运行身份**：`run-as=package`（非 root）。生命周期脚本与 `roundpend` 都以 `roundpen` 运行，满足应用商店「禁止 root 权限应用」要求。
 
 ### 升级与 `secret.key` 权限
 
-生命周期脚本以 root 跑，便于把 `var/` 收归包用户；真正的 `roundpend` 再用 `runuser` 降到 `roundpen`。
-
-若从早期 **Docker 版 fpk** 升上来，以前容器可能把 `var/data/secret.key` 写成 `root:root` 且 `0600`，降权后的进程会报 `permission denied`。新包在 `upgrade_callback` / 启动时会 `chown` 整棵 `var/`。若仍失败，在 NAS 上执行：
+若从早期 **Docker 版 / root 生命周期 fpk** 升上来，以前可能把 `var/data/secret.key` 写成 `root:root` 且 `0600`。包用户读不了，升级/启动会失败并提示手修。在 NAS 上执行：
 
 ```bash
-chown -R roundpen:roundpen /vol1/@appdata/roundpen
-chmod 0600 /vol1/@appdata/roundpen/data/secret.key
+sudo chown -R roundpen:roundpen /vol1/@appdata/roundpen
+sudo chmod 0600 /vol1/@appdata/roundpen/data/secret.key
 ```
 
 （路径以实际 `TRIM_PKGVAR` 为准。）

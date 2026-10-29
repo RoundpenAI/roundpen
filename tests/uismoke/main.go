@@ -737,9 +737,9 @@ func (s *slotEnvs) RecreateBrowser(_ context.Context, _ string) (*userenv.Upgrad
 	return &userenv.UpgradeResult{Status: "absent"}, nil
 }
 
-// BrowserProfileFor backs the live-view proxy in the fake environment.
-func (s *slotEnvs) BrowserProfileFor(string) browser.Profile {
-	return browser.Profile{Provider: config.CDPProviderDocker, Port: config.DefaultCDPPort}
+// BrowserSourceFor backs the live-view proxy in the fake environment.
+func (s *slotEnvs) BrowserSourceFor(string) browser.Source {
+	return browser.Source{Provider: config.CDPProviderDocker, Port: config.DefaultCDPPort}
 }
 
 // RebuildForSlot backs the setting-items binding switch in the fake

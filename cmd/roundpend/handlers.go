@@ -272,16 +272,16 @@ func newSettingsService(settingsStore *settings.Store, cfg *config.Config, appSe
 		ReconfigureLLMGW: reconfigureLLMGW,
 		LlmgwMounted:     true,
 		SetAgentImage:    setAgentImage,
-		BrowserProfile: func(itemID string) (browser.Profile, bool) {
+		BrowserSource: func(itemID string) (browser.Source, bool) {
 			if itemID == "" {
 				return browser.Resolve(items.Snapshot(), settingitems.SlotBrowserDefault, "",
-					browser.DefaultProfile(cfg)), true
+					browser.DefaultSource(cfg)), true
 			}
 			it, ok := items.Snapshot().Item(settingitems.KindBrowser, itemID)
 			if !ok {
-				return browser.Profile{}, false
+				return browser.Source{}, false
 			}
-			return browser.ProfileFromItem(it), true
+			return browser.SourceFromItem(it), true
 		},
 	}, appSettings)
 	return settingsSvc
@@ -333,8 +333,8 @@ func wireEnvService(envSvc *userenv.Service, publicURL string, gw *llmgw.Gateway
 	envSvc.Proxy = func(_ context.Context, userID, slot string) string {
 		return userenv.ProxyURL(items.Snapshot(), userenv.ProxySlotKey(slot), userID)
 	}
-	envSvc.BrowserProfile = func(userID string) browser.Profile {
-		return browser.Resolve(items.Snapshot(), settingitems.SlotBrowserDefault, userID, browser.DefaultProfile(envSvc.Cfg))
+	envSvc.BrowserSource = func(userID string) browser.Source {
+		return browser.Resolve(items.Snapshot(), settingitems.SlotBrowserDefault, userID, browser.DefaultSource(envSvc.Cfg))
 	}
 	return func(u *storage.User) string {
 		if u == nil {

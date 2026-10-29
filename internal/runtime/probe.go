@@ -123,11 +123,11 @@ func (p *Probe) RequireAgent(engine string) error {
 }
 
 // RequireBrowser returns NotReady when the given browser source cannot run.
-func (p *Probe) RequireBrowser(profile browser.Profile) error {
-	provider := profile.EffectiveProvider()
+func (p *Probe) RequireBrowser(src browser.Source) error {
+	provider := src.EffectiveProvider()
 	switch provider {
 	case config.CDPProviderRemote, config.CDPProviderCloud:
-		if strings.TrimSpace(profile.Endpoint) == "" {
+		if strings.TrimSpace(src.Endpoint) == "" {
 			return &NotReady{
 				Engine:  provider,
 				Message: fmt.Sprintf("browser provider %s needs a CDP endpoint", provider),

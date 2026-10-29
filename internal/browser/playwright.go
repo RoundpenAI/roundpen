@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -51,22 +53,24 @@ func (d *pwDriver) stop() {
 
 // pwAttach describes one engine attachment.
 type pwAttach struct {
-	Endpoint      string // ws(s):// or http(s):// origin/member path (empty for host mode)
-	Token         string
-	LaunchPath    string // host mode: Chrome executable
-	Width, Height int
+	Endpoint         string // ws(s):// or http(s):// origin/member path (empty for host mode)
+	Token            string
+	LaunchPath       string // host mode: Chrome executable
+	Width, Height    int
+	StorageStatePath string // optional Playwright storage state (Profile persistence)
 }
 
 // PlaywrightEngine implements Engine over a Playwright browser.
 type PlaywrightEngine struct {
-	driver  *pwDriver
-	browser playwright.Browser
-	bctx    playwright.BrowserContext
-	page    playwright.Page
-	url     string
-	width   int
-	height  int
-	mu      sync.Mutex
+	driver           *pwDriver
+	browser          playwright.Browser
+	bctx             playwright.BrowserContext
+	page             playwright.Page
+	url              string
+	width            int
+	height           int
+	storageStatePath string
+	mu               sync.Mutex
 }
 
 var _ Engine = (*PlaywrightEngine)(nil)
@@ -102,10 +106,16 @@ func newPlaywrightEngine(d *pwDriver, att pwAttach) (*PlaywrightEngine, error) {
 			return nil, fmt.Errorf("cdp attach: %w", err)
 		}
 	}
-	bctx, err := browser.NewContext(playwright.BrowserNewContextOptions{
+	ctxOpts := playwright.BrowserNewContextOptions{
 		Viewport:  &playwright.Size{Width: att.Width, Height: att.Height},
 		UserAgent: playwright.String(desktopChromeUA),
-	})
+	}
+	if path := strings.TrimSpace(att.StorageStatePath); path != "" {
+		if st, err := os.Stat(path); err == nil && !st.IsDir() && st.Size() > 0 {
+			ctxOpts.StorageStatePath = playwright.String(path)
+		}
+	}
+	bctx, err := browser.NewContext(ctxOpts)
 	if err != nil {
 		_ = browser.Close()
 		return nil, fmt.Errorf("browser context: %w", err)
@@ -124,6 +134,7 @@ func newPlaywrightEngine(d *pwDriver, att pwAttach) (*PlaywrightEngine, error) {
 	return &PlaywrightEngine{
 		driver: d, browser: browser, bctx: bctx, page: page,
 		width: att.Width, height: att.Height,
+		storageStatePath: strings.TrimSpace(att.StorageStatePath),
 	}, nil
 }
 
@@ -366,6 +377,13 @@ func (e *PlaywrightEngine) InputKey(ctx context.Context, key string) error {
 }
 
 func (e *PlaywrightEngine) Close() error {
+	if e != nil && e.bctx != nil && e.storageStatePath != "" {
+		if err := os.MkdirAll(filepath.Dir(e.storageStatePath), 0o700); err == nil {
+			_, _ = e.bctx.StorageState(playwright.BrowserContextStorageStateOptions{
+				Path: playwright.String(e.storageStatePath),
+			})
+		}
+	}
 	if e.page != nil {
 		_ = e.page.Close()
 	}

@@ -4,6 +4,21 @@ Browser 槽位是每个用户一个浏览器来源：默认由 Roundpen 托管�
 
 旧的每用户 QEMU 桌面（qcow2 + XFCE + VNC）已整体删除；历史见 git 记录。
 
+## 三层模型（Runtime / Session / Profile）
+
+| 层 | 含义 | 代码 |
+|----|------|------|
+| **Runtime** | Chromium 真正跑在哪（托管容器或外部 CDP） | `browser.Runtime`，由设置里的 **Source**（provider/endpoint/token/port）在 attach 时解析 |
+| **Session** | 一次可控制的 attach：引擎、接管、生命周期 | `browser.Session`（Hub 按 key 缓存） |
+| **Profile** | 跨 Session 的用户数据（Cookie / storage） | `browser.Profile`；控制面磁盘上的 Playwright `storage.json`，docker / remote / cloud 共用 |
+
+说明：
+
+- 设置项里的「Browser source」是 **Source**（CDP 从哪来），不是 Chromium user-data Profile。
+- Session 内目前只有一个 active **Tab**（`main`）；多标签未对 Agent 暴露。
+- Agent 工具仍是裁剪后的 `browser_*`，不是完整 Playwright API。
+- Profile 持久化靠 Roundpen 侧 storage state，不依赖远程机上的 user-data-dir，因此远程 browserless 同样适用。
+
 ## 来源（provider）
 
 `ROUNDPEN_CDP_PROVIDER` 决定浏览器从哪来（设置页「CDP 提供方」可热改）：
