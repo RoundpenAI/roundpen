@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/storage"
@@ -100,5 +101,109 @@ func TestStore_ProjectLifecycle(t *testing.T) {
 	_, err = st.Create(ctx, user, CreateInput{Name: "Other", Slug: "demo-app"}, coord.ID)
 	if err != ErrSlugTaken {
 		t.Fatalf("want ErrSlugTaken, got %v", err)
+	}
+}
+
+func TestStore_FailOrphanRunning(t *testing.T) {
+	st, asst := newTestStores(t)
+	ctx := context.Background()
+	user := "worker-orphan-user"
+	insertUser(t, st, user)
+
+	coord, err := asst.Create(ctx, user, assistant.DefaultCoordinatorCreateInput("Orphan"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.Create(ctx, user, CreateInput{Name: "Orphan Proj"}, coord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := st.CreateWorker(ctx, user, p.ID, DelegateInput{Title: "queued task"}, "sess-q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, err := st.CreateWorker(ctx, user, p.ID, DelegateInput{Title: "stuck running"}, "sess-r")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB.ExecContext(ctx, `
+		UPDATE project_workers SET status = $2, started_at = now(), updated_at = now()
+		WHERE id = $1`, running.ID, WorkerRunning); err != nil {
+		t.Fatal(err)
+	}
+
+	orphans, err := st.FailOrphanRunning(ctx, "interrupted by process restart")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orphans) != 1 || orphans[0].ID != running.ID || orphans[0].Status != WorkerFailed {
+		t.Fatalf("orphans: %+v", orphans)
+	}
+	if orphans[0].Error != "interrupted by process restart" || orphans[0].FinishedAt == nil {
+		t.Fatalf("orphan fields: %+v", orphans[0])
+	}
+
+	stillQueued, err := st.GetWorker(ctx, user, queued.Key)
+	if err != nil || stillQueued.Status != WorkerQueued {
+		t.Fatalf("queued should stay queued: %+v %v", stillQueued, err)
+	}
+	// Serial slot free → claim can proceed.
+	claimed, err := st.ClaimNextQueued(ctx, user)
+	if err != nil || claimed == nil || claimed.ID != queued.ID {
+		t.Fatalf("claim after recover: %+v %v", claimed, err)
+	}
+}
+
+func TestStore_FailStaleRunning(t *testing.T) {
+	st, asst := newTestStores(t)
+	ctx := context.Background()
+	user := "worker-stale-user"
+	insertUser(t, st, user)
+
+	coord, err := asst.Create(ctx, user, assistant.DefaultCoordinatorCreateInput("Stale"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.Create(ctx, user, CreateInput{Name: "Stale Proj"}, coord.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := st.CreateWorker(ctx, user, p.ID, DelegateInput{Title: "old running"}, "sess-o")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued, err := st.CreateWorker(ctx, user, p.ID, DelegateInput{Title: "still queued"}, "sess-q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB.ExecContext(ctx, `
+		UPDATE project_workers SET status = $2, started_at = now() - interval '3 hours', updated_at = now() - interval '3 hours'
+		WHERE id = $1`, old.ID, WorkerRunning); err != nil {
+		t.Fatal(err)
+	}
+
+	stale, err := st.FailStaleRunning(ctx, time.Hour, "execution timed out")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stale) != 1 || stale[0].ID != old.ID || stale[0].Status != WorkerFailed {
+		t.Fatalf("stale: %+v", stale)
+	}
+	stillQ, err := st.GetWorker(ctx, user, queued.Key)
+	if err != nil || stillQ.Status != WorkerQueued {
+		t.Fatalf("queued untouched: %+v %v", stillQ, err)
+	}
+	users, err := st.ListUsersWithQueuedFreeSlot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, u := range users {
+		if u == user {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected %s in free-slot list %v", user, users)
 	}
 }

@@ -19,7 +19,6 @@ describe('visiblePrimaryMenus', () => {
     assert.deepEqual(keys, [
       'assistants',
       'projects',
-      'issues',
       'workspace',
       'settings',
     ])
@@ -30,7 +29,6 @@ describe('visiblePrimaryMenus', () => {
     assert.deepEqual(keys, [
       'assistants',
       'projects',
-      'issues',
       'workspace',
       'settings',
       'admin',
@@ -174,6 +172,7 @@ describe('matchPrimaryMenu', () => {
     assert.equal(matchPrimaryMenu('/workspace'), 'workspace')
     assert.equal(matchPrimaryMenu('/projects'), 'projects')
     assert.equal(matchPrimaryMenu('/projects/PRJ-1'), 'projects')
+    assert.equal(matchPrimaryMenu('/issues/ISS-1'), 'projects')
     assert.equal(matchPrimaryMenu('/a/x'), 'assistants')
   })
 

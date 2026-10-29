@@ -47,16 +47,113 @@ type MessageSource interface {
 	ListRecentMessages(ctx context.Context, sessionID string, limit int) ([]*agentsession.Message, error)
 }
 
+// IssuePulser wakes work-pulse after a worker finishes an issue-linked job.
+type IssuePulser interface {
+	EnqueueIssue(ctx context.Context, userID, issueKey, reason string)
+}
+
+// IssueKeyResolver maps an issue id to its short key (ISS-n).
+type IssueKeyResolver interface {
+	KeyForID(ctx context.Context, userID, issueID string) (string, error)
+}
+
 // Runner drains the per-user serial worker queue.
 type Runner struct {
-	Store    *Store
-	Users    UserLookup
-	Starter  WorkerStarter
-	ACP      Prompter
-	Turns    TurnRunner // optional; preferred over ACP.Prompt for workers
-	Notes    Transcript
-	Messages MessageSource
-	Log      *slog.Logger
+	Store     *Store
+	Users     UserLookup
+	Starter   WorkerStarter
+	ACP       Prompter
+	Turns     TurnRunner // optional; preferred over ACP.Prompt for workers
+	Notes     Transcript
+	Messages  MessageSource
+	Log       *slog.Logger
+	Pulse     IssuePulser
+	IssueKeys IssueKeyResolver
+
+	// RunTimeout caps a worker execute wall clock (default DefaultWorkerRunTimeout).
+	RunTimeout time.Duration
+	// SweepTick is the stale-running poll interval (default DefaultWorkerSweepTick).
+	SweepTick time.Duration
+}
+
+// Loop periodically fails hung running workers and re-kicks starved queues.
+func (r *Runner) Loop(ctx context.Context) {
+	tick := r.SweepTick
+	if tick <= 0 {
+		tick = DefaultWorkerSweepTick
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	r.SweepStale(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			r.SweepStale(ctx)
+		}
+	}
+}
+
+// RecoverOrphans fails workers left running after a process restart and kicks
+// each affected user's queue so queued work can proceed.
+func (r *Runner) RecoverOrphans(ctx context.Context) {
+	if r == nil || r.Store == nil {
+		return
+	}
+	orphans, err := r.Store.FailOrphanRunning(ctx, "interrupted by process restart")
+	if err != nil {
+		r.log().Error("fail orphan workers", "err", err)
+		return
+	}
+	r.finishFailed(ctx, orphans, "failed leftover running workers")
+}
+
+// SweepStale fails running workers past RunTimeout and kicks users with a free
+// serial slot that still have queued work.
+func (r *Runner) SweepStale(ctx context.Context) {
+	if r == nil || r.Store == nil {
+		return
+	}
+	timeout := r.RunTimeout
+	if timeout <= 0 {
+		timeout = DefaultWorkerRunTimeout
+	}
+	stale, err := r.Store.FailStaleRunning(ctx, timeout, "execution timed out")
+	if err != nil {
+		r.log().Error("fail stale workers", "err", err)
+	} else {
+		for _, w := range stale {
+			if w.SessionID != "" && r.ACP != nil {
+				_ = r.ACP.Cancel(ctx, w.SessionID)
+			}
+		}
+		r.finishFailed(ctx, stale, "failed timed-out running workers")
+	}
+	users, err := r.Store.ListUsersWithQueuedFreeSlot(ctx)
+	if err != nil {
+		r.log().Error("list queued workers", "err", err)
+		return
+	}
+	for _, userID := range users {
+		r.Kick(ctx, userID)
+	}
+}
+
+func (r *Runner) finishFailed(ctx context.Context, workers []*Worker, logMsg string) {
+	if len(workers) == 0 {
+		return
+	}
+	r.log().Info(logMsg, "count", len(workers))
+	seen := map[string]struct{}{}
+	for _, w := range workers {
+		p, _ := r.Store.Get(ctx, w.UserID, w.ProjectID)
+		r.notifyCoordinator(ctx, p, w, WorkerFailed)
+		seen[w.UserID] = struct{}{}
+	}
+	for userID := range seen {
+		r.Kick(ctx, userID)
+	}
 }
 
 // Kick tries to start the next queued worker for userID.
@@ -72,7 +169,10 @@ func (r *Runner) Kick(ctx context.Context, userID string) {
 	if w == nil {
 		return
 	}
-	go r.execute(ctx, w)
+	// Detach from the caller (often an HTTP request): when the response is
+	// written the request ctx is cancelled and would abort StartWorkerRuntime
+	// / PromptTurn, leaving a running row with an empty session transcript.
+	go r.execute(context.WithoutCancel(ctx), w)
 }
 
 func (r *Runner) execute(ctx context.Context, w *Worker) {
@@ -99,8 +199,11 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 		r.Kick(ctx, w.UserID)
 		return
 	}
-	// Align with chat turnTimeout / routine segment budget (2h).
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Hour)
+	timeout := r.RunTimeout
+	if timeout <= 0 {
+		timeout = DefaultWorkerRunTimeout
+	}
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	prompt := RenderWorkerPrompt(p, w)
 	if r.Turns != nil {
@@ -137,7 +240,21 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 		w.Error = errMsg
 	}
 	r.notifyCoordinator(ctx, p, w, w.Status)
+	r.pulseIssue(ctx, w)
 	r.Kick(ctx, w.UserID)
+}
+
+func (r *Runner) pulseIssue(ctx context.Context, w *Worker) {
+	if r == nil || r.Pulse == nil || w == nil || strings.TrimSpace(w.IssueID) == "" {
+		return
+	}
+	key := w.IssueID
+	if r.IssueKeys != nil {
+		if k, err := r.IssueKeys.KeyForID(ctx, w.UserID, w.IssueID); err == nil && k != "" {
+			key = k
+		}
+	}
+	r.Pulse.EnqueueIssue(ctx, w.UserID, key, "worker_done")
 }
 
 // CancelWorker stops a queued or running worker. Running workers get an ACP
@@ -173,6 +290,7 @@ func (r *Runner) CancelWorker(ctx context.Context, userID, keyOrID string) (*Wor
 	}
 	p, _ := r.Store.Get(ctx, userID, w.ProjectID)
 	r.notifyCoordinator(ctx, p, fresh, WorkerCancelled)
+	r.pulseIssue(ctx, fresh)
 	r.Kick(ctx, userID)
 	return fresh, nil
 }
