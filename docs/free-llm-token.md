@@ -71,4 +71,17 @@ so the cloud entry can TOFU-register the install public key.
 Cold start is zero-config: on boot, `EnsureDefaultFree` enables the gateway and
 seeds item `roundpen-free` (binding `llm.default` / `llm.sysagent`) when those
 slots have no binding yet. Admins can still force-seed via `POST /v1/setup/llm-free`.
-When FREE returns HTTP 429, the UI cues **系统管理 → LLM 网关** (BYOK), not personal settings.
+When FREE returns HTTP 429, the UI cues **系统管理 → 模型配置** (BYOK), not personal settings.
+
+## Reinstall / public key mismatch
+
+`install_id` prefers a stable host device id (`/etc/device_id`, …). Wiping
+`$ROUNDPEN_DATA_ROOT/install-identity/` (or a fresh fnOS data dir after
+uninstall) regenerates the Ed25519 keypair while keeping the same `install_id`.
+The cloud TOFU record then rejects tokens with `install auth: public key mismatch`.
+
+**End-user path:** switch to BYOK under **系统管理 → 模型配置**.
+
+**Maintainer path:** update the cloud install’s `public_key_hex` to the new
+`ed25519.pub` (or delete the TOFU row so the next request re-registers), then
+restart the FREE entry if it caches installs in memory.

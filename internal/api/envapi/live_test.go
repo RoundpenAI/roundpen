@@ -648,7 +648,7 @@ func TestLiveLinkRemoteTokenAdminsOnly(t *testing.T) {
 			h := &Handler{
 				Envs: &fakeEnvs{
 					target: &userenv.BrowserTarget{Key: "browser-alice", Provider: config.CDPProviderRemote},
-					profile: browser.Profile{
+					profile: browser.Source{
 						Provider: config.CDPProviderRemote,
 						Endpoint: "wss://cdp.example.com",
 						Token:    "instance-secret",

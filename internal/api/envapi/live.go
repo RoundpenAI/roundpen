@@ -62,7 +62,7 @@ func (h *Handler) liveLink(w http.ResponseWriter, r *http.Request) {
 	case config.CDPProviderRemote, config.CDPProviderCloud:
 		endpoint, token := "", ""
 		if h.Envs != nil {
-			profile := h.Envs.BrowserProfileFor(user.Username)
+			profile := h.Envs.BrowserSourceFor(user.Username)
 			endpoint, token = profile.Endpoint, profile.Token
 		}
 		u := strings.TrimRight(strings.TrimSpace(endpoint), "/")

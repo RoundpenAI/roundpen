@@ -236,10 +236,10 @@ type Service struct {
 
 	// Proxy resolves a user's egress proxy URL for a slot ("" = direct).
 	Proxy func(ctx context.Context, userID, slot string) string
-	// BrowserProfile resolves the browser source for a user ("" = the global
+	// BrowserSource resolves the CDP source for a user ("" = the global
 	// default). nil falls back to the process config, which is what an install
 	// with no browser items should do.
-	BrowserProfile func(userID string) browser.Profile
+	BrowserSource func(userID string) browser.Source
 
 	// WorkspaceRoot returns the absolute directory the user authorized in
 	// their own files. Empty means the private data-root workspace.
@@ -274,21 +274,21 @@ func (s *Service) agentImageOverride() string {
 	return s.agentImage
 }
 
-// browserProfile resolves the browser source for a user ("" = global default).
-func (s *Service) browserProfile(userID string) browser.Profile {
-	if s.BrowserProfile != nil {
-		return s.BrowserProfile(userID)
+// browserSource resolves the CDP source for a user ("" = global default).
+func (s *Service) browserSource(userID string) browser.Source {
+	if s.BrowserSource != nil {
+		return s.BrowserSource(userID)
 	}
-	return browser.DefaultProfile(s.Cfg)
+	return browser.DefaultSource(s.Cfg)
 }
 
-// BrowserProfileFor returns the browser source a user's sessions attach to.
-func (s *Service) BrowserProfileFor(userID string) browser.Profile {
-	return s.browserProfile(userID)
+// BrowserSourceFor returns the CDP source a user's sessions attach to.
+func (s *Service) BrowserSourceFor(userID string) browser.Source {
+	return s.browserSource(userID)
 }
 
 // Provider returns the effective browser provider (docker|remote|cloud|host).
-func (s *Service) Provider() string { return s.browserProfile("").EffectiveProvider() }
+func (s *Service) Provider() string { return s.browserSource("").EffectiveProvider() }
 
 // BrowserKey is the hub session key for an externally provided browser.
 func BrowserKey(userID string) string { return "browser-" + sanitizeUser(userID) }
@@ -304,19 +304,19 @@ func (s *Service) browserTemplate() string {
 // EnsureBrowser resolves the user's browser source. Managed (default) starts or
 // resumes the Roundpen browserless container; external providers need no sandbox.
 func (s *Service) EnsureBrowser(ctx context.Context, userID string) (*BrowserTarget, error) {
-	profile := s.browserProfile(userID)
+	src := s.browserSource(userID)
 	// Probe before branching: RequireBrowser is provider-aware and rejects a
 	// remote/cloud endpoint that is missing and a host with no Chrome, not just
 	// a Docker-less managed provider.
 	if s.Probe != nil {
-		if err := s.Probe.RequireBrowser(profile); err != nil {
+		if err := s.Probe.RequireBrowser(src); err != nil {
 			return nil, err
 		}
 	}
-	provider := profile.EffectiveProvider()
+	provider := src.EffectiveProvider()
 	if provider != config.CDPProviderDocker {
 		if provider == config.CDPProviderRemote || provider == config.CDPProviderCloud {
-			if strings.TrimSpace(profile.Endpoint) == "" {
+			if strings.TrimSpace(src.Endpoint) == "" {
 				return nil, fmt.Errorf("browser provider %s needs a CDP endpoint", provider)
 			}
 		}
@@ -407,7 +407,7 @@ func (s *Service) List(ctx context.Context, userID string) ([]EnvView, error) {
 			continue
 		}
 		if slot == SlotBrowser {
-			v.Provider = s.browserProfile("").EffectiveProvider()
+			v.Provider = s.browserSource("").EffectiveProvider()
 			// External providers own the browser: a container left from a
 			// previous provider must not be presented as the current source.
 			if v.Provider != config.CDPProviderDocker {

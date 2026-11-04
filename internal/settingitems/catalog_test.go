@@ -373,7 +373,7 @@ func TestLegacyImportBrowser(t *testing.T) {
 	if got := len(cat.Snapshot().Items(settingitems.KindBrowser, true)); got != 0 {
 		t.Fatalf("default config must not create items, got %d", got)
 	}
-	fallback := browser.Profile{Provider: "auto", Port: 3000}
+	fallback := browser.Source{Provider: "auto", Port: 3000}
 	if got := browser.Resolve(cat.Snapshot(), settingitems.SlotBrowserDefault, "", fallback); got.Provider != "auto" {
 		t.Fatalf("unresolved slot must fall back to config: %+v", got)
 	}

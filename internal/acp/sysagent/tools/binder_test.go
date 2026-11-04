@@ -24,8 +24,8 @@ func (s *stubSlots) EnsureBrowser(_ context.Context, userID string) (*userenv.Br
 	return &userenv.BrowserTarget{Key: s.id, Provider: "docker", Managed: true}, nil
 }
 
-func (s *stubSlots) BrowserProfileFor(_ string) browser.Profile {
-	return browser.Profile{Provider: "docker"}
+func (s *stubSlots) BrowserSourceFor(_ string) browser.Source {
+	return browser.Source{Provider: "docker"}
 }
 
 func TestBrowserBinderUsesSlotSandbox(t *testing.T) {

@@ -74,7 +74,13 @@ func (h *Handler) ensureHubKey(r *http.Request, sess *agentsession.Session) stri
 		}
 		if target, err := h.Envs.EnsureBrowser(r.Context(), userID); err == nil && target != nil {
 			if h.Hub != nil {
-				h.Hub.SetProfile(target.Key, h.Envs.BrowserProfileFor(userID))
+				src := h.Envs.BrowserSourceFor(userID)
+				profile, err := browser.EnsureProfile(h.Hub.ProfileRoot(), userID)
+				if err != nil {
+					h.Hub.SetSource(target.Key, src)
+				} else {
+					h.Hub.Bind(target.Key, src, profile)
+				}
 			}
 			return target.Key
 		}

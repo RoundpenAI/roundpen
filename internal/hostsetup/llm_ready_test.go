@@ -12,10 +12,10 @@ func TestLLMReadyReasonsPointAtSystemAdmin(t *testing.T) {
 	if st.Ready {
 		t.Fatal("expected not ready when gateway off")
 	}
-	if !strings.Contains(st.Reason, "系统管理 → LLM 网关") {
+	if !strings.Contains(st.Reason, "系统管理 → 模型配置") {
 		t.Fatalf("reason=%q", st.Reason)
 	}
-	if strings.Contains(st.Reason, "设置 → LLM 网关") {
+	if strings.Contains(st.Reason, "设置 →") {
 		t.Fatalf("must not point at personal settings: %q", st.Reason)
 	}
 
@@ -23,7 +23,7 @@ func TestLLMReadyReasonsPointAtSystemAdmin(t *testing.T) {
 	if st.Ready {
 		t.Fatal("expected not ready with no upstream")
 	}
-	if !strings.Contains(st.Reason, "系统管理 → LLM 网关") {
+	if !strings.Contains(st.Reason, "系统管理 → 模型配置") {
 		t.Fatalf("reason=%q", st.Reason)
 	}
 }

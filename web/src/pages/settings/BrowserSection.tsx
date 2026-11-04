@@ -3,12 +3,14 @@ import { Button, Tag, Typography } from '@douyinfe/semi-ui-19'
 import { adminSettings, environments, type SettingItem } from '../../api'
 import { Loading } from '../../components/Loading'
 import { ItemListSection } from './items/ItemListSection'
+import { BrowserEditorModal } from './BrowserEditorModal'
 import type { SectionBase } from './helpers'
 
 // Browser sources are setting items (kind "browser"): each item saves on its
 // own, so this section ignores the surrounding settings form and save bar.
 // The active source is the list default; 「已启动」marks it when the browser
-// environment is running.
+// environment is running. Add/edit uses a two-mode form (local Docker vs
+// remote URL) instead of the generic item editor.
 export function BrowserSection({ isAdmin, loading, t }: SectionBase) {
   const [testResult, setTestResult] = useState<Record<string, string>>({})
   const [browserRunning, setBrowserRunning] = useState(false)
@@ -42,6 +44,7 @@ export function BrowserSection({ isAdmin, loading, t }: SectionBase) {
       ...prev,
       [item.id]: res.ok ? detail || t('settings.browser.testOk') : (res.error ?? ''),
     }))
+    void refreshStatus()
   }
 
   return (
@@ -51,6 +54,18 @@ export function BrowserSection({ isAdmin, loading, t }: SectionBase) {
       noteKey="settings.browser.hint"
       t={t}
       defaultSlot="browser.default"
+      renderEditor={({ t: tt, item, existingIds, onSave, onClose }) => (
+        <BrowserEditorModal
+          t={tt}
+          item={item}
+          existingIds={existingIds}
+          onSave={async (saved) => {
+            await onSave(saved)
+            void refreshStatus()
+          }}
+          onClose={onClose}
+        />
+      )}
       renderItemTags={(_item, { isDefault }) =>
         isDefault && browserRunning ? (
           <Tag color="green" size="small">

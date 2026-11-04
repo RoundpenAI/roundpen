@@ -6,24 +6,32 @@ pkg_group() { printf '%s\n' "${TRIM_GROUPNAME:-roundpen}"; }
 
 is_root() { [ "$(id -u)" -eq 0 ]; }
 
-# Make $TRIM_PKGVAR owned by the package user so roundpend can read
-# data/secret.key (0600). Older Docker-packaged installs left these files
-# root-owned; after switching to run-as=package the daemon could not open them.
+# Prepare $TRIM_PKGVAR for the package user (run-as=package). Soften modes on
+# files we own. If leftover root-owned data (old Docker packages) is unreadable,
+# fail so the operator can chown manually — lifecycle no longer runs as root.
 ensure_pkgvar_perms() {
 	local root="${TRIM_PKGVAR:?}"
 	local user group
 	user="$(pkg_user)"
 	group="$(pkg_group)"
 	mkdir -p "${root}/data" "${root}/.pg0" || return 1
-	if ! is_root; then
-		return 0
+
+	# Defensive: if somehow invoked as root (local tests), reclaim ownership.
+	if is_root; then
+		chown -R "${user}:${group}" "${root}" || return 1
 	fi
-	chown -R "${user}:${group}" "${root}" || return 1
+
 	if [ -f "${root}/data/secret.key" ]; then
-		chmod 0600 "${root}/data/secret.key" || true
+		if [ ! -r "${root}/data/secret.key" ]; then
+			return 1
+		fi
+		chmod 0600 "${root}/data/secret.key" 2>/dev/null || true
 	fi
 	if [ -d "${root}/data/install-identity" ]; then
-		chmod 0700 "${root}/data/install-identity" || true
+		if [ ! -r "${root}/data/install-identity" ] || [ ! -x "${root}/data/install-identity" ]; then
+			return 1
+		fi
+		chmod 0700 "${root}/data/install-identity" 2>/dev/null || true
 		# Private key material under install-identity must stay owner-only.
 		find "${root}/data/install-identity" -type f -exec chmod 0600 {} + 2>/dev/null || true
 	fi
@@ -99,8 +107,9 @@ warm_docker_images() {
 	return 0
 }
 
-# Run a command as the package user when the lifecycle script is root.
-# Long-running services should not stay root (see config/privilege).
+# Run a command as the package user. With run-as=package the lifecycle already
+# is that user, so this is a no-op. Kept for local tests that still invoke
+# scripts as root.
 #
 # Prefer setpriv --init-groups so join-groups from config/privilege (e.g.
 # docker) are actually in the process credential set. runuser -u/-g alone has

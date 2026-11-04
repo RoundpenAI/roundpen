@@ -14,12 +14,17 @@ import (
 
 // ErrLLMNotConfigured is returned when the system agent has no relay BaseURL
 // (LLM gateway disabled or no provider bound to the sysagent slot).
-var ErrLLMNotConfigured = errors.New("LLM 尚未配置：请到「系统管理 → LLM 网关」启用网关，添加上游地址与密钥，并保存后再试")
+var ErrLLMNotConfigured = errors.New("LLM 尚未配置：请到「系统管理 → 模型配置」启用网关，添加上游地址与密钥，并保存后再试")
 
 // ErrFreeQuotaExceeded is returned when the built-in FREE upstream rate-limits
 // the install (HTTP 429). Surfaces a BYOK cue pointing at system admin, not
 // personal settings.
-var ErrFreeQuotaExceeded = errors.New("免费额度已用尽或请求过于频繁：请到「系统管理 → LLM 网关」配置自己的 API Key（BYOK）")
+var ErrFreeQuotaExceeded = errors.New("免费额度已用尽或请求过于频繁：请到「系统管理 → 模型配置」添加自己的 API Key（BYOK）并设为默认")
+
+// ErrInstallAuthFailed is returned when the FREE cloud entry rejects this
+// install's rp1 identity (HTTP 401, e.g. public key mismatch after a reinstall
+// that regenerated install-identity while keeping the same install_id).
+var ErrInstallAuthFailed = errors.New("免费试用的安装身份已失效（常见于重装后密钥变更）：请到「系统管理 → 模型配置」改绑自己的 API Key；若需继续用 FREE，请联系维护者重新绑定本机安装公钥")
 
 // LLMConfig configures OpenAI-compatible chat via llmgw loopback.
 type LLMConfig struct {
@@ -160,6 +165,9 @@ func (c LLMConfig) chatStream(ctx context.Context, messages []chatMessage, tools
 		if isHTTPStatus(err, http.StatusTooManyRequests) {
 			return chatMessage{}, "", ErrFreeQuotaExceeded
 		}
+		if isInstallAuthFailure(err) {
+			return chatMessage{}, "", ErrInstallAuthFailed
+		}
 		if !isHTTPStatus(err, 404) {
 			return chatMessage{}, "", err
 		}
@@ -179,6 +187,18 @@ func (e *httpStatusError) Error() string {
 func isHTTPStatus(err error, code int) bool {
 	var he *httpStatusError
 	return errors.As(err, &he) && he.code == code
+}
+
+// isInstallAuthFailure detects FREE cloud TOFU rejection (rp1 / install pub).
+func isInstallAuthFailure(err error) bool {
+	var he *httpStatusError
+	if !errors.As(err, &he) || he.code != http.StatusUnauthorized {
+		return false
+	}
+	body := strings.ToLower(he.body)
+	return strings.Contains(body, "install auth") ||
+		strings.Contains(body, "public key mismatch") ||
+		strings.Contains(body, "install_id is already bound")
 }
 
 func (c LLMConfig) chatStreamOnce(ctx context.Context, url string, body []byte, onContent, onReasoning func(string) error) (chatMessage, string, error) {

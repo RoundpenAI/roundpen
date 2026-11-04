@@ -24,7 +24,7 @@ type fakeEnvs struct {
 	result  *userenv.UpgradeResult
 	err     error
 	target  *userenv.BrowserTarget
-	profile browser.Profile
+	profile browser.Source
 }
 
 func (f *fakeEnvs) List(context.Context, string) ([]userenv.EnvView, error) { return nil, nil }
@@ -57,11 +57,11 @@ func (f *fakeEnvs) RecreateAgent(_ context.Context, userID string) (*userenv.Upg
 	return &userenv.UpgradeResult{Status: "recreated", Image: "img:1"}, nil
 }
 
-func (f *fakeEnvs) BrowserProfileFor(string) browser.Profile {
+func (f *fakeEnvs) BrowserSourceFor(string) browser.Source {
 	if f.profile.Provider != "" {
 		return f.profile
 	}
-	return browser.Profile{Provider: config.CDPProviderDocker, Port: config.DefaultCDPPort}
+	return browser.Source{Provider: config.CDPProviderDocker, Port: config.DefaultCDPPort}
 }
 
 func (f *fakeEnvs) RecreateBrowser(_ context.Context, userID string) (*userenv.UpgradeResult, error) {

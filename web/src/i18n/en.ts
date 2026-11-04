@@ -253,18 +253,32 @@ export const en = {
   'settings.logBody.256k': '256 KiB',
 
   'settings.browser.intro':
-    'Browser tools attach to a DevTools websocket. Add one or more sources and mark one as default; the default row shows Started when the browser environment is running.',
+    'Pick how Chrome runs: install a local Docker browserless, or point at a remote browserless URL. Mark one source as default; Started means that environment is up.',
   'settings.browser.keepMasked': 'Leave masked to keep current',
   'settings.browser.test': 'Test connection',
   'settings.browser.testOk': 'reachable',
   'settings.browser.started': 'Started',
   'settings.browser.hint':
-    'NAS and compose should use Docker Chrome or a remote/cloud CDP — do not install Chrome on the NAS OS. Host Chrome is for laptop debugging only.',
+    'Prefer local Docker on this host, or a remote browserless. Do not install Chrome on a NAS OS.',
+  'settings.browser.addTitle': 'Add browser',
+  'settings.browser.editTitle': 'Edit browser',
+  'settings.browser.mode': 'How to run',
+  'settings.browser.modeHint': 'Choose one. Local Docker is installed for you; remote only needs a URL.',
+  'settings.browser.mode.docker': 'Local Docker (browserless)',
+  'settings.browser.mode.remote': 'Remote browserless',
+  'settings.browser.dockerHelp':
+    'Roundpen will pull the browserless image and start a managed container per user. Needs Docker on this host.',
+  'settings.browser.url': 'Browserless URL',
+  'settings.browser.urlHint':
+    'http(s)://host:port or ws(s)://… — path optional; token can be in the query string.',
+  'settings.browser.urlRequired': 'Enter the browserless URL.',
+  'settings.browser.install': 'Install and enable',
+  'settings.browser.installFailed': 'Saved, but the local browser could not start yet.',
 
   'settings.llmgw.intro':
     'Add FREE, DeepSeek, Kimi, GLM, OpenRouter, or a custom endpoint and set one as default — Agents and chat use it automatically. Built-in platforms need an API key and a model; custom also needs protocol and base URL. Keys are injected into Docker agents only.',
   'settings.llmgw.modeHint':
-    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → Model config for production; on 429 the UI cues the same path.',
+    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → Model config for production; quota exhaustion or install-identity failure after reinstall cues the same path.',
   'settings.llmgw.enable':
     'Enable relay (required for Agent Chats & memory embeddings)',
   'settings.llmgw.upstreamTitle': '1 · Upstream providers',
@@ -631,28 +645,28 @@ export const en = {
   'settings.itemFieldHint.search.proxyId':
     'Used for the search call, WebFetch and skill installs.',
   'settings.itemFieldHint.browser.provider':
-    'Where Chrome runs. Each source needs different fields; the text under the picker explains the selected one.',
+    'Local Docker installs a managed browserless; remote dials an external URL.',
   'settings.itemFieldHint.browser.endpoint':
-    'remote/cloud: required. host: attaches to this address instead of launching local Chrome. auto/docker: ignored. Accepts http(s):// or ws(s)://, path and query allowed.',
+    'Required for remote. Accepts http(s):// or ws(s)://, path and query allowed.',
   'settings.itemFieldHint.browser.token':
-    'Used by remote/cloud (and host with an endpoint): appended as ?token=, and sent as a bearer on probes. auto/docker use the sandbox token — leave empty.',
+    'Optional for remote: appended as ?token=, and sent as a bearer on probes. Docker uses the sandbox token — leave empty.',
   'settings.itemFieldHint.browser.port':
-    'auto/docker only: guest CDP port of the managed container (browserless default 3000).',
-  'settings.itemOption.browser.provider.auto': 'Auto (recommended)',
-  'settings.itemOption.browser.provider.docker': 'Roundpen-managed container (browserless)',
+    'Docker only: guest CDP port of the managed container (browserless default 3000).',
+  'settings.itemOption.browser.provider.auto': 'Auto (legacy)',
+  'settings.itemOption.browser.provider.docker': 'Local Docker (browserless)',
   'settings.itemOption.browser.provider.host': 'Chrome on the roundpend host (debug only)',
-  'settings.itemOption.browser.provider.remote': 'LAN / self-hosted browserless',
+  'settings.itemOption.browser.provider.remote': 'Remote browserless',
   'settings.itemOption.browser.provider.cloud': 'Cloud browser service',
   'settings.itemOptionHint.browser.provider.auto':
-    'Resolves to the platform default, which today is docker: one managed browserless/chrome container per user, dialled over CDP, with a working live view.\nNeeds Docker on the roundpend host. Leave the fields below at their defaults — pick this if unsure.',
+    'Legacy alias for local Docker.',
   'settings.itemOptionHint.browser.provider.docker':
-    'Starts a Roundpen-managed browserless/chrome container per user (the Browser environment) and dials its guest CDP port through the sandbox.\nNeeds Docker on the roundpend host. Only change the port if you use another image or container port; leave endpoint and token empty.',
+    'Roundpen installs and starts a managed browserless/chrome container per user.',
   'settings.itemOptionHint.browser.provider.host':
-    'Runs Chrome/Chromium installed on the roundpend host (CHROME_PATH, or on PATH). Laptop debugging only: all users share that one browser and there is no live view — you get the screenshot takeover panel instead. Do not install Chrome on a NAS for this.\nEmpty endpoint launches the host Chrome; a CDP URL attaches to that address instead (token optional).',
+    'Laptop debugging only — prefer local Docker or remote browserless.',
   'settings.itemOptionHint.browser.provider.remote':
-    'Attaches to a self-hosted browserless on your LAN (browserless/chrome, chromium, …).\nEndpoint is required: http(s)://host:port or ws(s)://…; without a path the platform tries /chrome, /chromium, then /. Token is optional and is appended as ?token=.\nEvery user bound to this endpoint shares it — isolate sessions on that host yourself.',
+    'Paste the browserless CDP URL (http(s):// or ws(s)://).',
   'settings.itemOptionHint.browser.provider.cloud':
-    'Attaches to a commercial cloud browser (Browserbase, Steel, Browserless cloud, …).\nEndpoint is required: paste the CDP/session URL the provider gives you (wss://…, query allowed, e.g. connect.browserbase.com/?signingKey=…). Token is optional and is appended as ?token=.\nSession lifetime and billing are the provider’s; the endpoint is shared by every user bound to it.',
+    'Same as remote: paste the provider CDP/session URL.',
   'settings.itemField.llm.vendor': 'Platform',
   'settings.itemFieldHint.llm.vendor':
     'Built-in platforms need only an API key and a model. Custom keeps the protocol and base URL.',

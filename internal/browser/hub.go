@@ -15,40 +15,52 @@ import (
 
 const cdpReadyWait = 45 * time.Second
 
-// Hub owns per-sandbox browser sessions attached via a CDP provider.
+// Hub owns per-key browser Sessions attached via a Runtime (CDP provider).
 type Hub struct {
 	mu       sync.Mutex
 	sessions map[string]*Session
 	dataDir  string
 	logger   *slog.Logger
 
-	profiles map[string]Profile // hub key → browser source
+	sources  map[string]Source  // hub key → CDP source
+	profiles map[string]Profile // hub key → user-data profile
 	cfg      *config.Config
 	dial     PortDialer
 	driver   *pwDriver
 	// tokenLookup resolves a sandbox id to its stored browser token
 	// (sandbox.Metadata["browserToken"]); wired in cmd/roundpend.
 	tokenLookup func(sandboxID string) string
-	// profileResolver resolves a hub key to the user's configured browser
-	// profile from the settings catalog. Falls back to DefaultProfile(cfg)
-	// when nil or when the resolver returns ok=false.
+	// sourceResolver resolves a hub key to the user's configured CDP source
+	// from the settings catalog. Falls back to DefaultSource(cfg) when nil or
+	// when the resolver returns ok=false.
+	sourceResolver func(key string) (Source, bool)
+	// profileResolver resolves a hub key to a user-data Profile when none was
+	// recorded via SetProfile. Falls back to an ephemeral profile.
 	profileResolver func(key string) (Profile, bool)
 
 	newEngine func(userDataDir string, width, height int) (Engine, error)
 }
 
-// Session is one attached browser.
+// Session is one controllable browser attach: a Runtime, a Profile, and one
+// or more Tabs (currently a single active tab). Agent tools operate on the
+// active tab only.
 type Session struct {
-	SandboxID string
-	Engine    Engine
-	Width     int
-	Height    int
-	Takeover  bool
-	release   func()
+	ID        string // hub key
+	SandboxID string // alias of ID (legacy field name used by callers)
+	Runtime   Runtime
+	Profile   Profile
+	Tabs      []Tab
+	ActiveTab string
+
+	Engine   Engine
+	Width    int
+	Height   int
+	Takeover bool
+	release  func()
 }
 
-// NewHub returns a session hub. dataDir holds per-session scratch dirs for the
-// injected test engine; production providers keep their state elsewhere.
+// NewHub returns a session hub. dataDir holds per-session scratch dirs and
+// browser-profiles storage state.
 func NewHub(dataDir string, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.Default()
@@ -59,6 +71,14 @@ func NewHub(dataDir string, logger *slog.Logger) *Hub {
 		logger:   logger,
 		driver:   &pwDriver{},
 	}
+}
+
+// ProfileRoot is the directory that holds per-user Profile storage state.
+func (h *Hub) ProfileRoot() string {
+	if h == nil || h.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(h.dataDir, "browser-profiles")
 }
 
 // SetConfig supplies live process config (provider can change via settings apply).
@@ -83,10 +103,21 @@ func (h *Hub) SetTokenLookup(f func(sandboxID string) string) {
 	h.mu.Unlock()
 }
 
-// SetProfileResolver supplies a callback that resolves a hub key to the user's
-// configured browser profile from the settings catalog. When set, attach uses
-// it before falling back to the process config, so a user-configured remote or
+// SetSourceResolver supplies a callback that resolves a hub key to the user's
+// configured CDP source from the settings catalog. When set, attach uses it
+// before falling back to the process config, so a user-configured remote or
 // cloud endpoint is never silently overridden by the docker default.
+func (h *Hub) SetSourceResolver(f func(key string) (Source, bool)) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.sourceResolver = f
+	h.mu.Unlock()
+}
+
+// SetProfileResolver supplies a callback that resolves a hub key to a
+// user-data Profile when SetProfile was not called for that key.
 func (h *Hub) SetProfileResolver(f func(key string) (Profile, bool)) {
 	if h == nil {
 		return
@@ -111,9 +142,26 @@ func (h *Hub) browserToken(sandboxID string) string {
 	return lookup(sandboxID)
 }
 
-// SetProfile records the browser source a hub key attaches to. The control
-// plane calls it whenever it resolves a user's browser environment; a key with
-// no record falls back to the process config.
+// SetSource records the CDP source a hub key attaches with. The control plane
+// calls it whenever it resolves a user's browser environment; a key with no
+// record falls back to the process config / sourceResolver.
+func (h *Hub) SetSource(key string, src Source) {
+	h.mu.Lock()
+	if h.sources == nil {
+		h.sources = map[string]Source{}
+	}
+	h.sources[key] = src
+	h.mu.Unlock()
+}
+
+// ForgetSource drops a key's recorded CDP source (sandbox teardown).
+func (h *Hub) ForgetSource(key string) {
+	h.mu.Lock()
+	delete(h.sources, key)
+	h.mu.Unlock()
+}
+
+// SetProfile records the user-data Profile a hub key's Sessions should use.
 func (h *Hub) SetProfile(key string, profile Profile) {
 	h.mu.Lock()
 	if h.profiles == nil {
@@ -123,11 +171,17 @@ func (h *Hub) SetProfile(key string, profile Profile) {
 	h.mu.Unlock()
 }
 
-// ForgetProfile drops a key's recorded source (sandbox teardown).
+// ForgetProfile drops a key's recorded user-data Profile.
 func (h *Hub) ForgetProfile(key string) {
 	h.mu.Lock()
 	delete(h.profiles, key)
 	h.mu.Unlock()
+}
+
+// Bind records both the CDP Source and user-data Profile for a hub key.
+func (h *Hub) Bind(key string, src Source, profile Profile) {
+	h.SetSource(key, src)
+	h.SetProfile(key, profile)
 }
 
 // SetDialer supplies sandbox port dialing for the docker provider.
@@ -145,6 +199,7 @@ func (h *Hub) CloseSandbox(id string) {
 	if h == nil || id == "" {
 		return
 	}
+	h.ForgetSource(id)
 	h.ForgetProfile(id)
 	h.mu.Lock()
 	sess := h.sessions[id]
@@ -189,11 +244,14 @@ func (h *Hub) Status(id string) (attached bool, url string, width, height int) {
 
 // SessionStatus is a non-mutating view of a Hub session.
 type SessionStatus struct {
-	Attached bool
-	URL      string
-	Width    int
-	Height   int
-	Takeover bool
+	Attached  bool
+	URL       string
+	Width     int
+	Height    int
+	Takeover  bool
+	Runtime   RuntimeKind
+	ProfileID string
+	ActiveTab string
 }
 
 // StatusEx reports attachment and takeover without starting a browser. A
@@ -213,11 +271,14 @@ func (h *Hub) StatusEx(id string) SessionStatus {
 		return SessionStatus{}
 	}
 	return SessionStatus{
-		Attached: true,
-		URL:      sess.Engine.URL(),
-		Width:    sess.Width,
-		Height:   sess.Height,
-		Takeover: sess.Takeover,
+		Attached:  true,
+		URL:       sess.Engine.URL(),
+		Width:     sess.Width,
+		Height:    sess.Height,
+		Takeover:  sess.Takeover,
+		Runtime:   sess.Runtime.Kind,
+		ProfileID: sess.Profile.ID,
+		ActiveTab: sess.ActiveTab,
 	}
 }
 
@@ -254,7 +315,7 @@ func (h *Hub) SetTakeover(id string, on bool) error {
 	return nil
 }
 
-// Ensure attaches a CDP session for the sandbox if needed.
+// Ensure attaches a Session for the hub key if needed.
 func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
 	if id == "" {
 		return nil, fmt.Errorf("sandbox id is required")
@@ -283,7 +344,12 @@ func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
 	h.sessions[id] = sess
 	h.mu.Unlock()
 	disposeSession(replaced)
-	h.logger.Info("browser session started", slog.String("sandbox", id))
+	h.logger.Info("browser session started",
+		slog.String("sandbox", id),
+		slog.String("runtime", string(sess.Runtime.Kind)),
+		slog.String("profile", sess.Profile.ID),
+		slog.String("tab", sess.ActiveTab),
+	)
 	return sess, nil
 }
 
@@ -366,6 +432,46 @@ func cdpRetryable(err error) bool {
 	return false
 }
 
+func (h *Hub) resolveSource(id string) Source {
+	h.mu.Lock()
+	src, recorded := h.sources[id]
+	cfg := h.cfg
+	resolver := h.sourceResolver
+	h.mu.Unlock()
+	if recorded {
+		return src
+	}
+	if resolver != nil {
+		if s, ok := resolver(id); ok {
+			return s
+		}
+	}
+	return DefaultSource(cfg)
+}
+
+func (h *Hub) resolveProfile(id string) Profile {
+	h.mu.Lock()
+	profile, recorded := h.profiles[id]
+	resolver := h.profileResolver
+	root := ""
+	if h.dataDir != "" {
+		root = filepath.Join(h.dataDir, "browser-profiles")
+	}
+	h.mu.Unlock()
+	if recorded {
+		return profile
+	}
+	if resolver != nil {
+		if p, ok := resolver(id); ok {
+			return p
+		}
+	}
+	// Ephemeral: no StatePath. Callers that want persistence should SetProfile
+	// (or Bind) before Ensure.
+	_ = root
+	return Profile{ID: "ephemeral:" + id}
+}
+
 func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 	if h.newEngine != nil { // test injection, unchanged
 		dir := filepath.Join(h.dataDir, "browser", id)
@@ -376,49 +482,59 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Session{SandboxID: id, Engine: eng, Width: 1280, Height: 800}, nil
+		src := h.resolveSource(id)
+		profile := h.resolveProfile(id)
+		tab := newMainTab()
+		return &Session{
+			ID: id, SandboxID: id,
+			Runtime: ResolveRuntime(id, src), Profile: profile,
+			Tabs: []Tab{tab}, ActiveTab: tab.ID,
+			Engine: eng, Width: 1280, Height: 800,
+		}, nil
 	}
 
 	h.mu.Lock()
-	cfg := h.cfg
 	dial := h.dial
 	driver := h.driver
-	profile, recorded := h.profiles[id]
 	h.mu.Unlock()
 
 	if driver == nil {
 		driver = &pwDriver{}
 	}
 
+	src := h.resolveSource(id)
+	profile := h.resolveProfile(id)
+	rt := ResolveRuntime(id, src)
 	width, height := 1280, 800
-	if !recorded {
-		h.mu.Lock()
-		resolver := h.profileResolver
-		h.mu.Unlock()
-		if resolver != nil {
-			profile, recorded = resolver(id)
-		}
-		if !recorded {
-			profile = DefaultProfile(cfg)
+
+	att := pwAttach{
+		Width:            width,
+		Height:           height,
+		StorageStatePath: profile.StatePath,
+	}
+
+	sessBase := func(eng Engine, release func()) *Session {
+		tab := newMainTab()
+		return &Session{
+			ID: id, SandboxID: id,
+			Runtime: rt, Profile: profile,
+			Tabs: []Tab{tab}, ActiveTab: tab.ID,
+			Engine: eng, Width: width, Height: height, release: release,
 		}
 	}
-	provider := profile.EffectiveProvider()
-	// att starts token-less: host/remote/cloud may only pass the endpoint token
-	// from config; only the docker provider reads the sandbox's own token.
-	att := pwAttach{Width: width, Height: height}
 
-	switch provider {
-	case config.CDPProviderHost:
-		if strings.TrimSpace(profile.Endpoint) != "" {
-			att.Endpoint = profile.Endpoint
-			if profile.Token != "" {
-				att.Token = profile.Token
+	switch rt.Kind {
+	case RuntimeHost:
+		if strings.TrimSpace(src.Endpoint) != "" {
+			att.Endpoint = src.Endpoint
+			if src.Token != "" {
+				att.Token = src.Token
 			}
 			eng, err := newPlaywrightEngine(driver, att)
 			if err != nil {
 				return nil, fmt.Errorf("host cdp: %w", err)
 			}
-			return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
+			return sessBase(eng, nil), nil
 		}
 		bin := lookupChrome()
 		if bin == "" {
@@ -429,19 +545,19 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 		if err != nil {
 			return nil, fmt.Errorf("host chrome: %w", err)
 		}
-		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
+		return sessBase(eng, nil), nil
 
-	case config.CDPProviderRemote, config.CDPProviderCloud:
-		att.Endpoint = profile.Endpoint
-		att.Token = profile.Token
+	case RuntimeRemote, RuntimeCloud:
+		att.Endpoint = src.Endpoint
+		att.Token = src.Token
 		eng, err := newPlaywrightEngine(driver, att)
 		if err != nil {
-			return nil, fmt.Errorf("%s cdp: %w", provider, err)
+			return nil, fmt.Errorf("%s cdp: %w", rt.Kind, err)
 		}
-		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height}, nil
+		return sessBase(eng, nil), nil
 
-	case config.CDPProviderDocker:
-		port := profile.Port
+	case RuntimeDocker:
+		port := src.Port
 		if port <= 0 {
 			port = config.DefaultCDPPort
 		}
@@ -459,8 +575,8 @@ func (h *Hub) attach(ctx context.Context, id string) (*Session, error) {
 			stop()
 			return nil, fmt.Errorf("env cdp (Browser env :%d not serving CDP): %w", port, err)
 		}
-		return &Session{SandboxID: id, Engine: eng, Width: width, Height: height, release: stop}, nil
+		return sessBase(eng, stop), nil
 	default:
-		return nil, fmt.Errorf("unknown cdp provider %q", provider)
+		return nil, fmt.Errorf("unknown cdp provider %q", rt.Kind)
 	}
 }
