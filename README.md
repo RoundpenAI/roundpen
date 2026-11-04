@@ -90,6 +90,7 @@ The north star stays the same: **capable assistants that live on infrastructure 
 | [docs/architecture/browser-env.md](docs/architecture/browser-env.md) | Browser sources (managed / LAN / cloud / host Chrome) |
 | [docs/workspace-layout.md](docs/workspace-layout.md) | Workspace directories |
 | [docs/security.md](docs/security.md) | Isolation and policy |
+| [docs/observability.md](docs/observability.md) | OpenTelemetry → SigNoz |
 | [docs/auth.md](docs/auth.md) | Login and OAuth |
 | [docs/free-llm-token.md](docs/free-llm-token.md) | Built-in FREE model identity and rate limits |
 | [docs/connectors.md](docs/connectors.md) / [docs/mcp-connectors.md](docs/mcp-connectors.md) | Google / MCP connectors |

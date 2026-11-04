@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 0.4.14：飞书 IM 表格改列表展示；会话映射持久化，重启不丢聊天连续性。
+changelog             = 0.4.15：接入 OpenTelemetry，默认上报 SigNoz（traces/metrics/错误日志），多台 NAS 用 install_id 区分。

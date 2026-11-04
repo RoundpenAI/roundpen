@@ -18,8 +18,12 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/automode"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/webpush"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // turnTimeout caps one prompt turn (thinking + tools + replies + permission
@@ -114,7 +118,20 @@ type runner struct {
 	thought strings.Builder
 	thinkAt time.Time
 
+	// turnObs is set for the in-flight executeTurn; used to record TTFT on the
+	// first streamed agent_message / agent_thought without coupling onEvent to
+	// the turn span lifecycle beyond a pointer swap under mu.
+	turnObs *turnObs
+
 	perms map[string]*permWait
+}
+
+type turnObs struct {
+	span      trace.Span
+	started   time.Time
+	ttftOnce  sync.Once
+	ttft      time.Duration
+	trigger   string
 }
 
 // subscribe attaches a stream client to the runner's broadcast.
@@ -275,6 +292,7 @@ func (r *runner) onEvent(ev acpclient.Event) {
 		if ev.Text == "" {
 			return
 		}
+		r.noteFirstToken()
 		r.mu.Lock()
 		r.reply.WriteString(ev.Text)
 		r.mu.Unlock()
@@ -282,6 +300,7 @@ func (r *runner) onEvent(ev acpclient.Event) {
 		if ev.Text == "" {
 			return
 		}
+		r.noteFirstToken()
 		r.mu.Lock()
 		if r.thought.Len() == 0 {
 			r.thinkAt = time.Now()
@@ -445,6 +464,37 @@ func (r *runner) promptAndWait(ctx context.Context, text string) error {
 }
 
 func (r *runner) executeTurn(ctx context.Context, text string) error {
+	trigger := otelx.TurnTrigger(ctx)
+	ctx, span := otelx.Start(ctx, "agent.turn",
+		trace.WithAttributes(
+			attribute.String("session.id", r.session.ID),
+			attribute.String("user.id", r.session.UserID),
+			attribute.String("assistant.id", r.session.AssistantID),
+			attribute.String("turn.trigger", trigger),
+		),
+	)
+	obs := &turnObs{span: span, started: time.Now(), trigger: trigger}
+	r.mu.Lock()
+	r.turnObs = obs
+	r.mu.Unlock()
+	var turnErr error
+	defer func() {
+		r.mu.Lock()
+		if r.turnObs == obs {
+			r.turnObs = nil
+		}
+		ttft := obs.ttft
+		r.mu.Unlock()
+		otelx.RecordAgentTurn(ctx, trigger, time.Since(obs.started), ttft)
+		if ttft > 0 {
+			span.SetAttributes(attribute.Int64("ttft_ms", ttft.Milliseconds()))
+		}
+		if turnErr != nil {
+			span.SetAttributes(attribute.String("error.type", "turn_failed"))
+		}
+		otelx.EndSpan(ctx, span, turnErr)
+	}()
+
 	// Tell connected clients a turn started (queued turn, other tabs) so the
 	// composer locks immediately, not on the first streamed event.
 	r.broadcast(r.snapshot())
@@ -457,6 +507,7 @@ func (r *runner) executeTurn(ctx context.Context, text string) error {
 		msg := turnErrorMessage(err)
 		r.persist(agentsession.RoleEvent, msg, map[string]string{"type": "error"})
 		r.broadcast(streamOut{Type: "error", Message: msg})
+		turnErr = err
 		return err
 	}
 	r.flushThought()
@@ -473,6 +524,18 @@ func (r *runner) executeTurn(ctx context.Context, text string) error {
 	r.broadcast(streamOut{Type: "done", StopReason: string(stop)})
 	r.notifyTurnDone()
 	return nil
+}
+
+func (r *runner) noteFirstToken() {
+	r.mu.Lock()
+	obs := r.turnObs
+	r.mu.Unlock()
+	if obs == nil {
+		return
+	}
+	obs.ttftOnce.Do(func() {
+		obs.ttft = time.Since(obs.started)
+	})
 }
 
 // finishTurn clears busy state and optionally starts a queued turn. A pending

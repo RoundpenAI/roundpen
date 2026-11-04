@@ -29,7 +29,9 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/issuescan"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
+	"github.com/RoundpenAI/roundpen/internal/buildinfo"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/plugins"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
@@ -92,6 +94,25 @@ func main() {
 		os.Exit(1)
 	}
 	logger.Info("install identity ready", slog.String("install_id", installIdentity.InstallID))
+
+	if err := otelx.Init(ctx, otelx.Options{
+		InstallID: installIdentity.InstallID,
+		Version:   buildinfo.Current(),
+		Channel:   otelx.DetectChannel(),
+		Logger:    logger,
+	}); err != nil {
+		logger.Error("otel init", slog.Any("err", err))
+		os.Exit(1)
+	}
+	logger = otelx.TeeLogger(logger)
+	slog.SetDefault(logger)
+	defer func() {
+		shutdownOTel, cancelOTel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelOTel()
+		if err := otelx.Shutdown(shutdownOTel); err != nil {
+			logger.Warn("otel shutdown", slog.Any("err", err))
+		}
+	}()
 
 	settingsStore := settings.NewStore(db.SQL, secretBox)
 	itemsStore := settingitems.NewPGStore(db.SQL, secretBox)
@@ -495,8 +516,10 @@ func main() {
 	// preview token, not a console session, and every path on them belongs to
 	// the previewed app rather than to the SPA.
 	srv := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           stripGatewayHeaders(previewHandler.VhostRouter(fnosConsoleWrapper(cfg, auth.Middleware(userStore, sessionStore)(mux)))),
+		Addr: cfg.HTTPAddr,
+		Handler: otelx.WrapHandler(stripGatewayHeaders(previewHandler.VhostRouter(
+			fnosConsoleWrapper(cfg, auth.Middleware(userStore, sessionStore)(mux)),
+		))),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		WriteTimeout:      0, // LLM relay and terminal WS stream past a write deadline

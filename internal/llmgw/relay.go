@@ -14,6 +14,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -35,7 +40,15 @@ func (g *Gateway) forward(w http.ResponseWriter, r *http.Request, provider strin
 	start := time.Now().UTC()
 	requestID := newRequestID()
 	logLimit := g.bodyLogLimit()
-	ctx := r.Context()
+	ctx, span := otelx.Start(r.Context(), "llmgw.relay",
+		trace.WithAttributes(
+			attribute.String("llmgw.request_id", requestID),
+			attribute.String("llm.provider", provider),
+			attribute.String("http.request.method", r.Method),
+		),
+	)
+	defer span.End()
+	r = r.WithContext(ctx)
 
 	if !g.Enabled() {
 		http.Error(w, "llm gateway disabled", http.StatusServiceUnavailable)
@@ -339,9 +352,41 @@ func relayHeaderAllowed(name string) bool {
 }
 
 func (g *Gateway) logTransaction(ctx context.Context, tx Transaction, bodies *TransactionBodies) {
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(
+		attribute.String("llmgw.request_id", tx.RequestID),
+		attribute.String("llm.provider", tx.Provider),
+		attribute.Int("http.response.status_code", tx.StatusCode),
+		attribute.Int64("llmgw.duration_ms", tx.DurationMS),
+	)
+	if tx.Error != "" {
+		span.SetAttributes(attribute.String("error.type", shortErrType(tx.Error)))
+		span.SetStatus(codes.Error, tx.Error)
+		otelx.LogError(ctx, errors.New(tx.Error))
+	} else if tx.StatusCode >= 400 {
+		msg := fmt.Sprintf("HTTP %d", tx.StatusCode)
+		span.SetStatus(codes.Error, msg)
+		otelx.LogError(ctx, errors.New(msg))
+	}
+	otelx.RecordLLMRelay(ctx, tx.Provider, tx.StatusCode, time.Duration(tx.DurationMS)*time.Millisecond)
+
 	if err := g.store.InsertTransaction(ctx, tx, bodies); err != nil {
 		g.logger.Error("llmgw log transaction", "err", err, "request_id", tx.RequestID)
 	}
+}
+
+func shortErrType(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return "error"
+	}
+	if i := strings.IndexByte(msg, ':'); i > 0 && i < 48 {
+		return msg[:i]
+	}
+	if len(msg) > 64 {
+		return msg[:64]
+	}
+	return msg
 }
 
 func truncateForLog(data []byte, limit int) (string, bool) {

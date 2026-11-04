@@ -10,6 +10,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -206,6 +207,7 @@ func (r *Runner) execute(ctx context.Context, w *Worker) {
 	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	prompt := RenderWorkerPrompt(p, w)
+	runCtx = otelx.WithTurnTrigger(runCtx, "project")
 	if r.Turns != nil {
 		err = r.Turns.PromptTurn(runCtx, user, w.SessionID, prompt)
 	} else if r.ACP != nil {

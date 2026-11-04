@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/RoundpenAI/roundpen/internal/audit"
 	"github.com/RoundpenAI/roundpen/internal/backend"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 )
 
 // createSpec is the resolved launch configuration for a new sandbox.
@@ -29,16 +31,31 @@ type createSpec struct {
 }
 
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, error) {
+	start := time.Now()
+	ctx, span := otelx.Start(ctx, "sandbox.create")
+	var createErr error
+	defer func() {
+		otelx.RecordSandboxCreate(ctx, time.Since(start), createErr == nil)
+		otelx.EndSpan(ctx, span, createErr)
+	}()
+
 	spec, metadata, err := s.resolveCreateSpec(ctx, req)
 	if err != nil {
+		createErr = err
 		return nil, err
 	}
 	req.Metadata = metadata
+	span.SetAttributes(
+		attribute.String("image.ref", spec.image),
+		attribute.String("sandbox.template", spec.templateRef),
+	)
 
 	id, wsID, ephemeral, hostPath, err := s.createWorkspace(ctx, req)
 	if err != nil {
+		createErr = err
 		return nil, err
 	}
+	span.SetAttributes(attribute.String("sandbox.id", id))
 	if strings.TrimSpace(req.WorkspaceHost) != "" {
 		if req.Metadata == nil {
 			req.Metadata = map[string]string{}
@@ -51,18 +68,21 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Sandbox, erro
 
 	sb, err := s.insertSandboxRecord(ctx, req, spec, id, wsID, hostPath, ephemeral)
 	if err != nil {
+		createErr = err
 		return nil, err
 	}
 	release := s.trackCreate(id)
 	defer release()
 
 	if err := s.createEngine(ctx, sb, spec, req.Env, ephemeral); err != nil {
+		createErr = err
 		return nil, err
 	}
 
 	sb.Status = StatusRunning
 	sb.UpdatedAt = time.Now().UTC()
 	if err := s.store.Update(ctx, sb); err != nil {
+		createErr = err
 		return nil, err
 	}
 	if s.templates != nil && spec.internalTemplateID != "" {

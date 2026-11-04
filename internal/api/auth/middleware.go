@@ -8,6 +8,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/httpx"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -161,6 +162,7 @@ func Middleware(users storage.UserStore, sessions storage.SessionStore) func(htt
 				if sessionID != "" {
 					ctx = context.WithValue(ctx, sessionIDContextKey, sessionID)
 				}
+				otelx.SetUserID(ctx, user.Username)
 			}
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

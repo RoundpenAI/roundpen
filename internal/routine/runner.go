@@ -12,6 +12,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/agentsession"
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 	"github.com/RoundpenAI/roundpen/internal/userenv"
@@ -232,7 +233,7 @@ func (r *Runner) prompt(ctx context.Context, c Claim, sessionID, text string, bu
 	defer cancel()
 	stop := make(chan struct{})
 	go r.watch(runCtx, c.Run.ID, sessionID, budget, cancel, stop)
-	_, err := r.ACP.Prompt(runCtx, sessionID, text)
+	_, err := r.ACP.Prompt(otelx.WithTurnTrigger(runCtx, "routine"), sessionID, text)
 	close(stop)
 	rn, gerr := r.Store.GetRunByKey(ctx, c.Routine.UserID, c.Run.ID)
 	if gerr != nil {

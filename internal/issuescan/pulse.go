@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/issue"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -255,6 +256,7 @@ func (r *PulseRunner) runOne(ctx context.Context, userID, issueKey string, reaso
 		return
 	}
 	text := RenderPulsePrompt(it, reason, slotBusy, staleTasks)
+	ctx = otelx.WithTurnTrigger(ctx, "issuescan")
 	if r.Turns != nil {
 		err = r.Turns.PromptTurn(ctx, user, sessionID, text)
 	} else if r.ACP != nil {

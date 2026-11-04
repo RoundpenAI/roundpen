@@ -40,6 +40,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/mcp"
 	"github.com/RoundpenAI/roundpen/internal/memory"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/project"
@@ -857,7 +858,7 @@ func (c taskSessionContinuer) ContinueTaskSession(ctx context.Context, user *sto
 		}
 		// Still try PromptTurn — runnerFor may start the runtime.
 	}
-	if err := c.H.PromptTurn(ctx, user, sessionID, prompt); err != nil {
+	if err := c.H.PromptTurn(otelx.WithTurnTrigger(ctx, "issuescan"), user, sessionID, prompt); err != nil {
 		if c.Log != nil {
 			c.Log.Warn("task continue prompt", "session", sessionID, "err", err)
 		}
@@ -970,7 +971,7 @@ type boardScanACP struct {
 }
 
 func (b boardScanACP) PromptBoard(ctx context.Context, sessionID, text string) error {
-	_, err := b.M.Prompt(ctx, sessionID, text)
+	_, err := b.M.Prompt(otelx.WithTurnTrigger(ctx, "issuescan"), sessionID, text)
 	return err
 }
 

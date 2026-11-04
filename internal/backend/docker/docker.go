@@ -29,8 +29,12 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"golang.org/x/sync/singleflight"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
 
@@ -314,6 +318,12 @@ func (b *Backend) ensureImage(ctx context.Context, ref string) error {
 	if err == nil {
 		return nil
 	}
+	ctx, span := otelx.Start(ctx, "docker.image.pull",
+		trace.WithAttributes(attribute.String("image.ref", ref)),
+	)
+	var pullErr error
+	defer func() { otelx.EndSpan(ctx, span, pullErr) }()
+
 	ch := b.imagePulls.DoChan(ref, func() (any, error) {
 		// Detach from the caller's cancel so one timed-out tool call cannot
 		// abort a shared pull that other waiters still need.
@@ -323,8 +333,10 @@ func (b *Backend) ensureImage(ctx context.Context, ref string) error {
 	})
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("image pull %s: %w", ref, ctx.Err())
+		pullErr = fmt.Errorf("image pull %s: %w", ref, ctx.Err())
+		return pullErr
 	case res := <-ch:
+		pullErr = res.Err
 		return res.Err
 	}
 }

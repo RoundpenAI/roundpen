@@ -52,6 +52,7 @@
 - **国内访问 ghcr.io 失败/很慢**：Docker 的 `registry-mirrors` **不会**加速 ghcr。Roundpen 会按序试 `ghcr.1ms.run` → `ghcr.nju.edu.cn` → DaoCloud；若官方能通但很慢，约 15s 后会与第一个镜像源并行竞速。可用 `ROUNDPEN_IMAGE_MIRRORS` / `ROUNDPEN_IMAGE_MIRROR_RACE_DELAY` 调整（`none` / `0` 分别关闭内置源与竞速）。
 - **Docker 权限**：包用户 `roundpen` 加入 `docker` 组（`config/privilege` → `join-groups`）；组名不同就按设备改。
 - **运行身份**：`run-as=package`（非 root）。生命周期脚本与 `roundpend` 都以 `roundpen` 运行，满足应用商店「禁止 root 权限应用」要求。
+- **OpenTelemetry / SigNoz**：默认上报到 `https://otlp-grpc.ttz.ac.cn`（OTLP/gRPC）。关闭设 `ROUNDPEN_OTEL_ENABLED=false`；多台 NAS 用 Resource 的 `service.instance.id`（= `install_id`）区分，见 [docs/observability.md](../../docs/observability.md)。
 
 ### 升级与 `secret.key` 权限
 

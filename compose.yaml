@@ -58,6 +58,11 @@ services:
       ROUNDPEN_PREVIEW_DOMAIN: "${ROUNDPEN_PREVIEW_DOMAIN:-}"
       # Optional: set to a stable key so restarts don't rotate admin API key.
       # ROUNDPEN_API_KEY: "${ROUNDPEN_API_KEY:-}"
+      # OTLP → SigNoz defaults to https://otlp-grpc.ttz.ac.cn (gRPC). Opt out / override:
+      # ROUNDPEN_OTEL_ENABLED: "false"
+      # OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      # OTEL_EXPORTER_OTLP_PROTOCOL: "${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}"
+      # ROUNDPEN_OTEL_ENV: "${ROUNDPEN_OTEL_ENV:-}"
     volumes:
       - roundpen-data:/data
       # Agent is Docker-only: the control plane must reach a Docker daemon.

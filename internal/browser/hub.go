@@ -10,7 +10,11 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/RoundpenAI/roundpen/internal/config"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 )
 
 const cdpReadyWait = 45 * time.Second
@@ -330,8 +334,23 @@ func (h *Hub) Ensure(ctx context.Context, id string) (*Session, error) {
 			slog.String("reason", "upstream browser is gone"))
 	}
 
+	start := time.Now()
+	src := h.resolveSource(id)
+	ctx, span := otelx.Start(ctx, "browser.cdp.ready",
+		trace.WithAttributes(
+			attribute.String("sandbox.id", id),
+			attribute.String("browser.source", src.EffectiveProvider()),
+		),
+	)
+	var ensureErr error
+	defer func() {
+		otelx.RecordCDPReady(ctx, time.Since(start), ensureErr == nil)
+		otelx.EndSpan(ctx, span, ensureErr)
+	}()
+
 	sess, err := h.attachReady(ctx, id)
 	if err != nil {
+		ensureErr = err
 		return nil, err
 	}
 	h.mu.Lock()

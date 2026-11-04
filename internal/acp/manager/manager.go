@@ -22,10 +22,14 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/otelx"
 	"github.com/RoundpenAI/roundpen/internal/policy"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
 	"github.com/RoundpenAI/roundpen/internal/toolgw"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const maxConcurrentPrompts = 3
@@ -590,11 +594,25 @@ func (m *Manager) Prompt(ctx context.Context, sessionID, text string) (acp.StopR
 	if !ok {
 		return "", fmt.Errorf("runtime not found")
 	}
+	ctx, span := otelx.Start(ctx, "acp.prompt",
+		trace.WithAttributes(
+			attribute.String("session.id", sessionID),
+			attribute.String("turn.trigger", otelx.TurnTrigger(ctx)),
+		),
+	)
+	var promptErr error
+	defer func() { otelx.EndSpan(ctx, span, promptErr) }()
+
 	select {
 	case m.gate <- struct{}{}:
-		defer func() { <-m.gate }()
+		otelx.PromptsInFlightDelta(ctx, 1)
+		defer func() {
+			<-m.gate
+			otelx.PromptsInFlightDelta(ctx, -1)
+		}()
 	case <-ctx.Done():
-		return "", ctx.Err()
+		promptErr = ctx.Err()
+		return "", promptErr
 	}
 	blocks := []acp.ContentBlock{acp.TextBlock(text)}
 	rt.mu.Lock()
@@ -611,6 +629,7 @@ func (m *Manager) Prompt(ctx context.Context, sessionID, text string) (acp.StopR
 		Prompt:    blocks,
 	})
 	if err != nil {
+		promptErr = err
 		return "", err
 	}
 	return resp.StopReason, nil

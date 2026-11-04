@@ -90,6 +90,7 @@ Roundpen 正从「本机上和一个 Agent 聊天」演进成能扛事的**个�
 | [docs/architecture/browser-env.md](docs/architecture/browser-env.md) | Browser 来源（托管 / 局域网 / 云 / 本机 Chrome） |
 | [docs/workspace-layout.md](docs/workspace-layout.md) | 工作区目录 |
 | [docs/security.md](docs/security.md) | 隔离与策略 |
+| [docs/observability.md](docs/observability.md) | OpenTelemetry → SigNoz |
 | [docs/auth.md](docs/auth.md) | 登录与 OAuth |
 | [docs/free-llm-token.md](docs/free-llm-token.md) | 内置 FREE 模型的安装身份与限频 |
 | [docs/connectors.md](docs/connectors.md) / [docs/mcp-connectors.md](docs/mcp-connectors.md) | Google / MCP 连接器 |
