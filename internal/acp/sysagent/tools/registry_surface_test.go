@@ -117,6 +117,51 @@ func TestCoordinatorToolSurface(t *testing.T) {
 	}
 }
 
+func TestWorkerToolSurfacesIncludeBrowser(t *testing.T) {
+	api := &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}
+	browser := &tools.BrowserBinder{}
+	agent := &tools.AgentBinder{}
+	web := &tools.WebBinder{}
+
+	for _, tc := range []struct {
+		profile string
+		need    []string
+		banned  []string
+	}{
+		{
+			profile: tools.ProfileTester,
+			need:    []string{"Bash", "browser_navigate", "browser_click", "browser_type", "browser_evaluate", "WebFetch", "Write"},
+			banned:  []string{"DelegateProjectWork"},
+		},
+		{
+			profile: tools.ProfileImplementer,
+			need:    []string{"Bash", "Write", "Edit", "browser_navigate", "browser_click", "WebFetch"},
+			banned:  []string{"DelegateProjectWork"},
+		},
+		{
+			profile: tools.ProfileReviewer,
+			need:    []string{"Bash", "Read", "Grep"},
+			banned:  []string{"Write", "Edit", "browser_navigate", "DelegateProjectWork"},
+		},
+	} {
+		reg := tools.NewRegistry()
+		tools.RegisterSession(reg, tools.SessionSurface{
+			API: api, SessionID: "w-" + tc.profile, Profile: tc.profile,
+			Browser: browser, Agent: agent, Web: web,
+		})
+		for _, name := range tc.need {
+			if _, ok := reg.Get(name); !ok {
+				t.Fatalf("%s missing %q", tc.profile, name)
+			}
+		}
+		for _, name := range tc.banned {
+			if _, ok := reg.Get(name); ok {
+				t.Fatalf("%s must not have %q", tc.profile, name)
+			}
+		}
+	}
+}
+
 func TestRoutineToolSurface(t *testing.T) {
 	api := &tools.RoundpenHTTP{BaseURL: "http://127.0.0.1"}
 	chat := tools.NewRegistry()

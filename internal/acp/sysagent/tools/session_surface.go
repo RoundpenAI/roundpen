@@ -156,6 +156,9 @@ func registerCoordinatorTools(reg *Registry, s SessionSurface) {
 }
 
 func registerImplementerTools(reg *Registry, s SessionSurface) {
+	if s.Browser != nil {
+		RegisterBrowser(reg, s.Browser)
+	}
 	if s.Agent != nil {
 		RegisterShell(reg, s.Agent)
 		RegisterSkill(reg, s.Agent, s.WebHTTP)
@@ -181,6 +184,11 @@ func registerReviewerTools(reg *Registry, s SessionSurface) {
 }
 
 func registerTesterTools(reg *Registry, s SessionSurface) {
+	// Browser is required for UI / e2e verification (ModeAll on worker sessions
+	// auto-approves L2 browser_click/type/evaluate; HardDeny still applies).
+	if s.Browser != nil {
+		RegisterBrowser(reg, s.Browser)
+	}
 	if s.Agent != nil {
 		RegisterShell(reg, s.Agent)
 		RegisterFiles(reg, s.Agent)
@@ -188,4 +196,7 @@ func registerTesterTools(reg *Registry, s SessionSurface) {
 		RegisterSearch(reg, s.Agent)
 	}
 	RegisterInteractive(reg)
+	if s.Web != nil {
+		RegisterWebFetch(reg, s.Web)
+	}
 }

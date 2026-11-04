@@ -346,6 +346,105 @@ func TestHandler_SessionOwnershipAndOrigin(t *testing.T) {
 	}
 }
 
+type stubPulse struct {
+	calls []string
+}
+
+func (s *stubPulse) EnqueueIssue(_ context.Context, userID, issueKey, reason string) {
+	s.calls = append(s.calls, userID+"|"+issueKey+"|"+reason)
+}
+
+type stubContinues struct {
+	sessionID string
+	prompt    string
+	calls     int
+}
+
+func (s *stubContinues) ContinueTaskSession(_ context.Context, _ *storage.User, sessionID, prompt string) error {
+	s.calls++
+	s.sessionID = sessionID
+	s.prompt = prompt
+	return nil
+}
+
+func TestHandler_UnblockTaskResumesSession(t *testing.T) {
+	st := newTestStore(t)
+	user := "issue-http-resume"
+	insertUser(t, st, user)
+	asst := "asst-resume"
+	sess := "sess-resume"
+	insertAssistant(t, st, asst, user)
+	insertSession(t, st, sess, user, asst)
+
+	pulse := &stubPulse{}
+	cont := &stubContinues{}
+	mux := http.NewServeMux()
+	(&Handler{Store: st, Pulse: pulse, Continues: cont}).Mount(mux)
+
+	rec := serve(mux, request(http.MethodPost, "/v1/issues", `{"title":"resume me"}`, user))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create issue: %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Issue Issue `json:"issue"`
+	}
+	decodeInto(t, rec, &created)
+
+	rec = serve(mux, request(http.MethodPost, "/v1/issues/"+created.Issue.Key+"/tasks",
+		`{"title":"verify","sessionId":"`+sess+`","status":"blocked","detail":"no shell"}`, user))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create task: %d %s", rec.Code, rec.Body.String())
+	}
+	var taskOut struct {
+		Task Task `json:"task"`
+	}
+	decodeInto(t, rec, &taskOut)
+	if taskOut.Task.Status != TaskBlocked {
+		// create may ignore status — force blocked
+		rec = serve(mux, request(http.MethodPatch, "/v1/tasks/"+taskOut.Task.Key,
+			`{"status":"blocked","detail":"no shell"}`, user))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("block task: %d %s", rec.Code, rec.Body.String())
+		}
+		decodeInto(t, rec, &taskOut)
+	}
+
+	pulse.calls = nil
+	cont.calls = 0
+	rec = serve(mux, request(http.MethodPatch, "/v1/tasks/"+taskOut.Task.Key,
+		`{"status":"in_progress"}`, user))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("continue task: %d %s", rec.Code, rec.Body.String())
+	}
+	if cont.calls != 1 || cont.sessionID != sess {
+		t.Fatalf("continue calls=%d session=%q want 1 %q", cont.calls, cont.sessionID, sess)
+	}
+	if !strings.Contains(cont.prompt, taskOut.Task.Key) || !strings.Contains(cont.prompt, "cleared the blocker") {
+		t.Fatalf("prompt missing task/blocker: %q", cont.prompt)
+	}
+	if len(pulse.calls) != 1 || !strings.Contains(pulse.calls[0], "task_resume") ||
+		!strings.Contains(pulse.calls[0], created.Issue.Key) {
+		t.Fatalf("pulse calls = %v", pulse.calls)
+	}
+
+	// todo → in_progress must not resume (only blocked → in_progress).
+	rec = serve(mux, request(http.MethodPatch, "/v1/tasks/"+taskOut.Task.Key,
+		`{"status":"todo"}`, user))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset todo: %d", rec.Code)
+	}
+	pulse.calls = nil
+	cont.calls = 0
+	rec = serve(mux, request(http.MethodPatch, "/v1/tasks/"+taskOut.Task.Key,
+		`{"status":"in_progress"}`, user))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start from todo: %d", rec.Code)
+	}
+	if cont.calls != 0 || len(pulse.calls) != 0 {
+		t.Fatalf("todo→in_progress must not resume: cont=%d pulse=%v", cont.calls, pulse.calls)
+	}
+}
+
 // TestHandler_RoundTrip drives the console flow over HTTP and pins every
 // envelope the web client is written against.
 func TestHandler_RoundTrip(t *testing.T) {

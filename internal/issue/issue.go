@@ -77,16 +77,18 @@ const (
 )
 
 // allowedTransitions is the authoritative edge set for human + Agent transitions.
+// Timeouts / lease recovery use the same edges (system actor): claimed→triaged,
+// running→failed, verified|needs_review→closed, backlog|failed→cancelled.
 var allowedTransitions = map[string][]string{
-	StatusNew:             {StatusSpecReview, StatusNeedsDiscussion, StatusTriaged},
-	StatusSpecReview:      {StatusNeedsDiscussion, StatusTriaged},
-	StatusNeedsDiscussion: {StatusSpecReview, StatusTriaged},
-	StatusTriaged:         {StatusClaimed},
-	StatusClaimed:         {StatusRunning},
+	StatusNew:             {StatusSpecReview, StatusNeedsDiscussion, StatusTriaged, StatusCancelled},
+	StatusSpecReview:      {StatusNeedsDiscussion, StatusTriaged, StatusCancelled},
+	StatusNeedsDiscussion: {StatusSpecReview, StatusTriaged, StatusCancelled},
+	StatusTriaged:         {StatusClaimed, StatusCancelled},
+	StatusClaimed:         {StatusRunning, StatusTriaged},
 	StatusRunning:         {StatusVerified, StatusNeedsReview, StatusFailed, StatusTriaged},
 	StatusVerified:        {StatusNeedsReview, StatusClosed},
 	StatusNeedsReview:     {StatusClosed, StatusCancelled},
-	StatusFailed:          {StatusTriaged},
+	StatusFailed:          {StatusTriaged, StatusCancelled},
 	StatusCancelled:       {StatusTriaged},
 	StatusClosed:          {StatusRunning},
 }

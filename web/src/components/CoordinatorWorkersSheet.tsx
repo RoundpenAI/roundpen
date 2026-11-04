@@ -10,6 +10,7 @@ import {
 } from '@douyinfe/semi-ui-19'
 import { IconPulse, IconStop } from '@douyinfe/semi-icons'
 import { projects, type Project, type ProjectWorker } from '../api'
+import { WorkerProgressHint } from './WorkerProgressHint'
 import { useT } from '../i18n'
 import type { MessageKey } from '../i18n/translate'
 import { roleLabel } from '../lib/projectChatLabels'
@@ -199,6 +200,9 @@ export function CoordinatorWorkersSheet({
                     >
                       {w.title}
                     </Typography.Text>
+                    <div style={{ marginTop: 4 }}>
+                      <WorkerProgressHint worker={w} compact />
+                    </div>
                   </div>
                 }
                 extra={

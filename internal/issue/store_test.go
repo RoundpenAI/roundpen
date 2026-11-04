@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
@@ -336,5 +337,64 @@ func TestStore_TickingLastTaskVerifiesIssue(t *testing.T) {
 	}
 	if tasks[0].DoneAt == nil {
 		t.Fatal("done task must carry done_at")
+	}
+}
+
+func TestStore_ListStaleOpenTasks(t *testing.T) {
+	st := newTestStore(t)
+	ctx := context.Background()
+	user := "issue-stale-user"
+	insertUser(t, st, user)
+
+	it, err := st.Create(ctx, user, CreateInput{Title: "卡住的事项"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := st.CreateTask(ctx, user, it.Key, TaskInput{Title: "卡住的步骤"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpdateTask(ctx, user, tk.Key, TaskUpdateInput{Status: ptr(TaskInProgress)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cutoff in the future: any open task counts as stale for the query.
+	rows, err := st.ListStaleOpenTasks(ctx, user, time.Now().UTC().Add(time.Minute), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Key != tk.Key || rows[0].IssueKey != it.Key {
+		t.Fatalf("want stale %s on %s, got %+v", tk.Key, it.Key, rows)
+	}
+
+	// Cutoff in the past: freshly updated task is not stale.
+	rows, err = st.ListStaleOpenTasks(ctx, user, time.Now().UTC().Add(-time.Hour), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("fresh task must not be stale, got %+v", rows)
+	}
+
+	if _, err := st.UpdateTask(ctx, user, tk.Key, TaskUpdateInput{Status: ptr(TaskBlocked)}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = st.ListStaleOpenTasks(ctx, user, time.Now().UTC().Add(time.Minute), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Status != TaskBlocked {
+		t.Fatalf("blocked must be listed, got %+v", rows)
+	}
+
+	if _, err := st.UpdateTask(ctx, user, tk.Key, TaskUpdateInput{Status: ptr(TaskDone)}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err = st.ListStaleOpenTasks(ctx, user, time.Now().UTC().Add(time.Minute), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("done task must not be stale, got %+v", rows)
 	}
 }

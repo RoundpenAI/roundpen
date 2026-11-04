@@ -3,7 +3,6 @@ import type { MessageKey } from '../i18n/translate'
 export type PrimaryMenuId =
   | 'assistants'
   | 'projects'
-  | 'issues'
   | 'workspace'
   | 'settings'
   | 'admin'
@@ -18,7 +17,6 @@ export type PrimaryMenu = {
 export const PRIMARY_MENUS: PrimaryMenu[] = [
   { id: 'assistants', to: '/a', labelKey: 'nav.assistants' },
   { id: 'projects', to: '/projects', labelKey: 'nav.projects' },
-  { id: 'issues', to: '/issues', labelKey: 'nav.issues' },
   { id: 'workspace', to: '/workspace', labelKey: 'nav.workspace' },
   { id: 'settings', to: '/settings', labelKey: 'nav.settings' },
   { id: 'admin', to: '/admin/settings', labelKey: 'nav.admin', admin: true },
@@ -213,7 +211,8 @@ export function writePrimaryCollapsed(collapsed: boolean): void {
 /** Which primary menu matches the current pathname. */
 export function matchPrimaryMenu(pathname: string): PrimaryMenuId {
   if (pathname.startsWith('/projects')) return 'projects'
-  if (pathname.startsWith('/issues')) return 'issues'
+  // Issue detail still lives under /issues/:key; highlight Projects (project → issue).
+  if (pathname.startsWith('/issues')) return 'projects'
   if (pathname.startsWith('/workspace')) return 'workspace'
   if (pathname.startsWith('/admin')) return 'admin'
   if (pathname.startsWith('/settings')) return 'settings'

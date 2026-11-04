@@ -5,8 +5,8 @@ help:
 	@echo ""
 	@echo "开发"
 	@echo "  setup              首次：.env、go mod、npm install"
-	@echo "  dev                pg0 + roundpend :19001 + Vite :19000"
-	@echo "  stop               停掉 make dev 留下的进程"
+	@echo "  dev                pg0 + air(roundpend :19001) + Vite :19000；改 Go 自动重启 API"
+	@echo "  stop               停掉 make dev 留下的进程（air / roundpend / Vite）"
 	@echo "  dev-check          只检查本机工具是否齐全"
 	@echo ""
 	@echo "构建"
@@ -52,11 +52,12 @@ setup:
 	touch internal/ui/dist/.gitkeep
 	@echo "Setup 完成。下一步: make dev"
 
-# One-shot local preview: tool check → pg0 → roundpend + Vite (see scripts/dev-up.sh).
+# Local preview: tool check → pg0 → air(roundpend) + Vite (see scripts/dev-up.sh).
+# Saving Go under cmd/ or internal/ rebuilds/restarts the API; Vite keeps HMR.
 dev:
 	@./scripts/dev-up.sh
 
-# Kill leftover roundpend / Vite from make dev (frees :19000/:19001). pg0 stays up.
+# Kill leftover air / roundpend / Vite from make dev (frees :19000/:19001). pg0 stays up.
 stop:
 	@./scripts/dev-stop.sh
 

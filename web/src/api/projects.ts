@@ -49,6 +49,9 @@ export type ProjectWorker = {
   updatedAt: string
   startedAt?: string
   finishedAt?: string
+  /** Session transcript size (enriched on list/get). */
+  messageCount?: number
+  lastMessageAt?: string
 }
 
 export type ProjectSubscriptionKind = 'github_pr' | 'github_ci'

@@ -4,6 +4,10 @@
 /roundpend
 /roundpen
 
+# air (make-dev hot reload)
+/tmp/
+/air_roundpend.log
+
 # Go
 *.exe
 *.test

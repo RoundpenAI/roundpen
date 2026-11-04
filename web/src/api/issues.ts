@@ -90,15 +90,15 @@ export const ISSUE_BOARD_ORDER: IssueStatus[] = [
 
 /** Allowed Kanban edges — keep in sync with internal/issue allowedTransitions. */
 export const ISSUE_TRANSITIONS: Record<IssueStatus, IssueStatus[]> = {
-  new: ['spec_review', 'needs_discussion', 'triaged'],
-  spec_review: ['needs_discussion', 'triaged'],
-  needs_discussion: ['spec_review', 'triaged'],
-  triaged: ['claimed'],
-  claimed: ['running'],
+  new: ['spec_review', 'needs_discussion', 'triaged', 'cancelled'],
+  spec_review: ['needs_discussion', 'triaged', 'cancelled'],
+  needs_discussion: ['spec_review', 'triaged', 'cancelled'],
+  triaged: ['claimed', 'cancelled'],
+  claimed: ['running', 'triaged'],
   running: ['verified', 'needs_review', 'failed', 'triaged'],
   verified: ['needs_review', 'closed'],
   needs_review: ['closed', 'cancelled'],
-  failed: ['triaged'],
+  failed: ['triaged', 'cancelled'],
   cancelled: ['triaged'],
   closed: ['running'],
 }

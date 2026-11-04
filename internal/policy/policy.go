@@ -60,6 +60,11 @@ var DevSites = []string{
 	"sum.golang.org",
 	"pkg.go.dev",
 	"golang.org",
+	// Official Go downloads (go install / curl tarball). golang.org alone is not enough:
+	// toolchain archives are served from go.dev and often redirect to Google CDNs.
+	"go.dev",
+	"dl.google.com",
+	"storage.googleapis.com",
 	"google.com",
 	"googleapis.com",
 	"gcr.io",

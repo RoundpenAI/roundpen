@@ -352,6 +352,9 @@ func (h *Handler) listWorkers(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
+	if err := h.Store.EnrichWorkerActivity(r.Context(), items); err != nil {
+		h.log().Warn("enrich worker activity", "err", err)
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"workers": items})
 }
 
@@ -374,6 +377,9 @@ func (h *Handler) getWorker(w http.ResponseWriter, r *http.Request) {
 	if wk.ProjectID != p.ID {
 		httpx.WriteErr(w, http.StatusNotFound, "worker not found")
 		return
+	}
+	if err := h.Store.EnrichWorkerActivity(r.Context(), []*Worker{wk}); err != nil {
+		h.log().Warn("enrich worker activity", "err", err)
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"worker": wk})
 }

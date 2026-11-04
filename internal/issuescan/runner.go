@@ -62,12 +62,16 @@ type Runner struct {
 	ACP        Prompter
 	Log        *slog.Logger
 
-	Tick             time.Duration
-	QuietFor         time.Duration
-	Cooldown         time.Duration
-	ClaimLease       time.Duration
+	Tick              time.Duration
+	QuietFor          time.Duration
+	Cooldown          time.Duration
+	ClaimLease        time.Duration
+	RunningLease      time.Duration
+	ReviewIdle        time.Duration
+	FailedIdle        time.Duration
+	BacklogIdle       time.Duration
 	IssueScanCooldown time.Duration
-	Now              func() time.Time
+	Now               func() time.Time
 }
 
 // Loop polls until ctx is cancelled.
@@ -112,17 +116,20 @@ func (r *Runner) TickOnce(ctx context.Context) {
 }
 
 func (r *Runner) considerUser(ctx context.Context, userID string, now time.Time) error {
-	lease := r.ClaimLease
-	if lease <= 0 {
-		lease = DefaultClaimLease
-	}
-	actions, err := RequeueStaleClaims(ctx, r.Issues, userID, now, lease)
+	actions, err := ApplyStatusTimeouts(ctx, r.Issues, userID, now, TimeoutPolicy{
+		ClaimLease:   r.ClaimLease,
+		RunningLease: r.RunningLease,
+		ReviewIdle:   r.ReviewIdle,
+		FailedIdle:   r.FailedIdle,
+		BacklogIdle:  r.BacklogIdle,
+	})
 	if err != nil {
 		return err
 	}
 	for _, a := range actions {
 		if a.Did {
-			r.log().Info("issuescan requeue claim", "user", userID, "key", a.Key, "reason", a.Reason)
+			r.log().Info("issuescan status timeout", "user", userID, "key", a.Key,
+				"from", a.From, "to", a.To, "reason", a.Reason)
 		}
 	}
 

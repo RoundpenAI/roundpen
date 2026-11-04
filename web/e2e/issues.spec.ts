@@ -16,7 +16,14 @@ test.describe('issues', () => {
     await loginViaUi(page)
 
     // Create from the console.
-    await page.goto('/issues')
+    // Global /issues redirects to projects; create from a project board.
+    await page.goto('/projects')
+    const first = page.locator('a[href^="/projects/PRJ-"], tr[data-row-key], .rp-projects-table tbody tr').first()
+    if (await first.count()) {
+      await first.click()
+    } else {
+      test.skip(true, 'needs at least one project')
+    }
     await page.getByRole('button', { name: '新建事项' }).click()
     await page.getByLabel('标题').fill('e2e 事项')
     await page.getByRole('button', { name: '创建' }).click()
