@@ -53,7 +53,7 @@ func NewSupervisor(deps Deps) (*Supervisor, error) {
 		deps.Lang = "zh"
 	}
 	if deps.DataDir == "" {
-		deps.DataDir = filepath.Join(os.TempDir(), "roundpen-im")
+		_, deps.DataDir, _ = EnvDefaults()
 	}
 	if err := os.MkdirAll(deps.DataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("imconnect: data dir: %w", err)
@@ -226,7 +226,13 @@ func EnvDefaults() (lang, dataDir, provider string) {
 		provider = "sysadmin"
 	}
 	if dataDir == "" {
-		dataDir = filepath.Join(os.TempDir(), "roundpen-im")
+		// Persist under the app data root so chat→session maps survive reboots.
+		// TempDir used to wipe continuity on every restart (felt like "amnesia").
+		root := strings.TrimSpace(os.Getenv("ROUNDPEN_DATA_ROOT"))
+		if root == "" {
+			root = "./data"
+		}
+		dataDir = filepath.Join(root, "im")
 	}
 	return lang, dataDir, provider
 }

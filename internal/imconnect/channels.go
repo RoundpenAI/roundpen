@@ -67,6 +67,9 @@ func channelOpts(typ string, ch assistant.ImChannel) (map[string]any, error) {
 	case "feishu", "lark":
 		opts["app_id"] = strings.TrimSpace(ch.AppID)
 		opts["app_secret"] = strings.TrimSpace(ch.AppSecret)
+		// Card markdown renders headings/lists better than post; tables are
+		// flattened in emit() because Feishu cards still mangle pipe-tables.
+		opts["enable_feishu_card"] = true
 	case "dingtalk":
 		opts["client_id"] = strings.TrimSpace(ch.ClientID)
 		opts["client_secret"] = strings.TrimSpace(ch.ClientSecret)

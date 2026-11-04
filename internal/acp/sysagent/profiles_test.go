@@ -14,7 +14,7 @@ func TestSystemPromptForProfile(t *testing.T) {
 		ProfileImplementer: {"Project Implementer", "Do not replan", "browser_*", ".roundpen/tools"},
 		ProfileReviewer:    {"Project Reviewer", "do not implement"},
 		ProfileTester:      {"Project Tester", "pass/fail", "browser_*", "WebFetch", ".roundpen/tools"},
-		ProfileDefault:     {"Roundpen System Agent", "Workspace tools"},
+		ProfileDefault:     {"Roundpen System Agent", "Workspace tools", "Do NOT use Markdown tables"},
 	}
 	for profile, needles := range cases {
 		got := systemPromptForProfile(profile)
