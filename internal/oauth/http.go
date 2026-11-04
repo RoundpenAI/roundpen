@@ -86,7 +86,7 @@ func (h *Handler) listEnabled(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	scheme, host, err := httpx.ConsoleOrigin(r, r.URL.Query().Get("return"))
 	if err != nil {
-		slog.Warn("oauth start origin", "provider", r.PathValue("provider"), "err", err)
+		slog.Warn("oauth authorize failed: invalid console origin", "provider", r.PathValue("provider"), "err", err)
 		http.Redirect(w, r, loginErrorPath("", "failed"), http.StatusFound)
 		return
 	}
@@ -97,7 +97,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		ConsoleHost:   host,
 	})
 	if err != nil {
-		slog.Warn("oauth start", "provider", r.PathValue("provider"), "err", err)
+		slog.Warn("oauth authorize url failed", "provider", r.PathValue("provider"), "err", err)
 		http.Redirect(w, r, loginErrorPath("", errorCode(err)), http.StatusFound)
 		return
 	}
@@ -121,12 +121,12 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 		SessionUser: sessionUser,
 	})
 	if err != nil {
-		slog.Warn("oauth callback", "provider", providerID, "err", err)
+		slog.Warn("oauth callback failed", "provider", providerID, "err", err)
 		http.Redirect(w, r, loginErrorPath(sessionUser, errorCode(err)), http.StatusFound)
 		return
 	}
 	if _, err := auth.IssueSession(w, r, h.Sessions, res.User); err != nil {
-		slog.Error("oauth session", "user", res.User.Username, "err", err)
+		slog.Error("failed to issue session after oauth login", "user", res.User.Username, "err", err)
 		http.Redirect(w, r, loginErrorPath(sessionUser, "failed"), http.StatusFound)
 		return
 	}
@@ -149,12 +149,12 @@ func (h *Handler) cloudCallback(w http.ResponseWriter, r *http.Request) {
 		SessionUser: sessionUser,
 	})
 	if err != nil {
-		slog.Warn("github cloud callback", "err", err)
+		slog.Warn("github cloud oauth callback failed", "err", err)
 		http.Redirect(w, r, loginErrorPath(sessionUser, errorCode(err)), http.StatusFound)
 		return
 	}
 	if _, err := auth.IssueSession(w, r, h.Sessions, res.User); err != nil {
-		slog.Error("github cloud session", "user", res.User.Username, "err", err)
+		slog.Error("failed to issue session after github cloud login", "user", res.User.Username, "err", err)
 		http.Redirect(w, r, loginErrorPath(sessionUser, "failed"), http.StatusFound)
 		return
 	}
@@ -353,7 +353,7 @@ func (h *Handler) githubManifestCallback(w http.ResponseWriter, r *http.Request)
 	_, err := h.Svc.CompleteGitHubManifest(r.Context(),
 		r.URL.Query().Get("code"), r.URL.Query().Get("state"), sessionUser)
 	if err != nil {
-		slog.Warn("github manifest callback", "err", err)
+		slog.Warn("github app manifest callback failed", "err", err)
 		http.Redirect(w, r, githubSettingsError(githubManifestErrorCode(err)), http.StatusFound)
 		return
 	}

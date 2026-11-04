@@ -260,7 +260,7 @@ func (m *Manager) mcpBinder(userID string, routine bool) *tools.MCPBinder {
 	defer cancel()
 	servers, err := m.sys.MCP.ToolsForSession(ctx, userID)
 	if err != nil {
-		m.log.Warn("mcp tool snapshot", slog.String("user", userID), slog.Any("err", err))
+		m.log.Warn("failed to load mcp tool snapshot", slog.String("user", userID), slog.Any("err", err))
 		return nil
 	}
 	if len(servers) == 0 {
@@ -422,7 +422,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			_ = stdinR.Close()
 			_ = stdoutW.Close()
 			if err != nil && runCtx.Err() == nil {
-				m.log.Warn("attach exec ended", slog.String("session", sessionID), slog.Any("err", err))
+				m.log.Warn("acp attach exec exited unexpectedly", slog.String("session", sessionID), slog.Any("err", err))
 			}
 			// Drop stale runtime so the next WS can Start fresh instead of
 			// accepting prompts on a dead ACP pipe (UI looks connected, chat hangs).

@@ -69,7 +69,7 @@ func (s *Supervisor) StartAll(ctx context.Context) error {
 	}
 	for _, a := range list {
 		if err := s.Sync(ctx, a); err != nil {
-			slog.Error("imconnect: sync assistant", "assistant", a.ID, "err", err)
+			slog.Error("failed to sync imconnect assistant engine", "assistant", a.ID, "err", err)
 		}
 	}
 	return nil
@@ -112,7 +112,7 @@ func (s *Supervisor) StopAll() {
 	defer s.mu.Unlock()
 	for id, eng := range s.engines {
 		if err := eng.Stop(); err != nil {
-			slog.Error("imconnect: stop", "assistant", id, "err", err)
+			slog.Error("failed to stop imconnect engine", "assistant", id, "err", err)
 		}
 		delete(s.engines, id)
 	}

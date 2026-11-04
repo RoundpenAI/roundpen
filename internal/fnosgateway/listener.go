@@ -137,7 +137,7 @@ func Serve(socket, prefix string, users storage.UserStore, sessions storage.Sess
 	}
 	go func() {
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			logger.Error("fnos gateway socket server", slog.Any("err", err), slog.String("socket", socket))
+			logger.Error("fnos gateway socket server failed", slog.Any("err", err), slog.String("socket", socket))
 		}
 	}()
 	logger.Info("fnos gateway listening", slog.String("socket", socket), slog.String("prefix", prefix))

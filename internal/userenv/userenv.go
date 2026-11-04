@@ -505,7 +505,7 @@ func (s *Service) injectGit(ctx context.Context, userID, sandboxID string) {
 	}
 	creds, err := s.gitCredentials(ctx, userID)
 	if err != nil {
-		slog.Warn("git credentials", "user", userID, "err", err)
+		slog.Warn("failed to load git credentials for user", "user", userID, "err", err)
 		return
 	}
 	id := gitcred.Identity{}

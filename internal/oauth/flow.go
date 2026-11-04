@@ -411,7 +411,7 @@ func (s *Service) CredsForUser(ctx context.Context, userID string) ([]gitcred.Cr
 		}
 		if s.expiring(&id) {
 			if err := s.refreshIdentity(ctx, &id); err != nil {
-				slog.Warn("oauth token refresh", "user", userID, "provider", id.ProviderID, "err", err)
+				slog.Warn("oauth token refresh failed", "user", userID, "provider", id.ProviderID, "err", err)
 			}
 		}
 		if id.AccessToken == "" {
@@ -421,7 +421,7 @@ func (s *Service) CredsForUser(ctx context.Context, userID string) ([]gitcred.Cr
 		if !ok {
 			p, err = s.Store.GetProvider(ctx, id.ProviderID)
 			if err != nil {
-				slog.Warn("oauth provider lookup", "user", userID, "provider", id.ProviderID, "err", err)
+				slog.Warn("oauth provider lookup failed", "user", userID, "provider", id.ProviderID, "err", err)
 				continue
 			}
 			providers[id.ProviderID] = p
@@ -447,7 +447,7 @@ func (s *Service) RefreshExpiring(ctx context.Context, before time.Time) ([]stri
 	for i := range idents {
 		id := idents[i]
 		if err := s.refreshIdentity(ctx, &id); err != nil {
-			slog.Warn("oauth token refresh", "user", id.UserID, "provider", id.ProviderID, "err", err)
+			slog.Warn("oauth token refresh failed", "user", id.UserID, "provider", id.ProviderID, "err", err)
 			continue
 		}
 		users[id.UserID] = true

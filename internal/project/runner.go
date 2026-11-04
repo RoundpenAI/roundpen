@@ -104,7 +104,7 @@ func (r *Runner) RecoverOrphans(ctx context.Context) {
 	}
 	orphans, err := r.Store.FailOrphanRunning(ctx, "interrupted by process restart")
 	if err != nil {
-		r.log().Error("fail orphan workers", "err", err)
+		r.log().Error("failed to mark orphan workers as failed", "err", err)
 		return
 	}
 	r.finishFailed(ctx, orphans, "failed leftover running workers")
@@ -122,7 +122,7 @@ func (r *Runner) SweepStale(ctx context.Context) {
 	}
 	stale, err := r.Store.FailStaleRunning(ctx, timeout, "execution timed out")
 	if err != nil {
-		r.log().Error("fail stale workers", "err", err)
+		r.log().Error("failed to mark stale workers as failed", "err", err)
 	} else {
 		for _, w := range stale {
 			if w.SessionID != "" && r.ACP != nil {
@@ -133,7 +133,7 @@ func (r *Runner) SweepStale(ctx context.Context) {
 	}
 	users, err := r.Store.ListUsersWithQueuedFreeSlot(ctx)
 	if err != nil {
-		r.log().Error("list queued workers", "err", err)
+		r.log().Error("failed to list users with queued workers", "err", err)
 		return
 	}
 	for _, userID := range users {
@@ -164,7 +164,7 @@ func (r *Runner) Kick(ctx context.Context, userID string) {
 	}
 	w, err := r.Store.ClaimNextQueued(ctx, userID)
 	if err != nil {
-		r.log().Error("claim worker", "user", userID, "err", err)
+		r.log().Error("failed to claim next queued worker", "user", userID, "err", err)
 		return
 	}
 	if w == nil {

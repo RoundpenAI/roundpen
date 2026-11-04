@@ -90,7 +90,7 @@ func (r *Runner) TickOnce(ctx context.Context) {
 	}
 	users, err := r.Users.ListAll(ctx)
 	if err != nil {
-		r.log().Error("proactive list users", "err", err)
+		r.log().Error("failed to list users for proactive recall", "err", err)
 		return
 	}
 	now := r.now()
@@ -108,7 +108,7 @@ func (r *Runner) TickOnce(ctx context.Context) {
 			continue
 		}
 		if err := r.considerUser(ctx, userID, now, quietFor, cooldown); err != nil {
-			r.log().Warn("proactive user", "user", userID, "err", err)
+			r.log().Warn("failed to load user for proactive recall", "user", userID, "err", err)
 		}
 	}
 }

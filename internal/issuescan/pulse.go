@@ -128,7 +128,7 @@ func (r *PulseRunner) TickOnce(ctx context.Context) {
 	}
 	users, err := r.Users.ListAll(ctx)
 	if err != nil {
-		r.log().Error("work pulse list users", "err", err)
+		r.log().Error("failed to list users for work pulse", "err", err)
 		return
 	}
 	for _, u := range users {
@@ -239,7 +239,7 @@ func (r *PulseRunner) runOne(ctx context.Context, userID, issueKey string, reaso
 
 	sessionID, err := r.resolveSession(ctx, userID, it)
 	if err != nil || sessionID == "" {
-		r.log().Warn("work pulse session", "user", userID, "key", it.Key, "err", err)
+		r.log().Warn("failed to resolve session for work pulse", "user", userID, "key", it.Key, "err", err)
 		return
 	}
 
@@ -252,7 +252,7 @@ func (r *PulseRunner) runOne(ctx context.Context, userID, issueKey string, reaso
 
 	user, err := r.UserGet.GetByUsername(ctx, userID)
 	if err != nil || user == nil {
-		r.log().Warn("work pulse user", "user", userID, "err", err)
+		r.log().Warn("failed to load user for work pulse", "user", userID, "err", err)
 		return
 	}
 	text := RenderPulsePrompt(it, reason, slotBusy, staleTasks)
@@ -265,7 +265,7 @@ func (r *PulseRunner) runOne(ctx context.Context, userID, issueKey string, reaso
 		err = fmt.Errorf("no prompt backend")
 	}
 	if err != nil {
-		r.log().Warn("work pulse prompt", "user", userID, "key", it.Key, "err", err)
+		r.log().Warn("failed to send work pulse prompt", "user", userID, "key", it.Key, "err", err)
 		return
 	}
 	r.markPulsed(userID, it)

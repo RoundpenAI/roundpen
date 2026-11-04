@@ -92,7 +92,7 @@ func (r *Runner) TickOnce(ctx context.Context) {
 	}
 	claims, err := r.Store.ClaimDue(ctx, 4)
 	if err != nil {
-		r.log().Error("claim routines", "err", err)
+		r.log().Error("failed to claim due routines", "err", err)
 	}
 	for _, c := range claims {
 		go r.execute(ctx, c)
@@ -106,7 +106,7 @@ func (r *Runner) TickOnce(ctx context.Context) {
 func (r *Runner) retryQueued(ctx context.Context) {
 	orphans, err := r.Store.ListOrphanQueued(ctx, time.Now().Add(-time.Minute))
 	if err != nil {
-		r.log().Error("list queued routines", "err", err)
+		r.log().Error("failed to list orphan queued routines", "err", err)
 		return
 	}
 	for _, rn := range orphans {
@@ -122,7 +122,7 @@ func (r *Runner) execute(ctx context.Context, c Claim) {
 	rn, ok, err := r.Store.MarkRunning(ctx, c.Run.ID)
 	if err != nil || !ok {
 		if err != nil {
-			r.log().Error("mark running", "run", c.Run.Key, "err", err)
+			r.log().Error("failed to mark routine run as running", "run", c.Run.Key, "err", err)
 		}
 		return
 	}
@@ -237,7 +237,7 @@ func (r *Runner) prompt(ctx context.Context, c Claim, sessionID, text string, bu
 	close(stop)
 	rn, gerr := r.Store.GetRunByKey(ctx, c.Routine.UserID, c.Run.ID)
 	if gerr != nil {
-		r.log().Error("reload run", "run", c.Run.Key, "err", gerr)
+		r.log().Error("failed to reload routine run after prompt", "run", c.Run.Key, "err", gerr)
 		return
 	}
 	switch rn.Status {

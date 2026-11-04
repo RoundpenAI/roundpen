@@ -29,7 +29,7 @@ func loadOrGenerateInternalKey(path string, logger *slog.Logger) string {
 	gen := func() string {
 		key, err := randomVK("vk-internal-")
 		if err != nil {
-			logger.Error("generate internal virtual key", slog.Any("err", err))
+			logger.Error("failed to generate internal virtual key", slog.Any("err", err))
 			return ""
 		}
 		return key
@@ -47,7 +47,7 @@ func loadOrGenerateInternalKey(path string, logger *slog.Logger) string {
 		return ""
 	}
 	if err := writeKeyFile(path, key); err != nil {
-		logger.Error("persist internal virtual key (using ephemeral key)",
+		logger.Error("failed to persist internal virtual key; using ephemeral key for this process",
 			slog.String("path", path), slog.Any("err", err))
 	}
 	return key

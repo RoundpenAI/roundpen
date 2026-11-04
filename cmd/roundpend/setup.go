@@ -40,12 +40,12 @@ func newLogger(cfg *config.Config) (*slog.Logger, string) {
 func openStorage(ctx context.Context, cfg *config.Config, logger *slog.Logger) *storage.DB {
 	db, err := storage.OpenPostgres(ctx, cfg.DatabaseURL)
 	if err != nil {
-		logger.Error("postgres", slog.Any("err", err))
+		logger.Error("failed to open postgres", slog.Any("err", err))
 		os.Exit(1)
 	}
 
 	if err := db.MigrateEmbedded(ctx); err != nil {
-		logger.Error("migrate", slog.Any("err", err))
+		logger.Error("failed to apply database migrations", slog.Any("err", err))
 		os.Exit(1)
 	}
 	return db
@@ -62,7 +62,7 @@ func bootstrapAdmin(ctx context.Context, cfg *config.Config, userStore storage.U
 	if cfg.BootstrapAdmin {
 		credFile := filepath.Join(cfg.DataRoot, "bootstrap-admin-credentials.txt")
 		if err := auth.BootstrapAdmin(ctx, userStore, cfg.APIKey, cfg.BootstrapAdminPassword, credFile, cfg.BootstrapAdminPinPassword, logger); err != nil {
-			logger.Error("bootstrap admin", slog.Any("err", err))
+			logger.Error("failed to bootstrap admin user", slog.Any("err", err))
 			os.Exit(1)
 		}
 	} else {

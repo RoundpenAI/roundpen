@@ -109,13 +109,13 @@ func gatewayIdentity(users storage.UserStore, sessions storage.SessionStore) fun
 					httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 					return
 				}
-				slog.Warn("fnos gateway user", slog.Any("err", err), slog.String("uid", uid))
+				slog.Warn("failed to resolve fnos gateway user", slog.Any("err", err), slog.String("uid", uid))
 				httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
 			plain, err := auth.IssueSession(w, r, sessions, user)
 			if err != nil {
-				slog.Warn("fnos gateway session", slog.Any("err", err), slog.String("uid", uid))
+				slog.Warn("failed to issue session for fnos gateway user", slog.Any("err", err), slog.String("uid", uid))
 				httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 				return
 			}

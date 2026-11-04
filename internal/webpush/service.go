@@ -99,7 +99,7 @@ func (s *Service) sendOne(ctx context.Context, sub Subscription, body []byte) {
 	resp, err := webpushlib.SendNotificationWithContext(ctx, body, subOpts, opts)
 	if err != nil {
 		if s.Log != nil {
-			s.Log.Warn("web push send", "endpoint", truncate(sub.Endpoint, 64), "err", err)
+			s.Log.Warn("web push delivery failed", "endpoint", truncate(sub.Endpoint, 64), "err", err)
 		}
 		return
 	}

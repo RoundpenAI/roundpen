@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 0.4.15：接入 OpenTelemetry，默认上报 SigNoz（traces/metrics/错误日志），多台 NAS 用 install_id 区分。
+changelog             = 0.4.16：梳理运行日志文案，错误日志写清失败动作与关键上下文（如 LLM 中继落库失败）。

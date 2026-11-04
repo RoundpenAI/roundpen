@@ -73,7 +73,7 @@ func main() {
 
 	trust, err := httpx.ParseTrust(cfg.TrustedProxies)
 	if err != nil {
-		logger.Error("trusted proxies", slog.Any("err", err))
+		logger.Error("failed to parse trusted proxies", slog.Any("err", err))
 		os.Exit(1)
 	}
 	httpx.SetDefaultTrust(trust)
@@ -83,14 +83,14 @@ func main() {
 	// remote Docker host in SSH mode, but this file is read by roundpend.
 	secretBox, err := secretbox.LoadOrGenerate(filepath.Join(cfg.DataRoot, "secret.key"), cfg.SecretKey, logger)
 	if err != nil {
-		logger.Error("secret master key", slog.Any("err", err))
+		logger.Error("failed to load secrets master key", slog.Any("err", err))
 		os.Exit(1)
 	}
 
 	freeEnv := llmgw.LoadFreeEnv()
 	installIdentity, err := installid.LoadOrGenerate(installid.Dir(cfg.DataRoot), freeEnv.TokenTTL, logger)
 	if err != nil {
-		logger.Error("install identity", slog.Any("err", err))
+		logger.Error("failed to load install identity", slog.Any("err", err))
 		os.Exit(1)
 	}
 	logger.Info("install identity ready", slog.String("install_id", installIdentity.InstallID))
@@ -101,7 +101,7 @@ func main() {
 		Channel:   otelx.DetectChannel(),
 		Logger:    logger,
 	}); err != nil {
-		logger.Error("otel init", slog.Any("err", err))
+		logger.Error("failed to initialize otel", slog.Any("err", err))
 		os.Exit(1)
 	}
 	logger = otelx.TeeLogger(logger)
@@ -110,7 +110,7 @@ func main() {
 		shutdownOTel, cancelOTel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancelOTel()
 		if err := otelx.Shutdown(shutdownOTel); err != nil {
-			logger.Warn("otel shutdown", slog.Any("err", err))
+			logger.Warn("otel shutdown failed", slog.Any("err", err))
 		}
 	}()
 
@@ -126,7 +126,7 @@ func main() {
 	}
 	appSettings, err := settings.Bootstrap(ctx, settingsStore, cfg)
 	if err != nil {
-		logger.Error("settings bootstrap", slog.Any("err", err))
+		logger.Error("failed to bootstrap settings", slog.Any("err", err))
 		os.Exit(1)
 	}
 	allowRegistration := newRegistrationGate(cfg)
@@ -140,12 +140,12 @@ func main() {
 		append(append(append(userenv.ProxySlots(), search.Slots()...), browser.Slots()...), llmgw.Slots()...),
 	)
 	if err != nil {
-		logger.Error("setting items registry", slog.Any("err", err))
+		logger.Error("failed to build setting items registry", slog.Any("err", err))
 		os.Exit(1)
 	}
 	itemsCat := settingitems.NewCatalog(itemsStore, itemsReg)
 	if err := itemsCat.Reload(ctx); err != nil {
-		logger.Error("setting items load", slog.Any("err", err))
+		logger.Error("failed to load setting items", slog.Any("err", err))
 		os.Exit(1)
 	}
 	// Configuration that used to live in the settings document now seeds items:
@@ -153,11 +153,11 @@ func main() {
 	// rest (fresh installs have none of those keys).
 	storedLegacy, err := settingsStore.LoadLegacy(ctx)
 	if err != nil {
-		logger.Error("setting items legacy read", slog.Any("err", err))
+		logger.Error("failed to read legacy setting items", slog.Any("err", err))
 		os.Exit(1)
 	}
 	if err := importLegacyItems(ctx, itemsCat, storedLegacy.Overlay(settings.FromConfigLegacy(cfg)), logger); err != nil {
-		logger.Error("setting items legacy import", slog.Any("err", err))
+		logger.Error("failed to import legacy setting items", slog.Any("err", err))
 		os.Exit(1)
 	}
 	// Items may also be written by another daemon sharing this database.
@@ -165,7 +165,7 @@ func main() {
 
 	wsFS, err := newWorkspaceFS(cfg, dataRoot, logger)
 	if err != nil {
-		logger.Error("workspace", slog.Any("err", err))
+		logger.Error("failed to initialize workspace filesystem", slog.Any("err", err))
 		os.Exit(1)
 	}
 
@@ -175,7 +175,7 @@ func main() {
 	tplStore := template.NewStore(db.SQL)
 	tplSvc := template.NewService(tplStore, cfg.DefaultImage)
 	if err := tplSvc.Seed(ctx, cfg.Backend); err != nil {
-		logger.Error("template seed", slog.Any("err", err))
+		logger.Error("failed to seed templates", slog.Any("err", err))
 		os.Exit(1)
 	}
 
@@ -231,7 +231,7 @@ func main() {
 	// admin click. Already-bound BYOK (or an intentional gateway-off with
 	// bindings still present) is left alone. Quota / 429 later cues BYOK.
 	if err := llmgw.EnsureDefaultFree(ctx, itemsCat, freeEnv, setupHandler.EnableLLMGW); err != nil {
-		logger.Error("seed default free llm", slog.Any("err", err))
+		logger.Error("failed to seed default free llm", slog.Any("err", err))
 		os.Exit(1)
 	}
 
@@ -309,7 +309,7 @@ func main() {
 	// its permission request still holds the wait; nothing survives a restart,
 	// so rows from a previous run (crash included) are closed on boot.
 	if n, err := ticketStore.CancelStalePending(ctx, time.Now(), "上次运行遗留的协助单已作废"); err != nil {
-		logger.Warn("cancel leftover assist tickets", slog.Any("err", err))
+		logger.Warn("failed to cancel leftover assist tickets", slog.Any("err", err))
 	} else if n > 0 {
 		logger.Info("cancelled leftover assist tickets", "count", n)
 	}
@@ -406,7 +406,7 @@ func main() {
 			DataDir:     imDataDir,
 		})
 		if err != nil {
-			logger.Error("imconnect supervisor", slog.Any("err", err))
+			logger.Error("failed to start imconnect supervisor", slog.Any("err", err))
 			imSup = nil
 		}
 	} else {
@@ -501,7 +501,7 @@ func main() {
 
 	if imSup != nil {
 		if err := imSup.StartAll(ctx); err != nil {
-			logger.Error("imconnect start", slog.Any("err", err))
+			logger.Error("failed to start imconnect engines", slog.Any("err", err))
 		}
 	}
 
@@ -530,14 +530,14 @@ func main() {
 	// The no-fnOS build compiles the feature out, so this is a no-op there.
 	gwCloser, err := installFnosGateway(cfg, userStore, sessionStore, mux, logger)
 	if err != nil {
-		logger.Error("fnos gateway", slog.Any("err", err))
+		logger.Error("failed to start fnos gateway", slog.Any("err", err))
 		os.Exit(1)
 	}
 
 	go func() {
 		logger.Info("http listening", slog.String("addr", cfg.HTTPAddr))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("http server", slog.Any("err", err))
+			logger.Error("http server failed", slog.Any("err", err))
 			stop()
 		}
 	}()
@@ -616,7 +616,7 @@ func oauthRefresher(ctx context.Context, svc *oauth.Service, envs *userenv.Servi
 		case <-ticker.C:
 			users, err := svc.RefreshExpiring(ctx, time.Now().Add(horizon))
 			if err != nil {
-				logger.Warn("oauth refresh", slog.Any("err", err))
+				logger.Warn("oauth token refresh cycle failed", slog.Any("err", err))
 				continue
 			}
 			for _, user := range users {

@@ -224,7 +224,7 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	reply, stop, err := driver.RunOnce(runCtx, sb.ID, cwd, argv, brief, req.Actor)
 	if err != nil && isTransient(err) && runCtx.Err() == nil {
 		out.Retried = true
-		r.Log.Info("expert retry", "expert", req.ExpertID, "err", err)
+		r.Log.Info("retrying expert run after transient error", "expert", req.ExpertID, "err", err)
 		reply, stop, err = driver.RunOnce(runCtx, sb.ID, cwd, argv, brief, req.Actor)
 	}
 	out.StopReason = stop

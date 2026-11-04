@@ -447,11 +447,11 @@ func RunPurge(ctx context.Context, store Store, logger *slog.Logger, interval ti
 			now := time.Now().UTC()
 			shortN, err := store.DeleteExpiredShort(ctx, now)
 			if err != nil {
-				logger.Error("memory purge short", slog.Any("err", err))
+				logger.Error("failed to purge expired short-term memories", slog.Any("err", err))
 			}
 			longN, err := store.PurgeExpiredLong(ctx, now)
 			if err != nil {
-				logger.Error("memory purge long", slog.Any("err", err))
+				logger.Error("failed to purge expired long-term memories", slog.Any("err", err))
 			}
 			if shortN > 0 || longN > 0 {
 				logger.Info("memory purged", slog.Int64("short", shortN), slog.Int64("long", longN))

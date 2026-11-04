@@ -70,7 +70,7 @@ func newPushService(cfg *config.Config, db *storage.DB, logger *slog.Logger) *we
 		cfg.VAPIDSubject,
 	)
 	if err != nil {
-		logger.Warn("web push vapid", slog.Any("err", err))
+		logger.Warn("failed to load web push VAPID keys", slog.Any("err", err))
 		return nil
 	}
 	return &webpush.Service{
@@ -215,7 +215,7 @@ func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cf
 	userVKey := func(ctx context.Context, username string) string {
 		k, err := userKeys.KeyFor(ctx, username)
 		if err != nil {
-			logger.Warn("resolve user virtual key", slog.String("user", username), slog.Any("err", err))
+			logger.Warn("failed to resolve user virtual key", slog.String("user", username), slog.Any("err", err))
 			return ""
 		}
 		return k
@@ -254,7 +254,7 @@ func mountLLMGateway(ctx context.Context, mux *http.ServeMux, db *storage.DB, cf
 		return nil
 	}
 	if err := reconfigureLLMGW(ctx); err != nil {
-		logger.Error("llmgw configure", slog.Any("err", err))
+		logger.Error("failed to configure llm gateway", slog.Any("err", err))
 		os.Exit(1)
 	}
 	return gw, reconfigureLLMGW, userVKey

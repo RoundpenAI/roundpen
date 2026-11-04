@@ -153,7 +153,7 @@ func (s *Service) reconcile(ctx context.Context, sb *Sandbox) {
 	}
 	sb.UpdatedAt = time.Now().UTC()
 	if err := s.store.Update(ctx, sb); err != nil {
-		s.logger.Warn("reconcile sandbox status", slog.String("id", sb.ID), slog.Any("err", err))
+		s.logger.Warn("failed to reconcile sandbox status", slog.String("id", sb.ID), slog.Any("err", err))
 		return
 	}
 	s.logger.Info("sandbox status reconciled", slog.String("id", sb.ID), slog.String("status", string(sb.Status)), slog.String("engine", s.backend.Name()))
@@ -290,7 +290,7 @@ func (s *Service) Stop(ctx context.Context, id string) error {
 		return err
 	}
 	if err := s.backend.Stop(ctx, id); err != nil {
-		s.logger.Warn("backend stop", slog.String("id", id), slog.Any("err", err))
+		s.logger.Warn("sandbox backend stop failed; marking stopped anyway", slog.String("id", id), slog.Any("err", err))
 	}
 	if s.browser != nil {
 		s.browser.CloseSandbox(id)
@@ -309,7 +309,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		s.browser.CloseSandbox(id)
 	}
 	if err := s.backend.Remove(ctx, id); err != nil {
-		s.logger.Warn("backend remove", slog.String("id", id), slog.Any("err", err))
+		s.logger.Warn("sandbox backend remove failed", slog.String("id", id), slog.Any("err", err))
 	}
 	if sb.WorkspaceID != "" {
 		// Only remove ephemeral workspaces (workspace id == sandbox id).

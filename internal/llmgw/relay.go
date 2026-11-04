@@ -284,7 +284,8 @@ func (g *Gateway) authenticate(r *http.Request) (VirtualKey, string) {
 		return VirtualKey{}, "invalid virtual key"
 	}
 	if err != nil {
-		g.logger.Error("llmgw get virtual key", "err", err)
+		g.logger.Error("virtual key lookup failed",
+			"err", err, "method", r.Method, "path", r.URL.Path)
 		return VirtualKey{}, "virtual key lookup failed"
 	}
 	if !internalUseKey(*vk) {
@@ -371,7 +372,16 @@ func (g *Gateway) logTransaction(ctx context.Context, tx Transaction, bodies *Tr
 	otelx.RecordLLMRelay(ctx, tx.Provider, tx.StatusCode, time.Duration(tx.DurationMS)*time.Millisecond)
 
 	if err := g.store.InsertTransaction(ctx, tx, bodies); err != nil {
-		g.logger.Error("llmgw log transaction", "err", err, "request_id", tx.RequestID)
+		g.logger.Error("failed to persist llm relay transaction",
+			"err", err,
+			"request_id", tx.RequestID,
+			"provider", tx.Provider,
+			"method", tx.Method,
+			"path", tx.Path,
+			"status_code", tx.StatusCode,
+			"virtual_name", tx.VirtualName,
+			"duration_ms", tx.DurationMS,
+		)
 	}
 }
 
