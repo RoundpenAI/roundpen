@@ -110,7 +110,7 @@ func TestCoordinatorToolSurface(t *testing.T) {
 			t.Fatalf("coordinator missing %q", name)
 		}
 	}
-	for _, banned := range []string{"Bash", "Write", "Edit", "BashOutput", "KillShell"} {
+	for _, banned := range []string{"Bash", "Write", "Edit", "BashOutput", "KillShell", "HostApplyPlan", "HostDelete"} {
 		if _, ok := reg.Get(banned); ok {
 			t.Fatalf("coordinator must not have %q", banned)
 		}

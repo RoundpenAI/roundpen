@@ -27,6 +27,7 @@ export type SettingsSectionKey =
   | 'apps'
   | 'password'
   | 'slots'
+  | 'nas'
   | 'notifications'
   | 'oauth'
   | 'plugins'
@@ -68,6 +69,7 @@ export const PERSONAL_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'password', labelKey: 'settings.section.password', group: 'account' },
   { key: 'notifications', labelKey: 'settings.section.notifications', group: 'account' },
   { key: 'slots', labelKey: 'settings.section.slots', group: 'workspace' },
+  { key: 'nas', labelKey: 'settings.section.nas', group: 'workspace' },
 ]
 
 /** Old settings URLs that moved or merged into another section. */

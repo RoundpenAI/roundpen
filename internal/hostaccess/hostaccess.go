@@ -1,7 +1,10 @@
-// Package hostaccess serves read-only access to granted host directories (NAS
-// shares) for the in-process System Agent. Authorization follows the assistant's
-// directory grants — the same policy the console advertises — and every read is
-// resolved on the control-plane host, so no container mounts are involved.
+// Package hostaccess serves granted host directories (NAS shares) for the
+// in-process System Agent. Authorization follows the assistant's directory
+// grants — the same policy the console advertises — and every op is resolved
+// on the control-plane host, so no container mounts are involved.
+//
+// Reads require a matching grant (read or readwrite). Mutations require
+// readwrite on every path they touch.
 package hostaccess
 
 import (
@@ -43,7 +46,7 @@ type Access struct {
 }
 
 // New builds an accessor. Nil when any dependency is missing, which callers
-// treat as "host reads disabled".
+// treat as "host access disabled".
 func New(sessions Sessions, assistants Assistants, logger *slog.Logger) *Access {
 	if sessions == nil || assistants == nil {
 		return nil
@@ -84,7 +87,7 @@ func (s *sessionAccess) ListGrants(ctx context.Context, actor tools.Actor) ([]to
 }
 
 func (s *sessionAccess) OpenHost(ctx context.Context, actor tools.Actor, absPath string) (io.ReadCloser, os.FileInfo, error) {
-	resolved, err := s.authorize(ctx, actor, absPath)
+	resolved, err := s.authorize(ctx, actor, absPath, "read", true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -101,7 +104,7 @@ func (s *sessionAccess) OpenHost(ctx context.Context, actor tools.Actor, absPath
 }
 
 func (s *sessionAccess) GlobHost(ctx context.Context, actor tools.Actor, rootAbs, pattern string, limit int) ([]string, error) {
-	root, err := s.authorize(ctx, actor, rootAbs)
+	root, err := s.authorize(ctx, actor, rootAbs, "read", true)
 	if err != nil {
 		return nil, err
 	}
@@ -159,52 +162,248 @@ func (s *sessionAccess) GlobHost(ctx context.Context, actor tools.Actor, rootAbs
 	return out, nil
 }
 
+func (s *sessionAccess) RenameHost(ctx context.Context, actor tools.Actor, fromAbs, toAbs string) error {
+	from, err := s.authorize(ctx, actor, fromAbs, "readwrite", true)
+	if err != nil {
+		return err
+	}
+	to, err := s.authorize(ctx, actor, toAbs, "readwrite", false)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	return os.Rename(from, to)
+}
+
+func (s *sessionAccess) MoveHost(ctx context.Context, actor tools.Actor, fromAbs, toAbs string) error {
+	from, err := s.authorize(ctx, actor, fromAbs, "readwrite", true)
+	if err != nil {
+		return err
+	}
+	to, err := s.authorize(ctx, actor, toAbs, "readwrite", false)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(from, to); err == nil {
+		return nil
+	}
+	// Cross-device: copy then remove source.
+	if err := copyPath(from, to); err != nil {
+		return err
+	}
+	return removePath(from, true)
+}
+
+func (s *sessionAccess) CopyHost(ctx context.Context, actor tools.Actor, fromAbs, toAbs string) error {
+	from, err := s.authorize(ctx, actor, fromAbs, "read", true)
+	if err != nil {
+		return err
+	}
+	to, err := s.authorize(ctx, actor, toAbs, "readwrite", false)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	return copyPath(from, to)
+}
+
+func (s *sessionAccess) MkdirHost(ctx context.Context, actor tools.Actor, absPath string) error {
+	to, err := s.authorize(ctx, actor, absPath, "readwrite", false)
+	if err != nil {
+		return err
+	}
+	return os.MkdirAll(to, 0o755)
+}
+
+func (s *sessionAccess) DeleteHost(ctx context.Context, actor tools.Actor, absPath string, recursive bool) error {
+	target, err := s.authorize(ctx, actor, absPath, "readwrite", true)
+	if err != nil {
+		return err
+	}
+	fi, err := os.Lstat(target)
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() && !recursive {
+		entries, err := os.ReadDir(target)
+		if err != nil {
+			return err
+		}
+		if len(entries) > 0 {
+			return fmt.Errorf("directory is not empty — pass recursive=true to delete it")
+		}
+	}
+	return removePath(target, recursive)
+}
+
 func (s *sessionAccess) loadAssistant(ctx context.Context, actor tools.Actor) (*assistant.Assistant, error) {
 	sess, err := s.sessions.Get(ctx, s.sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("host read: session %s: %w", s.sessionID, err)
+		return nil, fmt.Errorf("host access: session %s: %w", s.sessionID, err)
 	}
 	if sess == nil {
-		return nil, fmt.Errorf("host read: session %s not found", s.sessionID)
+		return nil, fmt.Errorf("host access: session %s not found", s.sessionID)
 	}
 	if actor.Username == "" || sess.UserID != actor.Username {
-		return nil, fmt.Errorf("host read denied: session belongs to another user")
+		return nil, fmt.Errorf("host access denied: session belongs to another user")
 	}
 	if strings.TrimSpace(sess.AssistantID) == "" {
-		return nil, fmt.Errorf("host read denied: session has no assistant, so no directory grants apply")
+		return nil, fmt.Errorf("host access denied: session has no assistant, so no directory grants apply")
 	}
 	a, err := s.assistants.Get(ctx, sess.AssistantID)
 	if err != nil {
-		return nil, fmt.Errorf("host read: assistant %s: %w", sess.AssistantID, err)
+		return nil, fmt.Errorf("host access: assistant %s: %w", sess.AssistantID, err)
 	}
 	return a, nil
 }
 
-// authorize checks the session's assistant grants and returns the symlink-free
-// path so a link inside a granted directory cannot escape it.
-func (s *sessionAccess) authorize(ctx context.Context, actor tools.Actor, absPath string) (string, error) {
+// authorize checks grants and returns a path safe to use. When mustExist is
+// true the path (after symlink resolution) must already exist. When false,
+// missing leaf paths are allowed if an existing ancestor stays inside a grant.
+func (s *sessionAccess) authorize(ctx context.Context, actor tools.Actor, absPath, wantMode string, mustExist bool) (string, error) {
 	cleaned := path.Clean(strings.TrimSpace(absPath))
+	deny := denyVerb(wantMode)
 	if !strings.HasPrefix(cleaned, "/") || cleaned == "/" {
-		return "", fmt.Errorf("host read denied: %q is not an absolute file or directory path", absPath)
+		return "", fmt.Errorf("host %s denied: %q is not an absolute file or directory path", deny, absPath)
 	}
 	a, err := s.loadAssistant(ctx, actor)
 	if err != nil {
 		return "", err
 	}
 	prof := assistant.PolicyProfile(a)
-	if d := policy.CheckDirectory(prof, cleaned, "read"); !d.Allowed {
-		return "", fmt.Errorf("host read denied: %s", d.Reason)
+	if d := policy.CheckDirectory(prof, cleaned, wantMode); !d.Allowed {
+		return "", fmt.Errorf("host %s denied: %s", deny, d.Reason)
 	}
+
 	resolved, err := filepath.EvalSymlinks(cleaned)
-	if err != nil {
+	if err == nil {
+		if resolved != cleaned {
+			if d := policy.CheckDirectory(prof, resolved, wantMode); !d.Allowed {
+				return "", fmt.Errorf("host %s denied: %s resolves outside the granted directories", deny, cleaned)
+			}
+		}
+		return resolved, nil
+	}
+	if mustExist || !pathMissing(err) {
 		return "", err
 	}
-	if resolved != cleaned {
-		if d := policy.CheckDirectory(prof, resolved, "read"); !d.Allowed {
-			return "", fmt.Errorf("host read denied: %s resolves outside the granted directories", cleaned)
+
+	// Create target: resolve deepest existing ancestor, then re-join the rest.
+	parent := cleaned
+	var missing []string
+	for {
+		parent = path.Dir(parent)
+		if parent == "/" || parent == "." {
+			return "", fmt.Errorf("host %s denied: no existing ancestor under a granted directory for %s", deny, cleaned)
+		}
+		resolvedParent, perr := filepath.EvalSymlinks(parent)
+		if perr == nil {
+			if d := policy.CheckDirectory(prof, resolvedParent, wantMode); !d.Allowed {
+				return "", fmt.Errorf("host %s denied: %s resolves outside the granted directories", deny, cleaned)
+			}
+			out := resolvedParent
+			for i := len(missing) - 1; i >= 0; i-- {
+				out = filepath.Join(out, missing[i])
+			}
+			out = filepath.Join(out, path.Base(cleaned))
+			if d := policy.CheckDirectory(prof, path.Clean(filepath.ToSlash(out)), wantMode); !d.Allowed {
+				return "", fmt.Errorf("host %s denied: %s", deny, d.Reason)
+			}
+			return out, nil
+		}
+		if !pathMissing(perr) {
+			return "", perr
+		}
+		missing = append(missing, path.Base(parent))
+	}
+}
+
+func denyVerb(wantMode string) string {
+	if wantMode == "readwrite" || wantMode == "write" || wantMode == "rw" {
+		return "write"
+	}
+	return "read"
+}
+
+func pathMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, fs.ErrNotExist) || os.IsNotExist(err) {
+		return true
+	}
+	var pe *os.PathError
+	if errors.As(err, &pe) {
+		return errors.Is(pe.Err, fs.ErrNotExist) || os.IsNotExist(pe.Err)
+	}
+	return false
+}
+
+func copyPath(from, to string) error {
+	fi, err := os.Lstat(from)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refusing to copy symlink %s", from)
+	}
+	if fi.IsDir() {
+		return copyDir(from, to)
+	}
+	return copyFile(from, to, fi.Mode())
+}
+
+func copyFile(from, to string, mode os.FileMode) error {
+	in, err := os.Open(from)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(to, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode.Perm())
+	if err != nil {
+		return err
+	}
+	defer func() { _ = out.Close() }()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+func copyDir(from, to string) error {
+	if err := os.MkdirAll(to, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(from)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		src := filepath.Join(from, name)
+		dst := filepath.Join(to, name)
+		if err := copyPath(src, dst); err != nil {
+			return err
 		}
 	}
-	return resolved, nil
+	return nil
+}
+
+func removePath(target string, recursive bool) error {
+	if recursive {
+		return os.RemoveAll(target)
+	}
+	return os.Remove(target)
 }
 
 // MatchGlob matches a slash-separated name against a glob pattern: * ? []

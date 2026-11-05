@@ -2,6 +2,7 @@ import { Navigate, useParams } from 'react-router-dom'
 import { ChangePasswordForm } from '../../components/ChangePasswordForm'
 import { ConnectedAppsPanel } from '../../components/ConnectedAppsPanel'
 import { NotificationsPanel } from '../../components/NotificationsPanel'
+import { NasScenePanel } from '../../components/NasScenePanel'
 import { PersonalSlotsPanel } from '../../components/PersonalSlotsPanel'
 import { ProfilePanel } from '../../components/ProfilePanel'
 import { isFnOSApp } from '../../api/client'
@@ -48,6 +49,8 @@ export function PersonalSettingsPage() {
       {section === 'notifications' && <NotificationsPanel />}
 
       {section === 'slots' && <PersonalSlotsPanel />}
+
+      {section === 'nas' && <NasScenePanel />}
     </div>
   )
 }

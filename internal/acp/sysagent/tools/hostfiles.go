@@ -19,9 +19,10 @@ type DirGrantView struct {
 	Mode string `json:"mode"` // read | readwrite
 }
 
-// HostFiles reads granted host directories (NAS shares) on the control-plane
+// HostFiles accesses granted host directories (NAS shares) on the control-plane
 // host. Implementations own authorization: each call resolves the actor's
-// session assistant and checks its directory grants. Reads are read-only.
+// session assistant and checks its directory grants. Mutations require
+// readwrite grants on every path they touch.
 type HostFiles interface {
 	// OpenHost opens absPath and returns its handle and metadata.
 	OpenHost(ctx context.Context, actor Actor, absPath string) (io.ReadCloser, os.FileInfo, error)
@@ -29,6 +30,16 @@ type HostFiles interface {
 	GlobHost(ctx context.Context, actor Actor, rootAbs, pattern string, limit int) ([]string, error)
 	// ListGrants returns the session assistant's directory grants (may be empty).
 	ListGrants(ctx context.Context, actor Actor) ([]DirGrantView, error)
+	// RenameHost renames or moves within grants (os.Rename).
+	RenameHost(ctx context.Context, actor Actor, fromAbs, toAbs string) error
+	// MoveHost moves a path; falls back to copy+delete across devices.
+	MoveHost(ctx context.Context, actor Actor, fromAbs, toAbs string) error
+	// CopyHost copies a file or directory tree (skips dot entries).
+	CopyHost(ctx context.Context, actor Actor, fromAbs, toAbs string) error
+	// MkdirHost creates absPath and parents (MkdirAll).
+	MkdirHost(ctx context.Context, actor Actor, absPath string) error
+	// DeleteHost removes a file or directory. Non-empty dirs need recursive.
+	DeleteHost(ctx context.Context, actor Actor, absPath string, recursive bool) error
 }
 
 // hostReservedPrefixes are virtual filesystems that never hold user data.

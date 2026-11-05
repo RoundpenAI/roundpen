@@ -113,6 +113,87 @@ func TestOpenHostDeniedForAnotherUser(t *testing.T) {
 	}
 }
 
+func TestRenameHostRequiresReadwrite(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.txt")
+	writeFile(t, src, "x")
+	access, actor := newAccess([]assistant.DirectoryGrant{{Path: dir, Mode: "read"}})
+	err := access.ForSession("s1").RenameHost(context.Background(), actor, src, filepath.Join(dir, "b.txt"))
+	if err == nil || !strings.Contains(err.Error(), "host write denied") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestRenameHostOK(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.txt")
+	dst := filepath.Join(dir, "b.txt")
+	writeFile(t, src, "hello")
+	access, actor := newAccess([]assistant.DirectoryGrant{{Path: dir, Mode: "readwrite"}})
+	if err := access.ForSession("s1").RenameHost(context.Background(), actor, src, dst); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil || string(raw) != "hello" {
+		t.Fatalf("dst=%q err=%v", raw, err)
+	}
+}
+
+func TestCopyAndDeleteHost(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "a.txt")
+	dst := filepath.Join(dir, "sub", "b.txt")
+	writeFile(t, src, "copy-me")
+	access, actor := newAccess([]assistant.DirectoryGrant{{Path: dir, Mode: "readwrite"}})
+	host := access.ForSession("s1")
+	ctx := context.Background()
+	if err := host.CopyHost(ctx, actor, src, dst); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil || string(raw) != "copy-me" {
+		t.Fatalf("copied=%q err=%v", raw, err)
+	}
+	if err := host.DeleteHost(ctx, actor, dst, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Fatalf("expected deleted, err=%v", err)
+	}
+}
+
+func TestMkdirHostNested(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "memories", "2026")
+	access, actor := newAccess([]assistant.DirectoryGrant{{Path: dir, Mode: "readwrite"}})
+	if err := access.ForSession("s1").MkdirHost(context.Background(), actor, nested); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(nested)
+	if err != nil || !fi.IsDir() {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+}
+
+func TestDeleteHostNonEmptyNeedsRecursive(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a.txt"), "x")
+	access, actor := newAccess([]assistant.DirectoryGrant{{Path: dir, Mode: "readwrite"}})
+	// Deleting the grant root itself is allowed with recursive when it has files.
+	sub := filepath.Join(dir, "folder")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(sub, "a.txt"), "x")
+	err := access.ForSession("s1").DeleteHost(context.Background(), actor, sub, false)
+	if err == nil || !strings.Contains(err.Error(), "recursive") {
+		t.Fatalf("err=%v", err)
+	}
+	if err := access.ForSession("s1").DeleteHost(context.Background(), actor, sub, true); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOpenHostDeniedWithoutAssistant(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "a.txt"), "x")
