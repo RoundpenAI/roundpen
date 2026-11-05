@@ -613,7 +613,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'nasScene.status.missing': '缺失',
   'nasScene.dlTitle': '下载客户端',
   'nasScene.dlBlurb':
-    '配置 qBittorrent Web UI（或 webhook）。影视/音乐助手在你确认后把磁力/链接投递到这里。',
+    '配置 qBittorrent Web UI（或 webhook）。影视/音乐助手在你确认后把磁力/链接投递到这里。飞牛暂无公开的下载中心 OpenAPI；桌面端可用 OpenHostPath 调系统打开/文件管理 SDK。',
   'nasScene.dlName': '名称',
   'nasScene.dlBaseUrl': '地址（如 http://127.0.0.1:8080）',
   'nasScene.dlUser': '用户名',

@@ -105,6 +105,7 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 		RegisterHostWrite(reg, s.Agent)
 		RegisterOnThisDay(reg, s.Agent)
 		RegisterMediaLib(reg, s.Agent)
+		RegisterFnosOpen(reg, s.Agent)
 		RegisterReadImage(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
 		RegisterGitPR(reg, s.Agent)

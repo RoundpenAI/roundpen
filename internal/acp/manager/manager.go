@@ -71,6 +71,9 @@ type SysDeps struct {
 	// Downloads lists user download backends (nil skips download tools).
 	Downloads tools.DownloadBackends
 
+	// FnosPaths labels host paths via fnOS convertPath (nil skips display labels).
+	FnosPaths tools.FnosPaths
+
 	History sysagent.MessageSource
 
 	// AutoMode classifies tool calls when the chat permission mode is
@@ -334,6 +337,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			Slots: agentSlots,
 			Exec:  m.sandboxes,
 			Files: m.sandboxes,
+			Fnos:  m.sys.FnosPaths,
 			Cwd:   strings.TrimSpace(opts.Project.Cwd),
 		}
 		if m.sys.HostFiles != nil {

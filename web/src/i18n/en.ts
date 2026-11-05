@@ -626,7 +626,7 @@ export const en = {
   'nasScene.status.missing': 'missing',
   'nasScene.dlTitle': 'Download clients',
   'nasScene.dlBlurb':
-    'qBittorrent Web UI (or a webhook). Media assistants submit magnets/URLs here after you confirm.',
+    'qBittorrent Web UI (or a webhook). Media assistants submit magnets/URLs here after you confirm. fnOS has no public download-center API yet; on the desktop, OpenHostPath uses the system open/file-manager SDK.',
   'nasScene.dlName': 'Name',
   'nasScene.dlBaseUrl': 'Base URL (e.g. http://127.0.0.1:8080)',
   'nasScene.dlUser': 'Username',

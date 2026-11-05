@@ -195,7 +195,7 @@ Agent 工具（示意）：
 2. **搜源**：对缺口条目发起联网搜索与浏览器辅助（登录态站点依赖用户自己的 Browser 会话，与 routines 设计一致：缺登录则降级说明）。
 3. **元数据（可选 P1.5）**：TMDB / TVDB / MusicBrainz 等公开 API 做识别与命名建议；海报 NFO 非必须。
 
-播放：`RevealInFiles` / 返回绝对路径；若 fnOS 有官方打开/播放 API 再加 `OpenInSystemPlayer`（P2）。
+播放 / 打开：Agent 工具 `OpenHostPath`（action=`open`|`details`|`manager`）→ 控制台在飞牛桌面调用 Trim JS SDK（`openFile` / `showFileDetails` / `openFileManager`）。飞牛开放文档目前**无**下载中心后端 API，投递下载仍走用户配置的 qBittorrent / webhook。
 
 ---
 

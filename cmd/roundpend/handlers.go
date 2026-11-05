@@ -607,6 +607,7 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 		},
 		HostFiles: hostRead.ForSession,
 		Downloads: downloadStore,
+		FnosPaths: fnosPathsFromEnv(),
 		UserContext: func(ctx context.Context, userID string) string {
 			if users == nil || strings.TrimSpace(userID) == "" {
 				return ""
@@ -974,6 +975,14 @@ type boardScanACP struct {
 func (b boardScanACP) PromptBoard(ctx context.Context, sessionID, text string) error {
 	_, err := b.M.Prompt(ctx, sessionID, text)
 	return err
+}
+
+func fnosPathsFromEnv() tools.FnosPaths {
+	c := fnosfile.FromEnv()
+	if c == nil || !c.Enabled() {
+		return nil
+	}
+	return fnosfile.Paths{Client: c}
 }
 
 func checkBoundFolder(ctx context.Context, users storage.UserStore, files *fnosfile.Client, userID, root string, write bool) error {

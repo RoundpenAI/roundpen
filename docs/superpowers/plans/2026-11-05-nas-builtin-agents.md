@@ -21,7 +21,7 @@
 | M2 | Scene pack ensure + settings | done |
 | M3 | Download backend (qBittorrent) | done |
 | M4 | ScanTVGaps + find-media / on-this-day / organize-files skills | done |
-| M5 | fnOS download/open APIs | pending |
+| M5 | fnOS openFile / file manager (Trim SDK) + path labels | done |
 
 ---
 
