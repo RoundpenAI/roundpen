@@ -214,6 +214,27 @@ func (s *sessionAccess) CopyHost(ctx context.Context, actor tools.Actor, fromAbs
 	return copyPath(from, to)
 }
 
+// PublishHost copies a trusted control-plane path (typically the Agent
+// workspace host bind) into a readwrite-granted destination. The source is
+// not checked against directory grants — callers must already confine it.
+func (s *sessionAccess) PublishHost(ctx context.Context, actor tools.Actor, fromAbs, toAbs string) error {
+	from := filepath.Clean(strings.TrimSpace(fromAbs))
+	if from == "" || from == "." || from == "/" {
+		return fmt.Errorf("publish source is required")
+	}
+	if _, err := os.Lstat(from); err != nil {
+		return err
+	}
+	to, err := s.authorize(ctx, actor, toAbs, "readwrite", false)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	return copyPath(from, to)
+}
+
 func (s *sessionAccess) MkdirHost(ctx context.Context, actor tools.Actor, absPath string) error {
 	to, err := s.authorize(ctx, actor, absPath, "readwrite", false)
 	if err != nil {
