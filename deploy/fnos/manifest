@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 2.5.2：重启后未完成的工具调用会标为失败，不再一直转圈；助手授权目录支持飞牛选文件夹。
+changelog             = 2.5.3：修复可见范围选完文件夹不写入的问题；已授权目录改为明确的「添加」按钮。
