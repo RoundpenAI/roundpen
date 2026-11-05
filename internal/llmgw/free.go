@@ -14,9 +14,10 @@ const (
 	// FreeItemID is the built-in FREE cloud provider; cannot be deleted.
 	FreeItemID = "roundpen-free"
 
-	// DefaultFreeBaseURL is the fixed Roundpen FREE cloud entry.
-	// ROUNDPEN_FREE_LLM_BASE_URL may override for ops; product builds always ship this.
-	DefaultFreeBaseURL = "https://api.ttz.ac.cn"
+	// DefaultFreeBaseURL is the fixed Roundpen FREE cloud entry (Cloudflare Worker
+	// on auth.eaxi.com). Clients append /v1/chat/completions. ROUNDPEN_FREE_LLM_BASE_URL
+	// may override for ops; product builds always ship this.
+	DefaultFreeBaseURL = "https://auth.eaxi.com/llm"
 
 	// AuthModeAPIKey is the default: use the stored upstream apiKey.
 	AuthModeAPIKey = "api_key"
@@ -118,22 +119,64 @@ func NeedsFreeBootstrap(snap *settingitems.Snapshot) bool {
 }
 
 // EnsureDefaultFree enables the gateway (when enable is non-nil) and seeds the
-// built-in FREE provider when no default/sysagent binding exists. It is a no-op
-// once any LLM slot is already bound, so BYOK and intentional gateway-off
-// installs are not overwritten on restart.
+// built-in FREE provider when no default/sysagent binding exists. When slots are
+// already bound it still refreshes the built-in FREE item's cloud base URL so
+// endpoint moves (e.g. api.ttz → auth.eaxi.com/llm) apply without re-bootstrap.
+// BYOK bindings are left alone.
 func EnsureDefaultFree(ctx context.Context, cat *settingitems.Catalog, env FreeEnv, enable func(context.Context) error) error {
 	if cat == nil {
 		return fmt.Errorf("llmgw: catalog required")
 	}
-	if !NeedsFreeBootstrap(cat.Snapshot()) {
+	if NeedsFreeBootstrap(cat.Snapshot()) {
+		if enable != nil {
+			if err := enable(ctx); err != nil {
+				return fmt.Errorf("llmgw: enable gateway: %w", err)
+			}
+		}
+		return SeedFree(ctx, cat, env)
+	}
+	return RefreshFreeCloudEntry(ctx, cat, env)
+}
+
+// RefreshFreeCloudEntry updates baseUrl/defaultModel on the built-in FREE item
+// when it still uses install_identity. Missing FREE item is a no-op.
+func RefreshFreeCloudEntry(ctx context.Context, cat *settingitems.Catalog, env FreeEnv) error {
+	if cat == nil {
 		return nil
 	}
-	if enable != nil {
-		if err := enable(ctx); err != nil {
-			return fmt.Errorf("llmgw: enable gateway: %w", err)
-		}
+	if env.BaseURL == "" {
+		env.BaseURL = DefaultFreeBaseURL
 	}
-	return SeedFree(ctx, cat, env)
+	if env.Model == "" {
+		env.Model = "roundpen-free"
+	}
+	snap := cat.Snapshot()
+	it, ok := snap.Item(settingitems.KindLLM, FreeItemID)
+	if !ok || it.String("authMode") != AuthModeInstallIdentity {
+		return nil
+	}
+	if it.String("baseUrl") == env.BaseURL && it.String("defaultModel") == env.Model {
+		return nil
+	}
+	cfg := map[string]any{}
+	for k, v := range it.Config {
+		cfg[k] = v
+	}
+	cfg["baseUrl"] = env.BaseURL
+	cfg["defaultModel"] = env.Model
+	cfg["authMode"] = AuthModeInstallIdentity
+	_, err := cat.Save(ctx, settingitems.Item{
+		Kind:        settingitems.KindLLM,
+		ID:          FreeItemID,
+		Name:        it.Name,
+		Description: it.Description,
+		Enabled:     it.Enabled,
+		Config:      cfg,
+	})
+	if err != nil {
+		return fmt.Errorf("llmgw: refresh free entry: %w", err)
+	}
+	return nil
 }
 
 // ModeOf reports free|byok|none from gateway enablement and slot bindings.

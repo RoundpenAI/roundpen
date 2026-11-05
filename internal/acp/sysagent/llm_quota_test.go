@@ -47,7 +47,7 @@ func TestChatStreamMaps401InstallAuthToInstallAuthFailed(t *testing.T) {
 	if !strings.Contains(err.Error(), "系统管理 → 模型配置") {
 		t.Fatalf("message should point at 模型配置: %v", err)
 	}
-	if !strings.Contains(err.Error(), "安装身份已失效") {
+	if !strings.Contains(err.Error(), "安装身份校验失败") {
 		t.Fatalf("message should explain install identity: %v", err)
 	}
 }

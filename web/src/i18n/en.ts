@@ -278,7 +278,7 @@ export const en = {
   'settings.llmgw.intro':
     'Add FREE, DeepSeek, Kimi, GLM, OpenRouter, or a custom endpoint and set one as default — Agents and chat use it automatically. Built-in platforms need an API key and a model; custom also needs protocol and base URL. Keys are injected into Docker agents only.',
   'settings.llmgw.modeHint':
-    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → Model config for production; quota exhaustion or install-identity failure after reinstall cues the same path.',
+    'Free trial (built-in roundpen-free, rate-limited by install identity) is enabled with zero config on first boot. Prefer BYOK under System admin → Model config for production; quota exhaustion cues the same path.',
   'settings.llmgw.enable':
     'Enable relay (required for Agent Chats & memory embeddings)',
   'settings.llmgw.upstreamTitle': '1 · Upstream providers',
@@ -611,6 +611,30 @@ export const en = {
   'settings.itemField.modelMap': 'Model aliases (JSON)',
   'settings.itemField.modelPatterns': 'Model patterns (JSON)',
   'settings.section.slots': 'My services',
+  'settings.section.nas': 'Home NAS assistants',
+  'nasScene.title': 'Home NAS assistants',
+  'nasScene.blurb':
+    'Photo, files, movies, and music assistants for organizing NAS libraries and driving your downloaders. Enabled automatically when you sign in through fnOS.',
+  'nasScene.enable': 'Enable scene pack',
+  'nasScene.enableHint': 'Creates four assistants in the sidebar. Turning off disables them without deleting chat history.',
+  'nasScene.restore': 'Restore missing assistants',
+  'nasScene.loadFailed': 'Failed to load NAS scene pack.',
+  'nasScene.saveFailed': 'Failed to update NAS scene pack.',
+  'nasScene.restoreFailed': 'Failed to restore assistants.',
+  'nasScene.status.active': 'active',
+  'nasScene.status.disabled': 'disabled',
+  'nasScene.status.missing': 'missing',
+  'nasScene.dlTitle': 'Download clients',
+  'nasScene.dlBlurb':
+    'qBittorrent Web UI (or a webhook). Media assistants submit magnets/URLs here after you confirm. fnOS has no public download-center API yet; on the desktop, OpenHostPath uses the system open/file-manager SDK.',
+  'nasScene.dlName': 'Name',
+  'nasScene.dlBaseUrl': 'Base URL (e.g. http://127.0.0.1:8080)',
+  'nasScene.dlUser': 'Username',
+  'nasScene.dlPassword': 'Password',
+  'nasScene.dlSavePath': 'Default save path (absolute, under a readwrite grant)',
+  'nasScene.dlAdd': 'Add qBittorrent',
+  'nasScene.dlRemove': 'Remove',
+  'nasScene.dlSaveFailed': 'Failed to update download client.',
   'personalSlots.title': 'My services',
   'personalSlots.intro':
     'Pick your own provider for a usage point, or inherit the platform default. Changing a sandbox-backed slot rebuilds its environment.',

@@ -1,5 +1,6 @@
 import { browserError } from './html'
 import { pkcePair } from './github'
+import { forwardLLM, isLLMPath } from './llm'
 import {
   providerFromCallback,
   providerFromRefresh,
@@ -26,6 +27,13 @@ export default {
       if (providerFromCallback(url.pathname)) {
         return browserError('Authorization failed', msg)
       }
+      if (isLLMPath(url.pathname)) {
+        const status = /malformed|expired|signature|could not register/i.test(msg) ? 401 : 400
+        return new Response(msg.startsWith('install auth:') ? msg : `install auth: ${msg}`, {
+          status,
+          headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+        })
+      }
       return json({ error: msg }, 400)
     }
   },
@@ -34,7 +42,10 @@ export default {
 async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url)
   if (req.method === 'GET' && url.pathname === '/health') {
-    return json({ ok: true })
+    return json({ ok: true, llm: Boolean(env.LLM_UPSTREAM_API_KEY) })
+  }
+  if (isLLMPath(url.pathname)) {
+    return llm(req, env)
   }
   const startId = providerFromStart(url.pathname)
   if (startId && (req.method === 'POST' || req.method === 'GET')) {
@@ -52,7 +63,61 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (take && req.method === 'GET') {
     return takeTicket(req, env, take[1])
   }
+  if (req.method === 'POST' && url.pathname === '/admin/installs/reset-tofu') {
+    return resetTofu(req, env)
+  }
   return json({ error: 'not found' }, 404)
+}
+
+async function llm(req: Request, env: Env): Promise<Response> {
+  if (!env.LLM_UPSTREAM_API_KEY) {
+    return new Response('free llm upstream is not configured', {
+      status: 503,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    })
+  }
+  const clientIP = (req.headers.get('CF-Connecting-IP') || '').trim()
+  const inst = await verifyInstall(req, env, {
+    clientIP,
+    registerPerIPPerDay: Number(env.LLM_REGISTER_PER_IP_PER_DAY || '20'),
+    llmAuth: true,
+  })
+  const limit = Number(env.LLM_REQUESTS_PER_HOUR || '120')
+  if (limit > 0) {
+    const rate = await installFetch(env, '/rate', { installId: inst.installId, limit })
+    if (rate.status === 429) {
+      return new Response('free quota exceeded', {
+        status: 429,
+        headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' },
+      })
+    }
+    if (!rate.ok) {
+      return new Response('rate limiter unavailable', { status: 503 })
+    }
+  }
+  return forwardLLM(req, env, {
+    installId: inst.installId,
+    upstreamBase: (env.LLM_UPSTREAM_BASE || 'https://openrouter.ai/api/v1').replace(/\/+$/, ''),
+    apiKey: env.LLM_UPSTREAM_API_KEY,
+    mappedModel: env.LLM_UPSTREAM_MODEL || 'openrouter/free',
+  })
+}
+
+/** Clears the TOFU public key for an install_id so the next start can re-register.
+ *  Auth: Authorization Bearer must equal STATE_SECRET (maintainer only). */
+async function resetTofu(req: Request, env: Env): Promise<Response> {
+  if (!env.STATE_SECRET || bearer(req) !== env.STATE_SECRET) {
+    return json({ error: 'unauthorized' }, 401)
+  }
+  const raw = await req.json().catch(() => null)
+  const installId =
+    raw && typeof raw === 'object' ? String((raw as { installId?: unknown }).installId || '').trim() : ''
+  if (!installId) {
+    return json({ error: 'installId is required' }, 400)
+  }
+  const res = await installFetch(env, '/reset-tofu', { installId })
+  const body = await res.json().catch(() => ({ error: 'reset failed' }))
+  return json(body, res.ok ? 200 : res.status === 404 ? 404 : 400)
 }
 
 async function start(req: Request, env: Env, providerId: string): Promise<Response> {
@@ -262,19 +327,30 @@ async function readStart(req: Request): Promise<StartBody> {
   }
 }
 
-async function verifyInstall(req: Request, env: Env): Promise<{ installId: string }> {
+async function verifyInstall(
+  req: Request,
+  env: Env,
+  opts?: { clientIP?: string; registerPerIPPerDay?: number; llmAuth?: boolean },
+): Promise<{ installId: string }> {
   const token = bearer(req)
   const pub = (req.headers.get('X-Roundpen-Install-Pub') || '').trim()
   if (!token || !pub) {
     throw new Error('Authorization Bearer rp1 token and X-Roundpen-Install-Pub are required')
   }
   const parsed = await verifyRp1(token, pub, Math.floor(Date.now() / 1000))
-  const tofu = await installFetch(env, '/tofu', { installId: parsed.installId, publicKeyHex: pub })
-  if (tofu.status === 403) {
-    throw new Error('this install_id is already bound to a different public key')
+  const tofuBody: Record<string, unknown> = { installId: parsed.installId, publicKeyHex: pub }
+  if (opts?.clientIP) tofuBody.clientIP = opts.clientIP
+  if (opts?.registerPerIPPerDay) tofuBody.registerPerIPPerDay = opts.registerPerIPPerDay
+  const tofu = await installFetch(env, '/tofu', tofuBody)
+  if (tofu.status === 429) {
+    throw new Error('install auth: too many new installs from this IP today')
   }
   if (!tofu.ok) {
-    throw new Error('could not register install identity')
+    throw new Error(
+      opts?.llmAuth
+        ? 'install auth: could not register install identity'
+        : 'could not register install identity with the OAuth relay',
+    )
   }
   return { installId: parsed.installId }
 }

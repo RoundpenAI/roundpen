@@ -40,6 +40,22 @@ func (f *fakeHost) ListGrants(_ context.Context, _ tools.Actor) ([]tools.DirGran
 	return []tools.DirGrantView{{Path: "/vol1/share", Mode: "read"}}, nil
 }
 
+func (f *fakeHost) RenameHost(context.Context, tools.Actor, string, string) error {
+	return fmt.Errorf("rename not stubbed")
+}
+func (f *fakeHost) MoveHost(context.Context, tools.Actor, string, string) error {
+	return fmt.Errorf("move not stubbed")
+}
+func (f *fakeHost) CopyHost(context.Context, tools.Actor, string, string) error {
+	return fmt.Errorf("copy not stubbed")
+}
+func (f *fakeHost) MkdirHost(context.Context, tools.Actor, string) error {
+	return fmt.Errorf("mkdir not stubbed")
+}
+func (f *fakeHost) DeleteHost(context.Context, tools.Actor, string, bool) error {
+	return fmt.Errorf("delete not stubbed")
+}
+
 type fakeInfo struct{ isDir bool }
 
 func (f fakeInfo) Name() string       { return "note.md" }

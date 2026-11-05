@@ -29,6 +29,8 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/issuescan"
 	"github.com/RoundpenAI/roundpen/internal/llmgw"
 	"github.com/RoundpenAI/roundpen/internal/memory"
+	"github.com/RoundpenAI/roundpen/internal/download"
+	"github.com/RoundpenAI/roundpen/internal/nasscene"
 	"github.com/RoundpenAI/roundpen/internal/oauth"
 	"github.com/RoundpenAI/roundpen/internal/plugins"
 	"github.com/RoundpenAI/roundpen/internal/policy"
@@ -272,7 +274,8 @@ func main() {
 	autoEvaluator := newAutoEvaluator(loopback, settingsSvc, gw, itemsCat)
 
 	routineStore := &routine.Store{DB: db.SQL}
-	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, mcpSvc, routineStore, userStore, logger)
+	downloadStore := &download.Store{DB: db.SQL}
+	acpMgr := newACPManager(loopback, cfg.PreviewDomain, mgr, envSvc, tplSvc, browserHub, agentStore, assistantStore, settingsSvc, gw, autoEvaluator, itemsCat, connectorsSvc, mcpSvc, routineStore, userStore, downloadStore, logger)
 
 	pushSvc := newPushService(cfg, db, logger)
 	if pushSvc != nil {
@@ -401,6 +404,7 @@ func main() {
 		logger.Info("ROUNDPEN_IM_ENABLED is off — IM engines skipped (set it to true to start them)")
 	}
 
+	nasSceneStore := &nasscene.Store{DB: db.SQL, Assistants: assistantStore}
 	asstHandler := &assistant.Handler{
 		Store:    assistantStore,
 		Sessions: agentStore,
@@ -412,8 +416,21 @@ func main() {
 			_ = routineStore.PauseByAssignee(ctx, assistantID)
 		},
 		OnTicketResolved: routineRunner.HandleTicket,
+		OnList: func(ctx context.Context, user *storage.User) error {
+			if user == nil {
+				return nil
+			}
+			on, err := nasSceneStore.Enabled(ctx, user.Username, user.AuthProvider)
+			if err != nil || !on {
+				return err
+			}
+			_, err = nasSceneStore.Ensure(ctx, user.Username)
+			return err
+		},
 	}
 	asstHandler.Mount(mux)
+	(&nasscene.Handler{Store: nasSceneStore}).Mount(mux)
+	(&download.Handler{Store: downloadStore}).Mount(mux)
 	if imSup != nil {
 		routineRunner.Notify = imSup.Notify
 	}

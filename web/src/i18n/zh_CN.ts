@@ -274,7 +274,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.llmgw.intro':
     '添加 FREE、DeepSeek、Kimi、GLM、OpenRouter 或自定义接口，选中一条为默认即可；Agent 与对话会自动使用它。内置平台只需 API Key 和模型，自定义再填协议与地址。密钥只注入 Docker 里的 Agent，不对外发放。',
   'settings.llmgw.modeHint':
-    '默认零配置启用「免费试用」（内置 roundpen-free，按安装身份限频）。生产环境建议在系统管理 → 模型配置改绑自己的 API Key；额度用尽或重装后安装身份失效时也会提示改绑。',
+    '默认零配置启用「免费试用」（内置 roundpen-free，按安装身份限频）。生产环境建议在系统管理 → 模型配置改绑自己的 API Key；额度用尽时也会提示改绑。',
   'settings.llmgw.enable': '启用中继（Agent 对话与记忆嵌入所需）',
   'settings.llmgw.upstreamTitle': '模型提供商',
   'settings.llmgw.upstreamHint':
@@ -598,6 +598,30 @@ export const zh_CN: Record<MessageKey, string> = {
   'settings.itemField.modelMap': '模型别名（JSON）',
   'settings.itemField.modelPatterns': '模型匹配规则（JSON）',
   'settings.section.slots': '我的服务',
+  'settings.section.nas': '家庭 NAS 助手',
+  'nasScene.title': '家庭 NAS 助手',
+  'nasScene.blurb':
+    '相册、文件、影视、音乐四个助手，用于整理 NAS 资料并驱动下载器。通过飞牛登录时默认开启。',
+  'nasScene.enable': '启用场景包',
+  'nasScene.enableHint': '在助手侧边创建四个助手。关闭会停用它们，不删除对话历史。',
+  'nasScene.restore': '恢复缺失的助手',
+  'nasScene.loadFailed': '加载家庭 NAS 助手失败。',
+  'nasScene.saveFailed': '更新家庭 NAS 助手失败。',
+  'nasScene.restoreFailed': '恢复助手失败。',
+  'nasScene.status.active': '已启用',
+  'nasScene.status.disabled': '已停用',
+  'nasScene.status.missing': '缺失',
+  'nasScene.dlTitle': '下载客户端',
+  'nasScene.dlBlurb':
+    '配置 qBittorrent Web UI（或 webhook）。影视/音乐助手在你确认后把磁力/链接投递到这里。飞牛暂无公开的下载中心 OpenAPI；桌面端可用 OpenHostPath 调系统打开/文件管理 SDK。',
+  'nasScene.dlName': '名称',
+  'nasScene.dlBaseUrl': '地址（如 http://127.0.0.1:8080）',
+  'nasScene.dlUser': '用户名',
+  'nasScene.dlPassword': '密码',
+  'nasScene.dlSavePath': '默认保存路径（绝对路径，须在读写授权内）',
+  'nasScene.dlAdd': '添加 qBittorrent',
+  'nasScene.dlRemove': '删除',
+  'nasScene.dlSaveFailed': '更新下载客户端失败。',
   'personalSlots.title': '我的服务',
   'personalSlots.intro':
     '为每个使用点选择自己的后端，或继承平台默认。改动会影响沙箱的槽位会触发环境重建。',

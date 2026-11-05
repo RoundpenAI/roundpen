@@ -42,6 +42,8 @@ type AgentBinder struct {
 	Files WorkspaceFiles
 	// Host serves reads of granted host directories (NAS shares); nil disables them.
 	Host HostFiles
+	// Fnos optionally labels host paths via trim.file.convertPath (fnOS installs).
+	Fnos FnosPaths
 	// Cwd is the guest absolute default working directory (e.g. /workspace/projects/foo).
 	// Empty means WorkspaceRoot (/workspace).
 	Cwd string

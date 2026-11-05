@@ -18,6 +18,11 @@ GITHUB_CLIENT_ID = "Iv23li11t0t1iZ5ihypP"
 GOOGLE_CLIENT_ID = "551207944575-1bftnpfas6umkitckdvu2hu023f3ubdh.apps.googleusercontent.com"
 GOOGLE_SCOPES = "openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly"
 TICKET_TTL_SECONDS = "60"
+# FREE LLM (OpenAI-compatible). API key via: npx wrangler secret put LLM_UPSTREAM_API_KEY
+LLM_UPSTREAM_BASE = "https://openrouter.ai/api/v1"
+LLM_UPSTREAM_MODEL = "openrouter/free"
+LLM_REQUESTS_PER_HOUR = "120"
+LLM_REGISTER_PER_IP_PER_DAY = "20"
 
 [[durable_objects.bindings]]
 name = "TICKETS"

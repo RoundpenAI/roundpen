@@ -40,6 +40,8 @@ type Handler struct {
 	OnDisabled func(ctx context.Context, assistantID string)
 	// OnTicketResolved runs after an assist ticket is resolved.
 	OnTicketResolved func(ctx context.Context, t *assistticket.Ticket)
+	// OnList runs after EnsureSystem (e.g. seed NAS scene-pack assistants).
+	OnList func(ctx context.Context, user *storage.User) error
 }
 
 // Mount registers routes.
@@ -72,6 +74,12 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.Sessions != nil && sys != nil {
 		if _, err := h.Store.AttachOrphanSessions(r.Context(), user.Username, sys.ID); err != nil {
+			httpx.WriteErrOrInternal(w, r, err, nil)
+			return
+		}
+	}
+	if h.OnList != nil {
+		if err := h.OnList(r.Context(), user); err != nil {
 			httpx.WriteErrOrInternal(w, r, err, nil)
 			return
 		}

@@ -313,7 +313,7 @@ func (s *Service) relayJSON(ctx context.Context, method, path string, payload an
 		return err
 	}
 	if res.StatusCode != http.StatusOK {
-		return fmt.Errorf("oauth relay %s: http %d", path, res.StatusCode)
+		return errors.New(httpx.FormatRelayError(path, res.StatusCode, raw))
 	}
 	if dest == nil {
 		return nil

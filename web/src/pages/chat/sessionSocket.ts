@@ -403,6 +403,20 @@ export function connectChatSocket(
             setBrowserSeen(true)
             if (e.type === 'tool_call') setShowBrowser(true)
           }
+          if (
+            status === 'completed' &&
+            /^openhostpath\b/i.test(title.split(/[·—-]/)[0]?.trim() || title)
+          ) {
+            void import('../../lib/fnosHost').then(async ({ parseFnosClientAction, fulfillFnosOpen }) => {
+              const action = parseFnosClientAction(e.output)
+              if (!action) return
+              try {
+                await fulfillFnosOpen(action)
+              } catch {
+                // Standalone / missing SDK — path remains in the tool card.
+              }
+            })
+          }
           setStatusHint('工作中')
           setMessages((prev) =>
             upsertToolMessage(finalizeOpenThoughts(prev), id, {

@@ -106,6 +106,48 @@ func DefaultSkills() []Skill {
 2. Combine what was already completed, what is in progress, and what remains.
 3. Output a concise structured summary the user can resume from.`,
 		},
+		{
+			Name:        "on-this-day",
+			Description: "Find photos from today in prior years under granted NAS folders and optionally copy them.",
+			AllowedTools: []string{
+				"ListDirectoryGrants", "OnThisDay", "ReadImage", "HostMkdir", "HostCopy", "HostApplyPlan", "OpenHostPath", "AskUserQuestion",
+			},
+			Prompt: `Organize "on this day" photos on the NAS:
+1. ListDirectoryGrants — if empty, ask the user to authorize a photos folder (and a memories destination with readwrite).
+2. OnThisDay (optional years_ago) to list matches; ReadImage a few highlights.
+3. Propose a HostApplyPlan / HostCopy into a memories folder; wait for confirmation before mutating.
+4. Optionally OpenHostPath to reveal a photo in the fnOS file manager. Summarize what was found and what was copied.`,
+			Params: true,
+		},
+		{
+			Name:        "organize-files",
+			Description: "Plan batch renames, moves, or dedupe suggestions on granted NAS paths.",
+			AllowedTools: []string{
+				"ListDirectoryGrants", "Glob", "Read", "HostApplyPlan", "HostRename", "HostMove", "HostDelete", "AskUserQuestion",
+			},
+			Prompt: `Organize host files under directory grants:
+1. Confirm the target root via ListDirectoryGrants / Glob.
+2. Draft a HostApplyPlan (rename/move/mkdir/delete) — never run silent bulk deletes.
+3. Show the plan, get approval, then HostApplyPlan.
+4. Report applied ops and anything skipped.`,
+			Params: true,
+		},
+		{
+			Name:        "find-media",
+			Description: "Find download sources for missing movie/TV/music items and submit to a configured downloader.",
+			AllowedTools: []string{
+				"ListDirectoryGrants", "ScanTVGaps", "ListDownloadBackends", "SubmitDownload", "ListDownloadTasks",
+				"WebSearch", "WebFetch", "browser_navigate", "browser_snapshot", "AskUserQuestion", "HostApplyPlan",
+				"OpenHostPath",
+			},
+			Prompt: `Help complete a media library (search → confirm → download):
+1. ListDirectoryGrants and ListDownloadBackends. If no downloader, tell the user to add qBittorrent under Settings → Home NAS assistants (fnOS has no public download-center API yet).
+2. For TV, ScanTVGaps on the show folder; for movies/music, ask what is missing.
+3. Use WebSearch / Browser to gather candidate sources (do not invent piracy site lists). Present a short candidate table.
+4. After the user picks one, SubmitDownload with a save_path inside a readwrite grant.
+5. Optionally HostApplyPlan to rename after download. For playback/reveal on fnOS, call OpenHostPath (action=open|manager).`,
+			Params: true,
+		},
 	}
 }
 

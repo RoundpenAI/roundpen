@@ -10,6 +10,16 @@ export interface Env {
   GOOGLE_CLIENT_ID: string
   GOOGLE_CLIENT_SECRET: string
   STATE_SECRET: string
+  /** OpenAI-compatible FREE upstream (e.g. https://openrouter.ai/api/v1). */
+  LLM_UPSTREAM_BASE?: string
+  /** Secret upstream API key for FREE relay. */
+  LLM_UPSTREAM_API_KEY?: string
+  /** Upstream model id when NAS sends roundpen-free. */
+  LLM_UPSTREAM_MODEL?: string
+  /** Max FREE chat requests per install_id per hour. */
+  LLM_REQUESTS_PER_HOUR?: string
+  /** Max new TOFU registrations per client IP per UTC day. */
+  LLM_REGISTER_PER_IP_PER_DAY?: string
 }
 
 export type StartBody = {

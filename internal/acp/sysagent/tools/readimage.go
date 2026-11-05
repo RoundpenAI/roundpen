@@ -50,7 +50,8 @@ func RegisterReadImage(r *Registry, binder *AgentBinder) {
 	})
 	r.Register(Tool{
 		Name: "ListDirectoryGrants",
-		Description: "List host directories this assistant is authorized to read (NAS shares). " +
+		Description: "List host directories this assistant is authorized to access (NAS shares), with mode read or readwrite. " +
+			"HostRename/Move/Copy/Mkdir/Delete/HostApplyPlan need readwrite. " +
 			"Empty means only /workspace is available until the user adds grants in the assistant detail page.",
 		Parameters: objectSchema(map[string]any{}),
 		Call: func(ctx context.Context, actor Actor, _ json.RawMessage) (string, error) {
