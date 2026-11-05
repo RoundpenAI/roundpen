@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 2.5.7：新窗口打开时也可选择文件夹授权（走 openAppAuth 回调）。
+changelog             = 2.5.8：修复新窗口选文件夹后卡在「正在返回应用」——回调页改外置脚本以通过 CSP。
