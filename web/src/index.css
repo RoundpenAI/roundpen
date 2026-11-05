@@ -405,6 +405,21 @@ html.keyboard-open .chat-composer-dock {
   max-width: min(100%, 36rem);
 }
 
+/* Pin the current user question while its answer scrolls underneath.
+   Sibling sticky headers push each other: the next question replaces the
+   previous one at the top of .chat-pane-scroll. Background matches the
+   chat surface so the row only becomes noticeable once content scrolls under. */
+.chat-pane-scroll .semi-ai-chat-dialogue-wrapper:has(> .semi-ai-chat-dialogue-container-right) {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  align-items: flex-start;
+  box-sizing: border-box;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  background: var(--semi-color-bg-1);
+}
+
 .chat-pane-scroll .semi-ai-chat-dialogue-content-bubble:has(.chat-activity-wrap),
 .chat-pane-scroll .semi-ai-chat-dialogue-content-userBubble:has(.chat-activity-wrap),
 .chat-pane-scroll .semi-ai-chat-dialogue-content-no-bubble:has(.chat-activity-wrap) {
