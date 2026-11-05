@@ -73,15 +73,21 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   [[ -z "$line" ]] && continue
   kind="${line%%|*}"
   rest="${line#*|}"
+  sql_quote() {
+    # Escape a string for a single-quoted SQL literal (no psql -v — :'var'
+    # fails under sudo -u postgres when the value is non-ASCII).
+    printf "%s" "$1" | sed "s/'/''/g"
+  }
   case "$kind" in
   shared)
     path="$rest"
-    "${PSQL[@]}" -v path="$path" -c "
+    path_sql="$(sql_quote "$path")"
+    "${PSQL[@]}" -c "
       INSERT INTO app_authorization_path (app_id, path, created_at, updated_at)
-      SELECT ${app_id}, :'path', now(), now()
+      SELECT ${app_id}, '${path_sql}', now(), now()
       WHERE NOT EXISTS (
         SELECT 1 FROM app_authorization_path
-        WHERE app_id = ${app_id} AND path = :'path'
+        WHERE app_id = ${app_id} AND path = '${path_sql}'
       );
     " >/dev/null
     echo "    shared: $path"
@@ -92,13 +98,14 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     case "${perm:-0}" in ''|*[!0-9]*) perm=0 ;; esac
     trimacl_sql="NULL"
     case "${trimacl:-}" in '' ) ;; *[!0-9]* ) ;; *) trimacl_sql="$trimacl" ;; esac
-    "${PSQL[@]}" -v path="$path" -c "
+    path_sql="$(sql_quote "$path")"
+    "${PSQL[@]}" -c "
       INSERT INTO app_user_authorization_path
         (app_id, uid, path, trimacl_perm, created_at, updated_at, perm)
-      SELECT ${app_id}, ${uid}, :'path', ${trimacl_sql}, now(), now(), ${perm}
+      SELECT ${app_id}, ${uid}, '${path_sql}', ${trimacl_sql}, now(), now(), ${perm}
       WHERE NOT EXISTS (
         SELECT 1 FROM app_user_authorization_path
-        WHERE app_id = ${app_id} AND uid = ${uid} AND path = :'path'
+        WHERE app_id = ${app_id} AND uid = ${uid} AND path = '${path_sql}'
       );
     " >/dev/null
     echo "    user uid=$uid: $path"
