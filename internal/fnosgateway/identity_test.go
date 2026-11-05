@@ -31,21 +31,25 @@ func TestFnosUsername(t *testing.T) {
 	}
 }
 
-func TestRoleForIsAdmin(t *testing.T) {
+func TestParseIsAdmin(t *testing.T) {
 	cases := []struct {
-		in   string
-		want storage.UserRole
+		in     string
+		want   storage.UserRole
+		wantOK bool
 	}{
-		{"true", storage.RoleAdmin},
-		{"TRUE", storage.RoleAdmin},
-		{" true ", storage.RoleAdmin},
-		{"false", storage.RoleUser},
-		{"1", storage.RoleUser},
-		{"", storage.RoleUser},
+		{"true", storage.RoleAdmin, true},
+		{"TRUE", storage.RoleAdmin, true},
+		{" true ", storage.RoleAdmin, true},
+		{"false", storage.RoleUser, true},
+		{"FALSE", storage.RoleUser, true},
+		{"1", "", false},
+		{"", "", false},
+		{"yes", "", false},
 	}
 	for _, tc := range cases {
-		if got := roleForIsAdmin(tc.in); got != tc.want {
-			t.Errorf("roleForIsAdmin(%q) = %q, want %q", tc.in, got, tc.want)
+		got, ok := parseIsAdmin(tc.in)
+		if got != tc.want || ok != tc.wantOK {
+			t.Fatalf("parseIsAdmin(%q) = (%q, %v), want (%q, %v)", tc.in, got, ok, tc.want, tc.wantOK)
 		}
 	}
 }
@@ -161,6 +165,42 @@ func TestGatewayIdentity_ReconcilesAdminRole(t *testing.T) {
 	}
 }
 
+// Missing / non-canonical Isadmin must not demote an existing admin (app.sock
+// is world-writable; a probe with Isadmin:1 previously stuck users as user).
+func TestGatewayIdentity_IgnoresUnknownIsadmin(t *testing.T) {
+	users := storage.NewMemoryUserStore()
+	sessions := storage.NewMemorySessionStore()
+	if err := users.Upsert(t.Context(), storage.User{
+		Username: "fnos-1000", Role: storage.RoleAdmin, AuthProvider: "fnos",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h := gatewayIdentity(users, sessions)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for _, raw := range []string{"1", "", "yes"} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("X-Trim-Userid", "1000")
+		if raw != "" {
+			req.Header.Set("X-Trim-Isadmin", raw)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("Isadmin=%q status = %d, want 200", raw, rec.Code)
+		}
+		got, err := users.GetByUsername(t.Context(), "fnos-1000")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Role != storage.RoleAdmin {
+			t.Fatalf("Isadmin=%q demoted role to %q", raw, got.Role)
+		}
+	}
+}
+
 // countingSessions records how many sessions were minted.
 type countingSessions struct {
 	storage.SessionStore
@@ -208,6 +248,53 @@ func TestGatewayIdentity_ReusesExistingSession(t *testing.T) {
 	}
 	if sessions.created != 0 {
 		t.Fatalf("minted %d new sessions for a request with a valid cookie, want 0", sessions.created)
+	}
+}
+
+// Warm sessions must still pick up X-Trim-Isadmin flips (NAS admin ↔ user).
+func TestGatewayIdentity_ReconcilesAdminOnWarmSession(t *testing.T) {
+	users := storage.NewMemoryUserStore()
+	if err := users.Upsert(t.Context(), storage.User{
+		Username: "fnos-1000", Role: storage.RoleUser, AuthProvider: "fnos",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sessions := &countingSessions{SessionStore: storage.NewMemorySessionStore()}
+	plain, hash, err := auth.NewSessionToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := sessions.Create(t.Context(), storage.Session{
+		ID: "sess-warm", UserID: "fnos-1000", TokenHash: hash,
+		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastSeenAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sessions.created = 0
+
+	h := gatewayIdentity(users, sessions)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Trim-Userid", "1000")
+	req.Header.Set("X-Trim-Isadmin", "true")
+	req.AddCookie(&http.Cookie{Name: auth.SessionCookieName, Value: plain})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if sessions.created != 0 {
+		t.Fatalf("minted %d sessions, want 0", sessions.created)
+	}
+	got, err := users.GetByUsername(t.Context(), "fnos-1000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != storage.RoleAdmin {
+		t.Fatalf("role = %q, want admin (reconciled on warm session)", got.Role)
 	}
 }
 

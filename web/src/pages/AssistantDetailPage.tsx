@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   Banner,
@@ -68,6 +68,7 @@ export function AssistantDetailPage() {
   >([])
   const [nasFoldersEnabled, setNasFoldersEnabled] = useState(false)
   const fnosApp = isFnOSApp()
+  const assistantRef = useRef<Assistant | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +87,7 @@ export function AssistantDetailPage() {
         })),
       ])
       setA(got)
+      assistantRef.current = got
       setName(got.name)
       setBio(got.bio)
       setAllowText((got.networkAllowlist ?? []).join('\n'))
@@ -110,12 +112,15 @@ export function AssistantDetailPage() {
     try {
       const updated = await assistantsApi.update(assistantId, body)
       setA(updated)
+      assistantRef.current = updated
       setName(updated.name)
       setBio(updated.bio)
       setAllowText((updated.networkAllowlist ?? []).join('\n'))
       await refresh()
+      return updated
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e))
+      return null
     } finally {
       setSaving(false)
     }
@@ -153,26 +158,41 @@ export function AssistantDetailPage() {
   const grantLabel = (path: string) =>
     nasFolders.find((f) => f.path === path)?.displayPath || path
 
-  const addGrantPath = (path: string, mode: 'read' | 'readwrite' = newMode) => {
+  const addGrantPath = async (
+    path: string,
+    mode: 'read' | 'readwrite' = newMode,
+  ): Promise<boolean> => {
     const trimmed = path.trim()
-    if (!trimmed) return
-    if ((a.directoryGrants ?? []).some((g) => g.path === trimmed)) {
+    if (!trimmed) return false
+    const cur = assistantRef.current
+    if (!cur) return false
+    if ((cur.directoryGrants ?? []).some((g) => g.path === trimmed)) {
       Toast.info('该目录已在可见范围内')
-      return
+      return false
     }
-    void patch({
+    const updated = await patch({
       directoryGrants: [
-        ...(a.directoryGrants ?? []),
+        ...(cur.directoryGrants ?? []),
         { path: trimmed, mode, createdAt: new Date().toISOString() },
       ],
     })
+    if (!updated) return false
+    Toast.success('已添加到可见范围')
+    return true
   }
 
   const addGrant = () => {
     const path = newPath.trim()
     if (!path) return
     setNewPath('')
-    addGrantPath(path, newMode)
+    void addGrantPath(path, newMode)
+  }
+
+  const refreshNasFolders = async () => {
+    const folders = await workspaceRoot.accessibleFolders().catch(() => null)
+    if (!folders) return
+    setNasFoldersEnabled(Boolean(folders.enabled))
+    setNasFolders(folders.folders ?? [])
   }
 
   const pickAndGrant = async () => {
@@ -180,19 +200,20 @@ export function AssistantDetailPage() {
     setError(null)
     try {
       const path = await pickUserDirectory('选择要授权给此助手的文件夹')
+      // Always refresh: pickUserFile authorizes the app even when we only need the path.
+      await refreshNasFolders()
       if (!path) return
-      addGrantPath(path, newMode)
-      const folders = await workspaceRoot.accessibleFolders().catch(() => null)
-      if (folders) {
-        setNasFoldersEnabled(Boolean(folders.enabled))
-        setNasFolders(folders.folders ?? [])
-      }
+      await addGrantPath(path, newMode)
     } catch (e) {
-      if (e instanceof Error && e.message === 'standalone') {
-        setError('请从飞牛桌面打开 AI助手 后再选择目录。')
-      } else {
-        setError(e instanceof Error ? e.message : String(e))
-      }
+      const raw = e instanceof Error ? e.message : String(e)
+      const msg =
+        raw === 'auth_timeout'
+          ? '选择文件夹超时，请重试。'
+          : raw === 'access_denied'
+            ? '未获得目录授权。'
+            : raw
+      setError(msg)
+      Toast.error(msg)
     } finally {
       setPickingFolder(false)
     }
@@ -559,6 +580,7 @@ export function AssistantDetailPage() {
                 theme="solid"
                 type="primary"
                 loading={pickingFolder || saving}
+                disabled={pickingFolder || saving}
                 onClick={() => void pickAndGrant()}
               >
                 选择文件夹
@@ -583,30 +605,45 @@ export function AssistantDetailPage() {
             ) : null}
           </div>
           {nasFoldersEnabled && nasFolders.length > 0 ? (
-            <div
-              style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 8,
-                alignItems: 'center',
-              }}
-            >
-              <Select
-                placeholder="从已授权目录快速添加"
-                style={{ flex: '1 1 220px', minWidth: 0 }}
-                value={undefined}
-                onChange={(v) => {
-                  const path = String(v ?? '')
-                  if (!path) return
-                  addGrantPath(path, newMode)
-                }}
-              >
-                {nasFolders.map((f) => (
-                  <Select.Option key={f.path} value={f.path}>
-                    {f.displayPath || f.path}
-                  </Select.Option>
-                ))}
-              </Select>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <Typography.Text type="tertiary" size="small">
+                已授权给本应用的目录（点「添加」写入可见范围）：
+              </Typography.Text>
+              {nasFolders.map((f) => {
+                const already = (a.directoryGrants ?? []).some(
+                  (g) => g.path === f.path,
+                )
+                return (
+                  <div
+                    key={f.path}
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                      alignItems: 'center',
+                      border: '1px solid var(--semi-color-border)',
+                      borderRadius: 8,
+                      padding: '8px 12px',
+                    }}
+                  >
+                    <Typography.Text
+                      ellipsis={{ showTooltip: true }}
+                      style={{ flex: '1 1 160px', minWidth: 0 }}
+                    >
+                      <span title={f.path}>{f.displayPath || f.path}</span>
+                    </Typography.Text>
+                    <Button
+                      size="small"
+                      theme={already ? 'borderless' : 'solid'}
+                      type={already ? 'tertiary' : 'primary'}
+                      disabled={already || saving || pickingFolder}
+                      onClick={() => void addGrantPath(f.path, newMode)}
+                    >
+                      {already ? '已添加' : '添加'}
+                    </Button>
+                  </div>
+                )
+              })}
             </div>
           ) : null}
           {!fnosApp || showManualPath ? (

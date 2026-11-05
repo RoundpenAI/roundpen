@@ -15,6 +15,7 @@ import { doLogout, useAuth } from '../auth'
 import { useT } from '../i18n'
 import { ThemeToggle } from './ThemeToggle'
 import { LocaleToggle } from './LocaleToggle'
+import { OnboardingWizard } from './OnboardingWizard'
 import {
   matchPrimaryMenu,
   readPrimaryCollapsed,
@@ -264,6 +265,7 @@ export function AppShell() {
           }}
         >
           <Outlet />
+          <OnboardingWizard />
         </Content>
       </Layout>
       <style>{`
