@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 2.5.3：修复可见范围选完文件夹不写入的问题；已授权目录改为明确的「添加」按钮。
+changelog             = 2.5.4：补上共享目录授权 Scope，修复应用设置里添加授权目录报「应用鉴权异常」。
