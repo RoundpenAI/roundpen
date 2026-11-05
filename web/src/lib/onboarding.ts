@@ -1,4 +1,4 @@
-/** Per-user first-run wizard dismissal (local to this browser). */
+/** Per-user first-run wizard completion (local to this browser). 「稍后再说」不写这里. */
 const KEY_PREFIX = 'roundpen.onboarding.v1.'
 
 export function onboardingStorageKey(username: string): string {

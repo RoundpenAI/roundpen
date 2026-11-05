@@ -3,8 +3,10 @@ import { Link } from 'react-router-dom'
 import {
   Banner,
   Button,
+  Input,
   List,
   Modal,
+  Select,
   Steps,
   Toast,
   Typography,
@@ -12,10 +14,12 @@ import {
 import {
   ApiError,
   environments,
+  llmgwVendors,
   settingItems,
   setupApi,
   workspaceRoot,
   type LlmReady,
+  type LlmgwVendor,
   type SettingItem,
 } from '../api'
 import { isFnOSApp } from '../api/client'
@@ -29,9 +33,11 @@ type StepKey = 'llm' | 'folders' | 'browser'
 
 const STEPS: StepKey[] = ['llm', 'folders', 'browser']
 
+const LLM_BIND_SLOTS = ['llm.default', 'llm.agent', 'llm.sysagent'] as const
+
 /**
- * First-run guide: model → folder grants → browser. Shown once per user in
- * this browser until they finish or dismiss.
+ * First-run guide: model → folder grants → browser. 「完成」才记一次；
+ * 「稍后再说」/关闭只关弹窗，刷新还会再出现。
  */
 export function OnboardingWizard() {
   const auth = useAuth()
@@ -52,8 +58,17 @@ export function OnboardingWizard() {
   const [browserReady, setBrowserReady] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [vendors, setVendors] = useState<LlmgwVendor[]>([])
+  const [byokVendor, setByokVendor] = useState('')
+  const [byokKey, setByokKey] = useState('')
 
-  const dismiss = useCallback(() => {
+  /** Close without persisting — user said they'll set up later. */
+  const closeLater = useCallback(() => {
+    setOpen(false)
+  }, [])
+
+  /** Finish the wizard for this browser/user. */
+  const finish = useCallback(() => {
     if (username) markOnboardingDone(username)
     setOpen(false)
   }, [username])
@@ -95,6 +110,26 @@ export function OnboardingWizard() {
       setLlm({ ready: false, mode: 'none', freeAvailable: true })
     }
   }, [])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    let alive = true
+    void llmgwVendors()
+      .then((list) => {
+        if (!alive) return
+        const presets = (list ?? []).filter(
+          (v) => v.id !== 'custom' && v.models.length > 0,
+        )
+        setVendors(presets)
+        setByokVendor((cur) => cur || presets[0]?.id || '')
+      })
+      .catch(() => {
+        if (alive) setVendors([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [isAdmin])
 
   useEffect(() => {
     if (auth.status !== 'ok' || !username) return
@@ -156,6 +191,55 @@ export function OnboardingWizard() {
     }
   }
 
+  const saveByok = async () => {
+    if (!isAdmin || busy) return
+    const vendor = vendors.find((v) => v.id === byokVendor)
+    const key = byokKey.trim()
+    if (!vendor) {
+      setError(t('onboarding.llm.needVendor'))
+      return
+    }
+    if (!key) {
+      setError(t('onboarding.llm.needKey'))
+      return
+    }
+    const model = vendor.models[0]?.id ?? ''
+    if (!model) {
+      setError(t('onboarding.llm.needVendor'))
+      return
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      const item: SettingItem = {
+        kind: 'llm',
+        id: vendor.id,
+        name: vendor.name,
+        enabled: true,
+        position: 0,
+        config: {
+          vendor: vendor.id,
+          protocol: vendor.protocol,
+          baseUrl: vendor.baseUrl,
+          apiKey: key,
+          defaultModel: model,
+        },
+      }
+      await settingItems.save(item)
+      const params = { model }
+      for (const slot of LLM_BIND_SLOTS) {
+        await settingItems.setBinding(slot, item.id, params)
+      }
+      setByokKey('')
+      Toast.success(t('onboarding.llm.byokSaved'))
+      await refreshLlm()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('settings.items.saveFailed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const enableLocalBrowser = async () => {
     if (!isAdmin || busy) return
     setBusy(true)
@@ -207,7 +291,7 @@ export function OnboardingWizard() {
   const goNext = () => {
     const i = STEPS.indexOf(step)
     if (i < STEPS.length - 1) setStep(STEPS[i + 1]!)
-    else dismiss()
+    else finish()
   }
 
   if (!open) return null
@@ -216,7 +300,7 @@ export function OnboardingWizard() {
     <Modal
       title={t('onboarding.title')}
       visible={open}
-      onCancel={dismiss}
+      onCancel={closeLater}
       maskClosable={false}
       width={560}
       footer={
@@ -228,7 +312,7 @@ export function OnboardingWizard() {
             flexWrap: 'wrap',
           }}
         >
-          <Button type="tertiary" onClick={dismiss}>
+          <Button type="tertiary" onClick={closeLater}>
             {t('onboarding.later')}
           </Button>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -288,12 +372,59 @@ export function OnboardingWizard() {
               }}
             />
             {isAdmin ? (
-              <Typography.Text type="tertiary" size="small">
-                {t('onboarding.llm.byokHint')}{' '}
-                <Link to="/admin/settings/llmgw" onClick={dismiss}>
-                  {t('onboarding.llm.openSettings')}
-                </Link>
-              </Typography.Text>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  borderTop: '1px solid var(--semi-color-border)',
+                  paddingTop: 12,
+                }}
+              >
+                <Typography.Text strong>
+                  {t('onboarding.llm.byokTitle')}
+                </Typography.Text>
+                <Select
+                  style={{ width: '100%' }}
+                  placeholder={t('onboarding.llm.vendor')}
+                  value={byokVendor || undefined}
+                  onChange={(v) => setByokVendor(String(v ?? ''))}
+                  optionList={vendors.map((v) => ({
+                    value: v.id,
+                    label: v.name,
+                  }))}
+                />
+                <Input
+                  mode="password"
+                  placeholder={t('onboarding.llm.apiKey')}
+                  value={byokKey}
+                  onChange={setByokKey}
+                  autoComplete="off"
+                />
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Button
+                    theme="solid"
+                    type="secondary"
+                    loading={busy}
+                    disabled={!vendors.length}
+                    onClick={() => void saveByok()}
+                  >
+                    {t('onboarding.llm.saveByok')}
+                  </Button>
+                  <Link to="/admin/settings/llmgw" onClick={closeLater}>
+                    <Typography.Text type="tertiary" size="small">
+                      {t('onboarding.llm.openSettings')}
+                    </Typography.Text>
+                  </Link>
+                </div>
+              </div>
             ) : null}
           </div>
         ) : null}
@@ -380,7 +511,7 @@ export function OnboardingWizard() {
                   >
                     {t('onboarding.browser.enableLocal')}
                   </Button>
-                  <Link to="/admin/settings/browser" onClick={dismiss}>
+                  <Link to="/admin/settings/browser" onClick={closeLater}>
                     <Button theme="light">{t('onboarding.browser.openSettings')}</Button>
                   </Link>
                 </div>

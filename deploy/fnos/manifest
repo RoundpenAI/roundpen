@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 2.5.8：修复新窗口选文件夹后卡在「正在返回应用」——回调页改外置脚本以通过 CSP。
+changelog             = 2.5.9：向导「稍后再说」不再记住；可在向导里直接选供应商并填 API Key。
