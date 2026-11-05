@@ -7,6 +7,10 @@ import {
 } from '../components/ToolCallCard'
 import { buildChangeSet, isChangeSetTool } from '../lib/changeSet'
 import {
+  mergeThoughtSegments,
+  type ThoughtSeg,
+} from '../lib/mergeThoughtSegments'
+import {
   isActivityMessage,
   isClearDivider,
   type SemiContentItem,
@@ -39,23 +43,13 @@ function parseArgs(raw: string | undefined): unknown {
 }
 
 function activityFromMessage(message: DialogueMessage): {
-  thoughts: {
-    text: string
-    streaming?: boolean
-    startedAtMs?: number
-    durationMs?: number
-  }[]
+  thoughts: ThoughtSeg[]
   tools: ToolCallData[]
 } {
   const items = Array.isArray(message.content)
     ? (message.content as SemiContentItem[])
     : []
-  const thoughts: {
-    text: string
-    streaming?: boolean
-    startedAtMs?: number
-    durationMs?: number
-  }[] = []
+  const thoughts: ThoughtSeg[] = []
   const tools: ToolCallData[] = []
   for (const item of items) {
     if (item.type === 'reasoning') {
@@ -78,7 +72,7 @@ function activityFromMessage(message: DialogueMessage): {
       })
     }
   }
-  return { thoughts, tools }
+  return { thoughts: mergeThoughtSegments(thoughts), tools }
 }
 
 export function renderActivityContent(message: DialogueMessage): ReactNode {
@@ -96,19 +90,17 @@ export function renderActivityContent(message: DialogueMessage): ReactNode {
         )
       })
     : tools
+  const thought = thoughts[0]
   return (
     <div className="chat-activity">
-      {thoughts.map((t, i) =>
-        t.text ? (
-          <ThoughtBlock
-            key={i}
-            text={t.text}
-            streaming={t.streaming}
-            startedAtMs={t.startedAtMs}
-            durationMs={t.durationMs}
-          />
-        ) : null,
-      )}
+      {thought?.text ? (
+        <ThoughtBlock
+          text={thought.text}
+          streaming={thought.streaming}
+          startedAtMs={thought.startedAtMs}
+          durationMs={thought.durationMs}
+        />
+      ) : null}
       {otherTools.length > 0 ? (
         <ToolCallGroup calls={otherTools} alwaysStats />
       ) : null}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/agentenv"
 	"github.com/RoundpenAI/roundpen/internal/authz"
+	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/browser"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/gitcred"
@@ -342,6 +343,10 @@ func (s *Service) EnsureAgentJob(ctx context.Context, userID string) (*sandbox.S
 }
 
 func (s *Service) ensureAgentSlot(ctx context.Context, userID, slot, category string) (*sandbox.Sandbox, error) {
+	return s.ensureAgentSlotHeal(ctx, userID, slot, category, true)
+}
+
+func (s *Service) ensureAgentSlotHeal(ctx context.Context, userID, slot, category string, healMount bool) (*sandbox.Sandbox, error) {
 	engine := runtime.EngineDocker
 	if s.Probe != nil {
 		if err := s.Probe.RequireAgent(engine); err != nil {
@@ -356,9 +361,45 @@ func (s *Service) ensureAgentSlot(ctx context.Context, userID, slot, category st
 	if err != nil {
 		return nil, err
 	}
+	// Host path deleted+recreated → same string, new inode; Docker bind stays
+	// on the dead inode until the container is recreated.
+	if healMount && s.workspaceMountBroken(ctx, sb.ID) {
+		slog.Warn("agent workspace mount stale; recreating container",
+			"user", userID, "slot", slot, "sandbox", sb.ID)
+		if err := s.Sandboxes.Delete(ctx, sb.ID); err != nil && !errors.Is(err, sandbox.ErrNotFound) {
+			return nil, fmt.Errorf("recreate stale workspace mount: %w", err)
+		}
+		_ = s.Store.Delete(ctx, userID, slot)
+		return s.ensureAgentSlotHeal(ctx, userID, slot, category, false)
+	}
 	s.injectGit(ctx, userID, sb.ID)
 	s.seedWorkspaceLayout(ctx, sb.ID)
 	return sb, nil
+}
+
+// workspaceMountBroken probes /workspace inside the container. A replaced host
+// bind source makes runc refuse WorkingDir=/workspace with ErrStaleWorkspaceMount.
+func (s *Service) workspaceMountBroken(ctx context.Context, sandboxID string) bool {
+	if s == nil || s.Sandboxes == nil || sandboxID == "" {
+		return false
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	res, err := s.Sandboxes.Exec(probeCtx, sandboxID, sandbox.ExecRequest{
+		Cmd:     []string{"/bin/true"},
+		WorkDir: "/workspace",
+		Timeout: 5 * time.Second,
+	})
+	if backend.IsStaleWorkspaceMount(err) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	if res == nil {
+		return false
+	}
+	return backend.LooksLikeStaleWorkspaceMount(nil, res.ExitCode, res.Stdout, res.Stderr)
 }
 
 // seedWorkspaceLayout creates the canonical /workspace directories and AGENTS.md
