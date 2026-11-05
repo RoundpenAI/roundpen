@@ -290,6 +290,69 @@ function commandLabel(call: ToolCallLike): string {
   return clip(title || 'a command', 42)
 }
 
+/** One-line label for a single tool row (group children / lone cards). */
+export function toolCallSummaryLine(call: ToolCallLike): string {
+  const title = (call.title || '').trim() || 'tool'
+  const detail = summaryDetail(call)
+  if (!detail || detail === title) return title
+  return `${title} · ${detail}`
+}
+
+function summaryDetail(call: ToolCallLike): string {
+  const bucket = classifyTool(call)
+  switch (bucket) {
+    case 'command': {
+      const cmd = commandLabel(call)
+      return cmd === 'a command' ? '' : cmd
+    }
+    case 'explore':
+    case 'edit': {
+      const file = fileLabel(call)
+      return file === 'a file' ? '' : file
+    }
+    case 'search': {
+      const q = queryLabel(call)
+      if (q) return q
+      const file = fileLabel(call)
+      return file === 'a file' ? '' : file
+    }
+    default:
+      break
+  }
+  const rec = asRecord(call.input)
+  const preferred =
+    pickString(rec, [
+      'command',
+      'cmd',
+      'script',
+      'path',
+      'file',
+      'file_path',
+      'target_file',
+      'pattern',
+      'query',
+      'url',
+    ]) || ''
+  if (preferred) return clip(preferred.replace(/\s+/g, ' ').trim(), 48)
+
+  const entries = Object.entries(rec)
+  if (entries.length === 1) {
+    const [, v] = entries[0]
+    let raw = ''
+    if (typeof v === 'string') raw = v
+    else {
+      try {
+        raw = JSON.stringify(v)
+      } catch {
+        raw = String(v)
+      }
+    }
+    const short = clip(raw.replace(/\s+/g, ' ').trim(), 48)
+    if (short && short !== '{}' && short !== 'null') return short
+  }
+  return ''
+}
+
 function urlLabel(call: ToolCallLike): string {
   const rec = asRecord(call.input)
   const raw = pickString(rec, ['url', 'href', 'target']) || ''

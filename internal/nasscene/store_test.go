@@ -83,6 +83,9 @@ func TestEnsureAndDisable(t *testing.T) {
 	for _, a := range list {
 		if a.Kind == assistant.KindUser {
 			n++
+			if !a.Capabilities.Shell || !a.Capabilities.Browser {
+				t.Fatalf("%s caps = %+v, want shell+browser on", a.Name, a.Capabilities)
+			}
 		}
 	}
 	if n < len(nasscene.Templates()) {

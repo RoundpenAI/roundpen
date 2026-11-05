@@ -162,6 +162,28 @@ func TestCopyAndDeleteHost(t *testing.T) {
 	}
 }
 
+func TestPublishHostFromOutsideGrant(t *testing.T) {
+	grant := t.TempDir()
+	outside := t.TempDir()
+	src := filepath.Join(outside, "track.flac")
+	dst := filepath.Join(grant, "音乐", "track.flac")
+	writeFile(t, src, "audio")
+	access, actor := newAccess([]assistant.DirectoryGrant{{Path: grant, Mode: "readwrite"}})
+	host := access.ForSession("s1")
+	ctx := context.Background()
+	// Source is not under the grant — CopyHost must fail, PublishHost must work.
+	if err := host.CopyHost(ctx, actor, src, dst); err == nil {
+		t.Fatal("CopyHost should deny ungranted source")
+	}
+	if err := host.PublishHost(ctx, actor, src, dst); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil || string(raw) != "audio" {
+		t.Fatalf("published=%q err=%v", raw, err)
+	}
+}
+
 func TestMkdirHostNested(t *testing.T) {
 	dir := t.TempDir()
 	nested := filepath.Join(dir, "memories", "2026")

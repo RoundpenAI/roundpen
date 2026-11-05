@@ -36,6 +36,10 @@ type HostFiles interface {
 	MoveHost(ctx context.Context, actor Actor, fromAbs, toAbs string) error
 	// CopyHost copies a file or directory tree (skips dot entries).
 	CopyHost(ctx context.Context, actor Actor, fromAbs, toAbs string) error
+	// PublishHost copies fromAbs (trusted control-plane path, e.g. resolved
+	// /workspace) into a readwrite-granted destination. Source is not checked
+	// against directory grants.
+	PublishHost(ctx context.Context, actor Actor, fromAbs, toAbs string) error
 	// MkdirHost creates absPath and parents (MkdirAll).
 	MkdirHost(ctx context.Context, actor Actor, absPath string) error
 	// DeleteHost removes a file or directory. Non-empty dirs need recursive.

@@ -138,13 +138,13 @@ func DefaultSkills() []Skill {
 			AllowedTools: []string{
 				"ListDirectoryGrants", "ScanTVGaps", "ListDownloadBackends", "SubmitDownload", "ListDownloadTasks",
 				"WebSearch", "WebFetch", "browser_navigate", "browser_snapshot", "AskUserQuestion", "HostApplyPlan",
-				"OpenHostPath",
+				"HostCopy", "OpenHostPath",
 			},
 			Prompt: `Help complete a media library (search → confirm → download):
 1. ListDirectoryGrants and ListDownloadBackends. If no downloader, tell the user to add qBittorrent under Settings → Home NAS assistants (fnOS has no public download-center API yet).
 2. For TV, ScanTVGaps on the show folder; for movies/music, ask what is missing.
 3. Use WebSearch / Browser to gather candidate sources (do not invent piracy site lists). Present a short candidate table.
-4. After the user picks one, SubmitDownload with a save_path inside a readwrite grant.
+4. Prefer SubmitDownload with a save_path inside a readwrite grant. If files were already saved under /workspace, HostCopy from=/workspace/... to= the granted music/video folder (Agent containers cannot see /vol*).
 5. Optionally HostApplyPlan to rename after download. For playback/reveal on fnOS, call OpenHostPath (action=open|manager).`,
 			Params: true,
 		},

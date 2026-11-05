@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Spin } from '@douyinfe/semi-ui-19'
-import { formatGroupStats, parallelRunningLabel } from '../lib/toolStats'
+import {
+  formatGroupStats,
+  parallelRunningLabel,
+  toolCallSummaryLine,
+} from '../lib/toolStats'
 
 export type ToolCallData = {
   toolId: string
@@ -42,34 +46,6 @@ function isRunning(status: string): boolean {
   return status === 'pending' || status === 'in_progress'
 }
 
-function clip(value: string, max = 48): string {
-  return value.length > max ? `${value.slice(0, max)}…` : value
-}
-
-function summaryLine(call: ToolCallData): string {
-  const title = call.title || call.toolId || 'tool'
-  if (call.input && typeof call.input === 'object' && call.input !== null) {
-    const entries = Object.entries(call.input as Record<string, unknown>)
-    if (entries.length === 1) {
-      const [k, v] = entries[0]
-      let raw = ''
-      if (typeof v === 'string') raw = v
-      else {
-        try {
-          raw = JSON.stringify(v)
-        } catch {
-          raw = String(v)
-        }
-      }
-      const short = clip(raw)
-      if (short && short !== '{}' && short !== 'null') {
-        return `${title} · ${k}=${short}`
-      }
-    }
-  }
-  return title
-}
-
 function tally(calls: ToolCallData[]) {
   let running = 0
   let failed = 0
@@ -104,7 +80,15 @@ export function ToolCallCard({ call }: CardProps) {
             aria-hidden
           />
         )}
-        <span className="chat-tool-title">{summaryLine(call)}</span>
+        <span className="chat-tool-title">
+          {toolCallSummaryLine({
+            title: call.title || call.toolId || 'tool',
+            status: call.status,
+            kind: call.kind,
+            input: call.input,
+            output: call.output,
+          })}
+        </span>
       </button>
       {open && (
         <div className="chat-tool-detail">
