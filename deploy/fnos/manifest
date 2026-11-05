@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = HostCopy 支持从工作区投放到授权目录；Agent 提示写清 NAS 写入步骤；Bash 子项显示命令；修复打开 PHP 预览崩溃。
+changelog             = HostCopy 可从工作区写入授权目录；挂载失效自动重建 Agent；Bash 子项显示命令；修复 PHP 预览崩溃。
