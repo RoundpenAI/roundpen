@@ -14,7 +14,7 @@ help:
 	@echo "  build-ui           只构建并嵌入 Web UI"
 	@echo "  build-go           只编 Go（internal/ui/dist 已有产物时）"
 	@echo "  build-linux        带 UI 的 Linux amd64 二进制"
-	@echo "  fpk                fnOS 包（依赖 setup；VERSION= PLATFORM=x86|arm）"
+	@echo "  fpk                fnOS 包（依赖 setup；默认 VERSION=最新 v* tag；同时打 x86+arm）"
 	@echo ""
 	@echo "测试"
 	@echo "  test               go test ./..."
@@ -73,7 +73,8 @@ build-ui:
 	@mkdir -p internal/ui/dist
 	@touch internal/ui/dist/.gitkeep
 
-# Stamp the release into the binary (same VERSION as fpk). Override: VERSION=1.2.3 make build
+# Default: highest semver tag (v2.5.1 → 2.5.1). Override: VERSION=1.2.3 make build|fpk
+VERSION ?= $(shell git tag -l 'v[0-9]*' --sort=-v:refname | head -1 | sed 's/^v//')
 VERSION_LDFLAGS = -X github.com/RoundpenAI/roundpen/internal/buildinfo.Version=$(VERSION)
 
 build: build-ui
@@ -158,8 +159,15 @@ compose-down:
 
 # fnOS app package (packaging source in deploy/fnos; needs the official fnpack,
 # see deploy/fnos/README.md). Host roundpend + bundled pg0; no Docker image.
-VERSION ?= 2.5.1
-PLATFORM ?= x86
+# Default: both arches. Single arch: PLATFORM=x86|arm make fpk
+PLATFORMS ?= x86 arm
+ifdef PLATFORM
+PLATFORMS := $(PLATFORM)
+endif
 
 fpk: setup
-	@VERSION=$(VERSION) PLATFORM=$(PLATFORM) ./scripts/build-fnos-fpk.sh
+	@test -n "$(VERSION)" || (echo "VERSION empty — no v* tags and none passed" >&2; exit 1)
+	@for p in $(PLATFORMS); do \
+		echo "==> fpk $$p ($(VERSION))"; \
+		VERSION=$(VERSION) PLATFORM=$$p ./scripts/build-fnos-fpk.sh || exit $$?; \
+	done
