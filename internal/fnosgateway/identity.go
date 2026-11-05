@@ -39,13 +39,19 @@ func fnosUsername(uid string) string {
 	return fnosAuthProvider + "-" + s
 }
 
-// roleForIsAdmin maps the injected X-Trim-Isadmin flag onto a Roundpen role.
-// Only an explicit "true" grants admin; anything else is a plain user.
-func roleForIsAdmin(isadmin string) storage.UserRole {
-	if strings.EqualFold(strings.TrimSpace(isadmin), "true") {
-		return storage.RoleAdmin
+// parseIsAdmin maps the injected X-Trim-Isadmin flag onto a Roundpen role.
+// Docs only define "true" / "false". Anything else (missing, "1", garbage) is
+// unknown: never use it to demote an existing admin — a single bad probe on
+// the world-writable app.sock used to stick users as role=user forever.
+func parseIsAdmin(isadmin string) (role storage.UserRole, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(isadmin)) {
+	case "true":
+		return storage.RoleAdmin, true
+	case "false":
+		return storage.RoleUser, true
+	default:
+		return "", false
 	}
-	return storage.RoleUser
 }
 
 // isGatewayAuthEndpoint reports whether the request targets a public auth
@@ -93,16 +99,9 @@ func gatewayIdentity(users storage.UserStore, sessions storage.SessionStore) fun
 				httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 				return
 			}
-			// An existing valid session is enough: never mint a new one per
-			// request (the downstream middleware touches it).
-			if c, err := r.Cookie(auth.SessionCookieName); err == nil && c.Value != "" {
-				if sess, err := sessions.GetByTokenHash(ctx, auth.HashSessionToken(c.Value)); err == nil {
-					if _, err := users.GetByUsername(ctx, sess.UserID); err == nil {
-						next.ServeHTTP(w, r)
-						return
-					}
-				}
-			}
+			// Always resolve (and reconcile Role from X-Trim-Isadmin) before
+			// deciding whether to reuse a cookie. Skipping this on a warm
+			// session left admins stuck as role=user after the first hit.
 			user, err := resolveGatewayUser(ctx, users, r)
 			if err != nil {
 				if errors.Is(err, errAccountConflict) {
@@ -112,6 +111,16 @@ func gatewayIdentity(users storage.UserStore, sessions storage.SessionStore) fun
 				slog.Warn("fnos gateway user", slog.Any("err", err), slog.String("uid", uid))
 				httpx.WriteErr(w, http.StatusInternalServerError, "internal server error")
 				return
+			}
+			// Reuse an existing valid session for this same user; never mint
+			// one per request (the downstream middleware touches it).
+			if c, err := r.Cookie(auth.SessionCookieName); err == nil && c.Value != "" {
+				if sess, err := sessions.GetByTokenHash(ctx, auth.HashSessionToken(c.Value)); err == nil {
+					if sess.UserID == user.Username {
+						next.ServeHTTP(w, r)
+						return
+					}
+				}
 			}
 			plain, err := auth.IssueSession(w, r, sessions, user)
 			if err != nil {
@@ -133,7 +142,8 @@ var errAccountConflict = errors.New("fnos username held by another provider")
 
 func resolveGatewayUser(ctx context.Context, users storage.UserStore, r *http.Request) (*storage.User, error) {
 	username := fnosUsername(r.Header.Get("X-Trim-Userid"))
-	role := roleForIsAdmin(r.Header.Get("X-Trim-Isadmin"))
+	rawIsAdmin := r.Header.Get("X-Trim-Isadmin")
+	role, roleOK := parseIsAdmin(rawIsAdmin)
 	fullName := strings.TrimSpace(r.Header.Get("X-Trim-Username"))
 
 	user, err := users.GetByUsername(ctx, username)
@@ -142,6 +152,14 @@ func resolveGatewayUser(ctx context.Context, users storage.UserStore, r *http.Re
 		id, idErr := auth.NewID()
 		if idErr != nil {
 			return nil, idErr
+		}
+		// New accounts: unknown Isadmin defaults to user (fail closed).
+		if !roleOK {
+			role = storage.RoleUser
+			slog.Warn("fnos gateway Isadmin missing on create; defaulting to user",
+				slog.String("username", username),
+				slog.String("raw_isadmin", rawIsAdmin),
+			)
 		}
 		created := &storage.User{
 			Username:     username,
@@ -161,12 +179,19 @@ func resolveGatewayUser(ctx context.Context, users storage.UserStore, r *http.Re
 		// A local (or other-provider) account owns this name: never overwrite.
 		return nil, errAccountConflict
 	default:
-		// Reconcile the admin bit only when it actually changed.
-		if user.Role != role {
+		// Reconcile only on an explicit true/false — never clobber on missing/"1".
+		if roleOK && user.Role != role {
+			prev := user.Role
 			user.Role = role
 			if err := users.Upsert(ctx, *user); err != nil {
 				return nil, err
 			}
+			slog.Info("fnos gateway role reconciled",
+				slog.String("username", username),
+				slog.String("from", string(prev)),
+				slog.String("to", string(role)),
+				slog.String("raw_isadmin", rawIsAdmin),
+			)
 		}
 		return user, nil
 	}

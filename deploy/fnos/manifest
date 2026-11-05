@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 2.5.3：修复可见范围选完文件夹不写入的问题；已授权目录改为明确的「添加」按钮。
+changelog             = 2.5.5：修复飞牛管理员偶发失去应用管理员权限、无法配置模型的问题；升级安装时保留已授权文件夹。

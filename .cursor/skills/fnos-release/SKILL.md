@@ -47,26 +47,21 @@ Progress:
 
 ```bash
 VERSION=<version> make fpk
+./scripts/fnos-install-nas.sh <version>
 ```
 
 （tag 若尚未推到本地可见，必须显式 `VERSION=`；已有对应 tag 时可直接 `make fpk`。）
 
 产物：`dist/fnos/roundpen-<version>-fnos-{x86,arm}.fpk`（NAS 装 x86）。
 
-`install-fpk` 在应用已存在时只会解包，不会替换正在运行的版本。用解出来的目录做安装（会先停再卸再装；`/vol1/@appdata/roundpen` 保留）：
-
-```bash
-scp dist/fnos/roundpen-<version>-fnos-x86.fpk mike@10.10.1.3:/tmp/roundpen-<version>-fnos-x86.fpk
-ssh mike@10.10.1.3 'sudo -n appcenter-cli install-fpk /tmp/roundpen-<version>-fnos-x86.fpk'
-# /tmp 上执行 install_init 可能 permission denied (10237)；用 /vol1 临时目录。
-ssh mike@10.10.1.3 'sudo -n bash -c "mkdir -p /vol1/tmp-appcenter && chmod 1777 /vol1/tmp-appcenter && chmod -R a+rX /vol1/appcenter-downloads/roundpen-<version>-tpk && find /vol1/appcenter-downloads/roundpen-<version>-tpk/cmd -type f -exec chmod 0755 {} + && TMPDIR=/vol1/tmp-appcenter TEMP=/vol1/tmp-appcenter TMP=/vol1/tmp-appcenter appcenter-cli install-local -d /vol1/appcenter-downloads/roundpen-<version>-tpk"'
-```
+**为什么不用「纯升级」命令：** `appcenter-cli` 没有独立 upgrade；`install-fpk` 在应用已存在时只解包，真正切换版本要靠 `install-local`（内部 stop → uninstall → install）。卸装会清掉飞牛「可访问文件夹」（`app_authorization_path` / `app_user_authorization_path`），`@appdata` 仍保留。`fnos-install-nas.sh` 会在装前快照授权路径、装后写回新 `app_id`，并重启以重新注入 `TRIM_DATA_ACCESSIBLE_PATHS`。
 
 装完确认：
 
 - `sudo -n appcenter-cli list` 里 roundpen 是新版本且 `running`
 - `curl -fsS http://127.0.0.1:9527/health` 为 `ok`
 - `/vol1/@appdata/roundpen/data/secret.key` 仍在
+- 若装前有授权目录：`TRIM_DATA_ACCESSIBLE_PATHS` 非空（或 DB 里 shared/user 路径仍在）
 
 ## 4. Switch back to master
 
