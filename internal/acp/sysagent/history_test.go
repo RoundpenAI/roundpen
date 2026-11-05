@@ -166,6 +166,25 @@ func TestSystemPromptMentionsWorkspaceLayout(t *testing.T) {
 	}
 }
 
+func TestSystemPromptTeachesHostGrantWrites(t *testing.T) {
+	a := New(Deps{})
+	msgs := a.buildPromptMessages(context.Background(), "hi")
+	if len(msgs) == 0 || msgs[0].Role != "system" {
+		t.Fatalf("unexpected messages: %+v", msgs)
+	}
+	for _, want := range []string{
+		"ListDirectoryGrants",
+		"HostCopy from=/workspace/",
+		"does NOT mount NAS",
+		"SubmitDownload",
+		"readwrite",
+	} {
+		if !strings.Contains(msgs[0].Content, want) {
+			t.Fatalf("system prompt missing host-grant write cue %q", want)
+		}
+	}
+}
+
 func TestProjectHistoryStopsAtClearMarker(t *testing.T) {
 	clearMeta, _ := json.Marshal(map[string]string{"type": "clear"})
 	toolMeta, _ := json.Marshal(agentsession.ToolMeta{

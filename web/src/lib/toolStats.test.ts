@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { classifyTool, formatGroupStats, parallelRunningLabel } from './toolStats.ts'
+import {
+  classifyTool,
+  formatGroupStats,
+  parallelRunningLabel,
+  toolCallSummaryLine,
+} from './toolStats.ts'
 
 describe('classifyTool', () => {
   it('prefers ACP kind over the title', () => {
@@ -126,5 +131,51 @@ describe('parallelRunningLabel', () => {
     assert.equal(parallelRunningLabel(0), '')
     assert.equal(parallelRunningLabel(1), '')
     assert.equal(parallelRunningLabel(3), 'Running 3 in parallel')
+  })
+})
+
+describe('toolCallSummaryLine', () => {
+  it('shows Bash command even when input has extra keys', () => {
+    assert.equal(
+      toolCallSummaryLine({
+        title: 'Bash',
+        status: 'completed',
+        kind: 'execute',
+        input: {
+          command: 'go test ./internal/userenv/',
+          workdir: '/workspace',
+          timeout: 60,
+        },
+      }),
+      'Bash · go test ./internal/userenv/',
+    )
+  })
+
+  it('falls back to title when there is no useful detail', () => {
+    assert.equal(
+      toolCallSummaryLine({ title: 'Bash', status: 'completed', kind: 'execute' }),
+      'Bash',
+    )
+  })
+
+  it('shows path for Read and pattern for Grep', () => {
+    assert.equal(
+      toolCallSummaryLine({
+        title: 'Read',
+        status: 'completed',
+        kind: 'read',
+        input: { path: 'web/src/lib/toolStats.ts' },
+      }),
+      'Read · toolStats.ts',
+    )
+    assert.equal(
+      toolCallSummaryLine({
+        title: 'Grep',
+        status: 'completed',
+        kind: 'search',
+        input: { pattern: 'summaryLine', path: 'web/src' },
+      }),
+      'Grep · summaryLine',
+    )
   })
 })

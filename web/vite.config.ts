@@ -1,13 +1,30 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 
 const apiProxy = process.env.ROUNDPEN_API_PROXY || 'http://127.0.0.1:19001'
+const viteBase = process.env.VITE_BASE || '/'
+
+/**
+ * fnOS unified gateway returns plain "invalid token" for unauthenticated
+ * GETs under /app/roundpen/*. The browser's <link rel="manifest"> fetch does
+ * not carry desktop SSO, so strip the tag on prefixed builds. Direct :9527
+ * (base "/") keeps the PWA manifest.
+ */
+function stripManifestLinkOnPrefixedBase(): Plugin {
+  return {
+    name: 'strip-manifest-link-on-prefixed-base',
+    transformIndexHtml(html) {
+      if (viteBase === '/') return html
+      return html.replace(/<link\s+rel="manifest"[^>]*>\s*/i, '')
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), stripManifestLinkOnPrefixedBase()],
   // fnOS serves the console under a path prefix (/app/roundpen/); every other
   // channel leaves VITE_BASE unset so base stays '/' and behavior is unchanged.
-  base: process.env.VITE_BASE || '/',
+  base: viteBase,
   server: {
     host: '0.0.0.0',
     port: 19000,

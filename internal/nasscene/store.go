@@ -150,9 +150,22 @@ func (s *Store) ensureOne(ctx context.Context, userID string, tmpl Template) (*a
 	if id != "" {
 		a, gerr := s.Assistants.Get(ctx, id)
 		if gerr == nil && a != nil {
-			if a.Status == assistant.StatusDisabled {
-				active := assistant.StatusActive
-				return s.Assistants.Update(ctx, id, assistant.UpdateInput{Status: &active})
+			needStatus := a.Status == assistant.StatusDisabled
+			needCaps := a.Capabilities.Shell != tmpl.Caps.Shell ||
+				a.Capabilities.Browser != tmpl.Caps.Browser
+			if needStatus || needCaps {
+				in := assistant.UpdateInput{}
+				if needStatus {
+					active := assistant.StatusActive
+					in.Status = &active
+				}
+				if needCaps {
+					caps := a.Capabilities
+					caps.Shell = tmpl.Caps.Shell
+					caps.Browser = tmpl.Caps.Browser
+					in.Capabilities = &caps
+				}
+				return s.Assistants.Update(ctx, id, in)
 			}
 			return a, nil
 		}

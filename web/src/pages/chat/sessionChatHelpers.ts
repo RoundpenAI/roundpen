@@ -129,6 +129,28 @@ export function mergeHistoryWithLive(
   return [...hist, ...overlays]
 }
 
+function isAssistantReply(m: AgentMessage): boolean {
+  if (m.meta?.toolId) return false
+  const typ = m.meta?.type || m.role
+  return (
+    typ === 'agent_message' ||
+    typ === 'assistant' ||
+    (m.role === 'assistant' && typ !== 'thought' && typ !== 'reasoning')
+  )
+}
+
+/** True when a live/ephemeral reply is already covered by a persisted row. */
+function replyCoveredByFresh(live: AgentMessage, fresh: AgentMessage[]): boolean {
+  const text = (live.content || '').trim()
+  if (!text) return false
+  return fresh.some((f) => {
+    if (!isAssistantReply(f)) return false
+    const got = (f.content || '').trim()
+    if (!got) return false
+    return got === text || got.startsWith(text) || text.startsWith(got)
+  })
+}
+
 /**
  * Reconcile a recent-window refetch with already-loaded older pages so a
  * turn-end refresh does not wipe scroll-loaded history.
@@ -143,13 +165,27 @@ export function reconcileRefetch(
   const older = prev.filter((m) => {
     if (freshIds.has(m.id)) return false
     if (isStreamingMessage(m)) return false
+    // Ephemeral bubbles (stream-/thought-/tool-) are stand-ins until the DB
+    // row lands; keeping a completed stream-* next to the persisted assistant
+    // is what doubled the answer after Stop.
+    if (isEphemeralMessageId(m.id)) return false
     if (m.createdAt < oldestFresh.createdAt) return true
     if (m.createdAt === oldestFresh.createdAt && m.id < oldestFresh.id) {
       return true
     }
     return false
   })
-  const live = prev.filter((m) => isStreamingMessage(m) && !freshIds.has(m.id))
+  const live = prev.filter((m) => {
+    if (!isStreamingMessage(m) || freshIds.has(m.id)) return false
+    if (
+      isEphemeralMessageId(m.id) &&
+      isAssistantReply(m) &&
+      replyCoveredByFresh(m, fresh)
+    ) {
+      return false
+    }
+    return true
+  })
   return [...older, ...fresh, ...live]
 }
 

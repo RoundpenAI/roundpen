@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/RoundpenAI/roundpen/internal/backend"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/workspace"
 )
@@ -93,6 +94,10 @@ type fakeSandboxes struct {
 	hostPath string
 
 	execs []sandbox.ExecRequest
+
+	// staleExecLeft: next N Exec calls return backend.ErrStaleWorkspaceMount
+	// (simulates a dead /workspace bind until the container is recreated).
+	staleExecLeft int
 }
 
 func (f *fakeSandboxes) put(sb *sandbox.Sandbox) {
@@ -239,6 +244,10 @@ func (f *fakeSandboxes) Exec(_ context.Context, id string, req sandbox.ExecReque
 		return nil, sandbox.ErrNotFound
 	}
 	f.execs = append(f.execs, req)
+	if f.staleExecLeft > 0 {
+		f.staleExecLeft--
+		return nil, backend.ErrStaleWorkspaceMount
+	}
 	return &sandbox.ExecResult{ExitCode: 0}, nil
 }
 func (f *fakeSandboxes) RefreshTemplateImage(_ context.Context, templateRef string) (string, bool, string, error) {
