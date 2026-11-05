@@ -73,11 +73,12 @@ curl -fsSLo /usr/local/bin/fnpack https://static2.fnnas.com/fnpack/fnpack-1.2.3-
 echo "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93  /usr/local/bin/fnpack" | sha256sum -c -
 chmod +x /usr/local/bin/fnpack
 
-make fpk                     # x86
-PLATFORM=arm make fpk        # arm64
+make fpk                     # x86 + arm64
+PLATFORM=x86 make fpk        # 只打一种架构
+PLATFORM=arm make fpk
 ```
 
-产物：`dist/fnos/roundpen-<version>-fnos-<platform>.fpk`（附 `.sha256`）。构建机从 GitHub Releases 拉 pin 过的 pg0，缓存在 `~/.cache/roundpen/pg0/`；**装到 NAS 上不再访问 GitHub**。打 `v*` tag 时 [.github/workflows/fnos-fpk.yml](../../.github/workflows/fnos-fpk.yml) 会出两种架构。
+产物：`dist/fnos/roundpen-<version>-fnos-<platform>.fpk`（附 `.sha256`）。构建机从 GitHub Releases 拉 pin 过的 pg0，缓存在 `~/.cache/roundpen/pg0/`；**装到 NAS 上不再访问 GitHub**。打 `v*` tag 时 [.github/workflows/fnos-fpk.yml](../../.github/workflows/fnos-fpk.yml) 也会出两种架构。
 
 可用 `NPM_REGISTRY` / `GOPROXY` / `PG0_VERSION` / `PG0_CACHE` 覆盖源与缓存。
 

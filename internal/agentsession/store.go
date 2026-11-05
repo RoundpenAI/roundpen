@@ -418,6 +418,30 @@ func (s *Store) UpsertToolMessage(ctx context.Context, sessionID string, patch T
 	}, nil
 }
 
+// FailOpenToolCalls marks every non-terminal tool row failed and returns how
+// many rows changed. Tool execution only lives in-process, so a leftover
+// pending / in_progress / running row spins forever in the chat UI after a
+// crash or restart. Call once on daemon boot.
+func (s *Store) FailOpenToolCalls(ctx context.Context, output string) (int64, error) {
+	if strings.TrimSpace(output) == "" {
+		output = "interrupted"
+	}
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE agent_messages
+		SET meta = COALESCE(meta, '{}'::jsonb)
+			|| jsonb_build_object(
+				'status', 'failed',
+				'output', to_jsonb($1::text)
+			)
+		WHERE role = 'tool'
+		  AND lower(COALESCE(meta->>'status', '')) IN ('pending', 'in_progress', 'running')`,
+		output)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // CancelMessage marks a queued user row as cancelled. The row stays in the
 // transcript for audit; model-context projections skip it via IsCancelled.
 func (s *Store) CancelMessage(ctx context.Context, sessionID, messageID string) error {

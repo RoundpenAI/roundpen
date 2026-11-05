@@ -292,6 +292,13 @@ func main() {
 	} else if n > 0 {
 		logger.Info("cancelled leftover assist tickets", "count", n)
 	}
+	// Same for chat tool rows: execution dies with the process, so open
+	// pending/in_progress calls must land in a terminal status or the UI spins.
+	if n, err := agentStore.FailOpenToolCalls(ctx, "interrupted"); err != nil {
+		logger.Warn("fail leftover open tool calls", slog.Any("err", err))
+	} else if n > 0 {
+		logger.Info("failed leftover open tool calls", "count", n)
+	}
 
 	agentHandler.Mount(mux)
 	issueStore := &issue.Store{DB: db.SQL}

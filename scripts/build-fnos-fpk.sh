@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds the fnOS package in deploy/fnos into dist/fnos/*.fpk.
 #
-#   make fpk                     # x86: host roundpend + bundled pg0
-#   PLATFORM=arm make fpk        # arm64
+#   make fpk                     # x86 + arm64 (host roundpend + bundled pg0)
+#   PLATFORM=x86 make fpk        # one arch only
+#   PLATFORM=arm make fpk
 #
 # The package runs roundpend on the NAS host (not in Docker). Postgres comes
 # from the bundled pg0 binary. Agent/Browser still use the host Docker engine
@@ -12,15 +13,21 @@
 # download URL); put it on PATH or point FNPACK at it.
 set -euo pipefail
 
-VERSION="${VERSION:-0.4.14}"
 PLATFORM="${PLATFORM:-x86}"
 FNPACK="${FNPACK:-fnpack}"
 # Pin pg0 so package contents stay reproducible across builds.
 PG0_VERSION="${PG0_VERSION:-v0.15.1}"
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Default: highest semver tag in the repo (v2.5.1 → 2.5.1). make fpk passes VERSION.
+if [[ -z "${VERSION:-}" ]]; then
+    VERSION="$(git -C "${ROOT}" tag -l 'v[0-9]*' --sort=-v:refname | head -1 | sed 's/^v//')"
+fi
+
 case "${VERSION}" in
 *[!A-Za-z0-9._-]* | "")
-    echo "VERSION must be a plain version string, got '${VERSION}'" >&2
+    echo "VERSION must be a plain version string, got '${VERSION:-}' (pass VERSION= or create a v* tag)" >&2
     exit 1
     ;;
 esac
@@ -39,7 +46,6 @@ arm)
     ;;
 esac
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${ROOT}/dist/fnos"
 NAME="roundpen-${VERSION}-fnos-${PLATFORM}"
 

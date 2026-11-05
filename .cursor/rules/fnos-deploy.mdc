@@ -11,12 +11,9 @@ alwaysApply: true
 
 ## 1. 升版本
 
-未指定版本时，把补丁号加一（`0.4.0` → `0.4.1`）。两处默认值一起改：
+`make fpk` / `build-fnos-fpk.sh` 默认用仓库里最高的 `v*` tag（去掉 `v`）。未指定版本时：读最新 tag，补丁号 +1（`2.5.1` → `2.5.2`），打 annotated tag `v<version>`，打包时显式传 `VERSION=<version>`（tag 推上去之前不能只靠默认值）。
 
-- `Makefile` 的 `VERSION ?=`
-- `scripts/build-fnos-fpk.sh` 的 `VERSION="${VERSION:-...}"`
-
-`deploy/fnos/manifest` 的 `changelog` 写成这一版用户能看懂的一两句。`version` / `platform` 由打包脚本写入，不必改仓库里的占位值。
+`deploy/fnos/manifest` 的 `changelog` 写成这一版用户能看懂的一两句。`version` / `platform` 由打包脚本写入，不必改仓库里的占位值。不必再改 Makefile / 脚本里的硬编码版本。
 
 ## 2. 打包
 
@@ -24,7 +21,7 @@ alwaysApply: true
 make fpk
 ```
 
-产物：`dist/fnos/roundpen-<version>-fnos-x86.fpk`。
+产物：`dist/fnos/roundpen-<version>-fnos-{x86,arm}.fpk`（NAS 装 x86）。
 
 ## 3. 安装到这台 NAS
 
