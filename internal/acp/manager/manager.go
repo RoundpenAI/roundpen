@@ -68,6 +68,9 @@ type SysDeps struct {
 	// nil disables host reads. The returned value is bound to one session.
 	HostFiles func(sessionID string) tools.HostFiles
 
+	// Downloads lists user download backends (nil skips download tools).
+	Downloads tools.DownloadBackends
+
 	History sysagent.MessageSource
 
 	// AutoMode classifies tool calls when the chat permission mode is
@@ -265,6 +268,25 @@ func (m *Manager) mcpBinder(userID string, routine bool) *tools.MCPBinder {
 	return &tools.MCPBinder{API: m.sys.MCP, Servers: servers}
 }
 
+func downloadBinder(m *Manager, userID, assistantID, sessionID string, host tools.HostFiles) *tools.DownloadBinder {
+	if m == nil || m.sys.Downloads == nil || strings.TrimSpace(userID) == "" {
+		return nil
+	}
+	b := &tools.DownloadBinder{
+		UserID: userID,
+		Store:  m.sys.Downloads,
+		Host:   host,
+	}
+	if m.sys.PolicyFor != nil && assistantID != "" {
+		uid, aid := userID, assistantID
+		b.Policy = func(ctx context.Context) *policy.Profile {
+			return m.sys.PolicyFor(ctx, uid, aid)
+		}
+	}
+	_ = sessionID
+	return b
+}
+
 // Start connects an ACP agent for the given Roundpen agent session.
 func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, providerID string, opts StartOpts) (*Runtime, error) {
 	p, ok := providers.ByID(m.providers, providerID)
@@ -355,6 +377,7 @@ func (m *Manager) Start(ctx context.Context, sessionID, sandboxID string, provid
 			},
 			Google: &tools.GoogleBinder{API: m.sys.Google},
 			MCP:    m.mcpBinder(opts.Actor.Username, opts.Routine.RunKey != ""),
+			Download: downloadBinder(m, userID, assistantID, sessionID, binder.Host),
 		})
 		var policyLookup func(context.Context) *policy.Profile
 		if m.sys.PolicyFor != nil && assistantID != "" {

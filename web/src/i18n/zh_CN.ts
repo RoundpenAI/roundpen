@@ -611,6 +611,17 @@ export const zh_CN: Record<MessageKey, string> = {
   'nasScene.status.active': '已启用',
   'nasScene.status.disabled': '已停用',
   'nasScene.status.missing': '缺失',
+  'nasScene.dlTitle': '下载客户端',
+  'nasScene.dlBlurb':
+    '配置 qBittorrent Web UI（或 webhook）。影视/音乐助手在你确认后把磁力/链接投递到这里。',
+  'nasScene.dlName': '名称',
+  'nasScene.dlBaseUrl': '地址（如 http://127.0.0.1:8080）',
+  'nasScene.dlUser': '用户名',
+  'nasScene.dlPassword': '密码',
+  'nasScene.dlSavePath': '默认保存路径（绝对路径，须在读写授权内）',
+  'nasScene.dlAdd': '添加 qBittorrent',
+  'nasScene.dlRemove': '删除',
+  'nasScene.dlSaveFailed': '更新下载客户端失败。',
   'personalSlots.title': '我的服务',
   'personalSlots.intro':
     '为每个使用点选择自己的后端，或继承平台默认。改动会影响沙箱的槽位会触发环境重建。',

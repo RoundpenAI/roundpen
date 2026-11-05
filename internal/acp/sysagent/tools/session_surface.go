@@ -38,6 +38,7 @@ type SessionSurface struct {
 	Search         *WebSearchBinder
 	Google         *GoogleBinder
 	MCP            *MCPBinder
+	Download       *DownloadBinder
 }
 
 // RegisterSession installs the System Agent tool surface for one session.
@@ -102,9 +103,14 @@ func registerDefaultTools(reg *Registry, s SessionSurface) {
 		RegisterSkill(reg, s.Agent, s.WebHTTP)
 		RegisterFiles(reg, s.Agent)
 		RegisterHostWrite(reg, s.Agent)
+		RegisterOnThisDay(reg, s.Agent)
+		RegisterMediaLib(reg, s.Agent)
 		RegisterReadImage(reg, s.Agent)
 		RegisterSearch(reg, s.Agent)
 		RegisterGitPR(reg, s.Agent)
+	}
+	if s.Download != nil {
+		RegisterDownload(reg, s.Download)
 	}
 	registerExpertTools(reg, s)
 	RegisterInteractive(reg)

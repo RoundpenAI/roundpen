@@ -624,6 +624,17 @@ export const en = {
   'nasScene.status.active': 'active',
   'nasScene.status.disabled': 'disabled',
   'nasScene.status.missing': 'missing',
+  'nasScene.dlTitle': 'Download clients',
+  'nasScene.dlBlurb':
+    'qBittorrent Web UI (or a webhook). Media assistants submit magnets/URLs here after you confirm.',
+  'nasScene.dlName': 'Name',
+  'nasScene.dlBaseUrl': 'Base URL (e.g. http://127.0.0.1:8080)',
+  'nasScene.dlUser': 'Username',
+  'nasScene.dlPassword': 'Password',
+  'nasScene.dlSavePath': 'Default save path (absolute, under a readwrite grant)',
+  'nasScene.dlAdd': 'Add qBittorrent',
+  'nasScene.dlRemove': 'Remove',
+  'nasScene.dlSaveFailed': 'Failed to update download client.',
   'personalSlots.title': 'My services',
   'personalSlots.intro':
     'Pick your own provider for a usage point, or inherit the platform default. Changing a sandbox-backed slot rebuilds its environment.',

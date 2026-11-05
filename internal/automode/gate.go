@@ -13,7 +13,8 @@ func RequiresConfirm(toolName string) bool {
 		// Git delivery tools: always SoftDeny→人审 (never silent push/merge/review post).
 		"gitpush", "createpullrequest", "mergepullrequest", "postpullrequestreview",
 		// Host/NAS mutations: never silent even under Auto Allow.
-		"hostrename", "hostmove", "hostcopy", "hostmkdir", "hostdelete", "hostapplyplan":
+		"hostrename", "hostmove", "hostcopy", "hostmkdir", "hostdelete", "hostapplyplan",
+		"submitdownload":
 		return true
 	default:
 		return false

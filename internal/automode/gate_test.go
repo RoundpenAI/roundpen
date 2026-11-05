@@ -13,6 +13,7 @@ func TestRequiresConfirm(t *testing.T) {
 		"Bash", "bash", "browser_type", "browser_click", "browser_evaluate", "Bash · note",
 		"GitPush", "CreatePullRequest", "MergePullRequest", "PostPullRequestReview",
 		"HostRename", "HostMove", "HostCopy", "HostMkdir", "HostDelete", "HostApplyPlan",
+		"SubmitDownload",
 	} {
 		if !automode.RequiresConfirm(name) {
 			t.Fatalf("RequiresConfirm(%q) = false", name)

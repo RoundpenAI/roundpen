@@ -17,10 +17,10 @@
 | ID | Scope | Status |
 |----|--------|--------|
 | M0 | Host write + `HostApplyPlan` | done |
-| M1 | Photo on-this-day index + copy | pending |
-| M2 | Scene pack ensure + settings | done (ensure + settings UI) |
-| M3 | Download backend (qBittorrent) | pending |
-| M4 | Library gap scan + search→submit skill | pending |
+| M1 | Photo on-this-day tool (filename/mtime) | done |
+| M2 | Scene pack ensure + settings | done |
+| M3 | Download backend (qBittorrent) | done |
+| M4 | ScanTVGaps + find-media / on-this-day / organize-files skills | done |
 | M5 | fnOS download/open APIs | pending |
 
 ---

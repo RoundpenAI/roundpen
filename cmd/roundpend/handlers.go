@@ -28,6 +28,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/authz"
 	"github.com/RoundpenAI/roundpen/internal/automode"
 	"github.com/RoundpenAI/roundpen/internal/browser"
+	"github.com/RoundpenAI/roundpen/internal/download"
 	"github.com/RoundpenAI/roundpen/internal/browsetask"
 	"github.com/RoundpenAI/roundpen/internal/config"
 	"github.com/RoundpenAI/roundpen/internal/connectors"
@@ -540,7 +541,7 @@ func (a agentJobSlots) EnsureAgent(ctx context.Context, userID string) (*sandbox
 }
 
 // newACPManager builds the ACP session manager with its system dependencies.
-func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, mcpSvc *mcp.Service, routineStore *routine.Store, users storage.UserStore, logger *slog.Logger) *manager.Manager {
+func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *userenv.Service, tplSvc *template.Service, browserHub *browser.Hub, agentStore *agentsession.Store, assistantStore *assistant.Store, settingsSvc *settings.Service, gw *llmgw.Gateway, autoEvaluator *automode.LLMEvaluator, items *settingitems.Catalog, connectorsSvc *connectors.Service, mcpSvc *mcp.Service, routineStore *routine.Store, users storage.UserStore, downloadStore *download.Store, logger *slog.Logger) *manager.Manager {
 	// Grant-gated host reads (NAS shares) for the agent's Read/Glob tools.
 	hostRead := hostaccess.New(agentStore, assistantStore, logger)
 	var onTokens func(runKey string, delta int)
@@ -605,6 +606,7 @@ func newACPManager(loopback, previewZone string, mgr sandbox.Manager, envSvc *us
 			return cfg
 		},
 		HostFiles: hostRead.ForSession,
+		Downloads: downloadStore,
 		UserContext: func(ctx context.Context, userID string) string {
 			if users == nil || strings.TrimSpace(userID) == "" {
 				return ""
