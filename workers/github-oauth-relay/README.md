@@ -49,13 +49,34 @@ npx wrangler secret put STATE_SECRET   # 长随机串，给 OAuth state HMAC
 npx wrangler deploy
 ```
 
-`GET https://auth.eaxi.com/health` 应返回 `{"ok":true}`。
+`GET https://auth.eaxi.com/health` 应返回 `{"ok":true,"llm":true}`（`llm` 表示 FREE 上游密钥已配）。
+
+### FREE LLM
+
+与 OAuth 共用 `rp1` / TOFU。NAS 默认 `baseUrl` 为 `https://auth.eaxi.com/llm`：
+
+```http
+POST /llm/v1/chat/completions
+Authorization: Bearer rp1.…
+X-Roundpen-Install-Pub: <64 hex>
+Content-Type: application/json
+
+{"model":"roundpen-free","messages":[{"role":"user","content":"hi"}],"stream":true}
+```
+
+Worker 把 `roundpen-free` 映射成上游模型（默认 `openrouter/free`），按 `install_id` 限流（默认 120 次/小时），超限 HTTP 429。密钥：
+
+```bash
+npx wrangler secret put LLM_UPSTREAM_API_KEY   # OpenRouter 等
+```
+
+可选 vars：`LLM_UPSTREAM_BASE`、`LLM_UPSTREAM_MODEL`、`LLM_REQUESTS_PER_HOUR`、`LLM_REGISTER_PER_IP_PER_DAY`。
 
 控制面用 `ROUNDPEN_OAUTH_RELAY` 指向这个 origin（未设置时默认 `https://auth.eaxi.com`，`off` 关闭）。`ROUNDPEN_GITHUB_OAUTH_RELAY` 仍作为旧别名。这不是登录方式：已登录用户授权之后，令牌进该用户自己的身份或 Google grant。用户自己配了 GitHub App 或 Google Client 时，官方中转让路。
 
 ## NAS 合同
 
-安装身份与 FREE 模型相同：`rp1.<install_id>.<exp>.<sig>`，公钥头 `X-Roundpen-Install-Pub`。首次见该 `install_id` 会 TOFU 记下公钥。
+安装身份与 FREE 模型相同：`rp1.<install_id>.<exp>.<sig>`，公钥头 `X-Roundpen-Install-Pub`。首次见该 `install_id` 会记下公钥；之后同一 `install_id` 换了新公钥（重装）会自动轮换并累加 `reinstallCount`。
 
 **1. 已登录用户点连接 —— NAS 出站：**
 
@@ -119,6 +140,21 @@ X-Roundpen-Install-Pub: <64 hex>
 ```
 
 只有当初领到这枚 refresh token 的 `install_id` 能刷。轮换后旧绑定删掉、新 token 绑到同一台安装。
+
+## 重装与公钥轮换（TOFU）
+
+飞牛卸装/清数据会重生 Ed25519 密钥，但 `install_id` 仍来自 `/etc/device_id`。Worker 发现同一 `install_id` 带着新公钥时会**自动接受**并累加 `reinstallCount`，用户无需找维护者清 TOFU；FREE / OAuth 在重装后点一次即可继续用。
+
+维护者仍可用 admin 接口强制清掉已存公钥（重装次数保留），下一请求会当首次登记：
+
+```bash
+# STATE_SECRET 与 wrangler secret 里的相同；install_id 在 NAS 的
+# /vol1/@appdata/roundpen/data/install-identity/install_id
+curl -fsS -X POST https://auth.eaxi.com/admin/installs/reset-tofu \
+  -H "Authorization: Bearer $STATE_SECRET" \
+  -H 'Content-Type: application/json' \
+  -d '{"installId":"<install_id>"}'
+```
 
 ## 本地
 

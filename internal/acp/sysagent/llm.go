@@ -22,9 +22,10 @@ var ErrLLMNotConfigured = errors.New("LLM 尚未配置：请到「系统管理 �
 var ErrFreeQuotaExceeded = errors.New("免费额度已用尽或请求过于频繁：请到「系统管理 → 模型配置」添加自己的 API Key（BYOK）并设为默认")
 
 // ErrInstallAuthFailed is returned when the FREE cloud entry rejects this
-// install's rp1 identity (HTTP 401, e.g. public key mismatch after a reinstall
-// that regenerated install-identity while keeping the same install_id).
-var ErrInstallAuthFailed = errors.New("免费试用的安装身份已失效（常见于重装后密钥变更）：请到「系统管理 → 模型配置」改绑自己的 API Key；若需继续用 FREE，请联系维护者重新绑定本机安装公钥")
+// install's rp1 identity (HTTP 401 — bad/expired token, missing pubkey header,
+// or cloud registration failure). Reinstall with a new key is accepted by the
+// cloud (reinstallCount++); this error is for other auth failures.
+var ErrInstallAuthFailed = errors.New("免费试用的安装身份校验失败：请确认 install-identity 完整，或到「系统管理 → 模型配置」改绑自己的 API Key")
 
 // LLMConfig configures OpenAI-compatible chat via llmgw loopback.
 type LLMConfig struct {

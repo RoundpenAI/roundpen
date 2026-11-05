@@ -11,8 +11,11 @@
 # fnpack is the official packaging tool (see deploy/fnos/README.md for the
 # download URL); put it on PATH or point FNPACK at it.
 set -euo pipefail
+# Keep lifecycle scripts world-executable after fnpack/umask; otherwise
+# appcenter unpack may leave cmd/* as 0750 and install_init fails with 10237.
+umask 022
 
-VERSION="${VERSION:-0.4.14}"
+VERSION="${VERSION:-2.5.0}"
 PLATFORM="${PLATFORM:-x86}"
 FNPACK="${FNPACK:-fnpack}"
 # Pin pg0 so package contents stay reproducible across builds.

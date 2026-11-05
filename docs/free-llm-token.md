@@ -37,7 +37,9 @@ relaying to the `roundpen-free` provider (`authMode=install_identity`).
 2. Reject if `now > exp_unix`.
 3. Look up `install_id`. First sighting: store the client’s public key (TOFU),
    optionally also keyed by IP to slow mass registration.
-4. Later requests: public key is fixed; verify `Ed25519-Verify(pub, message, sig)`.
+4. Later requests: if the presented public key matches, verify
+   `Ed25519-Verify(pub, message, sig)`. If the key differs (NAS reinstall/wipe),
+   accept the new key, increment `reinstallCount` for that `install_id`, then verify.
 5. Rate-limit by `install_id` (and optionally IP). Return HTTP 429 when over quota;
    Roundpen surfaces that to the UI as a cue to switch to BYOK.
 
@@ -56,8 +58,9 @@ Stable vector from `go test ./internal/installid/ -run TestVector_KnownKey`:
 
 ## Env (Roundpen side, optional overrides)
 
-FREE ships with a fixed cloud entry (`https://api.ttz.ac.cn`, model `roundpen-free`).
-No env is required for cold-start.
+FREE ships with a fixed cloud entry (`https://auth.eaxi.com/llm`, model
+`roundpen-free`) on the same Cloudflare Worker as the OAuth relay. Clients call
+`{base}/v1/chat/completions`. No env is required for cold-start.
 
 | Env | Meaning |
 | --- | --- |
@@ -66,22 +69,22 @@ No env is required for cold-start.
 | `ROUNDPEN_FREE_LLM_TOKEN_TTL` | Go duration for token lifetime (default `1h`) |
 
 Roundpen sends `Authorization: Bearer <rp1…>` and `X-Roundpen-Install-Pub: <hex>`
-so the cloud entry can TOFU-register the install public key.
+so the Worker can TOFU-register the install public key (shared with OAuth).
 
 Cold start is zero-config: on boot, `EnsureDefaultFree` enables the gateway and
 seeds item `roundpen-free` (binding `llm.default` / `llm.sysagent`) when those
 slots have no binding yet. Admins can still force-seed via `POST /v1/setup/llm-free`.
 When FREE returns HTTP 429, the UI cues **系统管理 → 模型配置** (BYOK), not personal settings.
 
-## Reinstall / public key mismatch
+## Reinstall / public key rotation
 
 `install_id` prefers a stable host device id (`/etc/device_id`, …). Wiping
 `$ROUNDPEN_DATA_ROOT/install-identity/` (or a fresh fnOS data dir after
 uninstall) regenerates the Ed25519 keypair while keeping the same `install_id`.
-The cloud TOFU record then rejects tokens with `install auth: public key mismatch`.
+The cloud entry **accepts** the new public key and increments `reinstallCount`
+for that install — FREE and OAuth keep working after the next signed request.
+Local app data wiped by uninstall is a separate concern; only the install
+identity binding is rotated.
 
-**End-user path:** switch to BYOK under **系统管理 → 模型配置**.
-
-**Maintainer path:** update the cloud install’s `public_key_hex` to the new
-`ed25519.pub` (or delete the TOFU row so the next request re-registers), then
-restart the FREE entry if it caches installs in memory.
+**Maintainer path (optional):** `POST /admin/installs/reset-tofu` clears the
+stored pubkey (reinstall count kept) so the next request re-registers.

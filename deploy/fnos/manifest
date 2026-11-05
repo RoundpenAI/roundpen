@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 0.4.14：飞书 IM 表格改列表展示；会话映射持久化，重启不丢聊天连续性。
+changelog             = 2.5.0：免费模型走官方 Cloudflare 中转；重装后安装身份自动换钥；OAuth 失败提示更明确。

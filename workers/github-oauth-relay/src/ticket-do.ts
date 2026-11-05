@@ -1,3 +1,4 @@
+import { decideTofu } from './tofu'
 import type { Ticket } from './types'
 
 type Stored = Ticket & { exp: number }
@@ -50,10 +51,34 @@ type RefreshBinding = { installId: string; provider: string }
 export class InstallDO {
   constructor(private readonly ctx: DurableObjectState) {}
 
+  async alarm(): Promise<void> {
+    // Drop expired rate / registration counters; keep TOFU + refresh bindings.
+    const all = await this.ctx.storage.list<number>({ prefix: 'rl:' })
+    const nowHour = new Date().toISOString().slice(0, 13)
+    const toDelete: string[] = []
+    for (const [k] of all) {
+      const hour = k.slice(k.lastIndexOf(':') + 1)
+      if (hour < nowHour) toDelete.push(k)
+    }
+    const regs = await this.ctx.storage.list<number>({ prefix: 'regip:' })
+    const today = new Date().toISOString().slice(0, 10)
+    for (const [k] of regs) {
+      const day = k.slice(k.lastIndexOf(':') + 1)
+      if (day < today) toDelete.push(k)
+    }
+    if (toDelete.length) await this.ctx.storage.delete(toDelete)
+  }
+
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url)
     if (req.method === 'POST' && url.pathname === '/tofu') {
       return this.tofu(req)
+    }
+    if (req.method === 'POST' && url.pathname === '/reset-tofu') {
+      return this.resetTofu(req)
+    }
+    if (req.method === 'POST' && url.pathname === '/rate') {
+      return this.rate(req)
     }
     if (req.method === 'POST' && (url.pathname === '/bind' || url.pathname === '/check' || url.pathname === '/unbind')) {
       return this.refresh(req, url.pathname)
@@ -62,22 +87,91 @@ export class InstallDO {
   }
 
   private async tofu(req: Request): Promise<Response> {
-    const body = (await req.json()) as { installId?: string; publicKeyHex?: string }
+    const body = (await req.json()) as {
+      installId?: string
+      publicKeyHex?: string
+      clientIP?: string
+      registerPerIPPerDay?: number
+    }
     const installId = (body.installId || '').trim()
     const publicKeyHex = (body.publicKeyHex || '').trim().toLowerCase()
     if (!installId || !publicKeyHex) {
       return json({ error: 'installId and publicKeyHex required' }, 400)
     }
     const key = `pub:${installId}`
+    const countKey = `reinstalls:${installId}`
     const existing = await this.ctx.storage.get<string>(key)
-    if (!existing) {
+    const reinstallCount = (await this.ctx.storage.get<number>(countKey)) || 0
+    const decision = decideTofu(existing, publicKeyHex, reinstallCount)
+    if (decision.kind === 'register') {
+      const ipLimit = Number(body.registerPerIPPerDay || 0)
+      const ip = (body.clientIP || '').trim()
+      if (ipLimit > 0 && ip) {
+        const day = new Date().toISOString().slice(0, 10)
+        const ipKey = `regip:${ip}:${day}`
+        const n = (await this.ctx.storage.get<number>(ipKey)) || 0
+        if (n >= ipLimit) {
+          return json({ error: 'too many new installs from this IP today' }, 429)
+        }
+        await this.ctx.storage.put(ipKey, n + 1)
+      }
       await this.ctx.storage.put(key, publicKeyHex)
-      return json({ ok: true, firstSeen: true })
+      return json({ ok: true, firstSeen: true, reinstallCount })
     }
-    if (existing !== publicKeyHex) {
-      return json({ error: 'install public key does not match TOFU record' }, 403)
+    if (decision.kind === 'match') {
+      return json({ ok: true, firstSeen: false, reinstallCount: decision.reinstallCount })
     }
-    return json({ ok: true, firstSeen: false })
+    // Same install_id, new Ed25519 key → NAS reinstall/wipe. Accept and count.
+    await this.ctx.storage.put(key, publicKeyHex)
+    await this.ctx.storage.put(countKey, decision.reinstallCount)
+    return json({
+      ok: true,
+      firstSeen: false,
+      rotated: true,
+      reinstallCount: decision.reinstallCount,
+    })
+  }
+
+  /** Sliding hour bucket: {installId, limit} → allow or 429. */
+  private async rate(req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as {
+      installId?: string
+      limit?: number
+    } | null
+    const installId = (body?.installId || '').trim()
+    const limit = Number(body?.limit || 0)
+    if (!installId || limit <= 0) {
+      return json({ error: 'installId and positive limit required' }, 400)
+    }
+    const hour = new Date().toISOString().slice(0, 13) // YYYY-MM-DDTHH
+    const key = `rl:${installId}:${hour}`
+    const n = (await this.ctx.storage.get<number>(key)) || 0
+    if (n >= limit) {
+      return json({ error: 'free quota exceeded', used: n, limit }, 429)
+    }
+    await this.ctx.storage.put(key, n + 1)
+    // Expire roughly after the hour window (+skew).
+    try {
+      await this.ctx.storage.setAlarm(Date.now() + 2 * 60 * 60 * 1000)
+    } catch {
+      /* alarm optional */
+    }
+    return json({ ok: true, used: n + 1, limit })
+  }
+
+  /** Maintainer: drop stored pubkey so the next request re-registers (reinstall count kept). */
+  private async resetTofu(req: Request): Promise<Response> {
+    const body = (await req.json().catch(() => null)) as { installId?: string } | null
+    const installId = (body?.installId || '').trim()
+    if (!installId) {
+      return json({ error: 'installId is required' }, 400)
+    }
+    const key = `pub:${installId}`
+    const countKey = `reinstalls:${installId}`
+    const existed = (await this.ctx.storage.get<string>(key)) != null
+    const reinstallCount = (await this.ctx.storage.get<number>(countKey)) || 0
+    await this.ctx.storage.delete(key)
+    return json({ ok: true, deleted: existed, reinstallCount })
   }
 
   private async refresh(req: Request, pathname: string): Promise<Response> {

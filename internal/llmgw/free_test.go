@@ -76,7 +76,7 @@ func TestEnsureDefaultFreeBootstrapsOnce(t *testing.T) {
 		t.Fatalf("mode=%s", mode)
 	}
 
-	// Second boot must not re-enable or rebind over an existing setup.
+	// Second boot must not re-enable; it may refresh the FREE cloud URL.
 	if err := llmgw.EnsureDefaultFree(ctx, cat, env, func(context.Context) error {
 		enabled++
 		return nil
@@ -84,7 +84,16 @@ func TestEnsureDefaultFreeBootstrapsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	if enabled != 1 {
-		t.Fatalf("second ensure must be a no-op; enable calls=%d", enabled)
+		t.Fatalf("second ensure must not re-enable; enable calls=%d", enabled)
+	}
+
+	moved := llmgw.FreeEnv{BaseURL: "https://auth.example/llm", Model: "free-model"}
+	if err := llmgw.EnsureDefaultFree(ctx, cat, moved, nil); err != nil {
+		t.Fatal(err)
+	}
+	it, ok := cat.Snapshot().Item(settingitems.KindLLM, llmgw.FreeItemID)
+	if !ok || it.String("baseUrl") != moved.BaseURL {
+		t.Fatalf("expected refreshed baseUrl, got %+v ok=%v", it, ok)
 	}
 }
 
