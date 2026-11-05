@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 2.5.0：免费模型走官方 Cloudflare 中转；重装后安装身份自动换钥；OAuth 失败提示更明确。
+changelog             = 2.5.1：家庭 NAS 助手（相册/文件/影视/音乐）；Host 写盘与批量整理；qBittorrent 投递下载；飞牛桌面 OpenHostPath 打开文件。

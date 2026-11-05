@@ -15,7 +15,7 @@ set -euo pipefail
 # appcenter unpack may leave cmd/* as 0750 and install_init fails with 10237.
 umask 022
 
-VERSION="${VERSION:-2.5.0}"
+VERSION="${VERSION:-2.5.1}"
 PLATFORM="${PLATFORM:-x86}"
 FNPACK="${FNPACK:-fnpack}"
 # Pin pg0 so package contents stay reproducible across builds.

@@ -158,7 +158,7 @@ compose-down:
 
 # fnOS app package (packaging source in deploy/fnos; needs the official fnpack,
 # see deploy/fnos/README.md). Host roundpend + bundled pg0; no Docker image.
-VERSION ?= 2.5.0
+VERSION ?= 2.5.1
 PLATFORM ?= x86
 
 fpk: setup
