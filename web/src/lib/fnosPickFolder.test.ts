@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { firstPickedPath, resolvePickedDirectory } from './fnosPickFolder.ts'
+import {
+  FNOS_APP_NAME,
+  FNOS_AUTH_RESULT_TYPE,
+  firstPickedPath,
+  resolvePickedDirectory,
+} from './fnosPickFolder.ts'
 
 describe('firstPickedPath', () => {
   it('reads string arrays and object entries', () => {
@@ -27,5 +32,15 @@ describe('resolvePickedDirectory', () => {
       () => resolvePickedDirectory({ code: 1, msg: 'permission denied', data: [] }),
       /permission denied/,
     )
+  })
+})
+
+describe('standalone auth constants', () => {
+  it('uses the fnOS package app name for openAppAuth', () => {
+    assert.equal(FNOS_APP_NAME, 'roundpen')
+  })
+
+  it('uses a stable postMessage type for the auth callback', () => {
+    assert.equal(FNOS_AUTH_RESULT_TYPE, 'roundpen:fnos-auth-result')
   })
 })

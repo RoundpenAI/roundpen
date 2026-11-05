@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 2.5.6：首次进入增加配置向导（模型、目录授权、浏览器）；修复安装脚本回写中文授权路径。
+changelog             = 2.5.7：新窗口打开时也可选择文件夹授权（走 openAppAuth 回调）。

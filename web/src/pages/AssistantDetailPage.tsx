@@ -205,15 +205,15 @@ export function AssistantDetailPage() {
       if (!path) return
       await addGrantPath(path, newMode)
     } catch (e) {
-      if (e instanceof Error && e.message === 'standalone') {
-        const msg = '请从飞牛桌面打开 AI助手 后再选择目录。'
-        setError(msg)
-        Toast.error(msg)
-      } else {
-        const msg = e instanceof Error ? e.message : String(e)
-        setError(msg)
-        Toast.error(msg)
-      }
+      const raw = e instanceof Error ? e.message : String(e)
+      const msg =
+        raw === 'auth_timeout'
+          ? '选择文件夹超时，请重试。'
+          : raw === 'access_denied'
+            ? '未获得目录授权。'
+            : raw
+      setError(msg)
+      Toast.error(msg)
     } finally {
       setPickingFolder(false)
     }

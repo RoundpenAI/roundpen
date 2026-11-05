@@ -143,10 +143,13 @@ export function OnboardingWizard() {
       }
       await refreshFolders()
     } catch (e) {
-      if (e instanceof Error && e.message === 'standalone') {
-        setError(t('onboarding.folders.standalone'))
+      const raw = e instanceof Error ? e.message : String(e)
+      if (raw === 'auth_timeout') {
+        setError(t('onboarding.folders.timeout'))
+      } else if (raw === 'access_denied') {
+        setError(t('onboarding.folders.denied'))
       } else {
-        setError(e instanceof Error ? e.message : String(e))
+        setError(raw)
       }
     } finally {
       setBusy(false)

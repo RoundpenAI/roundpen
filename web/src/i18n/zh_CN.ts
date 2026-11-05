@@ -1097,6 +1097,8 @@ export const zh_CN: Record<MessageKey, string> = {
   'onboarding.folders.bindFailed': '目录已授权，但设为工作区失败。',
   'onboarding.folders.standalone':
     '请从飞牛桌面打开 AI助手 后再选择目录。',
+  'onboarding.folders.timeout': '选择文件夹超时，请重试。',
+  'onboarding.folders.denied': '未获得目录授权。',
   'onboarding.folders.notFnos':
     '文件夹选择仅在飞牛应用内可用。其他部署请到助手详情里授权路径。',
   'onboarding.folders.unavailable': '当前环境无法做目录授权。',

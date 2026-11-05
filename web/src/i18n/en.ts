@@ -1132,6 +1132,8 @@ export const en = {
   'onboarding.folders.bindFailed': 'Authorized, but could not bind as workspace.',
   'onboarding.folders.standalone':
     'Open AI助手 from the fnOS desktop, then pick a folder.',
+  'onboarding.folders.timeout': 'Folder picker timed out. Try again.',
+  'onboarding.folders.denied': 'Directory authorization was denied.',
   'onboarding.folders.notFnos':
     'Folder picker is for the fnOS app. On other installs, grant paths on each assistant.',
   'onboarding.folders.unavailable':
