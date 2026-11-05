@@ -175,6 +175,101 @@ func TestStore_UpsertToolMessage(t *testing.T) {
 	}
 }
 
+func TestStore_FailOpenToolCalls(t *testing.T) {
+	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
+	if dsn == "" {
+		dsn = os.Getenv("DATABASE_URL")
+	}
+	if dsn == "" {
+		t.Skip("set ROUNDPEN_TEST_DATABASE_URL")
+	}
+	ctx := context.Background()
+	db, err := storage.OpenPostgres(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.MigrateEmbedded(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	user := "failopen-" + uuid.NewString()[:8]
+	if _, err := db.SQL.ExecContext(ctx, `
+		INSERT INTO users (username, email, role, api_key, created_at, updated_at)
+		VALUES ($1, $2, 'user', $3, now(), now())
+		ON CONFLICT (username) DO NOTHING`,
+		user, user+"@example.com", "rp-"+user,
+	); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM users WHERE username=$1`, user)
+	})
+
+	store := &Store{DB: db.SQL}
+	sess, err := store.Create(ctx, user, "fail-open", "sysadmin", "", "")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM agent_sessions WHERE id=$1`, sess.ID)
+	})
+
+	for _, patch := range []ToolMeta{
+		{ToolID: "open-pending", Title: "Bash", Status: "pending"},
+		{ToolID: "open-running", Title: "Glob", Status: "in_progress"},
+		{ToolID: "done", Title: "Read", Status: "completed", Output: "ok"},
+	} {
+		if _, err := store.UpsertToolMessage(ctx, sess.ID, patch); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	n, err := store.FailOpenToolCalls(ctx, "interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Fatalf("failed count = %d, want 2", n)
+	}
+
+	msgs, err := store.ListMessages(ctx, sess.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ToolMeta{}
+	for _, m := range msgs {
+		if m.Role != RoleTool {
+			continue
+		}
+		var meta ToolMeta
+		if err := json.Unmarshal(m.Meta, &meta); err != nil {
+			t.Fatal(err)
+		}
+		byID[meta.ToolID] = meta
+	}
+	for _, id := range []string{"open-pending", "open-running"} {
+		meta := byID[id]
+		if meta.Status != "failed" {
+			t.Fatalf("%s status = %q, want failed", id, meta.Status)
+		}
+		if meta.Output != "interrupted" {
+			t.Fatalf("%s output = %#v, want interrupted", id, meta.Output)
+		}
+	}
+	if byID["done"].Status != "completed" || byID["done"].Output != "ok" {
+		t.Fatalf("completed row mutated: %+v", byID["done"])
+	}
+
+	n, err = store.FailOpenToolCalls(ctx, "interrupted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("second pass count = %d, want 0", n)
+	}
+}
+
 func TestStore_CancelMessageMarksRow(t *testing.T) {
 	dsn := os.Getenv("ROUNDPEN_TEST_DATABASE_URL")
 	if dsn == "" {
