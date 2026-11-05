@@ -1110,6 +1110,42 @@ export const en = {
   'routines.runStatus.skipped_overlap': 'Skipped (still running)',
   'routines.runStatus.skipped_stale': 'Skipped (too late)',
   'routines.runStatus.cancelled': 'Cancelled',
+
+  'onboarding.title': 'Welcome — a quick setup',
+  'onboarding.subtitle':
+    'Three steps so chat works well: model, folders you can read, and a browser for the agent.',
+  'onboarding.later': 'Later',
+  'onboarding.back': 'Back',
+  'onboarding.next': 'Next',
+  'onboarding.finish': 'Done',
+  'onboarding.step.llm': 'Model',
+  'onboarding.step.folders': 'Folders',
+  'onboarding.step.browser': 'Browser',
+  'onboarding.llm.byokHint': 'Prefer your own API key?',
+  'onboarding.llm.openSettings': 'Open model settings',
+  'onboarding.folders.intro':
+    'Authorize a folder from My Files so the agent can read materials and photos. Binding it also mounts it as the workspace.',
+  'onboarding.folders.pickTitle': 'Choose a folder to authorize',
+  'onboarding.folders.pick': 'Choose folder',
+  'onboarding.folders.empty': 'No authorized folders yet.',
+  'onboarding.folders.bound': 'Folder authorized and set as workspace.',
+  'onboarding.folders.bindFailed': 'Authorized, but could not bind as workspace.',
+  'onboarding.folders.standalone':
+    'Open AI助手 from the fnOS desktop, then pick a folder.',
+  'onboarding.folders.notFnos':
+    'Folder picker is for the fnOS app. On other installs, grant paths on each assistant.',
+  'onboarding.folders.unavailable':
+    'Folder authorization is not available in this environment.',
+  'onboarding.folders.workspace': 'Workspace: {path}',
+  'onboarding.browser.intro':
+    'A browser lets the agent open web pages. Local Docker is the default on this NAS.',
+  'onboarding.browser.needAdmin': 'Ask an admin to configure the browser source.',
+  'onboarding.browser.ready': 'A browser source is already configured.',
+  'onboarding.browser.dockerHelp':
+    'One click installs the managed browserless image and sets it as default.',
+  'onboarding.browser.enableLocal': 'Enable local Docker browser',
+  'onboarding.browser.openSettings': 'Advanced settings',
+  'onboarding.browser.enabled': 'Local browser enabled.',
 } as const
 
 export type MessageKey = keyof typeof en

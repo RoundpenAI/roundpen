@@ -1075,4 +1075,39 @@ export const zh_CN: Record<MessageKey, string> = {
   'routines.runStatus.skipped_overlap': '跳过（上次还在跑）',
   'routines.runStatus.skipped_stale': '跳过（过期）',
   'routines.runStatus.cancelled': '已取消',
+
+  'onboarding.title': '欢迎使用 — 先完成三项配置',
+  'onboarding.subtitle':
+    '配好模型、授权可访问目录、启用浏览器，对话和 Agent 才能顺利工作。',
+  'onboarding.later': '稍后再说',
+  'onboarding.back': '上一步',
+  'onboarding.next': '下一步',
+  'onboarding.finish': '完成',
+  'onboarding.step.llm': '模型',
+  'onboarding.step.folders': '目录',
+  'onboarding.step.browser': '浏览器',
+  'onboarding.llm.byokHint': '要用自己的 API Key？',
+  'onboarding.llm.openSettings': '打开模型配置',
+  'onboarding.folders.intro':
+    '从「我的文件」授权一个目录，助手才能读材料、看照片；绑定后也会挂到工作区。',
+  'onboarding.folders.pickTitle': '选择要授权的文件夹',
+  'onboarding.folders.pick': '选择文件夹',
+  'onboarding.folders.empty': '还没有已授权目录。',
+  'onboarding.folders.bound': '已授权并设为工作区。',
+  'onboarding.folders.bindFailed': '目录已授权，但设为工作区失败。',
+  'onboarding.folders.standalone':
+    '请从飞牛桌面打开 AI助手 后再选择目录。',
+  'onboarding.folders.notFnos':
+    '文件夹选择仅在飞牛应用内可用。其他部署请到助手详情里授权路径。',
+  'onboarding.folders.unavailable': '当前环境无法做目录授权。',
+  'onboarding.folders.workspace': '工作区：{path}',
+  'onboarding.browser.intro':
+    '浏览器让助手能打开网页。本机 Docker 是 NAS 上的默认方式。',
+  'onboarding.browser.needAdmin': '请联系管理员配置浏览器源。',
+  'onboarding.browser.ready': '已配置浏览器源。',
+  'onboarding.browser.dockerHelp':
+    '一键安装托管的 browserless 镜像，并设为默认。',
+  'onboarding.browser.enableLocal': '启用本机 Docker 浏览器',
+  'onboarding.browser.openSettings': '高级设置',
+  'onboarding.browser.enabled': '本机浏览器已启用。',
 }
