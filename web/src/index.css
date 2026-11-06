@@ -405,11 +405,9 @@ html.keyboard-open .chat-composer-dock {
   max-width: min(100%, 36rem);
 }
 
-/* Pin the current user question while its answer scrolls underneath.
-   Sibling sticky headers push each other: the next question replaces the
-   previous one at the top of .chat-pane-scroll. Background matches the
-   chat surface so the row only becomes noticeable once content scrolls under. */
-.chat-pane-scroll .semi-ai-chat-dialogue-wrapper:has(> .semi-ai-chat-dialogue-container-right) {
+/* Q&A turns: sticky question is contained by .chat-turn, so it scrolls away
+   when the turn ends instead of stacking under the next question. */
+.chat-pane-scroll .chat-turn .semi-ai-chat-dialogue-wrapper:has(> .semi-ai-chat-dialogue-container-right) {
   position: sticky;
   top: 0;
   z-index: 5;
@@ -417,7 +415,19 @@ html.keyboard-open .chat-composer-dock {
   box-sizing: border-box;
   padding-top: 8px;
   padding-bottom: 8px;
-  background: var(--semi-color-bg-1);
+  /* Match Layout / chat canvas (bg-0); bg-1 reads as a hard band. */
+  background: var(--semi-color-bg-0);
+}
+
+/* While pinned, collapse multi-line questions to one line. */
+.chat-pane-scroll .chat-turn.is-stuck .semi-ai-chat-dialogue-wrapper:has(> .semi-ai-chat-dialogue-container-right) .semi-ai-chat-dialogue-content-userBubble {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .chat-pane-scroll .semi-ai-chat-dialogue-content-bubble:has(.chat-activity-wrap),

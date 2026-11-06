@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 长回答滚动时用户问题吸顶，滑到下一条问题自动切换，方便对照当前问的是什么。
+changelog             = 对话按问答分段吸顶问题、合并思考过程；助手可将工作区文件直接复制到已授权的 NAS 目录。

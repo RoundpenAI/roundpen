@@ -7,6 +7,10 @@ import {
 } from '../components/ToolCallCard'
 import { buildChangeSet, isChangeSetTool } from '../lib/changeSet'
 import {
+  mergeThoughtViews,
+  type ThoughtView,
+} from '../lib/mergeThoughtViews'
+import {
   isActivityMessage,
   isClearDivider,
   type SemiContentItem,
@@ -39,23 +43,13 @@ function parseArgs(raw: string | undefined): unknown {
 }
 
 function activityFromMessage(message: DialogueMessage): {
-  thoughts: {
-    text: string
-    streaming?: boolean
-    startedAtMs?: number
-    durationMs?: number
-  }[]
+  thoughts: ThoughtView[]
   tools: ToolCallData[]
 } {
   const items = Array.isArray(message.content)
     ? (message.content as SemiContentItem[])
     : []
-  const thoughts: {
-    text: string
-    streaming?: boolean
-    startedAtMs?: number
-    durationMs?: number
-  }[] = []
+  const thoughts: ThoughtView[] = []
   const tools: ToolCallData[] = []
   for (const item of items) {
     if (item.type === 'reasoning') {
@@ -83,6 +77,7 @@ function activityFromMessage(message: DialogueMessage): {
 
 export function renderActivityContent(message: DialogueMessage): ReactNode {
   const { thoughts, tools } = activityFromMessage(message)
+  const thought = mergeThoughtViews(thoughts)
   const changeSet = buildChangeSet(tools)
   // ChangeSet already surfaces completed Edit/Write; keep other tools (and
   // still-running / failed edits) so cards do not repeat the same diffs.
@@ -98,17 +93,14 @@ export function renderActivityContent(message: DialogueMessage): ReactNode {
     : tools
   return (
     <div className="chat-activity">
-      {thoughts.map((t, i) =>
-        t.text ? (
-          <ThoughtBlock
-            key={i}
-            text={t.text}
-            streaming={t.streaming}
-            startedAtMs={t.startedAtMs}
-            durationMs={t.durationMs}
-          />
-        ) : null,
-      )}
+      {thought ? (
+        <ThoughtBlock
+          text={thought.text}
+          streaming={thought.streaming}
+          startedAtMs={thought.startedAtMs}
+          durationMs={thought.durationMs}
+        />
+      ) : null}
       {otherTools.length > 0 ? (
         <ToolCallGroup calls={otherTools} alwaysStats />
       ) : null}

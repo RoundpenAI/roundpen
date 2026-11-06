@@ -49,6 +49,9 @@ func (f *fakeHost) MoveHost(context.Context, tools.Actor, string, string) error 
 func (f *fakeHost) CopyHost(context.Context, tools.Actor, string, string) error {
 	return fmt.Errorf("copy not stubbed")
 }
+func (f *fakeHost) CopyOntoHost(context.Context, tools.Actor, string, string) error {
+	return fmt.Errorf("copy onto host not stubbed")
+}
 func (f *fakeHost) MkdirHost(context.Context, tools.Actor, string) error {
 	return fmt.Errorf("mkdir not stubbed")
 }
