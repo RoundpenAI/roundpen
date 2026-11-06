@@ -214,6 +214,27 @@ func (s *sessionAccess) CopyHost(ctx context.Context, actor tools.Actor, fromAbs
 	return copyPath(from, to)
 }
 
+// CopyOntoHost copies a trusted control-plane path onto a grant-checked
+// destination. Used for /workspace → NAS publish (sandbox host tree is owned
+// by roundpend; it is not a DirectoryGrant and must not require one).
+func (s *sessionAccess) CopyOntoHost(ctx context.Context, actor tools.Actor, fromAbs, toAbs string) error {
+	from := filepath.Clean(strings.TrimSpace(fromAbs))
+	if from == "" || from == "." || from == "/" {
+		return fmt.Errorf("host copy denied: invalid source path %q", fromAbs)
+	}
+	if _, err := os.Stat(from); err != nil {
+		return err
+	}
+	to, err := s.authorize(ctx, actor, toAbs, "readwrite", false)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		return err
+	}
+	return copyPath(from, to)
+}
+
 func (s *sessionAccess) MkdirHost(ctx context.Context, actor tools.Actor, absPath string) error {
 	to, err := s.authorize(ctx, actor, absPath, "readwrite", false)
 	if err != nil {
