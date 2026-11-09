@@ -8,7 +8,6 @@ import {
 } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import {
-  AIChatDialogue,
   AIChatInput,
   Banner,
   Button,
@@ -35,6 +34,7 @@ import { useOpenAppMenu } from '../components/AppShell'
 import { useAssistantLayout } from '../components/AssistantLayout'
 import { CoordinatorWorkersSheet } from '../components/CoordinatorWorkersSheet'
 import { SessionTabs } from '../components/SessionTabs'
+import { ChatTurnList } from '../components/ChatTurnList'
 import { chatDialogueRenderConfig } from '../components/chatDialogueRender'
 import { DeliveryActionBar } from '../components/DeliveryActionBar'
 import { inferDeliveryNeed } from '../lib/deliveryNeed'
@@ -920,12 +920,18 @@ export function ChatSessionPage() {
           <div
             ref={scrollRef}
             className="chat-pane-scroll"
-            style={{ padding: '12px 16px', fontSize: 14 }}
+            style={{ fontSize: 14 }}
             onScroll={onScrollPane}
           >
             <div
               ref={contentRef}
-              style={{ maxWidth: 768, margin: '0 auto', minWidth: 0 }}
+              style={{
+                maxWidth: 768,
+                margin: '0 auto',
+                minWidth: 0,
+                padding: '12px 16px',
+                boxSizing: 'border-box',
+              }}
             >
               {loadingMore && (
                 <div
@@ -947,10 +953,9 @@ export function ChatSessionPage() {
                 </Typography.Text>
               )}
               {chats.length > 0 && (
-                <AIChatDialogue
-                  align="leftRight"
-                  mode="userBubble"
+                <ChatTurnList
                   chats={chats}
+                  scrollRootRef={scrollRef}
                   roleConfig={ROLE_CONFIG}
                   dialogueRenderConfig={dialogueRender}
                 />
