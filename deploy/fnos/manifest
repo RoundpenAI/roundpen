@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 工作区挂载失效时自动重建 Agent；内置助手默认开 Bash/浏览器；停止生成不再重复气泡；分段「已思考」合并为一块。
+changelog             = HostCopy 可从工作区写入授权目录；挂载失效自动重建 Agent；Bash 子项显示命令；修复 PHP 预览崩溃。

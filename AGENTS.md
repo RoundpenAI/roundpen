@@ -8,4 +8,4 @@
 
 ## 部署到飞牛
 
-用户说「部署到飞牛」时：升版本号、`make fpk`、安装到 `mike@10.10.1.3`。步骤见 `.cursor/rules/fnos-deploy.mdc`。
+可上线的改动做完后直接发布到 `mike@10.10.1.3`（不必再等「部署到飞牛」），用户说「部署到飞牛」时同流程。步骤见 `.cursor/rules/fnos-deploy.mdc` 与 `.cursor/skills/fnos-release/SKILL.md`。

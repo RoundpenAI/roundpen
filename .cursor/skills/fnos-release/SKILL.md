@@ -3,8 +3,9 @@ name: fnos-release
 description: >-
   Roundpen fnOS release: bump VERSION, branch/commit/tag/push, open PR, make fpk,
   install on NAS mike@10.10.1.3, then checkout master. Use when the user says
-  部署飞牛、部署到飞牛、发布飞牛、fnOS release/deploy, or asks to ship a Roundpen
-  fpk to the NAS.
+  部署飞牛、部署到飞牛、发布飞牛、fnOS release/deploy, asks to ship a Roundpen
+  fpk to the NAS, or after finishing shippable product changes (auto-deploy then
+  notify — do not wait for an explicit deploy ask unless user said WIP / 先别部署).
 ---
 
 # Roundpen 飞牛发布

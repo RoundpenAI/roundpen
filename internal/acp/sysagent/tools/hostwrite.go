@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -58,12 +61,17 @@ func RegisterHostWrite(r *Registry, binder *AgentBinder) {
 	})
 	r.Register(Tool{
 		Name: "HostCopy",
-		Description: "Copy a file or directory tree on the host. Source needs read (or readwrite); " +
-			"destination needs readwrite. Dotfiles/directories are skipped when copying trees.",
+		Description: "Copy a file or directory tree onto a readwrite-granted host path (NAS). " +
+			"Source may be a granted host path, or a path under /workspace (downloaded/built files) — " +
+			"workspace sources are resolved on the control plane (the Agent container cannot see /vol*). " +
+			"Destination must be absolute under a readwrite grant. Dotfiles are skipped when copying trees.",
 		Mutating: true,
 		Parameters: objectSchema(map[string]any{
-			"from": map[string]any{"type": "string", "description": "Absolute source path"},
-			"to":   map[string]any{"type": "string", "description": "Absolute destination path"},
+			"from": map[string]any{
+				"type":        "string",
+				"description": "Source: granted host abs path, or /workspace/... (or workspace-relative)",
+			},
+			"to": map[string]any{"type": "string", "description": "Absolute destination under a readwrite grant"},
 		}, "from", "to"),
 		Call: func(ctx context.Context, actor Actor, args json.RawMessage) (string, error) {
 			var in struct {
@@ -116,7 +124,8 @@ func RegisterHostWrite(r *Registry, binder *AgentBinder) {
 	r.Register(Tool{
 		Name: "HostApplyPlan",
 		Description: "Apply a batch of host file operations (rename/move/copy/mkdir/delete) under " +
-			"directory grants. Show the plan to the user and get approval before calling. " +
+			"directory grants. copy may use a /workspace source (same as HostCopy). " +
+			"Show the plan to the user and get approval before calling. " +
 			"At most 100 items per call. Each item needs op and the paths that op uses.",
 		Mutating: true,
 		Parameters: objectSchema(map[string]any{
@@ -198,14 +207,82 @@ func (b *AgentBinder) hostCopy(ctx context.Context, actor Actor, from, to string
 	if err != nil {
 		return "", err
 	}
-	fromAbs, toAbs, err := hostPair(from, to)
+	toAbs, err := requireHostAbs(to)
+	if err != nil {
+		return "", fmt.Errorf("to: %w", err)
+	}
+	fromHost, fromLabel, fromWorkspace, err := b.resolveCopySource(ctx, actor, from)
 	if err != nil {
 		return "", err
 	}
-	if err := host.CopyHost(ctx, actor, fromAbs, toAbs); err != nil {
-		return "", err
+	if fromWorkspace {
+		if err := host.PublishHost(ctx, actor, fromHost, toAbs); err != nil {
+			return "", err
+		}
+	} else {
+		if err := host.CopyHost(ctx, actor, fromHost, toAbs); err != nil {
+			return "", err
+		}
 	}
-	return fmt.Sprintf("Copied %s → %s", fromAbs, toAbs), nil
+	return fmt.Sprintf("Copied %s → %s", fromLabel, toAbs), nil
+}
+
+// resolveCopySource maps HostCopy "from" to a control-plane absolute path.
+// Workspace paths (/workspace/... or relative) use the Agent sandbox host bind.
+func (b *AgentBinder) resolveCopySource(ctx context.Context, actor Actor, from string) (hostAbs, label string, workspace bool, err error) {
+	from = strings.TrimSpace(from)
+	if from == "" {
+		return "", "", false, fmt.Errorf("from is required")
+	}
+	if abs, isHost, herr := hostAbsPath(from); herr != nil {
+		return "", "", false, fmt.Errorf("from: %w", herr)
+	} else if isHost {
+		return abs, abs, false, nil
+	}
+	if !isWorkspaceToolPath(from) {
+		return "", "", false, fmt.Errorf("from: %q is not a host path (use absolute paths outside /workspace, or a /workspace path to publish)", from)
+	}
+	rel, err := b.resolveRel(from)
+	if err != nil {
+		return "", "", false, fmt.Errorf("from: %w", err)
+	}
+	id, err := b.ensureID(ctx, actor)
+	if err != nil {
+		return "", "", false, err
+	}
+	if b.Exec == nil {
+		return "", "", false, fmt.Errorf("workspace host path is not available")
+	}
+	root, err := b.Exec.WorkspaceHostPath(ctx, id)
+	if err != nil || strings.TrimSpace(root) == "" {
+		if err == nil {
+			err = fmt.Errorf("empty path")
+		}
+		return "", "", false, fmt.Errorf("workspace host path is not available: %w", err)
+	}
+	root = filepath.Clean(root)
+	joined := root
+	if rel != "." {
+		joined = filepath.Join(root, filepath.FromSlash(rel))
+	}
+	joined = filepath.Clean(joined)
+	sep := string(os.PathSeparator)
+	if joined != root && !strings.HasPrefix(joined, root+sep) {
+		return "", "", false, fmt.Errorf("from escapes workspace")
+	}
+	return joined, GuestAbs(rel), true, nil
+}
+
+func isWorkspaceToolPath(p string) bool {
+	p = strings.TrimSpace(p)
+	if p == "" {
+		return false
+	}
+	if !strings.HasPrefix(p, "/") {
+		return true
+	}
+	clean := path.Clean(p)
+	return clean == WorkspaceRoot || strings.HasPrefix(clean, WorkspaceRoot+"/")
 }
 
 func (b *AgentBinder) hostMkdir(ctx context.Context, actor Actor, p string) (string, error) {
@@ -252,7 +329,7 @@ func (b *AgentBinder) hostApplyPlan(ctx context.Context, actor Actor, items []ho
 	var lines []string
 	for i, it := range items {
 		op := strings.ToLower(strings.TrimSpace(it.Op))
-		summary, err := applyOneHostOp(ctx, host, actor, it, op)
+		summary, err := b.applyOneHostOp(ctx, host, actor, it, op)
 		if err != nil {
 			return "", fmt.Errorf("item %d (%s): %w", i, op, err)
 		}
@@ -261,7 +338,7 @@ func (b *AgentBinder) hostApplyPlan(ctx context.Context, actor Actor, items []ho
 	return fmt.Sprintf("Applied %d host operations:\n%s", len(lines), strings.Join(lines, "\n")), nil
 }
 
-func applyOneHostOp(ctx context.Context, host HostFiles, actor Actor, it hostPlanItem, op string) (string, error) {
+func (b *AgentBinder) applyOneHostOp(ctx context.Context, host HostFiles, actor Actor, it hostPlanItem, op string) (string, error) {
 	switch op {
 	case "rename":
 		from, to, err := hostPair(firstPath(it.From, it.Path), firstPath(it.To, ""))
@@ -282,14 +359,11 @@ func applyOneHostOp(ctx context.Context, host HostFiles, actor Actor, it hostPla
 		}
 		return fmt.Sprintf("move %s → %s", from, to), nil
 	case "copy":
-		from, to, err := hostPair(firstPath(it.From, it.Path), firstPath(it.To, ""))
+		msg, err := b.hostCopy(ctx, actor, firstPath(it.From, it.Path), firstPath(it.To, ""))
 		if err != nil {
 			return "", err
 		}
-		if err := host.CopyHost(ctx, actor, from, to); err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("copy %s → %s", from, to), nil
+		return strings.Replace(msg, "Copied ", "copy ", 1), nil
 	case "mkdir":
 		abs, err := requireHostAbs(firstPath(it.To, it.Path))
 		if err != nil {

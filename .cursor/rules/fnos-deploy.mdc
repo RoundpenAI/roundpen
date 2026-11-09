@@ -1,36 +1,23 @@
 ---
-description: 用户说「部署到飞牛」时，升版本、打 fpk、安装到 NAS
+description: 可上线的改动做完后自动部署到飞牛；用户说「部署到飞牛」时同流程
 alwaysApply: true
 ---
 
 # 部署到飞牛
 
-用户说「部署到飞牛」时，按顺序做完这三步，不要只改版本或只打包。
+完整流程见 `.cursor/skills/fnos-release/SKILL.md`（升版本 → branch/commit/tag/PR → `make fpk` → `fnos-install-nas.sh` → 回 master）。
 
 目标机：`mike@10.10.1.3`（x86_64）。`appcenter-cli` 必须 `sudo -n`。
 
-## 1. 升版本
+## 何时部署
 
-`make fpk` / `build-fnos-fpk.sh` 默认用仓库里最高的 `v*` tag（去掉 `v`）。未指定版本时：读最新 tag，补丁号 +1（`2.5.1` → `2.5.2`），打 annotated tag `v<version>`，打包时显式传 `VERSION=<version>`（tag 推上去之前不能只靠默认值）。
+- 用户说「部署到飞牛 / 部署飞牛 / 发布飞牛」→ 立即走完整发布。
+- **可上线的功能/修复改完后**（用户未说「先别部署 / WIP」）→ **直接走同一套发布，完成后通知**（PR、tag、NAS 版本、health），不要等用户再说一遍「部署」。
+- 纯调研、未完成的半截改动、或用户明确只要本地改 → 不部署。
 
-`deploy/fnos/manifest` 的 `changelog` 写成这一版用户能看懂的一两句。`version` / `platform` 由打包脚本写入，不必改仓库里的占位值。不必再改 Makefile / 脚本里的硬编码版本。
+## 要点
 
-## 2. 打包
-
-```bash
-make fpk
-```
-
-产物：`dist/fnos/roundpen-<version>-fnos-{x86,arm}.fpk`（NAS 装 x86）。
-
-## 3. 安装到这台 NAS
-
-不要手写 `install-local` 裸装（会卸装并丢掉飞牛「可访问文件夹」）。用：
-
-```bash
-./scripts/fnos-install-nas.sh <version>
-```
-
-脚本会：`install-fpk` 解包 → `install-local` 切换版本 → 把装前快照的授权目录写回新 `app_id` → 必要时重启以注入 `TRIM_DATA_ACCESSIBLE_PATHS`。`/vol1/@appdata/roundpen` 仍由平台保留。
-
-装完确认：`sudo -n appcenter-cli list` 里 roundpen 是新版本且 `running`，`curl -fsS http://127.0.0.1:9527/health` 为 `ok`，`secret.key` 仍在；若装前有授权目录，确认未丢。
+- 未指定版本时：最新 `v*` tag 补丁号 +1，annotated tag，`VERSION=<version> make fpk`。
+- `deploy/fnos/manifest` 的 `changelog` 写一两句用户能看懂的说明。
+- 安装用 `./scripts/fnos-install-nas.sh <version>`（保留授权目录），不要裸 `install-local`。
+- 装完确认：appcenter 新版本 `running`、`/health` ok、`secret.key` 在、授权目录未丢。
