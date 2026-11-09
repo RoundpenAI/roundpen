@@ -604,12 +604,12 @@ func (b *Backend) Exec(ctx context.Context, sandboxID string, opts backend.ExecO
 		Cmd:          cmd,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("exec create: %w", err)
+		return nil, mapExecErr("exec create", err)
 	}
 
 	attach, err := b.cli.ContainerExecAttach(execCtx, createResp.ID, types.ExecStartCheck{})
 	if err != nil {
-		return nil, fmt.Errorf("exec attach: %w", err)
+		return nil, mapExecErr("exec attach", err)
 	}
 	defer attach.Close()
 	// The hijacked connection is not tied to execCtx; close it on cancellation
@@ -631,11 +631,25 @@ func (b *Backend) Exec(ctx context.Context, sandboxID string, opts backend.ExecO
 	if err != nil {
 		return nil, fmt.Errorf("exec inspect: %w", err)
 	}
-	return &backend.ExecResult{
+	out := &backend.ExecResult{
 		ExitCode: inspect.ExitCode,
 		Stdout:   []byte(stdout.String()),
 		Stderr:   []byte(stderr.String()),
-	}, nil
+	}
+	if backend.LooksLikeStaleWorkspaceMount(nil, out.ExitCode, out.Stdout, out.Stderr) {
+		return nil, fmt.Errorf("%w: docker exec exit %d", backend.ErrStaleWorkspaceMount, out.ExitCode)
+	}
+	return out, nil
+}
+
+func mapExecErr(op string, err error) error {
+	if backend.IsStaleWorkspaceMount(err) {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	if backend.LooksLikeStaleWorkspaceMount(err, 0, nil, nil) {
+		return fmt.Errorf("%s: %w: %v", op, backend.ErrStaleWorkspaceMount, err)
+	}
+	return fmt.Errorf("%s: %w", op, err)
 }
 
 func (b *Backend) Logs(ctx context.Context, sandboxID string) (io.ReadCloser, error) {
@@ -868,12 +882,12 @@ func (b *Backend) AttachExec(ctx context.Context, sandboxID string, opts backend
 		Cmd:          opts.Cmd,
 	})
 	if err != nil {
-		return fmt.Errorf("attach exec create: %w", err)
+		return mapExecErr("attach exec create", err)
 	}
 
 	attach, err := b.cli.ContainerExecAttach(ctx, createResp.ID, types.ExecStartCheck{Tty: false})
 	if err != nil {
-		return fmt.Errorf("attach exec attach: %w", err)
+		return mapExecErr("attach exec attach", err)
 	}
 	defer attach.Close()
 

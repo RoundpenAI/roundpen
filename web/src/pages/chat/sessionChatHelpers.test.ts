@@ -278,4 +278,64 @@ describe('reconcileRefetch', () => {
     assert.equal(out[1]?.content, 'mid updated')
     assert.equal(out[2]?.id, 'new')
   })
+
+  it('drops a completed stream bubble once the persisted reply arrives (stop)', () => {
+    const user: AgentMessage = {
+      id: 'u1',
+      sessionId: 's',
+      role: 'user',
+      content: 'hi',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }
+    const stream: AgentMessage = {
+      id: 'stream-1',
+      sessionId: 's',
+      role: 'assistant',
+      content: 'partial answer',
+      meta: { type: 'agent_message', status: 'completed' },
+      createdAt: '2026-01-01T00:00:01.000Z',
+    }
+    const persisted: AgentMessage = {
+      id: 'a-db',
+      sessionId: 's',
+      role: 'assistant',
+      content: 'partial answer',
+      meta: { type: 'assistant', stopReason: 'cancelled' },
+      createdAt: '2026-01-01T00:00:02.000Z',
+    }
+    const out = reconcileRefetch([user, stream], [user, persisted])
+    assert.equal(out.length, 2)
+    assert.equal(out[0]?.id, 'u1')
+    assert.equal(out[1]?.id, 'a-db')
+  })
+
+  it('drops a still-streaming reply overlay covered by the persisted row', () => {
+    const user: AgentMessage = {
+      id: 'u1',
+      sessionId: 's',
+      role: 'user',
+      content: 'hi',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    }
+    const stream: AgentMessage = {
+      id: 'stream-2',
+      sessionId: 's',
+      role: 'assistant',
+      content: 'hello',
+      meta: { type: 'agent_message', status: 'in_progress' },
+      createdAt: '2026-01-01T00:00:01.000Z',
+    }
+    const persisted: AgentMessage = {
+      id: 'a-db',
+      sessionId: 's',
+      role: 'assistant',
+      content: 'hello world',
+      meta: { type: 'assistant' },
+      createdAt: '2026-01-01T00:00:02.000Z',
+    }
+    const out = reconcileRefetch([user, stream], [user, persisted])
+    assert.equal(out.length, 2)
+    assert.equal(out[1]?.id, 'a-db')
+    assert.equal(out[1]?.content, 'hello world')
+  })
 })
