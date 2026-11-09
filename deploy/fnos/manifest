@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 飞牛网关下不再请求 PWA manifest（避免 invalid token）；保留 HostCopy 工作区投放与挂载自愈。
+changelog             = 对话按问答分段吸顶当前问题，滑到下一问自动切换，长回答对照更清楚。
