@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = HostCopy 可从工作区写入授权目录；挂载失效自动重建 Agent；Bash 子项显示命令；修复 PHP 预览崩溃。
+changelog             = 飞牛网关下不再请求 PWA manifest（避免 invalid token）；保留 HostCopy 工作区投放与挂载自愈。
