@@ -7,6 +7,7 @@ import (
 
 	"github.com/RoundpenAI/roundpen/internal/assistant"
 	"github.com/RoundpenAI/roundpen/internal/nasscene"
+	"github.com/RoundpenAI/roundpen/internal/routine"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 )
 
@@ -69,12 +70,35 @@ func TestEnsureAndDisable(t *testing.T) {
 	user := "nas-scene-ensure"
 	insertUser(t, db, user)
 	asst := &assistant.Store{DB: db.SQL}
-	store := &nasscene.Store{DB: db.SQL, Assistants: asst}
+	rtStore := &routine.Store{DB: db.SQL}
+	store := &nasscene.Store{DB: db.SQL, Assistants: asst, Routines: rtStore}
 	ctx := context.Background()
 
 	if err := store.SetEnabled(ctx, user, true); err != nil {
 		t.Fatal(err)
 	}
+	rts, err := rtStore.List(ctx, user, routine.ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rts) != 1 || rts[0].Title != "往年今日" {
+		t.Fatalf("want one OnThisDay seed routine, got %+v", rts)
+	}
+	// Re-ensure must not duplicate the seed.
+	if _, err := store.Ensure(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	rts, err = rtStore.List(ctx, user, routine.ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rts) != 1 {
+		t.Fatalf("seed not idempotent: got %d routines", len(rts))
+	}
+	t.Cleanup(func() {
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM routines WHERE user_id=$1`, user)
+		_, _ = db.SQL.ExecContext(ctx, `DELETE FROM nas_scene_routines WHERE user_id=$1`, user)
+	})
 	list, err := asst.ListByUser(ctx, user)
 	if err != nil {
 		t.Fatal(err)

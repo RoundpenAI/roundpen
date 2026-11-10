@@ -2,7 +2,6 @@
 /bin/
 /dist/
 /roundpend
-/roundpen
 
 # air (make-dev hot reload)
 /tmp/

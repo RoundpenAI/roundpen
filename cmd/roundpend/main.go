@@ -404,7 +404,7 @@ func main() {
 		logger.Info("ROUNDPEN_IM_ENABLED is off — IM engines skipped (set it to true to start them)")
 	}
 
-	nasSceneStore := &nasscene.Store{DB: db.SQL, Assistants: assistantStore}
+	nasSceneStore := &nasscene.Store{DB: db.SQL, Assistants: assistantStore, Routines: routineStore}
 	asstHandler := &assistant.Handler{
 		Store:    assistantStore,
 		Sessions: agentStore,

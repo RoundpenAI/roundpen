@@ -24,6 +24,7 @@ type Assistants interface {
 type Store struct {
 	DB         *sql.DB
 	Assistants Assistants
+	Routines   Routines // optional; seeds morning OnThisDay when set
 }
 
 // Member is one template's status for the settings UI.
@@ -94,6 +95,11 @@ func (s *Store) Ensure(ctx context.Context, userID string) ([]*assistant.Assista
 		}
 		if a != nil {
 			out = append(out, a)
+			if tmpl.Key == KeyPhotos {
+				if err := s.ensurePhotosRoutine(ctx, userID, a.ID); err != nil {
+					return out, err
+				}
+			}
 		}
 	}
 	return out, nil

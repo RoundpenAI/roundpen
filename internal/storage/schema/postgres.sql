@@ -1086,3 +1086,52 @@ CREATE TABLE IF NOT EXISTS issue_board_scan_state (
     last_digest_hash TEXT NOT NULL DEFAULT '',
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- NAS scene pack: per-user enable flag + mapping from template key → assistant.
+CREATE TABLE IF NOT EXISTS nas_scene_prefs (
+    user_id    TEXT PRIMARY KEY REFERENCES users (username) ON DELETE CASCADE,
+    enabled    BOOLEAN NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS nas_scene_assistants (
+    user_id       TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    template_key  TEXT NOT NULL,
+    assistant_id  TEXT NOT NULL REFERENCES assistants (id) ON DELETE CASCADE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, template_key)
+);
+
+CREATE INDEX IF NOT EXISTS nas_scene_assistants_assistant_idx
+    ON nas_scene_assistants (assistant_id);
+
+-- Product-keyed seed routines (e.g. morning OnThisDay). No FK to routines so a
+-- user-deleted routine is not recreated on the next Ensure.
+CREATE TABLE IF NOT EXISTS nas_scene_routines (
+    user_id    TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    seed_key   TEXT NOT NULL,
+    routine_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, seed_key)
+);
+
+CREATE INDEX IF NOT EXISTS nas_scene_routines_routine_idx
+    ON nas_scene_routines (routine_id);
+
+-- User-configured download clients (qBittorrent, …) for NAS media assistants.
+CREATE TABLE IF NOT EXISTS download_backends (
+    id                 TEXT PRIMARY KEY,
+    user_id            TEXT NOT NULL REFERENCES users (username) ON DELETE CASCADE,
+    name               TEXT NOT NULL,
+    type               TEXT NOT NULL DEFAULT 'qbittorrent'
+        CHECK (type IN ('qbittorrent', 'aria2', 'webhook')),
+    base_url           TEXT NOT NULL,
+    username           TEXT NOT NULL DEFAULT '',
+    password           TEXT NOT NULL DEFAULT '',
+    default_save_path  TEXT NOT NULL DEFAULT '',
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS download_backends_user_idx
+    ON download_backends (user_id, updated_at DESC);

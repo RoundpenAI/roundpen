@@ -674,12 +674,10 @@ export function AssistantDetailPage() {
           </Typography.Title>
           {(
             [
-              ['shell', '终端', true],
-              ['browser', '浏览器', true],
-              ['mobile', '手机', false],
-              ['desktop', '桌面', false],
+              ['shell', '终端'],
+              ['browser', '浏览器'],
             ] as const
-          ).map(([key, label, ready]) => (
+          ).map(([key, label]) => (
             <div
               key={key}
               style={{
@@ -692,21 +690,17 @@ export function AssistantDetailPage() {
                 padding: '8px 12px',
               }}
             >
-              <span>
-                {label}
-                {!ready && (
-                  <Tag size="small" color="grey" style={{ marginLeft: 8 }}>
-                    即将推出
-                  </Tag>
-                )}
-              </span>
+              <span>{label}</span>
               <Switch
                 checked={Boolean(caps[key])}
-                disabled={!ready || saving}
+                disabled={saving}
                 onChange={(checked) => setCap(key, checked)}
               />
             </div>
           ))}
+          <Typography.Text type="tertiary" size="small">
+            手机 / 桌面虚拟机槽位为远期能力，暂未在能力清单中开放。
+          </Typography.Text>
         </section>
 
         <section style={sectionGap}>

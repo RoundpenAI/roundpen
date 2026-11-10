@@ -1,7 +1,9 @@
 # 设计：移动端控制台（Flutter）
 
+> **Obsolete（客户端已移除）** — Flutter `mobile/` 与 APK CI 已从仓库删除；产品聚焦 NAS / 小服务器上的 `roundpend` + Web 控制台。Bearer `returnSessionToken` 仍保留为通用 API 能力。下文仅作历史参考。
+>
 > 日期：2026-09-20
-> 状态：**已实施**（2026-09-20）；仅剩设备端手工验收（本机无 Android SDK/模拟器）
+> 状态：**Obsolete**（原：已实施 2026-09-20）
 > 范围：`mobile/`（新 Flutter 工程）/ `internal/api/auth`（登录可返回会话 token、Bearer 接受会话 token）/ `docs/auth.md` / `Makefile`、`README.md`、`docs/architecture/project-layout.md`
 
 ## 背景与目标

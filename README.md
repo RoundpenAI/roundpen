@@ -2,7 +2,7 @@
 
 [中文](README.zh-CN.md)
 
-**Self-hosted AI workbench.** Run assistants on your own hardware — they chat, write code in Docker sandboxes, browse the web, track work, and wake up on a schedule. One Go binary; works on a laptop, a Linux server, or a home NAS (including [fnOS](deploy/fnos/README.md)).
+**Always-on AI assistants on your NAS or small server.** Install once; assistants chat, work in Docker sandboxes, browse the web, track issues, and wake on a schedule — without you holding a chat open. One Go binary (`roundpend`) with an embedded Web console; ships via [Docker Compose](deploy/compose/README.md) or [fnOS](deploy/fnos/README.md).
 
 Your data and secrets stay where you install it. Bring your own LLM keys when you want; a built-in free model is available out of the box so you can start talking immediately.
 
@@ -12,8 +12,9 @@ Your data and secrets stay where you install it. Bring your own LLM keys when yo
 - **Isolated Agent + Browser** — code and shell in a Docker agent sandbox; browsing via a managed browser (or your own CDP endpoint)
 - **Projects** — bind a repo, run a coordinator, and spin worker agents for larger jobs
 - **Issues & standing routines** — one-off work items plus recurring jobs that run without you watching the chat
+- **Home / NAS scene pack** — photo / files / media assistants with directory grants and download backends
 - **LLM gateway** — built-in FREE tier on install; OpenAI / Anthropic–compatible upstreams when you need more
-- **Web console + mobile app** — day-to-day UI in the browser; Flutter client for phone
+- **Web console** — day-to-day UI embedded in `roundpend`
 - **Connectors** — Git / OAuth, MCP, IM channels, web search, and more from Settings
 
 ## Quick start
@@ -62,23 +63,22 @@ Agent and Browser both run in Docker. First use pulls:
 
 If `ghcr.io` is unreachable, Roundpen tries domestic mirror registries (`ROUNDPEN_IMAGE_MIRRORS`) and retags on success. Offline / air-gapped installs can `docker load` — no Dockerfile required on the host.
 
-## Binaries
+## Binary
 
 | Command | Role |
 | --- | --- |
 | `roundpend` | Control plane (embeds the Web UI) |
-| `roundpen` | CLI |
 
-Both load `.env` from the **current working directory**; real environment variables win. Under systemd, use `EnvironmentFile=`.
+Loads `.env` from the **current working directory**; real environment variables win. Under systemd, use `EnvironmentFile=`.
 
 ## Where we're headed
 
-Roundpen is evolving from “chat with an agent on my box” into a durable **personal / small-team AI workbench**:
+Roundpen is a durable **personal / home-server AI workbench**:
 
-- Longer, segmented runs that survive across hours without holding a single prompt open
-- Stronger project coordination (multi-agent workers, shared project context)
-- Deeper home / NAS integration (directory grants, local services)
-- Optional desktop / phone VM slots for agents that need a full GUI environment
+- Standing routines and proactive digests that keep working while the console is closed
+- Deeper home / NAS integration (directory grants, scene-pack assistants, local downloaders)
+- Longer, segmented runs and stronger project coordination when jobs need more than one chat turn
+- Longer-term: optional desktop / phone VM slots (QEMU) for agents that need a full GUI
 
 The north star stays the same: **capable assistants that live on infrastructure you control**, not a cloud you rent by the minute.
 
@@ -94,7 +94,6 @@ The north star stays the same: **capable assistants that live on infrastructure 
 | [docs/free-llm-token.md](docs/free-llm-token.md) | Built-in FREE model identity and rate limits |
 | [docs/connectors.md](docs/connectors.md) / [docs/mcp-connectors.md](docs/mcp-connectors.md) | Google / MCP connectors |
 | [docs/skills.md](docs/skills.md) | Reusable skill workflows |
-| [mobile/](mobile/) | Mobile console (Flutter) |
 
 ## License
 

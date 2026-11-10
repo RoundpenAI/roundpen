@@ -10,7 +10,7 @@ help:
 	@echo "  dev-check          只检查本机工具是否齐全"
 	@echo ""
 	@echo "构建"
-	@echo "  build              Web UI + 本机 roundpend / roundpen"
+	@echo "  build              Web UI + 本机 roundpend"
 	@echo "  build-ui           只构建并嵌入 Web UI"
 	@echo "  build-go           只编 Go（internal/ui/dist 已有产物时）"
 	@echo "  build-linux        带 UI 的 Linux amd64 二进制"
@@ -33,12 +33,6 @@ help:
 	@echo "  code-agent-image   构建本地 Agent 镜像"
 	@echo "  compose-up         docker compose up -d --build"
 	@echo "  compose-down       docker compose down"
-	@echo ""
-	@echo "移动端（需要 Flutter）"
-	@echo "  mobile-setup       flutter pub get"
-	@echo "  mobile-dev         flutter run"
-	@echo "  mobile-test        flutter test"
-	@echo "  mobile-analyze     flutter analyze"
 
 setup:
 	@echo "==> 检查 .env"
@@ -79,17 +73,14 @@ VERSION_LDFLAGS = -X github.com/RoundpenAI/roundpen/internal/buildinfo.Version=$
 
 build: build-ui
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpend ./cmd/roundpend
-	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpen ./cmd/roundpen
 
 # Cross-compile Linux binary with UI embedded (for NAS / bare metal).
 build-linux: build-ui
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpend-linux-amd64 ./cmd/roundpend
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpen-linux-amd64 ./cmd/roundpen
 
 # Go-only rebuild when internal/ui/dist is already populated.
 build-go:
 	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpend ./cmd/roundpend
-	go build -ldflags "$(VERSION_LDFLAGS)" -o bin/roundpen ./cmd/roundpen
 
 test:
 	@mkdir -p internal/ui/dist && touch internal/ui/dist/.gitkeep
@@ -109,21 +100,6 @@ test-e2e:
 # Console UI smoke (Playwright + uismoke-api). First run: cd web && npx playwright install chromium
 test-ui:
 	cd web && npm run test:e2e
-
-# Mobile console (Flutter, mobile/). Separate toolchain: nothing here is needed
-# to build or run the control plane. Do NOT debug with `flutter run -d chrome`
-# — the WebSocket auth header is native-only, the browser drops it.
-mobile-setup:
-	cd mobile && flutter pub get
-
-mobile-dev:
-	cd mobile && flutter run
-
-mobile-test:
-	cd mobile && flutter test
-
-mobile-analyze:
-	cd mobile && flutter analyze
 
 # Live smoke against a running roundpend (default BASE from .env ROUNDPEN_HTTP_ADDR).
 e2e-live:
