@@ -28,8 +28,7 @@ COPY third_party/ ./third_party/
 RUN go mod download
 COPY . .
 COPY --from=ui /src/internal/ui/dist ./internal/ui/dist
-RUN CGO_ENABLED=0 go build -o /out/roundpend ./cmd/roundpend \
-	&& CGO_ENABLED=0 go build -o /out/roundpen ./cmd/roundpen
+RUN CGO_ENABLED=0 go build -o /out/roundpend ./cmd/roundpend
 
 # Bake the Playwright driver (playwright-core, no browsers) into /opt/playwright.
 # Offline/intranet installs must not reach the npm registry / nodejs.org on
@@ -53,7 +52,6 @@ FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata nodejs \
 	&& mkdir -p /data
 COPY --from=gobuild /out/roundpend /usr/local/bin/roundpend
-COPY --from=gobuild /out/roundpen /usr/local/bin/roundpen
 # Baked driver from the gobuild stage: first use must not download anything.
 COPY --from=gobuild /opt/playwright /opt/playwright
 ENV PLAYWRIGHT_DRIVER_PATH=/opt/playwright \

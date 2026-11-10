@@ -311,9 +311,6 @@ export function AssistantCreatePage() {
                 </Radio>
               ))}
             </RadioGroup>
-            <Typography.Text type="tertiary" size="small">
-              手机 / 桌面能力即将推出。
-            </Typography.Text>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 8 }}>
               <Button type="tertiary" onClick={() => setStep('identity')}>
                 上一步

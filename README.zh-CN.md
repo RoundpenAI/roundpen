@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-**跑在自己机器上的 AI 工作台。** 助手能对话、在 Docker 沙箱里写代码、浏览网页、跟进事项，还能按日程自己醒来干活。Go 单二进制；笔记本、Linux 服务器、家里的 NAS（含 [飞牛 fnOS](deploy/fnos/README.md)）都能装。
+**跑在 NAS / 小服务器上的常驻 AI 助手。** 装一次就长期在线：对话、在 Docker 沙箱里干活、浏览网页、跟进事项，还能按日程自己醒来——不必一直盯着聊天窗口。Go 单二进制 `roundpend`，内嵌 Web 控制台；可用 [Docker Compose](deploy/compose/README.md) 或 [飞牛 fnOS](deploy/fnos/README.md) 安装。
 
 数据和密钥留在你装的那台机器上。需要时接自己的 LLM Key；装好就有内置免费模型，不用先填 Key 也能开聊。
 
@@ -12,8 +12,9 @@
 - **隔离的 Agent + Browser** — 代码与 shell 在 Docker Agent 沙箱里跑；浏览用托管浏览器（或自备 CDP）
 - **项目** — 绑定仓库，Coordinator 协调多个 Worker 做较大的活
 - **事项与常驻任务** — 一次性议题，加上不用盯着对话框也会到点执行的常驻任务
+- **家庭 NAS 场景包** — 相册 / 文件 / 媒资助手，目录授权与下载后端
 - **LLM 网关** — 安装即有 FREE；需要更强模型时接 OpenAI / Anthropic 兼容上游
-- **Web 控制台 + 手机 App** — 日常用浏览器；Flutter 客户端连同一控制面
+- **Web 控制台** — 日常操作面，由 `roundpend` 嵌入提供
 - **连接器** — Git / OAuth、MCP、IM 频道、网页搜索等，在设置里接
 
 ## 跑起来
@@ -66,19 +67,18 @@ Agent、Browser 都跑在 Docker 里。首次用会拉：
 
 | 命令 | 用途 |
 | --- | --- |
-| `roundpend` | 控制面（可嵌入 Web UI） |
-| `roundpen` | CLI |
+| `roundpend` | 控制面（嵌入 Web UI） |
 
-两者都会读**当前工作目录**的 `.env`；已有环境变量优先。systemd 可用 `EnvironmentFile=`。
+会读**当前工作目录**的 `.env`；已有环境变量优先。systemd 可用 `EnvironmentFile=`。
 
 ## 我们往哪走
 
-Roundpen 正从「本机上和一个 Agent 聊天」演进成能扛事的**个人 / 小团队 AI 工作台**：
+Roundpen 定位为能扛事的**个人 / 家用服务器 AI 工作台**：
 
-- 可分段续跑的长时间任务，不必单次 Prompt 挂十几个小时
-- 更强的项目协调（多 Agent Worker、项目级共享上下文）
-- 更深的家用 / NAS 集成（目录授权、本机服务）
-- 可选的桌面 / 手机虚拟机槽位，给需要完整 GUI 的 Agent 用
+- 常驻任务与 proactive 摘要，控制台关掉也继续干活
+- 更深的家用 / NAS 集成（目录授权、场景包助手、本机下载器）
+- 可分段续跑的长时间任务，以及更强的项目协调
+- 更远期：可选的桌面 / 手机虚拟机槽位（QEMU），给需要完整 GUI 的 Agent 用
 
 北极星不变：**能干的助手，跑在你控制的基础设施上**，而不是按分钟租的云。
 
@@ -94,7 +94,6 @@ Roundpen 正从「本机上和一个 Agent 聊天」演进成能扛事的**个�
 | [docs/free-llm-token.md](docs/free-llm-token.md) | 内置 FREE 模型的安装身份与限频 |
 | [docs/connectors.md](docs/connectors.md) / [docs/mcp-connectors.md](docs/mcp-connectors.md) | Google / MCP 连接器 |
 | [docs/skills.md](docs/skills.md) | 可复用技能工作流 |
-| [mobile/](mobile/) | 手机上的控制台 App（Flutter） |
 
 ## License
 

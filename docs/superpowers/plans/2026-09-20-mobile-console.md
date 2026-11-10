@@ -1,5 +1,7 @@
 # 移动端控制台（Flutter）Implementation Plan
 
+> **Obsolete（客户端已移除）** — Flutter `mobile/` 与 APK CI 已从仓库删除。下文仅作历史参考。
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: 用 superpowers:subagent-driven-development（推荐）或 superpowers:executing-plans 逐任务执行。步骤用 `- [ ]` 复选框跟踪。
 
 **Goal:** 新增一个 Flutter 移动端 App，首期打通对话核心：登录（换会话 token）→ 助手列表 → 会话列表（新建/重命名/删除）→ 聊天（WS 流式、工具卡、权限确认、断线重连回放）。服务端改动两处（**均已实施**）：登录可格外返回本次会话 token、Bearer 接受会话 token。

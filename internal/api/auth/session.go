@@ -54,9 +54,9 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 }
 
 // IssueSession stores a fresh session for user and sets the session cookie,
-// returning the plaintext token so callers that hand it to a native client
-// (mobile console login) can do so. Exported so federated-login callbacks can
-// sign a user in through the exact same path as the password login.
+// returning the plaintext token so callers that hand it to a non-cookie client
+// (returnSessionToken / Bearer session) can do so. Exported so federated-login
+// callbacks can sign a user in through the exact same path as the password login.
 func IssueSession(w http.ResponseWriter, r *http.Request, sessions storage.SessionStore, user *storage.User) (string, error) {
 	if sessions == nil {
 		return "", nil
