@@ -51,6 +51,8 @@ export type ChatSocketDeps = {
   /** Mid-turn injection capability as reported by the runner. */
   setSteerCap: (v: boolean) => void
   refreshCommands: () => void
+  /** Localized “waiting for assist ticket” status hint. */
+  permWaitingHint: string
 }
 
 type StreamMsg = {
@@ -306,6 +308,7 @@ export function connectChatSocket(
             restoreStreamingReply(msg.reply)
           }
           if (msg.perm) {
+            setStatusHint(deps.permWaitingHint)
             setPerm({
               requestId: msg.perm.requestId ?? '',
               title: msg.perm.title ?? 'Permission',
@@ -443,7 +446,7 @@ export function connectChatSocket(
         ])
       } else if (msg.type === 'permission_request') {
         const options = msg.options ?? []
-        setStatusHint('等待你处理协助单…')
+        setStatusHint(deps.permWaitingHint)
         setPerm({
           requestId: msg.requestId ?? '',
           title: msg.title ?? 'Permission',

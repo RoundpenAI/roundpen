@@ -1030,6 +1030,30 @@ export const zh_CN: Record<MessageKey, string> = {
   'chat.perm.editHint': '改文件直接执行。终端、浏览器和其它工具仍会询问你。',
   'chat.perm.decideHint': '分类器放行安全操作，拦截破坏性或对外的操作。',
   'chat.perm.allHint': '所有工具直接执行。向你提问时仍会等待回答。',
+  'chat.perm.ticketTitle': '协助单',
+  'chat.perm.ticketWhy': '为什么找你：工具需要你的确认才能继续。',
+  'chat.perm.waitingHint': '等待你处理协助单…',
+  'chat.perm.option.allowOnce': '允许一次',
+  'chat.perm.option.allowTool': '允许此工具（本会话）',
+  'chat.perm.option.allowAll': '允许全部工具（本会话）',
+  'chat.perm.option.reject': '拒绝',
+  'chat.perm.option.rejectTool': '拒绝此工具（本会话）',
+  'chat.perm.rule.high_side_effect': '高副作用',
+  'chat.perm.reason.high_side_effect':
+    '此工具可能改动系统或已登录的浏览器会话，运行前请确认',
+  'chat.perm.rule.cloud_metadata': '云元数据',
+  'chat.perm.reason.cloud_metadata': '已拦截对云实例元数据的访问（{host}）',
+  'chat.perm.rule.control_plane': '控制面',
+  'chat.perm.reason.control_plane':
+    '已拦截对 Roundpen 控制面回环地址的访问（{host}）',
+  'chat.perm.rule.remote_shell_pipe': '远程管道进 Shell',
+  'chat.perm.reason.remote_shell_pipe':
+    '把远程内容直接管道进 shell 永远不会自动放行',
+  'chat.perm.rule.secret_exfiltration': '密钥外泄',
+  'chat.perm.reason.secret_exfiltration':
+    '读取凭据并发送到工作区外已被拦截',
+  'chat.perm.rule.classifier_unavailable': '分类器不可用',
+  'chat.perm.reason.classifier_unavailable': '自动模式分类器不可用：{detail}',
 
   'chat.suggest.defaultName': '助手',
   'chat.suggest.hint': '按「{name}」试试这些问法，改完再发也可以。',

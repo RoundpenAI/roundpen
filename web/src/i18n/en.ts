@@ -1062,6 +1062,33 @@ export const en = {
   'chat.perm.decideHint':
     'A classifier allows safe tool calls and blocks destructive or outbound ones.',
   'chat.perm.allHint': 'Every tool call runs without asking. Questions still wait for you.',
+  'chat.perm.ticketTitle': 'Assist ticket',
+  'chat.perm.ticketWhy':
+    'Why you: the tool needs your confirmation before it can continue.',
+  'chat.perm.waitingHint': 'Waiting for you to handle the assist ticket…',
+  'chat.perm.option.allowOnce': 'Allow once',
+  'chat.perm.option.allowTool': 'Allow this tool (session)',
+  'chat.perm.option.allowAll': 'Allow all tools (session)',
+  'chat.perm.option.reject': 'Reject',
+  'chat.perm.option.rejectTool': 'Reject this tool (session)',
+  'chat.perm.rule.high_side_effect': 'high side effect',
+  'chat.perm.reason.high_side_effect':
+    'this tool can change the system or an authenticated browser session; confirm before running',
+  'chat.perm.rule.cloud_metadata': 'Cloud metadata',
+  'chat.perm.reason.cloud_metadata':
+    'blocked access to cloud instance metadata ({host})',
+  'chat.perm.rule.control_plane': 'Control plane',
+  'chat.perm.reason.control_plane':
+    'blocked access to the Roundpen control plane on loopback ({host})',
+  'chat.perm.rule.remote_shell_pipe': 'Remote shell pipe',
+  'chat.perm.reason.remote_shell_pipe':
+    'piping remote content directly into a shell is never auto-approved',
+  'chat.perm.rule.secret_exfiltration': 'Secret exfiltration',
+  'chat.perm.reason.secret_exfiltration':
+    'reading credentials and sending them outside the workspace is blocked',
+  'chat.perm.rule.classifier_unavailable': 'Classifier unavailable',
+  'chat.perm.reason.classifier_unavailable':
+    'auto mode classifier unavailable: {detail}',
 
   'chat.suggest.defaultName': 'Assistant',
   'chat.suggest.hint':

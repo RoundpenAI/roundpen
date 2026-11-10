@@ -46,6 +46,10 @@ import { LlmSetupChooser } from '../components/LlmSetupChooser'
 import { useAuth } from '../auth'
 import { useT } from '../i18n'
 import {
+  localizePermissionOptionName,
+  localizePermissionTitle,
+} from '../lib/localizePermission'
+import {
   agentMessagesToSemi,
   type SemiChatMessage,
 } from '../lib/semiChatAdapter'
@@ -417,8 +421,9 @@ export function ChatSessionPage() {
         onQueue: applyQueue,
         setSteerCap,
         refreshCommands,
+        permWaitingHint: t('chat.perm.waitingHint'),
       }),
-    [id, refreshCommands, applyQueue],
+    [id, refreshCommands, applyQueue, t],
   )
 
   useEffect(() => {
@@ -1109,7 +1114,7 @@ export function ChatSessionPage() {
       </div>
 
       <Modal
-        title="协助单"
+        title={t('chat.perm.ticketTitle')}
         visible={perm != null}
         closable={false}
         maskClosable={false}
@@ -1136,7 +1141,7 @@ export function ChatSessionPage() {
                 disabled={!wsOpen}
                 onClick={() => answerPerm(o.optionId)}
               >
-                {o.name || o.optionId}
+                {localizePermissionOptionName(o.optionId, o.name, t)}
               </Button>
             ))}
             {showBrowser || browserSeen ? (
@@ -1147,9 +1152,11 @@ export function ChatSessionPage() {
           </div>
         }
       >
-        <Typography.Paragraph>{perm?.title}</Typography.Paragraph>
+        <Typography.Paragraph>
+          {perm ? localizePermissionTitle(perm.title, t) : null}
+        </Typography.Paragraph>
         <Typography.Text type="tertiary" size="small">
-          为什么找你：工具需要你的确认才能继续。
+          {t('chat.perm.ticketWhy')}
           {perm?.ticketId ? ` · #${perm.ticketId.slice(0, 8)}` : ''}
         </Typography.Text>
       </Modal>
