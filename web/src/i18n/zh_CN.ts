@@ -819,6 +819,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'projects.field.repoUrlEmpty': '无 — 仅本地路径',
   'projects.repo.cloning': '正在把仓库克隆到项目工作区…',
   'projects.repo.cloneFailed': '克隆仓库失败',
+  'projects.repo.retry': '重试',
   'projects.repo.cloned': '仓库已就绪',
   'projects.field.path': '仓库路径',
   'projects.field.context': '共享上下文',

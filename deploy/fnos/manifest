@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 修复飞牛上克隆代码仓库失败（沙箱用户 ID 与镜像不一致时 Git 读不到凭据）。
+changelog             = 克隆仓库失败时可点「重试」再次拉取；并保留沙箱 HOME 凭据修复。

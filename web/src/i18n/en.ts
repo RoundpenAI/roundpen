@@ -845,6 +845,7 @@ export const en = {
   'projects.field.repoUrlEmpty': 'None — local path only',
   'projects.repo.cloning': 'Cloning repository into the project workspace…',
   'projects.repo.cloneFailed': 'Failed to clone repository',
+  'projects.repo.retry': 'Try again',
   'projects.repo.cloned': 'Repository ready in the project workspace',
   'projects.field.path': 'Repo path',
   'projects.field.context': 'Shared context',

@@ -147,6 +147,26 @@ export function ProjectDetailPage() {
     }
   }, [])
 
+  const runEnsureRepo = useCallback(
+    async (projectKey: string) => {
+      setCloning(true)
+      setCloneError(null)
+      try {
+        await projects.ensureRepo(projectKey)
+        setCloneError(null)
+        Toast.success(t('projects.repo.cloned'))
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error ? e.message : t('projects.repo.cloneFailed')
+        setCloneError(message)
+        Toast.error(message)
+      } finally {
+        setCloning(false)
+      }
+    },
+    [t],
+  )
+
   const decideReview = async (decision: 'passed' | 'changes_requested') => {
     if (!project || !selectedReviewer) return
     setDeciding(true)
@@ -203,7 +223,9 @@ export function ProjectDetailPage() {
           res.project.status === 'active' &&
           res.project.repoUrl?.trim()
         ) {
+          // Initial ensure: avoid success toast on every page open.
           setCloning(true)
+          setCloneError(null)
           try {
             await projects.ensureRepo(res.project.key)
             if (!cancelled) setCloneError(null)
@@ -526,7 +548,28 @@ export function ProjectDetailPage() {
       {cloneError ? (
         <Banner
           type="danger"
-          description={cloneError}
+          description={
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <span style={{ flex: '1 1 12rem' }}>{cloneError}</span>
+              <Button
+                size="small"
+                theme="solid"
+                type="danger"
+                loading={cloning}
+                disabled={!project.repoUrl?.trim()}
+                onClick={() => void runEnsureRepo(project.key)}
+              >
+                {t('projects.repo.retry')}
+              </Button>
+            </div>
+          }
           closeIcon={null}
           style={{ marginBottom: 16 }}
         />
