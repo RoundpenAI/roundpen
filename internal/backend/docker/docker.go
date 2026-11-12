@@ -263,7 +263,29 @@ func canReuseContainer(info types.ContainerJSON, opts backend.CreateOpts) bool {
 	if opts.HomeMount == "" && gotHome == "" {
 		return true
 	}
-	return filepath.Clean(gotHome) == filepath.Clean(opts.HomeMount)
+	if filepath.Clean(gotHome) != filepath.Clean(opts.HomeMount) {
+		return false
+	}
+	// Agent home mounts need HOME=/home/roundpen so git finds injected
+	// credentials when the process UID has no passwd entry. Older containers
+	// lack that env — refuse reuse so create rebuilds them.
+	if opts.HomeMount != "" && !containerHasEnv(info, "HOME", "/home/roundpen") {
+		return false
+	}
+	return true
+}
+
+func containerHasEnv(info types.ContainerJSON, key, want string) bool {
+	if info.Config == nil {
+		return false
+	}
+	prefix := key + "="
+	for _, e := range info.Config.Env {
+		if strings.HasPrefix(e, prefix) && e[len(prefix):] == want {
+			return true
+		}
+	}
+	return false
 }
 
 func isNameConflict(err error) bool {

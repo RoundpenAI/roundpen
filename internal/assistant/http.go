@@ -13,6 +13,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/api/auth"
 	"github.com/RoundpenAI/roundpen/internal/assistticket"
 	"github.com/RoundpenAI/roundpen/internal/policy"
+	"github.com/RoundpenAI/roundpen/internal/promptsuggest"
 	"github.com/RoundpenAI/roundpen/internal/storage"
 
 	"github.com/RoundpenAI/roundpen/internal/httpx"
@@ -42,6 +43,8 @@ type Handler struct {
 	OnTicketResolved func(ctx context.Context, t *assistticket.Ticket)
 	// OnList runs after EnsureSystem (e.g. seed NAS scene-pack assistants).
 	OnList func(ctx context.Context, user *storage.User) error
+	// Suggest resolves server- or LLM-backed empty-session starter prompts.
+	Suggest *promptsuggest.Service
 }
 
 // Mount registers routes.
@@ -59,6 +62,69 @@ func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/me/assist-tickets/pending", h.pendingTickets)
 	mux.HandleFunc("POST /v1/assistants/{id}/im/weixin/begin", h.weixinBegin)
 	mux.HandleFunc("POST /v1/assistants/{id}/im/weixin/poll", h.weixinPoll)
+	mux.HandleFunc("GET /v1/assistants/{id}/suggested-prompts", h.suggestedPrompts)
+}
+
+func (h *Handler) suggestedPrompts(w http.ResponseWriter, r *http.Request) {
+	user := auth.GetUser(r.Context())
+	if user == nil {
+		httpx.WriteErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	a, err := h.ownedAssistant(r.Context(), user, r.PathValue("id"))
+	if err != nil {
+		writeAssistantErr(w, err)
+		return
+	}
+	sessionID := strings.TrimSpace(r.URL.Query().Get("sessionId"))
+	if h.Suggest == nil {
+		httpx.WriteJSON(w, http.StatusOK, promptsuggest.Result{
+			Prompts: []string{},
+			Source:  promptsuggest.SourceNone,
+		})
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, h.Suggest.Suggest(r.Context(), suggestInput(a), sessionID))
+}
+
+func suggestInput(a *Assistant) promptsuggest.AssistantInput {
+	if a == nil {
+		return promptsuggest.AssistantInput{}
+	}
+	caps := make([]string, 0, 4)
+	if a.Capabilities.Shell {
+		caps = append(caps, "shell")
+	}
+	if a.Capabilities.Browser {
+		caps = append(caps, "browser")
+	}
+	if a.Capabilities.Mobile {
+		caps = append(caps, "mobile")
+	}
+	if a.Capabilities.Desktop {
+		caps = append(caps, "desktop")
+	}
+	grants := make([]string, 0, len(a.DirectoryGrants))
+	for _, g := range a.DirectoryGrants {
+		path := strings.TrimSpace(g.Path)
+		if path == "" {
+			continue
+		}
+		mode := strings.TrimSpace(g.Mode)
+		if mode == "" {
+			mode = "read"
+		}
+		grants = append(grants, path+" ("+mode+")")
+	}
+	return promptsuggest.AssistantInput{
+		ID:           a.ID,
+		Name:         a.Name,
+		Bio:          a.Bio,
+		Kind:         a.Kind,
+		Capabilities: strings.Join(caps, ","),
+		Network:      a.NetworkTier,
+		Grants:       grants,
+	}
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {

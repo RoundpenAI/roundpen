@@ -677,6 +677,67 @@ func TestService_RunsPersistentWorkspaceAsOwner(t *testing.T) {
 	}
 }
 
+func TestService_SetsGuestHomeEnvWithHomeMount(t *testing.T) {
+	be := newStubBackend("docker")
+	svc, _, _ := newTestService(t, be)
+	ctx := adminCtx()
+
+	ws := t.TempDir()
+	home := t.TempDir()
+	sb, err := svc.Create(ctx, sandbox.CreateRequest{
+		Name:          "agent-home",
+		WorkspaceHost: ws,
+		HomeHost:      home,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	be.mu.Lock()
+	defer be.mu.Unlock()
+	env := be.created[sb.ID].Env
+	if env["HOME"] != sandbox.GuestHomeDir {
+		t.Fatalf("HOME = %q, want %q", env["HOME"], sandbox.GuestHomeDir)
+	}
+	if env["GIT_CONFIG_GLOBAL"] != sandbox.GuestGitConfigGlobal {
+		t.Fatalf("GIT_CONFIG_GLOBAL = %q", env["GIT_CONFIG_GLOBAL"])
+	}
+}
+
+func TestService_ExecInjectsGuestHomeEnv(t *testing.T) {
+	be := newStubBackend("docker")
+	svc, _, _ := newTestService(t, be)
+	ctx := adminCtx()
+
+	ws := t.TempDir()
+	home := t.TempDir()
+	sb, err := svc.Create(ctx, sandbox.CreateRequest{
+		Name:          "agent-exec-home",
+		WorkspaceHost: ws,
+		HomeHost:      home,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Exec(ctx, sb.ID, sandbox.ExecRequest{
+		Cmd: []string{"true"},
+		Env: map[string]string{"EXTRA": "1"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := be.execCallsSnapshot()
+	if len(calls) != 1 {
+		t.Fatalf("exec calls = %d", len(calls))
+	}
+	if calls[0].Env["HOME"] != sandbox.GuestHomeDir {
+		t.Fatalf("exec HOME = %q", calls[0].Env["HOME"])
+	}
+	if calls[0].Env["EXTRA"] != "1" {
+		t.Fatalf("exec env = %#v", calls[0].Env)
+	}
+}
+
 func TestService_RecreateDeletedStableID(t *testing.T) {
 	be := newStubBackend("docker")
 	svc, _, _ := newTestService(t, be)

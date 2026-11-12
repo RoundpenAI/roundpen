@@ -31,9 +31,10 @@ const keepLastToolResults = 6
 // PermissionMetaAskHumanKey marks SoftDeny / L2 escalations from the in-process
 // agent so the runner does not re-classify and auto-allow the same call.
 const (
-	PermissionMetaKindKey     = "roundpen.kind"
-	PermissionKindQuestion    = "question"
-	PermissionMetaAskHumanKey = "roundpen.ask_human"
+	PermissionMetaKindKey        = "roundpen.kind"
+	PermissionKindQuestion       = "question"
+	PermissionMetaAskHumanKey    = "roundpen.ask_human"
+	PermissionMetaMultiSelectKey = "roundpen.multi_select"
 )
 
 // maxSkillInvocationsPerTurn bounds Skill nesting within one reply.
@@ -713,7 +714,8 @@ func (a *Agent) interactor(sid string) *tools.Interactor {
 
 // askUser presents a multiple-choice question to the user through the ACP
 // permission dialog (the web console renders the option buttons) and returns
-// the chosen option label.
+// the chosen option label. When MultiSelect is set, the client may return
+// several option ids joined with commas; labels are joined the same way.
 func (a *Agent) askUser(ctx context.Context, sid string, q tools.AskQuestion) (string, error) {
 	if a.conn == nil {
 		return "", fmt.Errorf("agent connection not ready")
@@ -750,9 +752,13 @@ func (a *Agent) askUser(ctx context.Context, sid string, q tools.AskQuestion) (s
 	if title == "" {
 		title = strings.TrimSpace(q.Question)
 	}
+	meta := map[string]any{PermissionMetaKindKey: PermissionKindQuestion}
+	if q.MultiSelect {
+		meta[PermissionMetaMultiSelectKey] = true
+	}
 	resp, err := a.conn.RequestPermission(ctx, acp.RequestPermissionRequest{
 		SessionId: acp.SessionId(sid),
-		Meta:      map[string]any{PermissionMetaKindKey: PermissionKindQuestion},
+		Meta:      meta,
 		ToolCall: acp.ToolCallUpdate{
 			ToolCallId: acp.ToolCallId("ask-" + randomID()),
 			Title:      &title,
@@ -768,15 +774,32 @@ func (a *Agent) askUser(ctx context.Context, sid string, q tools.AskQuestion) (s
 	if resp.Outcome.Selected == nil || strings.TrimSpace(string(resp.Outcome.Selected.OptionId)) == "" {
 		return "", fmt.Errorf("no answer provided")
 	}
-	id := string(resp.Outcome.Selected.OptionId)
-	if id == "other" {
-		return "Other (see user reply)", nil
+	return resolveAskOptionLabels(string(resp.Outcome.Selected.OptionId), labels)
+}
+
+// resolveAskOptionLabels maps one or more comma-joined option ids to labels.
+func resolveAskOptionLabels(raw string, labels []string) (string, error) {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			continue
+		}
+		if id == "other" {
+			out = append(out, "Other (see user reply)")
+			continue
+		}
+		var idx int
+		if _, err := fmt.Sscanf(id, "opt-%d", &idx); err != nil || idx < 0 || idx >= len(labels) || labels[idx] == "" {
+			return "", fmt.Errorf("unknown answer option %q", id)
+		}
+		out = append(out, labels[idx])
 	}
-	var idx int
-	if _, err := fmt.Sscanf(id, "opt-%d", &idx); err != nil || idx < 0 || idx >= len(labels) || labels[idx] == "" {
-		return "", fmt.Errorf("unknown answer option %q", id)
+	if len(out) == 0 {
+		return "", fmt.Errorf("no answer provided")
 	}
-	return labels[idx], nil
+	return strings.Join(out, ", "), nil
 }
 
 func (a *Agent) ListSessions(ctx context.Context, params acp.ListSessionsRequest) (acp.ListSessionsResponse, error) {

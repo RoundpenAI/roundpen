@@ -51,12 +51,27 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 
 func TestNormalizeCloneURL(t *testing.T) {
 	cases := map[string]string{
-		"me/app":                         "https://github.com/me/app.git",
-		"https://github.com/me/app.git":  "https://github.com/me/app.git",
-		"":                               "",
+		"me/app":                        "https://github.com/me/app.git",
+		"https://github.com/me/app.git": "https://github.com/me/app.git",
+		"git@gitlab.example.com:a/b.git": "https://gitlab.example.com/a/b.git",
+		"ssh://git@gitlab.example.com/a/b.git": "https://gitlab.example.com/a/b.git",
+		"": "",
 	}
 	for in, want := range cases {
 		if got := NormalizeCloneURL(in); got != want {
+			t.Fatalf("%q: got %q want %q", in, got, want)
+		}
+	}
+}
+
+func TestCloneHost(t *testing.T) {
+	cases := map[string]string{
+		"git@gitlab-bj.realbtec.cn:shigan-service/motion-game-go.git": "gitlab-bj.realbtec.cn",
+		"https://gitlab-bj.realbtec.cn/a/b.git":                       "gitlab-bj.realbtec.cn",
+		"http://gitlab-bj.realbtec.cn/a/b.git":                        "gitlab-bj.realbtec.cn",
+	}
+	for in, want := range cases {
+		if got := CloneHost(in); got != want {
 			t.Fatalf("%q: got %q want %q", in, got, want)
 		}
 	}

@@ -51,6 +51,8 @@ export type ChatSocketDeps = {
   /** Mid-turn injection capability as reported by the runner. */
   setSteerCap: (v: boolean) => void
   refreshCommands: () => void
+  /** Localized “waiting for assist ticket” status hint. */
+  permWaitingHint: string
 }
 
 type StreamMsg = {
@@ -79,11 +81,13 @@ type StreamMsg = {
   items?: unknown
   steer?: boolean
   ticketId?: string
+  multiSelect?: boolean
   perm?: {
     requestId?: string
     title?: string
     options?: { optionId: string; name: string; kind?: string }[]
     ticketId?: string
+    multiSelect?: boolean
   }
 }
 
@@ -306,11 +310,13 @@ export function connectChatSocket(
             restoreStreamingReply(msg.reply)
           }
           if (msg.perm) {
+            setStatusHint(deps.permWaitingHint)
             setPerm({
               requestId: msg.perm.requestId ?? '',
               title: msg.perm.title ?? 'Permission',
               options: msg.perm.options ?? [],
               ticketId: msg.perm.ticketId,
+              multiSelect: Boolean(msg.perm.multiSelect),
             })
           } else {
             setPerm(null)
@@ -443,12 +449,13 @@ export function connectChatSocket(
         ])
       } else if (msg.type === 'permission_request') {
         const options = msg.options ?? []
-        setStatusHint('等待你处理协助单…')
+        setStatusHint(deps.permWaitingHint)
         setPerm({
           requestId: msg.requestId ?? '',
           title: msg.title ?? 'Permission',
           options,
           ticketId: msg.ticketId,
+          multiSelect: Boolean(msg.multiSelect),
         })
       } else if (msg.type === 'permission_resolved') {
         setPerm((cur) =>

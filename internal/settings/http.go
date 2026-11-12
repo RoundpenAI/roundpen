@@ -22,13 +22,21 @@ type settingsResp struct {
 	System   SystemInfo  `json:"system"`
 }
 
-// Mount registers admin settings routes.
+// Mount registers admin settings routes and the public feedback-form link.
 func (h *Handler) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/admin/settings", auth.RequireAdmin(h.get))
 	mux.HandleFunc("PUT /v1/admin/settings", auth.RequireAdmin(h.put))
 	mux.HandleFunc("POST /v1/admin/settings/browser/test", auth.RequireAdmin(h.browserTest))
 	mux.HandleFunc("GET /v1/admin/settings/automode/defaults", auth.RequireAdmin(h.autoModeDefaults))
 	mux.HandleFunc("GET /v1/admin/settings/env", auth.RequireAdmin(h.envCatalog))
+	// Public so the login chrome can show feedback before auth.
+	mux.HandleFunc("GET /v1/feedback-form", h.feedbackForm)
+	mux.HandleFunc("GET /v1/me/feedback-form", h.feedbackForm)
+}
+
+func (h *Handler) feedbackForm(w http.ResponseWriter, r *http.Request) {
+	url := strings.TrimSpace(h.Svc.Current().FeedbackFormURL)
+	httpx.WriteJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

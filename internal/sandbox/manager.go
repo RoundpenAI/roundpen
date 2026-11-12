@@ -554,7 +554,7 @@ func (s *Service) Exec(ctx context.Context, id string, req ExecRequest) (*ExecRe
 	res, err := s.backend.Exec(ctx, id, backend.ExecOpts{
 		Cmd:     req.Cmd,
 		WorkDir: req.WorkDir,
-		Env:     req.Env,
+		Env:     withGuestHomeEnv(req.Env, hasHomeMount(sb.Metadata)),
 		Timeout: req.Timeout,
 	})
 	if err != nil {
@@ -780,7 +780,8 @@ func (s *Service) AttachTerminal(ctx context.Context, id, sessionKey string, opt
 	}
 	_ = s.Touch(ctx, id)
 	return s.backend.AttachPTY(ctx, id, sessionKey, backend.PTYOpts{
-		Cmd: opts.Cmd, WorkDir: opts.WorkDir, Env: opts.Env,
+		Cmd: opts.Cmd, WorkDir: opts.WorkDir,
+		Env:  withGuestHomeEnvSlice(opts.Env, hasHomeMount(sb.Metadata)),
 		Rows: opts.Rows, Cols: opts.Cols,
 	}, stdin, stdout)
 }
@@ -802,7 +803,8 @@ func (s *Service) AttachExec(ctx context.Context, id string, opts AttachExecOpts
 	}
 	_ = s.Touch(ctx, id)
 	return s.backend.AttachExec(ctx, id, backend.AttachExecOpts{
-		Cmd: opts.Cmd, WorkDir: opts.WorkDir, Env: opts.Env,
+		Cmd: opts.Cmd, WorkDir: opts.WorkDir,
+		Env: withGuestHomeEnv(opts.Env, hasHomeMount(sb.Metadata)),
 	}, stdin, stdout, stderr)
 }
 

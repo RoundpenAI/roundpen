@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 对话按问答分段吸顶当前问题，滑到下一问自动切换，长回答对照更清楚。
+changelog             = 克隆失败时不再显示难懂的 uid 报错，改为提示在设置中为该 Git 主机添加令牌。

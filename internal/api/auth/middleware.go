@@ -73,6 +73,10 @@ func isPublicPath(r *http.Request) bool {
 	if r.Method == http.MethodGet && path == "/v1/auth/bootstrap-hint" {
 		return true
 	}
+	// Feedback form URL for the chrome strip (including the login page).
+	if r.Method == http.MethodGet && (path == "/v1/feedback-form" || path == "/v1/me/feedback-form") {
+		return true
+	}
 	// Federated login: provider discovery, redirect to the remote authorize
 	// endpoint and its callback. Writes live elsewhere and stay authenticated.
 	if r.Method == http.MethodGet && strings.HasPrefix(path, "/v1/auth/oauth/") {

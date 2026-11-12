@@ -5,6 +5,7 @@ import {
   appendThoughtMessage,
   clearStreaming,
   finalizeOpenThoughts,
+  joinPermissionOptionIds,
   mergeHistoryWithLive,
   reconcileRefetch,
   thoughtDurationMs,
@@ -337,5 +338,12 @@ describe('reconcileRefetch', () => {
     assert.equal(out.length, 2)
     assert.equal(out[1]?.id, 'a-db')
     assert.equal(out[1]?.content, 'hello world')
+  })
+})
+
+describe('joinPermissionOptionIds', () => {
+  it('joins trimmed ids for multi-select answers', () => {
+    assert.equal(joinPermissionOptionIds(['opt-0', 'opt-2']), 'opt-0,opt-2')
+    assert.equal(joinPermissionOptionIds([' opt-1 ', '', 'other']), 'opt-1,other')
   })
 })

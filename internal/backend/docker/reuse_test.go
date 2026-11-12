@@ -64,3 +64,34 @@ func TestCanReuseContainer(t *testing.T) {
 		t.Fatal("image mismatch must not reuse")
 	}
 }
+
+func TestCanReuseContainerRequiresGuestHomeEnv(t *testing.T) {
+	const image = "ghcr.io/roundpenai/code-agent:0.1.0"
+	homeHost := "/data/sandboxes/user-admin/home"
+	base := types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{ID: "abc"},
+		Config: &container.Config{
+			Image:  image,
+			Labels: map[string]string{"roundpen.sandbox_id": "admin"},
+			Env:    []string{"PATH=/usr/bin"},
+		},
+		Mounts: []types.MountPoint{
+			{Type: mount.TypeBind, Source: "/data/sandboxes/user-admin/workspace", Destination: "/workspace"},
+			{Type: mount.TypeBind, Source: homeHost, Destination: "/home/roundpen"},
+		},
+	}
+	opts := backend.CreateOpts{
+		SandboxID: "admin",
+		Image:     image,
+		MountDir:  "/data/sandboxes/user-admin/workspace",
+		HomeMount: homeHost,
+		Env:       map[string]string{"HOME": "/home/roundpen"},
+	}
+	if canReuseContainer(base, opts) {
+		t.Fatal("home mount without HOME env must not reuse")
+	}
+	base.Config.Env = append(base.Config.Env, "HOME=/home/roundpen")
+	if !canReuseContainer(base, opts) {
+		t.Fatal("home mount with HOME=/home/roundpen should reuse")
+	}
+}

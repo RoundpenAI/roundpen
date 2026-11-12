@@ -15,6 +15,7 @@ export const en = {
   'nav.version': 'v{version}',
   'nav.language': 'Language',
   'nav.theme': 'Toggle dark mode',
+  'nav.feedback': 'Send feedback',
 
   'login.subtitle': 'Sign in to your agent sandbox',
   'login.userLabel': 'Username or email',
@@ -128,8 +129,27 @@ export const en = {
     'On GitLab: avatar → Preferences → Access Tokens. Create a token with api and write_repository, copy it once, then enter the host and token below.',
   'apps.openPatSettings': 'Open token settings on this host',
   'settings.section.profile': 'Profile',
+  'settings.section.appearance': 'Appearance',
   'settings.section.password': 'Password',
   'settings.section.notifications': 'Notifications',
+  'settings.section.product': 'Product',
+  'settings.appearance.title': 'Appearance',
+  'settings.appearance.hint':
+    'Language and color mode sync with the controls in the app menu.',
+  'settings.appearance.controls': 'Language & theme',
+  'settings.product.feedbackTitle': 'User feedback',
+  'settings.product.feedbackHint':
+    'Paste a Feishu intelligent-form share link. The feedback icon appears beside language/theme when set.',
+  'settings.product.feedbackUrl': 'Feedback form URL',
+  'settings.product.feedbackUrlPlaceholder': 'https://…',
+  'settings.product.promptsTitle': 'Suggested prompts',
+  'settings.product.promptsHint':
+    'Server-delivered starter chips for empty chats. Kind-specific lists override global. Leave empty to let the model suggest.',
+  'settings.product.promptsGlobal': 'Global defaults (one per line)',
+  'settings.product.promptsKindUser': 'User assistants',
+  'settings.product.promptsKindSystem': 'System assistant',
+  'settings.product.promptsKindCoordinator': 'Coordinator',
+  'settings.product.promptsPlaceholder': 'One prompt per line, up to 5',
   'settings.section.agent': 'Agent environment',
 
   'profile.intro':
@@ -825,6 +845,7 @@ export const en = {
   'projects.field.repoUrlEmpty': 'None — local path only',
   'projects.repo.cloning': 'Cloning repository into the project workspace…',
   'projects.repo.cloneFailed': 'Failed to clone repository',
+  'projects.repo.retry': 'Try again',
   'projects.repo.cloned': 'Repository ready in the project workspace',
   'projects.field.path': 'Repo path',
   'projects.field.context': 'Shared context',
@@ -1062,6 +1083,35 @@ export const en = {
   'chat.perm.decideHint':
     'A classifier allows safe tool calls and blocks destructive or outbound ones.',
   'chat.perm.allHint': 'Every tool call runs without asking. Questions still wait for you.',
+  'chat.perm.ticketTitle': 'Assist ticket',
+  'chat.perm.ticketWhy':
+    'Why you: the tool needs your confirmation before it can continue.',
+  'chat.perm.waitingHint': 'Waiting for you to handle the assist ticket…',
+  'chat.perm.confirm': 'Confirm',
+  'chat.perm.multiHint': 'Select one or more options, then confirm.',
+  'chat.perm.option.allowOnce': 'Allow once',
+  'chat.perm.option.allowTool': 'Allow this tool (session)',
+  'chat.perm.option.allowAll': 'Allow all tools (session)',
+  'chat.perm.option.reject': 'Reject',
+  'chat.perm.option.rejectTool': 'Reject this tool (session)',
+  'chat.perm.rule.high_side_effect': 'high side effect',
+  'chat.perm.reason.high_side_effect':
+    'this tool can change the system or an authenticated browser session; confirm before running',
+  'chat.perm.rule.cloud_metadata': 'Cloud metadata',
+  'chat.perm.reason.cloud_metadata':
+    'blocked access to cloud instance metadata ({host})',
+  'chat.perm.rule.control_plane': 'Control plane',
+  'chat.perm.reason.control_plane':
+    'blocked access to the Roundpen control plane on loopback ({host})',
+  'chat.perm.rule.remote_shell_pipe': 'Remote shell pipe',
+  'chat.perm.reason.remote_shell_pipe':
+    'piping remote content directly into a shell is never auto-approved',
+  'chat.perm.rule.secret_exfiltration': 'Secret exfiltration',
+  'chat.perm.reason.secret_exfiltration':
+    'reading credentials and sending them outside the workspace is blocked',
+  'chat.perm.rule.classifier_unavailable': 'Classifier unavailable',
+  'chat.perm.reason.classifier_unavailable':
+    'auto mode classifier unavailable: {detail}',
 
   'chat.suggest.defaultName': 'Assistant',
   'chat.suggest.hint':

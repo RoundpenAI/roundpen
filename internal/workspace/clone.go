@@ -24,6 +24,11 @@ func CloneScript() string {
 SLUG="$1"
 URL="$2"
 DEST="/workspace/projects/$SLUG"
+# Host-owner UIDs (e.g. fnOS package uid) lack an image passwd entry; glibc
+# then sets HOME=/ which would skip /home/roundpen/.gitconfig. Always force.
+export HOME=/home/roundpen
+export GIT_CONFIG_GLOBAL=/home/roundpen/.gitconfig
+export GIT_TERMINAL_PROMPT=0
 if [ -z "$SLUG" ] || [ -z "$URL" ]; then
   echo "slug and url required" >&2
   exit 2

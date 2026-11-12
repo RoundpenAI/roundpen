@@ -248,7 +248,8 @@ func (s *Service) insertSandboxRecord(ctx context.Context, req CreateRequest, sp
 // createEngine launches the backend container and starts it, marking the row
 // failed when either step fails.
 func (s *Service) createEngine(ctx context.Context, sb *Sandbox, spec createSpec, reqEnv map[string]string, ephemeral bool) error {
-	createEnv := sandboxEnv(reqEnv, sb.Metadata["slot"])
+	homeMount := sb.Metadata["homeHost"]
+	createEnv := sandboxEnv(reqEnv, sb.Metadata["slot"], homeMount != "")
 
 	engineUser := ""
 	if !ephemeral {
@@ -262,7 +263,7 @@ func (s *Service) createEngine(ctx context.Context, sb *Sandbox, spec createSpec
 		Name:        sb.Name,
 		Image:       sb.Image,
 		MountDir:    sb.WorkspacePath,
-		HomeMount:   sb.Metadata["homeHost"],
+		HomeMount:   homeMount,
 		Env:         createEnv,
 		CPULimit:    float64(spec.cpuCount),
 		MemoryLimit: int64(spec.memoryMB) * 1024 * 1024,
@@ -290,17 +291,13 @@ func (s *Service) createEngine(ctx context.Context, sb *Sandbox, spec createSpec
 }
 
 // sandboxEnv copies the caller's environment and injects the template slot so
-// in-container tooling can detect it.
-func sandboxEnv(reqEnv map[string]string, slot string) map[string]string {
-	createEnv := reqEnv
+// in-container tooling can detect it. When the sandbox mounts a guest home,
+// HOME / GIT_CONFIG_GLOBAL point at /home/roundpen so git works for host
+// owner UIDs that lack an image passwd entry.
+func sandboxEnv(reqEnv map[string]string, slot string, guestHome bool) map[string]string {
+	createEnv := withGuestHomeEnv(reqEnv, guestHome)
 	if createEnv == nil {
 		createEnv = map[string]string{}
-	} else {
-		copied := make(map[string]string, len(reqEnv)+1)
-		for k, v := range reqEnv {
-			copied[k] = v
-		}
-		createEnv = copied
 	}
 	if slot != "" {
 		createEnv["ROUNDPEN_SLOT"] = slot

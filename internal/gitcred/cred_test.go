@@ -45,6 +45,9 @@ func TestCredentialStoreHasHTTPS(t *testing.T) {
 	if !strings.Contains(store, "https://x-access-token:ghp_x@github.com") {
 		t.Fatalf("store=%q", store)
 	}
+	if !strings.Contains(store, "http://x-access-token:ghp_x@github.com") {
+		t.Fatalf("store must also include http:// for :80-only hosts: %q", store)
+	}
 }
 
 func TestGuestInstallScriptHasNoRawTokenAndRewritesSSH(t *testing.T) {

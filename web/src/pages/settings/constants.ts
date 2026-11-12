@@ -17,6 +17,8 @@ export const emptySettings: AppSettings = {
     softDeny: ['$defaults'],
     hardDeny: ['$defaults'],
   },
+  feedbackFormUrl: '',
+  suggestedPrompts: { global: [], byKind: {} },
 }
 
 export type AutoModeListKey = 'environment' | 'allow' | 'softDeny' | 'hardDeny'

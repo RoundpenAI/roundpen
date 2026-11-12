@@ -16,6 +16,7 @@ import { LlmgwSection } from './LlmgwSection'
 import { EnvSection } from './EnvSection'
 import { ProxySection } from './ProxySection'
 import { WebtoolsSection } from './WebtoolsSection'
+import { ProductSection } from './ProductSection'
 
 export function AdminSettingsPage() {
   const auth = useAuth()
@@ -118,6 +119,16 @@ export function AdminSettingsPage() {
       {section === 'oauth' && <OAuthProvidersPanel />}
 
       {section === 'plugins' && <PluginsPanel />}
+
+      {section === 'product' && (
+        <ProductSection
+          isAdmin={isAdmin}
+          loading={loading}
+          t={t}
+          form={form}
+          patch={patch}
+        />
+      )}
 
       {section === 'browser' && (
         <BrowserSection isAdmin={isAdmin} loading={loading} t={t} form={form} patch={patch} />
