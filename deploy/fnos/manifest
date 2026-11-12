@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 克隆仓库失败时可点「重试」再次拉取；并保留沙箱 HOME 凭据修复。
+changelog             = 修复内网 GitLab 克隆：SSH 地址改为可达的 HTTP(S)，并提示在设置中添加对应主机的 Git 令牌。

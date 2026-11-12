@@ -1,7 +1,7 @@
 # Git personal tokens
 
 统一用 **Personal Access Token / OAuth token**（不用 SSH 钥匙）。同一条 token 既给 `git clone` / `push`，
-也给 `tea` / `gh` / `glab` 管 issue、PR。
+也给 `tea` / `gh` / `glab` 管 issue、PR。项目里的 `git@host:…` 地址会在克隆时改成可达的 `https://` 或（仅 :80 开放时）`http://`；没有对应 host 的令牌时会明确提示去设置里添加。
 
 ```
 用户填写 PAT（Git 个人令牌）        ┐

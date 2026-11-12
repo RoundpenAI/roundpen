@@ -5,6 +5,7 @@
 package gitcred
 
 import (
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -127,12 +128,38 @@ func authUsername(provider, username string) string {
 }
 
 func credentialURL(c Cred) string {
+	return credentialURLScheme(c, "https")
+}
+
+func credentialURLScheme(c Cred, scheme string) string {
 	u := url.URL{
-		Scheme: "https",
+		Scheme: scheme,
 		Host:   c.Host,
 		User:   url.UserPassword(authUsername(c.Provider, c.Username), c.Token),
 	}
 	return u.String()
+}
+
+// HostKey normalizes a clone URL or host to the credential lookup key.
+func HostKey(raw string) string {
+	return normalizeHost(raw)
+}
+
+func preferredScheme(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "https"
+	}
+	d := net.Dialer{Timeout: 2 * time.Second}
+	if c, err := d.Dial("tcp", net.JoinHostPort(host, "443")); err == nil {
+		_ = c.Close()
+		return "https"
+	}
+	if c, err := d.Dial("tcp", net.JoinHostPort(host, "80")); err == nil {
+		_ = c.Close()
+		return "http"
+	}
+	return "https"
 }
 
 func cliEnv(c Cred) map[string]string {

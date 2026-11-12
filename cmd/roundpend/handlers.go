@@ -668,6 +668,12 @@ type projectDirSeeder struct {
 	Exec interface {
 		Exec(ctx context.Context, id string, req sandbox.ExecRequest) (*sandbox.ExecResult, error)
 	}
+	PATs interface {
+		List(ctx context.Context, userID string) ([]gitcred.Cred, error)
+	}
+	Idents interface {
+		CredsForUser(ctx context.Context, userID string) ([]gitcred.Cred, error)
+	}
 }
 
 func (s projectDirSeeder) EnsureProjectTree(ctx context.Context, userID, slug string) error {
@@ -689,12 +695,17 @@ func (s projectDirSeeder) EnsureProjectRepo(ctx context.Context, userID, slug, r
 	if err := s.EnsureProjectTree(ctx, userID, slug); err != nil {
 		return err
 	}
-	repoURL = vcs.NormalizeCloneURL(repoURL)
+	// SSH → HTTP(S); prefer :443 then fall back to :80 for internal GitLab.
+	repoURL = vcs.PreferReachableCloneURL(repoURL)
 	if repoURL == "" {
 		return nil
 	}
 	if err := workspace.ValidateCloneArgs(slug, repoURL); err != nil {
 		return err
+	}
+	gitHost := vcs.CloneHost(repoURL)
+	if gitHost != "" && !cloneHostAllowsAnonymous(gitHost) && !s.hasTokenForHost(ctx, userID, gitHost) {
+		return fmt.Errorf("clone failed: no Git token for %s — add one in Settings → Git personal tokens (Roundpen clones over HTTP(S), not SSH)", gitHost)
 	}
 	sb, err := s.Envs.EnsureAgent(ctx, userID)
 	if err != nil {
@@ -726,9 +737,56 @@ func (s projectDirSeeder) EnsureProjectRepo(ctx context.Context, userID, slug, r
 		if msg == "" {
 			msg = fmt.Sprintf("exit %d", res.ExitCode)
 		}
+		if gitHost != "" && looksLikeGitAuthFailure(msg) {
+			return fmt.Errorf("clone failed: Git auth to %s failed — check the token in Settings → Git personal tokens. Detail: %s", gitHost, msg)
+		}
 		return fmt.Errorf("clone failed: %s", msg)
 	}
 	return nil
+}
+
+func (s projectDirSeeder) hasTokenForHost(ctx context.Context, userID, host string) bool {
+	var pats, idents []gitcred.Cred
+	if s.PATs != nil {
+		pats, _ = s.PATs.List(ctx, userID)
+	}
+	if s.Idents != nil {
+		idents, _ = s.Idents.CredsForUser(ctx, userID)
+	}
+	want := gitcred.HostKey(host)
+	for _, c := range gitcred.MergeCreds(pats, idents) {
+		if strings.TrimSpace(c.Token) == "" {
+			continue
+		}
+		if gitcred.HostKey(c.Host) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneHostAllowsAnonymous(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	return h == "github.com" || strings.HasSuffix(h, ".github.com")
+}
+
+func looksLikeGitAuthFailure(msg string) bool {
+	lower := strings.ToLower(msg)
+	for _, needle := range []string{
+		"authentication failed",
+		"could not read username",
+		"terminal prompts disabled",
+		"invalid credentials",
+		"access denied",
+		"403",
+		"401",
+		"permission denied",
+	} {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // projectSessionProfiler restores coordinator / worker personas on reconnect.

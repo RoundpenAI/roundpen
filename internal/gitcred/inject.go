@@ -105,7 +105,9 @@ func credentialStore(creds []Cred) string {
 		if strings.TrimSpace(c.Token) == "" {
 			continue
 		}
-		fmt.Fprintln(&b, credentialURL(c))
+		// Both schemes: some internal GitLab hosts only listen on :80.
+		fmt.Fprintln(&b, credentialURLScheme(c, "https"))
+		fmt.Fprintln(&b, credentialURLScheme(c, "http"))
 	}
 	return b.String()
 }
@@ -128,9 +130,11 @@ func gitConfig(creds []Cred, id Identity) string {
 			continue
 		}
 		seen[host] = true
-		https := "https://" + host + "/"
-		fmt.Fprintf(&b, "[url %q]\n\tinsteadOf = git@%s:\n\tinsteadOf = ssh://git@%s/\n\tinsteadOf = https://%s/\n",
-			https, host, host, host)
+		// Prefer the scheme that accepts TCP so SSH remotes rewrite to a
+		// reachable HTTP(S) endpoint (internal GitLab often has no :443).
+		base := preferredScheme(host) + "://" + host + "/"
+		fmt.Fprintf(&b, "[url %q]\n\tinsteadOf = git@%s:\n\tinsteadOf = ssh://git@%s/\n\tinsteadOf = https://%s/\n\tinsteadOf = http://%s/\n",
+			base, host, host, host, host)
 	}
 	return b.String()
 }

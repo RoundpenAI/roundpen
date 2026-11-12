@@ -356,8 +356,11 @@ func main() {
 		Workers:    agentHandler,
 		Issues:     issueIDResolver{Store: issueStore},
 		Runner:     projectRunner,
-		Dirs:       projectDirSeeder{Envs: envSvc, Paths: sbSvc, Exec: sbSvc},
-		GitCreds:   &gitcred.Store{DB: db.SQL},
+		Dirs: projectDirSeeder{
+			Envs: envSvc, Paths: sbSvc, Exec: sbSvc,
+			PATs: &gitcred.Store{DB: db.SQL}, Idents: oauthSvc,
+		},
+		GitCreds: &gitcred.Store{DB: db.SQL},
 		Log:        logger,
 	}).Mount(mux)
 	routineRunner := &routine.Runner{

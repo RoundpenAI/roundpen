@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -101,22 +100,3 @@ func ListGitHubRepos(ctx context.Context, client *http.Client, token string) ([]
 	return out, nil
 }
 
-// NormalizeCloneURL ensures a usable https clone URL for common shorthand.
-func NormalizeCloneURL(raw string) string {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return ""
-	}
-	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") ||
-		strings.HasPrefix(s, "git@") || strings.HasPrefix(s, "ssh://") || strings.HasPrefix(s, "git://") {
-		return s
-	}
-	// owner/repo
-	if !strings.Contains(s, "://") && strings.Count(s, "/") == 1 {
-		return "https://github.com/" + s + ".git"
-	}
-	if u, err := url.Parse("https://" + s); err == nil && u.Host != "" {
-		return "https://" + s
-	}
-	return s
-}

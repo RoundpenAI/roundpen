@@ -27,8 +27,8 @@ func TestCloneScriptMentionsPreserve(t *testing.T) {
 		"git clone",
 		".roundpen",
 		"already_cloned",
-		`HOME="${HOME:-/home/roundpen}"`,
-		`GIT_CONFIG_GLOBAL="${GIT_CONFIG_GLOBAL:-/home/roundpen/.gitconfig}"`,
+		"export HOME=/home/roundpen",
+		"export GIT_CONFIG_GLOBAL=/home/roundpen/.gitconfig",
 	} {
 		if !strings.Contains(s, needle) {
 			t.Fatalf("missing %q", needle)
