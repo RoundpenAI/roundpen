@@ -737,10 +737,7 @@ func (s projectDirSeeder) EnsureProjectRepo(ctx context.Context, userID, slug, r
 		if msg == "" {
 			msg = fmt.Sprintf("exit %d", res.ExitCode)
 		}
-		if gitHost != "" && looksLikeGitAuthFailure(msg) {
-			return fmt.Errorf("clone failed: Git auth to %s failed — check the token in Settings → Git personal tokens. Detail: %s", gitHost, msg)
-		}
-		return fmt.Errorf("clone failed: %s", msg)
+		return humanizeCloneErr(gitHost, msg)
 	}
 	return nil
 }
@@ -787,6 +784,26 @@ func looksLikeGitAuthFailure(msg string) bool {
 		}
 	}
 	return false
+}
+
+// humanizeCloneErr turns OpenSSH / git transport noise into an actionable
+// Settings hint. Agent sandboxes often run as a host package UID with no
+// passwd entry; raw "No user exists for uid N" is meaningless to users.
+func humanizeCloneErr(gitHost, msg string) error {
+	sshBroken := strings.Contains(msg, "No user exists for uid") ||
+		strings.Contains(msg, "Permission denied (publickey)")
+	if sshBroken {
+		if gitHost != "" {
+			return fmt.Errorf("clone failed: this Git host needs an HTTP token (SSH is not supported in the sandbox). Add a token for %s in Settings → Git personal tokens, then retry", gitHost)
+		}
+		return fmt.Errorf("clone failed: this Git host needs an HTTP token (SSH is not supported in the sandbox). Add one in Settings → Git personal tokens, then retry")
+	}
+	if gitHost != "" && looksLikeGitAuthFailure(msg) {
+		return fmt.Errorf("clone failed: Git auth to %s failed — check the token in Settings → Git personal tokens", gitHost)
+	}
+	// Keep detail for network / not-found cases, but strip CR from SSH.
+	msg = strings.ReplaceAll(msg, "\r", "")
+	return fmt.Errorf("clone failed: %s", msg)
 }
 
 // projectSessionProfiler restores coordinator / worker personas on reconnect.
