@@ -56,10 +56,11 @@ API：`GET/PUT /v1/me/git-credentials`，`DELETE /v1/me/git-credentials/{id}`。
 
 旧版落在 `/workspace/.roundpen/git` 的文件在注入时删除；`/workspace/.roundpen/ssh`（自动拷贝的旧 SSH 钥匙）同样删除。
 
-这些路径只有在**以 uid 1000（镜像里的 `roundpen`，`HOME=/home/roundpen`）运行**时才被 git 读到：
-容器用户由 `createEngine` 的 `engineUser = hostPathOwner(workspace)` 固定，容器创建后不再改变，
-所以 2026-09-20 之前创建的 agent 容器仍是 root（`HOME=/root`），表现为
-`fatal: could not read Username for 'https://…': terminal prompts disabled`——重建该容器即可。
+这些路径依赖 **`HOME=/home/roundpen`**（以及 `GIT_CONFIG_GLOBAL`），与容器进程的数字 UID 无关：
+fnOS 上 workspace 属主常是包用户（如 uid 980），`createEngine` 用 `engineUser = hostPathOwner(workspace)` 运行沙箱，镜像里未必有该 uid 的 passwd 条目。
+控制面会在创建时和每次 Exec/PTY/AttachExec 注入 `HOME` / `GIT_CONFIG_GLOBAL`，让 git 仍读到注入的凭据与 `url.insteadOf`。
+缺少 `HOME` 时常见表现是 `No user exists for uid N`（走 SSH）或
+`fatal: could not read Username for 'https://…': terminal prompts disabled`——重建该容器（或升级后自动拒绝复用旧容器）即可。
 
 Agent workspace 是 per-user 的 virtio 数据盘（`workspace.qcow2`），guest 挂到 `/workspace` 且属主是 `roundpen`。宿主机不 bind、不 9p、不 `chmod 0777`——**正因为 `/workspace` 会被项目源码混在一起，凭据一律不进它，只进 `$HOME/.roundpen`**。
 

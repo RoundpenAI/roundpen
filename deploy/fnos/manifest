@@ -31,4 +31,4 @@ service_port          = 9527
 checkport             = true
 ctl_stop              = true
 disable_authorization_path = false
-changelog             = 语言/主题改为国旗与日月图标，旁侧可打开飞书反馈表单；空会话推荐问题支持管理端下发，未配置时由模型生成。权限确认文案随界面语言显示。
+changelog             = 修复飞牛上克隆代码仓库失败（沙箱用户 ID 与镜像不一致时 Git 读不到凭据）。

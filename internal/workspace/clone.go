@@ -24,6 +24,10 @@ func CloneScript() string {
 SLUG="$1"
 URL="$2"
 DEST="/workspace/projects/$SLUG"
+# Host-owner UIDs (e.g. fnOS package uid) lack an image passwd entry; force
+# the guest home so git loads injected credentials / url.insteadOf.
+export HOME="${HOME:-/home/roundpen}"
+export GIT_CONFIG_GLOBAL="${GIT_CONFIG_GLOBAL:-/home/roundpen/.gitconfig}"
 if [ -z "$SLUG" ] || [ -z "$URL" ]; then
   echo "slug and url required" >&2
   exit 2
