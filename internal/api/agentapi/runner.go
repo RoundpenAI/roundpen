@@ -63,10 +63,11 @@ func formatTurnTimeout(d time.Duration) string {
 // permWait tracks an outstanding interactive permission request that may outlive
 // any single stream attachment.
 type permWait struct {
-	ch       chan string
-	title    string
-	options  any
-	ticketID string
+	ch          chan string
+	title       string
+	options     any
+	ticketID    string
+	multiSelect bool
 
 	// cancel is closed by /clear to abandon the dialog (the turn it belongs to
 	// is being cancelled anyway); cancelOnce keeps the close idempotent.
@@ -169,10 +170,11 @@ type queueSnapshot struct {
 }
 
 type permSnapshot struct {
-	RequestID string `json:"requestId"`
-	Title     string `json:"title"`
-	Options   any    `json:"options"`
-	TicketID  string `json:"ticketId,omitempty"`
+	RequestID   string `json:"requestId"`
+	Title       string `json:"title"`
+	Options     any    `json:"options"`
+	TicketID    string `json:"ticketId,omitempty"`
+	MultiSelect bool   `json:"multiSelect,omitempty"`
 }
 
 func (r *runner) snapshot() statusSnapshot {
@@ -191,10 +193,11 @@ func (r *runner) snapshot() statusSnapshot {
 	}
 	for reqID, pw := range r.perms {
 		s.Perm = &permSnapshot{
-			RequestID: reqID,
-			Title:     pw.title,
-			Options:   pw.options,
-			TicketID:  pw.ticketID,
+			RequestID:   reqID,
+			Title:       pw.title,
+			Options:     pw.options,
+			TicketID:    pw.ticketID,
+			MultiSelect: pw.multiSelect,
 		}
 		break
 	}
@@ -677,6 +680,11 @@ func askHumanMeta(req acp.RequestPermissionRequest) bool {
 	return v
 }
 
+func multiSelectMeta(req acp.RequestPermissionRequest) bool {
+	v, _ := req.Meta[sysagent.PermissionMetaMultiSelectKey].(bool)
+	return v
+}
+
 // resolvePermission builds the classifier request and runs automode.Resolve.
 func (r *runner) resolvePermission(req acp.RequestPermissionRequest, title string) automode.Resolution {
 	args := ""
@@ -782,20 +790,23 @@ func (r *runner) onPermission(req acp.RequestPermissionRequest) (acp.RequestPerm
 			ticketID = t.ID
 		}
 	}
+	multi := multiSelectMeta(req)
 	r.mu.Lock()
 	if pw := r.perms[reqID]; pw != nil {
 		pw.title = title
 		pw.options = req.Options
 		pw.ticketID = ticketID
+		pw.multiSelect = multi
 	}
 	nclients := len(r.clients)
 	r.mu.Unlock()
 	r.broadcast(streamOut{
-		Type:      "permission_request",
-		RequestID: reqID,
-		Title:     title,
-		Options:   req.Options,
-		TicketID:  ticketID,
+		Type:        "permission_request",
+		RequestID:   reqID,
+		Title:       title,
+		Options:     req.Options,
+		TicketID:    ticketID,
+		MultiSelect: multi,
 	})
 	r.notifyPermission(title)
 
@@ -999,16 +1010,29 @@ func (r *runner) resolveTicketForAnswer(pw *permWait, optionID string) {
 	if optionRejects(pw.options, optionID) {
 		resolution = assistticket.ResReject
 	}
+	note := permissionOptionLabel(pw.options, optionID)
+	if note == "" {
+		note = optionID
+	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), 5*time.Second)
 	defer cancel()
-	if _, err := r.handler.Tickets.Resolve(ctx, pw.ticketID, resolution, optionID); err != nil && r.handler.Log != nil {
+	if _, err := r.handler.Tickets.Resolve(ctx, pw.ticketID, resolution, note); err != nil && r.handler.Log != nil {
 		r.handler.Log.Warn("resolve assist ticket", "ticket", pw.ticketID, "err", err)
 	}
 }
 
 // optionRejects reports whether optionID is one of the request's reject
 // options, falling back to the option id when they are not ACP options.
+// Comma-joined multi-select ids reject if any part rejects.
 func optionRejects(options any, optionID string) bool {
+	if strings.Contains(optionID, ",") {
+		for _, part := range strings.Split(optionID, ",") {
+			if optionRejects(options, strings.TrimSpace(part)) {
+				return true
+			}
+		}
+		return false
+	}
 	opts, ok := options.([]acp.PermissionOption)
 	if !ok {
 		return strings.Contains(optionID, "reject")
@@ -1024,10 +1048,23 @@ func optionRejects(options any, optionID string) bool {
 }
 
 // permissionOptionLabel resolves an ACP option id to its user-facing name so
-// transcript rows show "继续用代理" instead of "opt-0".
+// transcript rows show "继续用代理" instead of "opt-0". Comma-joined multi-select
+// ids become a joined label list.
 func permissionOptionLabel(options any, optionID string) string {
 	if optionID == "" {
 		return ""
+	}
+	if strings.Contains(optionID, ",") {
+		parts := strings.Split(optionID, ",")
+		labels := make([]string, 0, len(parts))
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			labels = append(labels, permissionOptionLabel(options, part))
+		}
+		return strings.Join(labels, ", ")
 	}
 	opts, ok := options.([]acp.PermissionOption)
 	if ok {

@@ -27,10 +27,12 @@ func TestAskUserQuestion(t *testing.T) {
 	}
 
 	gotAnswer := ""
+	var gotMulti bool
 	ctx, _ := interactiveCtx(func(_ context.Context, q tools.AskQuestion) (string, error) {
 		if len(q.Options) != 2 {
 			t.Fatalf("len options=%d", len(q.Options))
 		}
+		gotMulti = q.MultiSelect
 		gotAnswer = q.Options[1].Label
 		return gotAnswer, nil
 	}, false)
@@ -43,7 +45,28 @@ func TestAskUserQuestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if gotMulti {
+		t.Fatal("expected multiSelect=false by default")
+	}
 	if !strings.Contains(out, "Which library?") || !strings.Contains(out, gotAnswer) {
+		t.Fatalf("out=%q", out)
+	}
+
+	gotAnswer = ""
+	gotMulti = false
+	out, err = reg.Call(ctx, tools.Actor{}, "AskUserQuestion", json.RawMessage(`{
+		"question": "Pick features?",
+		"header": "Features",
+		"multiSelect": true,
+		"options": [{"label":"A"},{"label":"B"}]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotMulti {
+		t.Fatal("expected multiSelect=true")
+	}
+	if !strings.Contains(out, "Pick features?") {
 		t.Fatalf("out=%q", out)
 	}
 

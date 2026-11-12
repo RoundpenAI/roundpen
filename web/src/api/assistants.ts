@@ -121,6 +121,14 @@ export const assistantsApi = {
       method: 'POST',
       body: '{}',
     }),
+  suggestedPrompts: (id: string, sessionId?: string) => {
+    const q = sessionId
+      ? `?sessionId=${encodeURIComponent(sessionId)}`
+      : ''
+    return api<{ prompts: string[]; source: 'config' | 'llm' | 'none' }>(
+      `/v1/assistants/${id}/suggested-prompts${q}`,
+    )
+  },
   activity: (id: string) =>
     api<{ activity: ActivityItem[]; busy: boolean }>(
       `/v1/assistants/${id}/activity`,

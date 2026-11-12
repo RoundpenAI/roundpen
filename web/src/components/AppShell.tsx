@@ -13,8 +13,7 @@ import {
 import { auth as authApi } from '../api'
 import { doLogout, useAuth } from '../auth'
 import { useT } from '../i18n'
-import { ThemeToggle } from './ThemeToggle'
-import { LocaleToggle } from './LocaleToggle'
+import { UiChromeStrip } from './UiChromeStrip'
 import { OnboardingWizard } from './OnboardingWizard'
 import {
   matchPrimaryMenu,
@@ -147,12 +146,15 @@ export function AppShell() {
           gap: 4,
         }}
       >
-        {!opts.collapsedView && (
-          <>
-            <LocaleToggle block />
-            <ThemeToggle />
-          </>
-        )}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: opts.collapsedView ? 'center' : 'flex-start',
+            padding: opts.collapsedView ? '4px 0' : '4px 4px 0',
+          }}
+        >
+          <UiChromeStrip compact={opts.collapsedView} />
+        </div>
         {user && (
           <Button
             theme="borderless"

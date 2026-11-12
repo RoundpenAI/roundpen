@@ -73,14 +73,15 @@ type streamIn struct {
 }
 
 type streamOut struct {
-	Type       string `json:"type"`
-	Event      any    `json:"event,omitempty"`
-	Message    string `json:"message,omitempty"`
-	StopReason string `json:"stopReason,omitempty"`
-	RequestID  string `json:"requestId,omitempty"`
-	Title      string `json:"title,omitempty"`
-	Options    any    `json:"options,omitempty"`
-	TicketID   string `json:"ticketId,omitempty"`
+	Type        string `json:"type"`
+	Event       any    `json:"event,omitempty"`
+	Message     string `json:"message,omitempty"`
+	StopReason  string `json:"stopReason,omitempty"`
+	RequestID   string `json:"requestId,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Options     any    `json:"options,omitempty"`
+	TicketID    string `json:"ticketId,omitempty"`
+	MultiSelect bool   `json:"multiSelect,omitempty"`
 }
 
 func (h *Handler) loadSessionForUser(w http.ResponseWriter, r *http.Request) (*agentsession.Session, *storage.User, bool) {

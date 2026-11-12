@@ -5,8 +5,7 @@ import { auth as authApi } from '../api'
 import { isFnOSApp } from '../api/client'
 import { doLogin, useAuth } from '../auth'
 import { useT, type MessageKey } from '../i18n'
-import { LocaleToggle } from '../components/LocaleToggle'
-import { ThemeToggle } from '../components/ThemeToggle'
+import { UiChromeStrip } from '../components/UiChromeStrip'
 
 // The OAuth callback bounces back here with ?oauth_error=<code>.
 const OAUTH_ERROR_KEYS: Record<string, MessageKey> = {
@@ -111,8 +110,7 @@ export function LoginPage() {
           gap: 8,
         }}
       >
-        <LocaleToggle />
-        <ThemeToggle />
+        <UiChromeStrip compact />
       </div>
       <div style={{ width: '100%', maxWidth: 360 }}>
         <Typography.Title heading={2} style={{ textAlign: 'center', margin: 0 }}>

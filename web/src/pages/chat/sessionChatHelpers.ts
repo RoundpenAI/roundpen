@@ -5,6 +5,13 @@ export type PermReq = {
   title: string
   options: { optionId: string; name: string; kind?: string }[]
   ticketId?: string
+  /** AskUserQuestion multi-select; tool permissions stay single-choice. */
+  multiSelect?: boolean
+}
+
+/** Join selected option ids for the permission action (ACP carries one string). */
+export function joinPermissionOptionIds(ids: string[]): string {
+  return ids.map((id) => id.trim()).filter(Boolean).join(',')
 }
 
 export const ROLE_CONFIG = {

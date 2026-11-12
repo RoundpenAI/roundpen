@@ -40,7 +40,15 @@ describe('settings sections', () => {
   it('personal sections keep their grouped order', () => {
     assert.deepEqual(
       PERSONAL_SETTINGS_SECTIONS.map((s) => s.key),
-      ['profile', 'apps', 'password', 'notifications', 'slots', 'nas'],
+      [
+        'profile',
+        'appearance',
+        'apps',
+        'password',
+        'notifications',
+        'slots',
+        'nas',
+      ],
     )
   })
 
@@ -48,6 +56,7 @@ describe('settings sections', () => {
     assert.deepEqual(
       ADMIN_SETTINGS_SECTIONS.map((s) => s.key),
       [
+        'product',
         'llmgw',
         'webtools',
         'browser',
@@ -106,11 +115,19 @@ describe('visiblePersonalSettingsSections', () => {
   it('includes notifications only when Web Push is supported', () => {
     assert.deepEqual(
       visiblePersonalSettingsSections(true).map((s) => s.key),
-      ['profile', 'apps', 'password', 'notifications', 'slots', 'nas'],
+      [
+        'profile',
+        'appearance',
+        'apps',
+        'password',
+        'notifications',
+        'slots',
+        'nas',
+      ],
     )
     assert.deepEqual(
       visiblePersonalSettingsSections(false).map((s) => s.key),
-      ['profile', 'apps', 'password', 'slots', 'nas'],
+      ['profile', 'appearance', 'apps', 'password', 'slots', 'nas'],
     )
   })
 
@@ -120,7 +137,7 @@ describe('visiblePersonalSettingsSections', () => {
         pushSupported: true,
         allowPassword: false,
       }).map((s) => s.key),
-      ['profile', 'apps', 'notifications', 'slots', 'nas'],
+      ['profile', 'appearance', 'apps', 'notifications', 'slots', 'nas'],
     )
     assert.equal(
       resolvePersonalSection('password', { allowPassword: false }),

@@ -80,7 +80,7 @@ func RegisterInteractive(r *Registry) {
 				"type":        "array",
 				"minItems":    askUserQuestionOptsMin,
 				"maxItems":    askUserQuestionOptsMax,
-				"description": "2-4 distinct, mutually exclusive choices. No 'Other' option - it is provided automatically.",
+				"description": "2-4 distinct choices. Default is single-select (mutually exclusive). With multiSelect=true the user may pick several. No 'Other' option - it is provided automatically.",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -90,12 +90,17 @@ func RegisterInteractive(r *Registry) {
 					"required": []any{"label"},
 				},
 			},
+			"multiSelect": map[string]any{
+				"type":        "boolean",
+				"description": "When true, the user may select more than one option. Default false (single choice).",
+			},
 		}, "question", "options"),
 		Call: func(ctx context.Context, _ Actor, args json.RawMessage) (string, error) {
 			var in struct {
-				Question string         `json:"question"`
-				Header   string         `json:"header"`
-				Options  []AnswerOption `json:"options"`
+				Question    string         `json:"question"`
+				Header      string         `json:"header"`
+				Options     []AnswerOption `json:"options"`
+				MultiSelect bool           `json:"multiSelect"`
 			}
 			if err := json.Unmarshal(args, &in); err != nil {
 				return "", fmt.Errorf("invalid arguments: %w", err)
@@ -121,9 +126,10 @@ func RegisterInteractive(r *Registry) {
 				return "", fmt.Errorf("interactive session not available")
 			}
 			answer, err := si.AskUser(ctx, AskQuestion{
-				Question: in.Question,
-				Header:   in.Header,
-				Options:  in.Options,
+				Question:    in.Question,
+				Header:      in.Header,
+				Options:     in.Options,
+				MultiSelect: in.MultiSelect,
 			})
 			if err != nil {
 				return "", err

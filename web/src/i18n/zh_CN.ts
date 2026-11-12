@@ -17,6 +17,7 @@ export const zh_CN: Record<MessageKey, string> = {
   'nav.version': 'v{version}',
   'nav.language': '语言',
   'nav.theme': '切换深色模式',
+  'nav.feedback': '问题反馈',
 
   'login.subtitle': '登录你的 Agent 沙箱',
   'login.userLabel': '用户名或邮箱',
@@ -124,8 +125,26 @@ export const zh_CN: Record<MessageKey, string> = {
     '在 GitLab：头像 → Preferences → Access Tokens。创建含 api、write_repository 权限的令牌，复制一次，然后在下方填写主机与令牌。',
   'apps.openPatSettings': '打开该主机的令牌设置页',
   'settings.section.profile': '个人资料',
+  'settings.section.appearance': '外观',
   'settings.section.password': '密码',
   'settings.section.notifications': '通知',
+  'settings.section.product': '产品体验',
+  'settings.appearance.title': '外观',
+  'settings.appearance.hint': '语言与亮暗模式与侧栏/顶栏控件联动。',
+  'settings.appearance.controls': '语言与主题',
+  'settings.product.feedbackTitle': '用户反馈',
+  'settings.product.feedbackHint':
+    '粘贴飞书智能表单分享链接。配置后语言/主题旁会出现反馈入口。',
+  'settings.product.feedbackUrl': '反馈表单链接',
+  'settings.product.feedbackUrlPlaceholder': 'https://…',
+  'settings.product.promptsTitle': '推荐问题',
+  'settings.product.promptsHint':
+    '空会话时由服务端下发的推荐问题。按助手类型覆盖全局；留空则由模型生成。',
+  'settings.product.promptsGlobal': '全局默认（每行一条）',
+  'settings.product.promptsKindUser': '普通助手',
+  'settings.product.promptsKindSystem': '系统助手',
+  'settings.product.promptsKindCoordinator': '协调者',
+  'settings.product.promptsPlaceholder': '每行一条，最多 5 条',
   'settings.section.agent': 'Agent 环境',
 
   'profile.intro':
@@ -1033,6 +1052,8 @@ export const zh_CN: Record<MessageKey, string> = {
   'chat.perm.ticketTitle': '协助单',
   'chat.perm.ticketWhy': '为什么找你：工具需要你的确认才能继续。',
   'chat.perm.waitingHint': '等待你处理协助单…',
+  'chat.perm.confirm': '确认',
+  'chat.perm.multiHint': '可多选，选好后点确认。',
   'chat.perm.option.allowOnce': '允许一次',
   'chat.perm.option.allowTool': '允许此工具（本会话）',
   'chat.perm.option.allowAll': '允许全部工具（本会话）',

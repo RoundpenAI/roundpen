@@ -37,6 +37,7 @@ import (
 	"github.com/RoundpenAI/roundpen/internal/preview"
 	"github.com/RoundpenAI/roundpen/internal/proactive"
 	"github.com/RoundpenAI/roundpen/internal/project"
+	"github.com/RoundpenAI/roundpen/internal/promptsuggest"
 	"github.com/RoundpenAI/roundpen/internal/routine"
 	"github.com/RoundpenAI/roundpen/internal/sandbox"
 	"github.com/RoundpenAI/roundpen/internal/search"
@@ -405,6 +406,20 @@ func main() {
 	}
 
 	nasSceneStore := &nasscene.Store{DB: db.SQL, Assistants: assistantStore, Routines: routineStore}
+	promptSuggestSvc := &promptsuggest.Service{
+		Settings: func() settings.SuggestedPrompts { return settingsSvc.Current().SuggestedPrompts },
+		Sessions: agentStore,
+		LLM: &promptsuggest.Generator{
+			Endpoint: func() (string, string) {
+				target, ok := llmgw.Resolve(itemsCat.Snapshot(), settingitems.SlotLLMClassifier, "")
+				if !ok {
+					return "", ""
+				}
+				return strings.TrimRight(loopback, "/") + target.RelayPath(), target.Model
+			},
+			APIKey: gw.InternalKey(),
+		},
+	}
 	asstHandler := &assistant.Handler{
 		Store:    assistantStore,
 		Sessions: agentStore,
@@ -412,6 +427,7 @@ func main() {
 		Tickets:  ticketStore,
 		Denials:  denialStore,
 		IM:       imSup,
+		Suggest:  promptSuggestSvc,
 		OnDisabled: func(ctx context.Context, assistantID string) {
 			_ = routineStore.PauseByAssignee(ctx, assistantID)
 		},

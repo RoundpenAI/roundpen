@@ -30,5 +30,11 @@ func DecodeAppSettings(raw []byte, fallback AppSettings) (AppSettings, error) {
 	if _, ok := keys["autoMode"]; !ok {
 		out.AutoMode = fallback.AutoMode
 	}
+	if _, ok := keys["feedbackFormUrl"]; !ok {
+		out.FeedbackFormURL = fallback.FeedbackFormURL
+	}
+	if _, ok := keys["suggestedPrompts"]; !ok {
+		out.SuggestedPrompts = fallback.SuggestedPrompts
+	}
 	return out, nil
 }

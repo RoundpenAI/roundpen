@@ -4,8 +4,7 @@ import { Button, Layout, Nav, Typography } from '@douyinfe/semi-ui-19'
 import { isFnOSApp } from '../api/client'
 import { doLogout, useAuth } from '../auth'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
-import { ThemeToggle } from './ThemeToggle'
-import { LocaleToggle } from './LocaleToggle'
+import { UiChromeStrip } from './UiChromeStrip'
 
 export type AppSection =
   | 'assistants'
@@ -111,8 +110,7 @@ export function PageShell({
               {user.username}
             </Typography.Text>
           )}
-          <LocaleToggle />
-          <ThemeToggle />
+          <UiChromeStrip />
           {user && allowPassword && (
             <Button type="tertiary" onClick={() => setChangePasswordOpen(true)}>
               Change password

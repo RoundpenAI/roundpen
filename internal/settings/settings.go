@@ -35,9 +35,20 @@ type AppSettings struct {
 	LlmgwVirtualKeys     string `json:"llmgwVirtualKeys"`
 	// AutoMode configures the policy classifier behind the chat Auto toggle.
 	AutoMode AutoModeSettings `json:"autoMode"`
+	// FeedbackFormURL is a Feishu (or other) intelligent-form link opened from
+	// the console chrome. Empty hides the feedback entry.
+	FeedbackFormURL string `json:"feedbackFormUrl"`
+	// SuggestedPrompts are server-delivered starter chips keyed by assistant kind.
+	SuggestedPrompts SuggestedPrompts `json:"suggestedPrompts"`
 	// EnabledPlugins lists optional instance capabilities (see internal/plugins).
 	// Omitted from a settings PUT keeps the stored set.
 	EnabledPlugins []string `json:"enabledPlugins,omitempty"`
+}
+
+// SuggestedPrompts holds admin-configured empty-session starter prompts.
+type SuggestedPrompts struct {
+	Global []string            `json:"global,omitempty"`
+	ByKind map[string][]string `json:"byKind,omitempty"`
 }
 
 // AutoModeSettings holds the admin-configured auto-mode policy. Lists carry
@@ -65,6 +76,10 @@ func (a AutoModeSettings) Rules() automode.Rules {
 const (
 	autoModeMaxEntries    = 50
 	autoModeMaxEntryRunes = 800
+
+	suggestedPromptMaxEntries    = 5
+	suggestedPromptMaxEntryRunes = 200
+	feedbackFormURLMaxLen        = 2000
 )
 
 func defaultAutoModeSettings() AutoModeSettings {
@@ -79,9 +94,11 @@ func defaultAutoModeSettings() AutoModeSettings {
 // normalize trims free-text values before validation.
 func (s *AppSettings) normalize() {
 	s.AgentImage = strings.TrimSpace(s.AgentImage)
+	s.FeedbackFormURL = strings.TrimSpace(s.FeedbackFormURL)
 	// Relay cannot be turned off from settings (or the API document).
 	s.LlmgwEnabled = true
 	s.normalizeAutoMode()
+	s.SuggestedPrompts = normalizeSuggestedPrompts(s.SuggestedPrompts)
 }
 
 func (s *AppSettings) normalizeAutoMode() {
@@ -106,6 +123,63 @@ func normalizeAutoModeList(list []string) []string {
 		out = append(out, e)
 	}
 	return out
+}
+
+func normalizeSuggestedPrompts(p SuggestedPrompts) SuggestedPrompts {
+	p.Global = normalizePromptList(p.Global)
+	if len(p.ByKind) == 0 {
+		p.ByKind = nil
+		return p
+	}
+	next := make(map[string][]string, len(p.ByKind))
+	for k, list := range p.ByKind {
+		k = strings.TrimSpace(strings.ToLower(k))
+		if k == "" {
+			continue
+		}
+		list = normalizePromptList(list)
+		if len(list) == 0 {
+			continue
+		}
+		next[k] = list
+	}
+	if len(next) == 0 {
+		p.ByKind = nil
+	} else {
+		p.ByKind = next
+	}
+	return p
+}
+
+func normalizePromptList(list []string) []string {
+	out := make([]string, 0, len(list))
+	seen := map[string]struct{}{}
+	for _, e := range list {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+		if _, dup := seen[e]; dup {
+			continue
+		}
+		seen[e] = struct{}{}
+		out = append(out, e)
+		if len(out) >= suggestedPromptMaxEntries {
+			break
+		}
+	}
+	return out
+}
+
+// ResolveSuggestedPrompts picks kind-specific prompts, then global.
+func ResolveSuggestedPrompts(p SuggestedPrompts, kind string) []string {
+	kind = strings.TrimSpace(strings.ToLower(kind))
+	if kind != "" && p.ByKind != nil {
+		if list := normalizePromptList(p.ByKind[kind]); len(list) > 0 {
+			return list
+		}
+	}
+	return normalizePromptList(p.Global)
 }
 
 // ProxyProfile is a named egress proxy from the pre-item settings document.
@@ -212,6 +286,60 @@ func (s AppSettings) Validate() error {
 			if utf8.RuneCountInString(e) > autoModeMaxEntryRunes {
 				return fmt.Errorf("%s: entry exceeds %d characters", r.field, autoModeMaxEntryRunes)
 			}
+		}
+	}
+	if err := validateFeedbackFormURL(s.FeedbackFormURL); err != nil {
+		return err
+	}
+	if err := validateSuggestedPrompts(s.SuggestedPrompts); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateFeedbackFormURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if len(raw) > feedbackFormURLMaxLen {
+		return fmt.Errorf("feedbackFormUrl is too long (max %d characters)", feedbackFormURLMaxLen)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("feedbackFormUrl must be a valid URL")
+	}
+	if scheme := strings.ToLower(u.Scheme); scheme != "https" && scheme != "http" {
+		return fmt.Errorf("feedbackFormUrl must use http or https")
+	}
+	return nil
+}
+
+func validateSuggestedPrompts(p SuggestedPrompts) error {
+	if err := validatePromptList("suggestedPrompts.global", p.Global); err != nil {
+		return err
+	}
+	for k, list := range p.ByKind {
+		k = strings.TrimSpace(strings.ToLower(k))
+		switch k {
+		case "user", "system", "coordinator":
+		default:
+			return fmt.Errorf("suggestedPrompts.byKind: unknown kind %q", k)
+		}
+		if err := validatePromptList("suggestedPrompts.byKind."+k, list); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePromptList(field string, list []string) error {
+	if len(list) > suggestedPromptMaxEntries {
+		return fmt.Errorf("%s: at most %d entries", field, suggestedPromptMaxEntries)
+	}
+	for _, e := range list {
+		if utf8.RuneCountInString(e) > suggestedPromptMaxEntryRunes {
+			return fmt.Errorf("%s: entry exceeds %d characters", field, suggestedPromptMaxEntryRunes)
 		}
 	}
 	return nil

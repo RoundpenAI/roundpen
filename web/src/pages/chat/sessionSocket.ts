@@ -81,11 +81,13 @@ type StreamMsg = {
   items?: unknown
   steer?: boolean
   ticketId?: string
+  multiSelect?: boolean
   perm?: {
     requestId?: string
     title?: string
     options?: { optionId: string; name: string; kind?: string }[]
     ticketId?: string
+    multiSelect?: boolean
   }
 }
 
@@ -314,6 +316,7 @@ export function connectChatSocket(
               title: msg.perm.title ?? 'Permission',
               options: msg.perm.options ?? [],
               ticketId: msg.perm.ticketId,
+              multiSelect: Boolean(msg.perm.multiSelect),
             })
           } else {
             setPerm(null)
@@ -452,6 +455,7 @@ export function connectChatSocket(
           title: msg.title ?? 'Permission',
           options,
           ticketId: msg.ticketId,
+          multiSelect: Boolean(msg.multiSelect),
         })
       } else if (msg.type === 'permission_resolved') {
         setPerm((cur) =>

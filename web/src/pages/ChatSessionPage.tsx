@@ -11,6 +11,7 @@ import {
   AIChatInput,
   Banner,
   Button,
+  Checkbox,
   Modal,
   Spin,
   Typography,
@@ -71,6 +72,7 @@ import {
   clearStreaming,
   isEphemeralMessageId,
   isStreamingMessage,
+  joinPermissionOptionIds,
   MESSAGE_PAGE_SIZE,
   mergeHistoryWithLive,
   nowIso,
@@ -173,6 +175,7 @@ export function ChatSessionPage() {
   const [error, setError] = useState<string | null>(null)
   const [llmStatus, setLlmStatus] = useState<LlmReady | null>(null)
   const [perm, setPerm] = useState<PermReq | null>(null)
+  const [permSelected, setPermSelected] = useState<string[]>([])
   const [showBrowser, setShowBrowser] = useState(false)
   const [browserSeen, setBrowserSeen] = useState(false)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -670,10 +673,18 @@ export function ChatSessionPage() {
     setStatusHint(outboxWaitingHint(outboxRef.current.length))
   }, [histReady, wsOpen, id, busy])
 
-  const answerPerm = (optionId: string) => {
-    if (!perm || !wsRef.current) return
-    const chosen = perm.options.find((o) => o.optionId === optionId)
-    const label = (chosen?.name || '').trim() || optionId
+  useEffect(() => {
+    setPermSelected([])
+  }, [perm?.requestId])
+
+  const answerPerm = (optionIds: string[]) => {
+    if (!perm || !wsRef.current || optionIds.length === 0) return
+    const optionId = joinPermissionOptionIds(optionIds)
+    const labels = optionIds.map((oid) => {
+      const chosen = perm.options.find((o) => o.optionId === oid)
+      return localizePermissionOptionName(oid, chosen?.name || '', t)
+    })
+    const label = labels.join(', ')
     sendAction({
       type: 'permission',
       requestId: perm.requestId,
@@ -681,7 +692,7 @@ export function ChatSessionPage() {
     })
     if (perm.ticketId) {
       const resolution =
-        optionId.includes('reject') || optionId === 'reject'
+        optionIds.some((oid) => oid.includes('reject') || oid === 'reject')
           ? 'reject'
           : 'allow_once'
       void assistantsApi
@@ -707,7 +718,16 @@ export function ChatSessionPage() {
       },
     ])
     setPerm(null)
+    setPermSelected([])
     setStatusHint('工作中')
+  }
+
+  const togglePermOption = (optionId: string) => {
+    setPermSelected((prev) =>
+      prev.includes(optionId)
+        ? prev.filter((id) => id !== optionId)
+        : [...prev, optionId],
+    )
   }
 
   const showWorking =
@@ -998,6 +1018,7 @@ export function ChatSessionPage() {
               {chats.length === 0 && !composerHasText && !generating && (
                 <RoutineSuggestions
                   assistant={chatAssistant}
+                  sessionId={id}
                   onPick={fillSuggestion}
                 />
               )}
@@ -1128,25 +1149,19 @@ export function ChatSessionPage() {
               justifyContent: 'flex-end',
             }}
           >
-            {perm?.options.map((o) => (
-              <Button
-                key={o.optionId}
-                type={
-                  o.optionId === 'allow_all' || o.optionId === 'allow'
-                    ? 'primary'
-                    : o.optionId.includes('reject')
-                      ? 'tertiary'
-                      : 'secondary'
-                }
-                disabled={!wsOpen}
-                onClick={() => answerPerm(o.optionId)}
-              >
-                {localizePermissionOptionName(o.optionId, o.name, t)}
-              </Button>
-            ))}
             {showBrowser || browserSeen ? (
               <Button type="tertiary" onClick={() => setShowBrowser(true)}>
                 打开协助画面
+              </Button>
+            ) : null}
+            {perm?.multiSelect ? (
+              <Button
+                theme="solid"
+                type="primary"
+                disabled={!wsOpen || permSelected.length === 0}
+                onClick={() => answerPerm(permSelected)}
+              >
+                {t('chat.perm.confirm')}
               </Button>
             ) : null}
           </div>
@@ -1156,9 +1171,68 @@ export function ChatSessionPage() {
           {perm ? localizePermissionTitle(perm.title, t) : null}
         </Typography.Paragraph>
         <Typography.Text type="tertiary" size="small">
-          {t('chat.perm.ticketWhy')}
+          {perm?.multiSelect ? t('chat.perm.multiHint') : t('chat.perm.ticketWhy')}
           {perm?.ticketId ? ` · #${perm.ticketId.slice(0, 8)}` : ''}
         </Typography.Text>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            marginTop: 16,
+          }}
+        >
+          {perm?.options.map((o) => {
+            const selected = permSelected.includes(o.optionId)
+            const label = localizePermissionOptionName(o.optionId, o.name, t)
+            const rejectish =
+              o.optionId.includes('reject') || o.optionId === 'reject'
+            return (
+              <button
+                key={o.optionId}
+                type="button"
+                disabled={!wsOpen}
+                onClick={() => {
+                  if (perm.multiSelect) {
+                    togglePermOption(o.optionId)
+                    return
+                  }
+                  answerPerm([o.optionId])
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: selected
+                    ? '1px solid var(--semi-color-primary)'
+                    : '1px solid var(--semi-color-border)',
+                  background: selected
+                    ? 'var(--semi-color-primary-light-default)'
+                    : 'var(--semi-color-bg-1)',
+                  color: rejectish
+                    ? 'var(--semi-color-text-2)'
+                    : 'var(--semi-color-text-0)',
+                  cursor: wsOpen ? 'pointer' : 'not-allowed',
+                  opacity: wsOpen ? 1 : 0.6,
+                }}
+              >
+                {perm.multiSelect ? (
+                  <Checkbox
+                    checked={selected}
+                    aria-label={label}
+                    // Parent button owns the toggle; avoid double-fire.
+                    onClick={(e: { preventDefault: () => void }) => e.preventDefault()}
+                  />
+                ) : null}
+                <span style={{ flex: 1, lineHeight: 1.4 }}>{label}</span>
+              </button>
+            )
+          })}
+        </div>
       </Modal>
     </div>
   )

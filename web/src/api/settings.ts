@@ -15,6 +15,11 @@ export type AutoModeDefaults = {
   hardDeny: string[]
 }
 
+export type SuggestedPrompts = {
+  global?: string[]
+  byKind?: Partial<Record<'user' | 'system' | 'coordinator', string[]>>
+}
+
 export type AppSettings = {
   allowPublicRegistration: boolean
   defaultImage: string
@@ -26,6 +31,13 @@ export type AppSettings = {
   llmgwLogBodyMaxBytes: number
   llmgwVirtualKeys: string
   autoMode: AutoModeSettings
+  /** Feishu intelligent-form URL; empty hides the feedback chrome entry. */
+  feedbackFormUrl?: string
+  suggestedPrompts?: SuggestedPrompts
+}
+
+export const feedbackFormApi = {
+  get: () => api<{ url: string }>('/v1/feedback-form'),
 }
 
 export type SystemInfo = {

@@ -9,6 +9,7 @@ import { isFnOSApp } from '../../api/client'
 import { useAuth } from '../../auth'
 import { isAdminSectionKey, resolvePersonalSection } from '../../lib/appNav'
 import { isPushSupported } from '../../lib/pushSupport'
+import { AppearanceSection } from './AppearanceSection'
 
 export function PersonalSettingsPage() {
   const { section: sectionParam } = useParams()
@@ -41,6 +42,8 @@ export function PersonalSettingsPage() {
       }}
     >
       {section === 'profile' && <ProfilePanel />}
+
+      {section === 'appearance' && <AppearanceSection />}
 
       {section === 'apps' && <ConnectedAppsPanel />}
 

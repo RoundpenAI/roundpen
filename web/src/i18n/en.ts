@@ -15,6 +15,7 @@ export const en = {
   'nav.version': 'v{version}',
   'nav.language': 'Language',
   'nav.theme': 'Toggle dark mode',
+  'nav.feedback': 'Send feedback',
 
   'login.subtitle': 'Sign in to your agent sandbox',
   'login.userLabel': 'Username or email',
@@ -128,8 +129,27 @@ export const en = {
     'On GitLab: avatar → Preferences → Access Tokens. Create a token with api and write_repository, copy it once, then enter the host and token below.',
   'apps.openPatSettings': 'Open token settings on this host',
   'settings.section.profile': 'Profile',
+  'settings.section.appearance': 'Appearance',
   'settings.section.password': 'Password',
   'settings.section.notifications': 'Notifications',
+  'settings.section.product': 'Product',
+  'settings.appearance.title': 'Appearance',
+  'settings.appearance.hint':
+    'Language and color mode sync with the controls in the app menu.',
+  'settings.appearance.controls': 'Language & theme',
+  'settings.product.feedbackTitle': 'User feedback',
+  'settings.product.feedbackHint':
+    'Paste a Feishu intelligent-form share link. The feedback icon appears beside language/theme when set.',
+  'settings.product.feedbackUrl': 'Feedback form URL',
+  'settings.product.feedbackUrlPlaceholder': 'https://…',
+  'settings.product.promptsTitle': 'Suggested prompts',
+  'settings.product.promptsHint':
+    'Server-delivered starter chips for empty chats. Kind-specific lists override global. Leave empty to let the model suggest.',
+  'settings.product.promptsGlobal': 'Global defaults (one per line)',
+  'settings.product.promptsKindUser': 'User assistants',
+  'settings.product.promptsKindSystem': 'System assistant',
+  'settings.product.promptsKindCoordinator': 'Coordinator',
+  'settings.product.promptsPlaceholder': 'One prompt per line, up to 5',
   'settings.section.agent': 'Agent environment',
 
   'profile.intro':
@@ -1066,6 +1086,8 @@ export const en = {
   'chat.perm.ticketWhy':
     'Why you: the tool needs your confirmation before it can continue.',
   'chat.perm.waitingHint': 'Waiting for you to handle the assist ticket…',
+  'chat.perm.confirm': 'Confirm',
+  'chat.perm.multiHint': 'Select one or more options, then confirm.',
   'chat.perm.option.allowOnce': 'Allow once',
   'chat.perm.option.allowTool': 'Allow this tool (session)',
   'chat.perm.option.allowAll': 'Allow all tools (session)',

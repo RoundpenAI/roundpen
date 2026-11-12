@@ -24,6 +24,7 @@ export const PRIMARY_MENUS: PrimaryMenu[] = [
 
 export type SettingsSectionKey =
   | 'profile'
+  | 'appearance'
   | 'apps'
   | 'password'
   | 'slots'
@@ -37,6 +38,7 @@ export type SettingsSectionKey =
   | 'proxy'
   | 'env'
   | 'automode'
+  | 'product'
 
 export type SettingsGroupKey =
   | 'account'
@@ -65,6 +67,7 @@ export const PERSONAL_SETTINGS_GROUPS: SettingsGroup[] = [
 
 export const PERSONAL_SETTINGS_SECTIONS: SettingsSection[] = [
   { key: 'profile', labelKey: 'settings.section.profile', group: 'account' },
+  { key: 'appearance', labelKey: 'settings.section.appearance', group: 'account' },
   { key: 'apps', labelKey: 'settings.section.apps', group: 'account' },
   { key: 'password', labelKey: 'settings.section.password', group: 'account' },
   { key: 'notifications', labelKey: 'settings.section.notifications', group: 'account' },
@@ -90,6 +93,7 @@ export const ADMIN_SETTINGS_GROUPS: SettingsGroup[] = [
 export const ADMIN_SETTINGS_SECTIONS: SettingsSection[] = [
   // Federated login (GitHub / Gitea / the plugin that enables it) is hidden
   // until we want it back. The pages stay in the codebase.
+  { key: 'product', labelKey: 'settings.section.product', group: 'integrations' },
   { key: 'llmgw', labelKey: 'settings.section.llmgw', group: 'integrations' },
   { key: 'webtools', labelKey: 'settings.section.webtools', group: 'integrations' },
   { key: 'browser', labelKey: 'settings.section.browser', group: 'integrations' },
